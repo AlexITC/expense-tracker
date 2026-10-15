@@ -1,4 +1,4 @@
-# Wiringbits Web App Template — Developer Guide
+# Expense tracker — Developer Guide
 
 ## Quick links
 | Topic | File |
@@ -33,7 +33,7 @@ infra/              Ansible playbooks for deployment
 2. `git add` all new and changed files
 3. `sbt scalafmtAll scalafmtSbt` — run both; then `git add -u` to re-stage any reformatted files
 4. `CI=true NODE_OPTIONS=--openssl-legacy-provider sbt test` — **run in foreground, never background**; do not proceed to step 5 until this exits with code 0
-5. `git push origin master`
+5. `git push origin main`
 
 **Never run `git push` while tests are running in the background. Never push before confirming exit code 0.**
 

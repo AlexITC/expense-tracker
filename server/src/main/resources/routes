@@ -7,6 +7,3 @@ GET     /telegram/webapp              controllers.TelegramWebAppController.index
 PUT     /telegram/webapp/expenses/:id controllers.TelegramWebAppController.upsertExpense(id: String, dev_user_id: Option[String] ?= None, init_data: Option[String] ?= None)
 
 -> / controllers.ApiRouter
-
-# routes for admin tables (GET, POST, PUT and DELETE)
-#-> / net.wiringbits.webapp.utils.admin.AppRouter

@@ -47,14 +47,14 @@ MERGEABLE=$(gh api repos/AlexITC/expense-tracker/pulls/$PR_NUM --jq '.mergeable'
 - If `MERGEABLE == "false"`:
   1. Stash/clean working tree, then attempt rebase:
      ```bash
-     git checkout master && git pull --rebase && git checkout $BRANCH && git pull --rebase origin $BRANCH
-     git rebase master
+     git checkout main && git pull --rebase && git checkout $BRANCH && git pull --rebase origin $BRANCH
+     git rebase main
      ```
   2. If rebase exits 0: `git push --force-with-lease origin $BRANCH` — conflicts resolved, leave label as-is.
   3. If rebase exits non-zero:
      ```bash
      git rebase --abort
-     git checkout master
+     git checkout main
      ```
      Then: remove `done` label, add `ready` label, post comment: "PR #$PR_NUM has merge conflicts that could not be auto-resolved. Re-queuing."
 

@@ -16,7 +16,6 @@ import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 
 class ApiRouter @Inject() (
-    adminController: AdminController,
     authController: AuthController,
     categoriesController: CategoriesController,
     merchantsController: MerchantsController,
@@ -67,7 +66,6 @@ class ApiRouter @Inject() (
         savingsController.routes,
         documentsController.routes,
         healthController.routes,
-        adminController.routes,
         environmentConfigController.routes,
         telegramBotController.routes,
         mcpController.routes
@@ -78,7 +76,6 @@ class ApiRouter @Inject() (
 object ApiRouter {
   private def routes(implicit ec: ExecutionContext): List[AnyEndpoint] = List(
     HealthEndpoints.routes,
-    AdminEndpoints.routes,
     AuthEndpoints.routes,
     CategoriesEndpoints.routes,
     MerchantsEndpoints.routes,

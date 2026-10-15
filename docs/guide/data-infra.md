@@ -199,7 +199,7 @@ ORDER BY created_at DESC, id
 
 **RULE-DB-014 — One evolution file per PR**
 
-A single PR or work item must add at most one new evolution file. If you discover a mistake in a schema added on the same branch — a wrong column name, a wrong type, a missing index — fix it by editing the existing evolution file for that branch, not by adding another one. Evolution files are immutable once merged to master; only then should a new sequential file be added.
+A single PR or work item must add at most one new evolution file. If you discover a mistake in a schema added on the same branch — a wrong column name, a wrong type, a missing index — fix it by editing the existing evolution file for that branch, not by adding another one. Evolution files are immutable once merged to main; only then should a new sequential file be added.
 
 ```
 -- CORRECT: branch adds 7.sql with telegram tables; a fix to column name stays in 7.sql
