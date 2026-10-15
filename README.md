@@ -44,7 +44,6 @@ decent, working app. No fixed end goal, though handling small company expenses l
   chain, or opening ± Σ = closing). Robust to credit-card `CHARGES/CREDITS` columns, `CR` markers,
   foreign-currency rows, multiple cardholders, and header/footer noise. Extracted rows link back to
   your expenses so nothing is double-counted.
-- **Savings goals** and allocations.
 - **Telegram bot** — submit expenses and receipts from your phone.
 - **MCP server** — an API token lets AI assistants query your data over the Model Context Protocol.
 - Accounts, email verification, password recovery, and captcha (from the template).
@@ -52,6 +51,16 @@ decent, working app. No fixed end goal, though handling small company expenses l
 AWS-backed features (Textract, Bedrock, Bedrock Data Automation, S3) default to **mock** mode, so the
 app runs end-to-end locally with no cloud account; set them to `real` for production.
 
+## Long-term goals
+
+- **Saving goals**: define a purchase you're saving for and track progress as you cut back on other spending.
+- **Expected refunds**: register refunds you're waiting on, see what's pending, and have them matched automatically when they reach your account.
+- **Subscription detector**: find recurring charges, flag price increases, and surface subscriptions you may have forgotten.
+- **Warranty & return tracker**: use receipts to remind you before return windows or warranties expire.
+- **Price tracking**: compare what you pay for the same items over time using receipt line items.
+- **Insurance inventory**: export receipts and a report of what you own when you need to file a claim (e.g. flooding, theft).
+- **Chat over your data**: ask questions in plain language, like "How much did I spend on restaurants last quarter?"
+- **Monthly digest**: an AI-written summary of your month covering what changed, what was unusual, and how your goals are going.
 
 ## Getting started
 
