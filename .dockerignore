@@ -1,0 +1,12 @@
+.git
+**/target
+**/node_modules
+**/.bloop
+**/.bsp
+**/.metals
+**/.scala-build
+tools/out
+logs
+*.log
+.env
+infra/apps

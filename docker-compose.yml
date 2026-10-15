@@ -1,0 +1,85 @@
+# Run the whole app locally: Postgres + backend (Play, dev mode) + web (Scala.js dev server).
+#
+#   docker compose up --build
+#
+# Then open http://localhost:8080. The web dev server proxies /api/* to the backend container,
+# so the web reaches the backend with no nginx. First startup is slow (Scala.js link + webpack).
+#
+# AWS-backed features (receipt OCR, statement extraction) default to "mock" (no AWS calls).
+# To enable them, copy .env.example to .env, set the modes to "real" and fill in credentials;
+# compose propagates those variables into the backend container.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DATABASE:-expense_tracker}
+      POSTGRES_USER: ${POSTGRES_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro   # creates the citext extension
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USERNAME:-postgres} -d ${POSTGRES_DATABASE:-expense_tracker}"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  backend:
+    image: expense-tracker-dev
+    build:
+      context: .
+      dockerfile: docker/dev.Dockerfile
+    command: ["sbt", "-J-Xmx2g", "server/run"]
+    tty: true          # Play's dev `run` reads stdin; keep it open so it doesn't stop on EOF
+    stdin_open: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # --- database ---
+      POSTGRES_HOST: postgres:5432
+      POSTGRES_DATABASE: ${POSTGRES_DATABASE:-expense_tracker}
+      POSTGRES_USERNAME: ${POSTGRES_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      # --- app ---
+      APP_ALLOWED_HOST_1: backend:9000
+      APP_ALLOWED_HOST_2: localhost:8080
+      APP_ALLOWED_ORIGIN_1: http://localhost:8080
+      WEBAPP_HOST: http://localhost:8080
+      # --- AWS-backed features: "mock" (default, no AWS) or "real" ---
+      TEXTRACT_MODE: ${TEXTRACT_MODE:-mock}
+      BEDROCK_MODE: ${BEDROCK_MODE:-mock}
+      BDA_MODE: ${BDA_MODE:-mock}
+      # --- AWS credentials / resources (only used when a *_MODE above is "real") ---
+      # Defaults are the app's own non-blank placeholders so mock mode starts cleanly; override
+      # via .env (or the host environment) to enable the real services.
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-REPLACE_ME}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-REPLACE_ME}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-replace-me-bucket}
+      BEDROCK_REGION: ${BEDROCK_REGION:-us-east-1}
+      BEDROCK_ACCESS_KEY_ID: ${BEDROCK_ACCESS_KEY_ID:-REPLACE_ME}
+      BEDROCK_SECRET_ACCESS_KEY: ${BEDROCK_SECRET_ACCESS_KEY:-REPLACE_ME}
+      BDA_PROFILE_ARN: ${BDA_PROFILE_ARN:-REPLACE_ME}
+      BDA_STANDARD_PROJECT_ARN: ${BDA_STANDARD_PROJECT_ARN:-REPLACE_ME}
+      BDA_BANK_STATEMENT_BLUEPRINT_ARN: ${BDA_BANK_STATEMENT_BLUEPRINT_ARN:-REPLACE_ME}
+      BDA_OUTPUT_S3_URI: ${BDA_OUTPUT_S3_URI:-REPLACE_ME}
+    ports:
+      - "9000:9000"   # optional: reach the backend directly
+
+  web:
+    image: expense-tracker-dev
+    build:
+      context: .
+      dockerfile: docker/dev.Dockerfile
+    command: ["sbt", "-J-Xmx3g", "dev-web"]
+    depends_on:
+      - backend
+    environment:
+      API_PROXY_TARGET: http://backend:9000   # where the dev server proxies /api
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:

@@ -49,6 +49,43 @@ sbt web/test       # frontend
 
 See [docs/guide/testing.md](docs/guide/testing.md).
 
+## Run with Docker
+
+Runs the whole app locally: Postgres, backend, and web with no extra setup:
+
+```bash
+docker compose up --build
+```
+
+Then open **http://localhost:8080**. The web dev server proxies `/api/*` to the backend
+container, so the frontend reaches the backend with no reverse proxy. The first start is slow
+(it links the Scala.js bundle and boots webpack); later starts are fast.
+
+What comes up:
+
+| Service    | Port | What it runs |
+|------------|------|--------------|
+| `postgres` | —    | Postgres 16 (schema applied automatically by Play Evolutions) |
+| `backend`  | 9000 | Play backend in dev mode (`sbt server/run`) |
+| `web`      | 8080 | Scala.js webpack dev server (`sbt dev-web`), proxies `/api` → backend |
+
+Stop with `Ctrl-C`; `docker compose down -v` also removes the database volume.
+
+### AWS-backed features
+
+Receipt OCR and bank-statement extraction use AWS. They default to **mock** (no AWS calls), so the
+app runs fully without an AWS account. To enable the real services, copy `.env.example` to `.env`,
+set the relevant `*_MODE` to `real`, and fill in credentials, docker-compose propagates these into
+the backend container:
+
+| Variable | Purpose |
+|---|---|
+| `TEXTRACT_MODE` / `BEDROCK_MODE` / `BDA_MODE` | `mock` (default) or `real` per feature |
+| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | credentials for Textract + S3 |
+| `AWS_S3_BUCKET` | bucket for stored documents |
+| `BEDROCK_REGION`, `BEDROCK_ACCESS_KEY_ID`, `BEDROCK_SECRET_ACCESS_KEY` | statement extraction (Amazon Bedrock) |
+| `BDA_PROFILE_ARN`, `BDA_STANDARD_PROJECT_ARN`, `BDA_BANK_STATEMENT_BLUEPRINT_ARN`, `BDA_OUTPUT_S3_URI` | statement-extraction fallback (Bedrock Data Automation) |
+
 ## Deployment
 
 Ansible playbooks under `infra/` deploy to a managed server behind nginx. Admin API routes are intended
