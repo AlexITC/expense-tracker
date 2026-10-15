@@ -1,11 +1,37 @@
 # Expense Tracker
 
 A self-hosted expense tracker that turns receipts and bank statements into a clean, reconciled
-ledger. Built in Scala 3 / Scala.js on top of the [wiringbits web-app template](https://github.com/wiringbits/scala-webapp-template).
+ledger.
 
 Snap a receipt or upload a PDF bank statement and the app extracts the transactions, classifies and
 matches them to your expenses, and verifies the numbers add up, the goal is to kee your ledger complete and
 trustworthy with little manual entry.
+
+## Why this exists
+
+I want to understand my spending: where my money goes and where I could save. The app turns my
+receipts and bank statements into a ledger I can trust. One question I want it to answer: "I want to
+buy this, can I?"
+
+It is also an experiment in building a real app with AI. I don't write the code. I direct the AI and
+review its output, and when it gets something wrong I fix the workflow rather than patch the code
+myself. Having the AI plan before it writes code is a big part of how this works. I want to see how
+far this goes while keeping the code decent, and that friction shows me where my AI workflows need
+work.
+
+AI is used in two places: building the app, and features inside it such as receipt OCR and bank
+statement extraction, with more planned.
+
+It is self-hosted, so my financial data stays on my own instance.
+
+I build it in public on purpose. If the AI pushes bad code it is visible to anyone, and the risk of
+embarrassment keeps the bar higher.
+
+## Status
+
+Experimental, with frequent breaking changes. It is not optimized for performance. The goal is a
+decent, working app. No fixed end goal, though handling small company expenses later would be nice.
+
 
 ## Features
 
