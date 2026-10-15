@@ -1,0 +1,18 @@
+target/
+.idea/
+.bsp/
+.vscode/
+logs/
+admin/build/
+web/build/
+local.env
+.envrc
+
+# https://scalameta.org/metals/docs/editors/vscode/#files-and-directories-to-include-in-your-gitignore
+.metals/
+.bloop/
+.ammonite/
+metals.sbt
+.claude/
+.orca/
+.scala-build/

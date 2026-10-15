@@ -1,0 +1,55 @@
+var path = require("path");
+var merge = require('webpack-merge');
+var generated = require('./scalajs.webpack.config');
+
+// webpack 5 uses MD4 hashing internally, which OpenSSL 3 (Node 18+) dropped; patch to sha256
+const crypto = require('crypto');
+const origCreateHash = crypto.createHash;
+crypto.createHash = (algorithm, ...args) => origCreateHash(algorithm === 'md4' ? 'sha256' : algorithm, ...args);
+
+var local = {
+    devServer: {
+        // the historyAPIFallback allows react-router to work
+        historyApiFallback: true,
+        proxy: {
+            // when a request to /api is done, we want to apply a proxy
+            '/api': {
+                changeOrigin: true,
+                cookieDomainRewrite: 'localhost',
+                target: 'http://localhost:9000',
+                pathRewrite: { '^/api': '/'},
+                onProxyReq: (req) => {
+                    if (req.getHeader('origin')) {
+                        req.setHeader('origin', 'http://localhost:9000')
+                    }
+                }
+            }
+        }
+    },
+    resolve: {
+        alias: {
+            "js": path.resolve(__dirname, "../../../../src/main/js"),
+        },
+        fallback: {
+            "crypto": false
+        }
+    },
+    module: {
+        rules: [
+            {
+                test: /\.css$/,
+                use: ['style-loader', 'css-loader']
+            },
+            {
+                test: /\.(ttf|eot|woff|png|jpg|glb|svg)$/,
+                use: 'file-loader'
+            },
+            {
+                test: /\.(eot)$/,
+                use: 'url-loader'
+            }
+        ]
+    }
+}
+
+module.exports = merge(generated, local);

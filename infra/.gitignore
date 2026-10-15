@@ -1,0 +1,7 @@
+apps/
+.vault
+config/server/demo.env.j2
+config/server/prod.env.j2
+prod-hosts.ini
+.scala-build/
+

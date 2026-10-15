@@ -1,0 +1,163 @@
+@(
+    initData: String,
+    prefillAmount: Option[String],
+    prefillDate: Option[String],
+    prefillMerchant: Option[String],
+    prefillCategory: Option[String],
+    prefillNotes: Option[String],
+    merchants: Seq[String],
+    categories: Seq[String],
+    merchantDefaultCategories: Map[String, String],
+    targetExpenseId: java.util.UUID,
+    receiptId: Option[java.util.UUID],
+    devMode: Boolean
+)
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Expense Tracker</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  @if(devMode && initData.isEmpty) {
+  <script>
+    /* Dev-mode stub: window.Telegram.WebApp is not available outside Telegram */
+    window.Telegram = window.Telegram || {};
+    window.Telegram.WebApp = window.Telegram.WebApp || {
+      ready: function() {},
+      close: function() { window.close(); },
+      initData: '',
+      MainButton: { show: function() {}, hide: function() {}, onClick: function() {} }
+    };
+  </script>
+  } else {}
+  <style>
+    body { font-family: sans-serif; padding: 16px; max-width: 480px; margin: 0 auto; background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #000); }
+    label { display: block; margin-top: 12px; font-weight: bold; color: var(--tg-theme-text-color, #000); }
+    input, textarea { display: block; width: 100%; padding: 8px; box-sizing: border-box; margin-top: 4px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; background: var(--tg-theme-secondary-bg-color, #fff); color: var(--tg-theme-text-color, #000); }
+    button[type=submit] { margin-top: 20px; width: 100%; padding: 12px; font-size: 16px; background: var(--tg-theme-button-color, #2481cc); color: var(--tg-theme-button-text-color, white); border: none; border-radius: 6px; cursor: pointer; }
+    .ac-wrap { position: relative; }
+    .ac-dropdown { position: absolute; z-index: 100; left: 0; right: 0; top: 100%; background: var(--tg-theme-bg-color, #fff); border: 1px solid #ccc; border-top: none; max-height: 140px; overflow-y: auto; display: none; border-radius: 0 0 4px 4px; }
+    .ac-dropdown div { padding: 8px 10px; cursor: pointer; color: var(--tg-theme-text-color, #000); }
+    .ac-dropdown div:hover { background: var(--tg-theme-secondary-bg-color, #f0f0f0); }
+  </style>
+</head>
+<body>
+  @if(!devMode && initData.isEmpty) {
+  <p id="loading">Loading…</p>
+  <script>
+    window.Telegram.WebApp.ready();
+    var d = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData;
+    if (d) {
+      var u = new URL(location.href);
+      u.searchParams.set('init_data', d);
+      location.replace(u.toString());
+    }
+  </script>
+  } else {
+  <div id="telegram-init-data" data-value="@initData" style="display:none"></div>
+
+  <form id="expense-form">
+    <label for="amount">Amount (€)</label>
+    <input type="number" id="amount" name="amount" step="0.01" min="0" placeholder="0.00"
+           value="@prefillAmount.getOrElse("")">
+
+    <label for="date">Date</label>
+    <input type="date" id="date" name="date" placeholder="YYYY-MM-DD"
+           value="@prefillDate.getOrElse("")">
+
+    <label for="merchant">Merchant</label>
+    <div class="ac-wrap">
+      <input type="text" id="merchant" name="merchant" placeholder="Merchant name" autocomplete="off"
+             value="@prefillMerchant.getOrElse("")">
+      <div class="ac-dropdown" id="merchant-dd"></div>
+    </div>
+
+    <label for="category">Category</label>
+    <div class="ac-wrap">
+      <input type="text" id="category" name="category" placeholder="Optional category" autocomplete="off"
+             value="@prefillCategory.getOrElse("")">
+      <div class="ac-dropdown" id="category-dd"></div>
+    </div>
+
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes" rows="2" placeholder="Optional notes">@prefillNotes.getOrElse("")</textarea>
+
+    <button type="submit">Save Expense</button>
+  </form>
+
+  <script>
+    window.Telegram.WebApp.ready();
+
+    var INIT_DATA = document.getElementById('telegram-init-data').dataset.value;
+    var TARGET_EXPENSE_ID = "@targetExpenseId";
+    var RECEIPT_ID = @receiptId.map(id => Html("\"" + id + "\"")).getOrElse(Html("null"));
+    var MERCHANTS = @Html(play.api.libs.json.Json.toJson(merchants).toString);
+    var CATEGORIES = @Html(play.api.libs.json.Json.toJson(categories).toString);
+    var MERCHANT_DEFAULT_CATEGORIES = @Html(play.api.libs.json.Json.toJson(merchantDefaultCategories).toString);
+
+    function attachAutocomplete(inputId, dropdownId, list, onSelect) {
+      var input = document.getElementById(inputId);
+      var dd = document.getElementById(dropdownId);
+
+      function refresh() {
+        var q = input.value.trim().toLowerCase();
+        var hits = q.length === 0 ? list : list.filter(function(s) { return s.toLowerCase().indexOf(q) !== -1; });
+        dd.innerHTML = '';
+        hits.slice(0, 8).forEach(function(s) {
+          var item = document.createElement('div');
+          item.textContent = s;
+          item.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            input.value = s;
+            dd.style.display = 'none';
+            if (onSelect) onSelect(s);
+          });
+          dd.appendChild(item);
+        });
+        dd.style.display = hits.length ? 'block' : 'none';
+      }
+
+      input.addEventListener('input', refresh);
+      input.addEventListener('focus', refresh);
+      input.addEventListener('blur', function() { setTimeout(function() { dd.style.display = 'none'; }, 150); });
+    }
+
+    attachAutocomplete('merchant', 'merchant-dd', MERCHANTS, function(name) {
+      var catInput = document.getElementById('category');
+      if (catInput && !catInput.value.trim() && MERCHANT_DEFAULT_CATEGORIES[name]) {
+        catInput.value = MERCHANT_DEFAULT_CATEGORIES[name];
+      }
+    });
+    attachAutocomplete('category', 'category-dd', CATEGORIES);
+
+    document.getElementById('expense-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      var amount = parseFloat(document.getElementById('amount').value) || null;
+      var date = document.getElementById('date').value || null;
+      var merchant = document.getElementById('merchant').value.trim() || null;
+      var category = document.getElementById('category').value.trim() || null;
+      var notes = document.getElementById('notes').value.trim() || null;
+
+      var headers = { 'Content-Type': 'application/json' };
+      if (INIT_DATA) {
+        headers['X-Telegram-Init-Data'] = INIT_DATA;
+      }
+
+      var body = { amount: amount, date: date, merchantName: merchant, category: category, notes: notes };
+      if (RECEIPT_ID) {
+        body.receiptId = RECEIPT_ID;
+      }
+
+      fetch('/api/telegram/webapp/expenses/' + TARGET_EXPENSE_ID, {
+        method: 'PUT',
+        headers: headers,
+        body: JSON.stringify(body)
+      }).then(function(r) {
+        if (r.ok) { window.Telegram.WebApp.close(); }
+      }).catch(function() {});
+    });
+  </script>
+  }
+</body>
+</html>

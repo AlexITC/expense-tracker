@@ -1,0 +1,85 @@
+name: Build the app
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'build.sbt'
+      - 'project/**'
+      - 'server/src/**'
+      - 'web/src/**'
+      - 'lib/**'
+      - 'scripts/**'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'build.sbt'
+      - 'project/**'
+      - 'server/src/**'
+      - 'web/src/**'
+      - 'lib/**'
+      - 'scripts/**'
+      - '.github/workflows/**'
+
+concurrency:
+  # Only run once for latest commit per ref and cancel other (previous) runs.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read # for checkout
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    env:
+      NODE_OPTIONS: --openssl-legacy-provider
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Scala
+        uses: japgolly/setup-everything-scala@v3.1
+        with:
+          java-version: 'temurin:25'
+          node-version: '24'
+
+      - name: Install yarn
+        run: npm install -g yarn
+
+      - name: Cache compiled code
+        uses: actions/cache@v3
+        with:
+          path: |
+            **/target/
+            /home/runner/.ivy2/local
+          key: compiled-code-cache-${{ hashFiles('**/build.sbt') }}
+          restore-keys: compiled-code-cache-
+
+      - name: Check code format
+        run: sbt scalafmtCheckAll
+
+      - name: Compile
+        run: CI=true sbt Test/compile
+
+      - name: Run tests
+        run: CI=true sbt test
+
+      - name: Test summary
+        if: always() # Always run, even if previous steps failed
+        uses: test-summary/action@v2
+        with:
+          paths: "**/target/test-reports/*.xml"
+
+      - name: Test dev-web
+        run: ./scripts/test-dev-web.sh
+
+      - name: Prepare web build
+        run: sbt web/build
+
+      - name: Prepare server build
+        run: sbt server/dist

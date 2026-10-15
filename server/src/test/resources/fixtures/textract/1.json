@@ -1,0 +1,18 @@
+{
+  "ExpenseDocuments": [
+    {
+      "SummaryFields": [
+        {
+          "Type": { "Text": "TOTAL", "Confidence": 99.0 },
+          "ValueDetection": { "Text": "12,34", "Confidence": 99.0 },
+          "Currency": { "Code": "EUR" }
+        },
+        {
+          "Type": { "Text": "INVOICE_RECEIPT_DATE", "Confidence": 99.0 },
+          "ValueDetection": { "Text": "15/09/2025", "Confidence": 99.0 }
+        }
+      ],
+      "LineItemGroups": []
+    }
+  ]
+}

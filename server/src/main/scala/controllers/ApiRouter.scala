@@ -1,0 +1,98 @@
+package controllers
+
+import net.wiringbits.api.endpoints.*
+import net.wiringbits.config.SwaggerConfig
+import org.apache.pekko.actor.ActorSystem
+import org.apache.pekko.stream.Materializer
+import play.api.routing.Router.Routes
+import play.api.routing.SimpleRouter
+import sttp.apispec.openapi.Info
+import sttp.tapir.AnyEndpoint
+import sttp.tapir.server.play.PlayServerInterpreter
+import sttp.tapir.swagger.SwaggerUIOptions
+import sttp.tapir.swagger.bundle.SwaggerInterpreter
+
+import javax.inject.Inject
+import scala.concurrent.{ExecutionContext, Future}
+
+class ApiRouter @Inject() (
+    adminController: AdminController,
+    authController: AuthController,
+    categoriesController: CategoriesController,
+    merchantsController: MerchantsController,
+    importRulesController: ImportRulesController,
+    expensesController: ExpensesController,
+    documentsController: DocumentsController,
+    receiptsController: ReceiptsController,
+    bankStatementsController: BankStatementsController,
+    bankStatementTemplatesController: BankStatementTemplatesController,
+    refundsController: RefundsController,
+    savingsController: SavingsController,
+    healthController: HealthController,
+    usersController: UsersController,
+    environmentConfigController: EnvironmentConfigController,
+    telegramBotController: TelegramBotController,
+    mcpController: McpController,
+    swaggerConfig: SwaggerConfig
+)(using ExecutionContext)
+    extends SimpleRouter {
+  given ActorSystem = ActorSystem("ApiRouter")
+
+  private val swagger = SwaggerInterpreter(
+    swaggerUIOptions = SwaggerUIOptions.default.copy(contextPath = List(swaggerConfig.basePath))
+  )
+    .fromEndpoints[Future](
+      ApiRouter.routes,
+      Info(
+        title = swaggerConfig.info.title,
+        version = swaggerConfig.info.version,
+        description = Some(swaggerConfig.info.description)
+      )
+    )
+
+  override def routes: Routes = PlayServerInterpreter()
+    .toRoutes(
+      List(
+        swagger,
+        usersController.routes,
+        authController.routes,
+        categoriesController.routes,
+        merchantsController.routes,
+        importRulesController.routes,
+        expensesController.routes,
+        receiptsController.routes,
+        bankStatementsController.routes,
+        bankStatementTemplatesController.routes,
+        refundsController.routes,
+        savingsController.routes,
+        documentsController.routes,
+        healthController.routes,
+        adminController.routes,
+        environmentConfigController.routes,
+        telegramBotController.routes,
+        mcpController.routes
+      ).flatten
+    )
+}
+
+object ApiRouter {
+  private def routes(implicit ec: ExecutionContext): List[AnyEndpoint] = List(
+    HealthEndpoints.routes,
+    AdminEndpoints.routes,
+    AuthEndpoints.routes,
+    CategoriesEndpoints.routes,
+    MerchantsEndpoints.routes,
+    ImportRulesEndpoints.routes,
+    ExpensesEndpoints.routes,
+    ReceiptsEndpoints.routes,
+    BankStatementsEndpoints.routes,
+    BankStatementTemplatesEndpoints.routes,
+    RefundsEndpoints.routes,
+    SavingsEndpoints.routes,
+    DocumentsEndpoints.routes,
+    UsersEndpoints.routes,
+    EnvironmentConfigEndpoints.routes,
+    TelegramEndpoints.routes,
+    McpEndpoints.routes
+  ).flatten
+}

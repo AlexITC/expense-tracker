@@ -1,0 +1,15 @@
+{
+  "vendor_name": null,
+  "tax_id": null,
+  "transaction_date": "2025-09-15",
+  "transaction_time": null,
+  "ticket_id": null,
+  "amount": 12.34,
+  "currency": "EUR",
+  "fx_rate": 1.0,
+  "base_amount": 12.34,
+  "subtotal": null,
+  "tax_amount": null,
+  "ticket_subtype": "summary",
+  "line_items": []
+}

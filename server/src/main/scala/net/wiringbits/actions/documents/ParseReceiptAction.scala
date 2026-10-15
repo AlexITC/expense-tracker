@@ -1,0 +1,163 @@
+package net.wiringbits.actions.documents
+
+import net.wiringbits.apis.{TelegramApi, TextractApiType}
+import net.wiringbits.api.models.merchants.ImportRuleAction
+import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.config.WebAppConfig
+import net.wiringbits.models.documents.DocumentStatus
+import net.wiringbits.repositories.{
+  DocumentsRepository,
+  ImportRuleRepository,
+  MerchantsRepository,
+  ReceiptRepository,
+  TelegramReceiptRepository,
+  TextractCacheRepository
+}
+import net.wiringbits.services.DocumentParser
+import org.slf4j.LoggerFactory
+
+import java.time.Clock
+import java.util.UUID
+import javax.inject.Inject
+import scala.concurrent.{ExecutionContext, Future}
+
+class ParseReceiptAction @Inject() (
+    documentsRepository: DocumentsRepository,
+    receiptRepository: ReceiptRepository,
+    merchantsRepository: MerchantsRepository,
+    ruleRepository: ImportRuleRepository,
+    textractCacheRepository: TextractCacheRepository,
+    telegramReceiptRepository: TelegramReceiptRepository,
+    telegramApi: TelegramApi,
+    webAppConfig: WebAppConfig
+)(implicit ec: ExecutionContext, clock: Clock) {
+
+  private val logger = LoggerFactory.getLogger(this.getClass)
+
+  def apply(documentId: UUID): Future[Unit] =
+    for {
+      docOpt <- documentsRepository.findById(documentId)
+      doc = docOpt.getOrElse(throw new RuntimeException(s"Document not found: $documentId"))
+      _ <-
+        if (doc.status == DocumentStatus.Parsed) {
+          logger.info(s"Document $documentId already Parsed, skipping")
+          Future.unit
+        } else parse(doc)
+    } yield ()
+
+  private def parse(doc: net.wiringbits.repositories.models.Document): Future[Unit] =
+    textractCacheRepository.find(doc.sha256, TextractApiType.AnalyzeExpense).flatMap {
+      case None =>
+        logger.error(s"No AnalyzeExpense cache for document ${doc.id}, marking Unsupported")
+        for {
+          _ <- documentsRepository.updateStatus(doc.id, DocumentStatus.Unsupported, None)
+          _ <- notifyTelegramError(doc.id, "Could not parse the receipt: analysis data not found.")
+        } yield ()
+      case Some(cache) =>
+        DocumentParser.parse(cache.response, doc.kind.entryName) match {
+          case Right(parsed) =>
+            receiptRepository.findByDocumentId(doc.id).flatMap {
+              case None =>
+                logger.error(s"No receipt stub for document ${doc.id}, marking Unsupported")
+                documentsRepository.updateStatus(doc.id, DocumentStatus.Unsupported, None)
+              case Some(receipt) =>
+                val date =
+                  parsed.transaction_date.flatMap(d => scala.util.Try(java.time.LocalDate.parse(d)).toOption)
+                val time =
+                  parsed.transaction_time.flatMap(t => scala.util.Try(java.time.LocalTime.parse(t)).toOption)
+                for {
+                  _ <- receiptRepository.updateParsed(
+                    id = receipt.id,
+                    amount = parsed.amount,
+                    date = date,
+                    time = time,
+                    merchantName = parsed.vendor_name,
+                    taxId = parsed.tax_id,
+                    parserVersion = Some(DocumentParser.currentVersion)
+                  )
+                  _ <- parsed.vendor_name match {
+                    case Some(name) if name.nonEmpty =>
+                      ruleRepository.all(doc.userId).flatMap { rules =>
+                        val matchingRule = ImportRuleMatcher.findReceiptWinner(
+                          rules.map(r => ImportRuleMatcher.Rule(r.id, r.action, r.pattern, r.merchantId)),
+                          name
+                        )
+                        matchingRule match {
+                          case Some(rule) =>
+                            rule.merchantId match {
+                              case Some(mid) => receiptRepository.setMerchantId(receipt.id, mid)
+                              case None => Future.unit
+                            }
+                          case None =>
+                            merchantsRepository.createPendingIfAbsent(doc.userId, name).flatMap { merchantId =>
+                              for {
+                                _ <- receiptRepository.setMerchantId(receipt.id, merchantId)
+                                exists <- ruleRepository.existsByUserPatternMerchant(doc.userId, name, merchantId)
+                                _ <-
+                                  if (exists) Future.unit
+                                  else
+                                    ruleRepository
+                                      .create(
+                                        doc.userId,
+                                        ImportRuleAction.SetMerchant,
+                                        name,
+                                        Some(merchantId),
+                                        autoCreated = true
+                                      )
+                                      .map(_ => ())
+                              } yield ()
+                            }
+                        }
+                      }
+                    case _ => Future.unit
+                  }
+                  _ <- documentsRepository.updateStatus(
+                    doc.id,
+                    DocumentStatus.Parsed,
+                    Some(DocumentParser.currentVersion)
+                  )
+                  _ <- telegramReceiptRepository
+                    .findByReceiptId(receipt.id)
+                    .flatMap {
+                      case None => Future.unit
+                      case Some(tr) =>
+                        val webAppUrl = s"${webAppConfig.host}/api/telegram/webapp?receipt=${receipt.id}"
+                        val summary =
+                          parsed.vendor_name.map(n => s"Receipt from $n parsed.").getOrElse("Receipt parsed.")
+                        telegramApi
+                          .sendMessageWithWebAppButton(tr.chatId, summary, webAppUrl, "Create Expense")
+                          .map(_ => ())
+                    }
+                    .recover { case e =>
+                      logger.warn(s"Failed to notify Telegram for document ${doc.id}: ${e.getMessage}")
+                    }
+                } yield ()
+            }
+          case Left(DocumentParser.UnsupportedKind(kind)) =>
+            logger.warn(s"Document ${doc.id} has unsupported kind '$kind'")
+            for {
+              _ <- documentsRepository.updateStatus(doc.id, DocumentStatus.Unsupported, None)
+              _ <- notifyTelegramError(doc.id, "Could not parse the receipt: unsupported document format.")
+            } yield ()
+          case Left(DocumentParser.ParseError(reason)) =>
+            logger.warn(s"Document ${doc.id} parse failed: $reason")
+            for {
+              _ <- documentsRepository.updateStatus(doc.id, DocumentStatus.ParseFailed, None)
+              _ <- notifyTelegramError(doc.id, "Could not parse the receipt.")
+            } yield ()
+        }
+    }
+
+  private def notifyTelegramError(documentId: UUID, text: String): Future[Unit] =
+    receiptRepository
+      .findByDocumentId(documentId)
+      .flatMap {
+        case None => Future.unit
+        case Some(receipt) =>
+          telegramReceiptRepository.findByReceiptId(receipt.id).flatMap {
+            case None => Future.unit
+            case Some(tr) => telegramApi.sendMessage(tr.chatId, text)
+          }
+      }
+      .recover { case e => logger.warn(s"Failed to notify Telegram for document $documentId: ${e.getMessage}") }
+}

@@ -1,0 +1,12 @@
+# Routes
+# This file defines all application routes (Higher priority routes first)
+# https://www.playframework.com/documentation/latest/ScalaRouting
+# ~~~~
+
+GET     /telegram/webapp              controllers.TelegramWebAppController.index(receipt: Option[String] ?= None, expense: Option[String] ?= None, dev_user_id: Option[String] ?= None, init_data: Option[String] ?= None)
+PUT     /telegram/webapp/expenses/:id controllers.TelegramWebAppController.upsertExpense(id: String, dev_user_id: Option[String] ?= None, init_data: Option[String] ?= None)
+
+-> / controllers.ApiRouter
+
+# routes for admin tables (GET, POST, PUT and DELETE)
+#-> / net.wiringbits.webapp.utils.admin.AppRouter
