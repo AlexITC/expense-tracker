@@ -5,6 +5,7 @@ ThisBuild / scalaVersion := "3.8.3"
 ThisBuild / organization := "net.wiringbits"
 
 val pekkoVersion = "1.6.0"
+
 ThisBuild / dependencyOverrides ++= Seq(
   "org.apache.pekko" %% "pekko-actor" % pekkoVersion,
   "org.apache.pekko" %% "pekko-actor-typed" % pekkoVersion,
