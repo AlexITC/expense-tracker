@@ -1,0 +1,51 @@
+name: Statement test data generator
+
+# tools/gen_test_statements.py produces synthetic bank statements (HTML + the
+# ground-truth JSON the extractor must reproduce). It is standalone Python, not
+# part of the sbt build, so the main CI never exercises it. This gate runs it and
+# confirms it still produces output, failing a PR that breaks the generator.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tools/gen_test_statements.py'
+      - '.github/workflows/statement-generator.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'tools/gen_test_statements.py'
+      - '.github/workflows/statement-generator.yml'
+
+concurrency:
+  group: statement-generator-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read # for checkout
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # Pure stdlib; HTML + JSON need no extra packages (weasyprint is only for
+      # the optional PDF render step, which this gate does not run).
+      - name: Generate statements
+        run: python3 tools/gen_test_statements.py --out ./out --lang both --seed 42
+
+      # Confirm the run produced the HTML + JSON files it should; nothing about
+      # their contents.
+      - name: Check output was produced
+        run: |
+          html=$(find out -name '*.html' | wc -l)
+          json=$(find out -name '*.json' | wc -l)
+          echo "produced $html html + $json json file(s)"
+          test "$html" -gt 0 && test "$json" -gt 0
