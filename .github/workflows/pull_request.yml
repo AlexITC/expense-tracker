@@ -10,7 +10,7 @@ on:
       - 'web/src/**'
       - 'lib/**'
       - 'scripts/**'
-      - '.github/workflows/**'
+      - '.github/workflows/pull_request.yml'
   pull_request:
     branches: [ main ]
     paths:
@@ -20,7 +20,7 @@ on:
       - 'web/src/**'
       - 'lib/**'
       - 'scripts/**'
-      - '.github/workflows/**'
+      - '.github/workflows/pull_request.yml'
 
 concurrency:
   # Only run once for latest commit per ref and cancel other (previous) runs.
