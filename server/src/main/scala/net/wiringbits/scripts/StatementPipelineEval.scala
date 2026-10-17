@@ -104,7 +104,7 @@ object StatementPipelineEval {
         val result = Await.result(service.extract(label, sha, s"eval-seed567/$label", text), 10.minutes)
 
         // Provenance comes straight from the result the ladder returns.
-        val producedBy = result.source.getOrElse("unknown")
+        val producedBy = result.source.map(_.entryName).getOrElse("unknown")
         val parsed = fixtureShaped(result) ++ Json.obj("producedBy" -> producedBy)
         Files.write(
           resultsDir.resolve(label.replace('/', '_').stripSuffix(".pdf") + ".parsed.json"),
