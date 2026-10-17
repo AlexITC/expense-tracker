@@ -41,7 +41,10 @@ object AiStatementExtractor {
       metadata: Meta,
       // How far the transactions are from the balance, when a numeric gap is computable (the net-check path). None when
       // it isn't (running-balance chain, or no balances at all). Used to pick the best of several attempts.
-      residual: Option[BigDecimal] = None
+      residual: Option[BigDecimal] = None,
+      // Which ladder stage produced this result, stamped by StatementExtractionService (e.g. "PDF text", "BDA
+      // markdown"). None until the ladder tags it — parseAndVerify on its own leaves it unset.
+      source: Option[String] = None
   )
 
   /** Pick the best of several extraction attempts: any that reconciles wins; otherwise the one with the smallest
