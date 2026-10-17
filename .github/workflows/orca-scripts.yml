@@ -1,0 +1,45 @@
+name: Orca scripts
+
+# The Orca flows under claude/ are standalone scala-cli scripts, not part of the
+# sbt build, so the main CI never compiles them. This gate does — it fails a PR
+# that breaks them (a bad API bump, a typo in a reviewer wiring, etc.).
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'claude/**'
+      - '.orca/reviewers/**'
+      - '.github/workflows/orca-scripts.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'claude/**'
+      - '.orca/reviewers/**'
+      - '.github/workflows/orca-scripts.yml'
+
+concurrency:
+  group: orca-scripts-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read # for checkout
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Scala CLI
+        uses: VirtusLab/scala-cli-setup@v1
+        with:
+          jvm: temurin:21
+
+      # Compiled one at a time: each script is its own scala-cli program, so
+      # compiling them together would clash on the top-level flow entry point.
+      - name: Compile Orca flows
+        run: |
+          scala-cli compile claude/review.sc
+          scala-cli compile claude/implement.sc
