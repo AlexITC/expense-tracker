@@ -8,14 +8,14 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'claude/**'
-      - '.orca/reviewers/**'
+      - 'claude/*.sc'
+      - 'claude/*.scala'
       - '.github/workflows/orca-scripts.yml'
   pull_request:
     branches: [ main ]
     paths:
-      - 'claude/**'
-      - '.orca/reviewers/**'
+      - 'claude/*.sc'
+      - 'claude/*.scala'
       - '.github/workflows/orca-scripts.yml'
 
 concurrency:
