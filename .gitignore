@@ -14,5 +14,6 @@ local.env
 .ammonite/
 metals.sbt
 .claude/
-.orca/
+.orca/*
+!.orca/reviewers/
 .scala-build/
