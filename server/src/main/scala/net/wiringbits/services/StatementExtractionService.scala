@@ -52,7 +52,14 @@ class StatementExtractionService @Inject() (
           .flatMap {
             case Some(content) if content.trim.nonEmpty =>
               logger.info(s"[$label] escalating: $name")
-              extractReconciling(label, content, attemptNo = 1, prevFailure = None, bestSoFar = Some(prev))
+              extractReconciling(
+                label,
+                content,
+                attemptNo = 1,
+                prevFailure = None,
+                bestSoFar = Some(prev),
+                stage = name
+              )
             case _ => Future.successful(prev)
           }
           .recover { case ex =>
@@ -61,7 +68,7 @@ class StatementExtractionService @Inject() (
           }
 
     for {
-      r1 <- extractReconciling(label, text, attemptNo = 1, prevFailure = None, bestSoFar = None)
+      r1 <- extractReconciling(label, text, attemptNo = 1, prevFailure = None, bestSoFar = None, stage = "PDF text")
       r2 <- rung(r1, "BDA markdown", fetchBdaMarkdown(sha256, storageKey))
       r3 <- rung(r2, "Textract + text + BDA markdown", combinedRepresentation(label, sha256, storageKey, text))
       r4 <- rung(r3, "BDA custom output", fetchBdaCustom(sha256, storageKey).map(_.map(Json.prettyPrint)))
@@ -166,25 +173,27 @@ class StatementExtractionService @Inject() (
       text: String,
       attemptNo: Int,
       prevFailure: Option[String],
-      bestSoFar: Option[ExtractionResult]
+      bestSoFar: Option[ExtractionResult],
+      stage: String
   ): Future[ExtractionResult] =
     cachedExtractBankStatement(text, prevFailure).flatMap { raw =>
       AiStatementExtractor.parseAndVerify(raw, bedrockConfig.statementModelId) match {
-        case Right(result) if result.reconciled =>
-          Future.successful(result)
-
-        case Right(result) =>
-          val best = AiStatementExtractor.bestOf(bestSoFar.toList :+ result).getOrElse(result)
-          val failure = result.discrepancy.getOrElse("the transactions did not reconcile")
-          if (attemptNo >= MaxAttempts || prevFailure.contains(failure)) {
-            logger.info(
-              s"[$label] attempt $attemptNo did not reconcile; stopping. Keeping best (off-by=" +
-                s"${best.residual.map(_.toString).getOrElse("n/a")})"
-            )
-            Future.successful(best)
-          } else {
-            logger.info(s"[$label] attempt $attemptNo did not reconcile ($failure); retrying with feedback")
-            extractReconciling(label, text, attemptNo + 1, Some(failure), Some(best))
+        case Right(parsed) =>
+          val result = parsed.copy(source = Some(stage)) // tag which ladder stage produced this candidate
+          if (result.reconciled) Future.successful(result)
+          else {
+            val best = AiStatementExtractor.bestOf(bestSoFar.toList :+ result).getOrElse(result)
+            val failure = result.discrepancy.getOrElse("the transactions did not reconcile")
+            if (attemptNo >= MaxAttempts || prevFailure.contains(failure)) {
+              logger.info(
+                s"[$label] attempt $attemptNo did not reconcile; stopping. Keeping best (off-by=" +
+                  s"${best.residual.map(_.toString).getOrElse("n/a")})"
+              )
+              Future.successful(best)
+            } else {
+              logger.info(s"[$label] attempt $attemptNo did not reconcile ($failure); retrying with feedback")
+              extractReconciling(label, text, attemptNo + 1, Some(failure), Some(best), stage)
+            }
           }
 
         case Left(error) =>
@@ -199,7 +208,7 @@ class StatementExtractionService @Inject() (
             }
           } else {
             logger.info(s"[$label] attempt $attemptNo produced no usable result ($error); retrying with feedback")
-            extractReconciling(label, text, attemptNo + 1, Some(error), bestSoFar)
+            extractReconciling(label, text, attemptNo + 1, Some(error), bestSoFar, stage)
           }
       }
     }
