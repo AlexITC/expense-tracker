@@ -9,15 +9,18 @@ statement the script writes two files rendered from the same canonical data, so 
 
 Conventions match AiStatementExtractor / RealBedrockClient.buildExtractionPrompt:
   - amount is SIGNED: negative = money out (charge/debit), positive = money in (payment/credit/refund).
+  - every monetary field (amount, opening/closing/runningBalance) is a 2-decimal dot-separated STRING
+    ("-35.00"), locale-independent; only the rendered HTML uses the ES comma / EN dot.
   - type in {purchase, payment, fee, interest, refund}.
   - runningBalance is set only when the statement prints a per-row balance (debit account), else null.
   - reconciliation: openingBalance + sum(amount) = closingBalance (sign-agnostic), or the running chain.
 
 Reproduces the structures that break parsing: trailing "CR" credit marker, FX rows whose rate/fee live
-in the description (printed total already includes the fee), two interleaved cardholders, embedded
-non-transaction rows, separate CHARGES/CREDITS columns where the sign comes from the COLUMN not the
-wording, pseudo balance rows, per-page header "noise" blocks, signed amounts + running balance, dates
-with no year, the ES comma-decimal vs EN dot-decimal number formats, and an unstable FX column count.
+in the description (printed total already includes the fee), FX detail shown inline in a column on some
+rows and on a wrapped continuation line on others, two interleaved cardholders, embedded non-transaction
+rows, separate CHARGES/CREDITS columns where the sign comes from the COLUMN not the wording, pseudo
+balance rows, per-page header "noise" blocks, signed amounts + running balance, dates with no year, and
+the ES comma-decimal vs EN dot-decimal number formats.
 
 Usage:
     python3 gen_test_statements.py --out ./out [--lang es|en|both] [--seed 42]
@@ -41,7 +44,6 @@ LOCALES = {
         "testdoc": "documento de prueba, sin datos reales", "page": ("Pagina", "de"),
         "banks": {
             "amex1": ("MERIDIAN EXPRESS", "Meridian Express Card, S.A."),
-            "amex2": ("CONTINENTAL CLUB", "Continental Club Card, S.A."),
             "tdc": ("BANCO ALTAMAR", "Banco Altamar, S.A."),
             "tdd": ("CAJA HORIZONTE", "Caja Horizonte, S.A.")},
         "cardholders": ["LUCIA MENDOZA SORIA", "DANIEL PRADO ESCUDERO"],
@@ -61,13 +63,14 @@ LOCALES = {
         "s": {
             "amex_doc": "Estado de cuenta",
             "h_txndate": "Fecha de Transaccion", "h_procdate": "Fecha de Proceso", "h_details": "Detalles",
-            "h_foreign": "Gasto en el extranjero", "h_foreign2": "Gasto extranjero", "h_currency": "Divisa",
+            "h_foreign": "Gasto en el extranjero",
             "h_amount": "Importe en {cur}",
             "payment_prev": "RECIBO ENVIADO A SU BANCO - GRACIAS POR SU PAGO",
             "subholder": "Nuevos cargos realizados por {h} (titular adicional)",
             "financial": "TRANSACCIONES FINANCIERAS", "annual_fee": "CUOTA ANUAL TARJETA",
             "welcome": "ABONO PROMOCIONAL BIENVENIDA",
             "fx_note": "Cambio aplicado a la divisa {rate} + Comision conversion moneda {com}",
+            "fx_note_wrapped": "Gasto en el extranjero {amt} {cur} - Cambio {rate} + Comision conversion {com}",
             "total_charges": "Total de cargos del periodo", "total_payments": "Total de pagos y abonos",
             "sum_holder": "Titular", "sum_card": "Tarjeta", "sum_period": "Periodo",
             "sum_due": "Fecha limite de pago", "sum_prevbal": "Saldo anterior", "sum_newbal": "Nuevo saldo",
@@ -101,7 +104,6 @@ LOCALES = {
         "testdoc": "test document, no real data", "page": ("Page", "of"),
         "banks": {
             "amex1": ("SUMMIT EXPRESS", "Summit Express Card, Inc."),
-            "amex2": ("HARBOR CLUB", "Harbor Club Card, Inc."),
             "tdc": ("NORTHGATE BANK", "Northgate Bank, N.A."),
             "tdd": ("RIVERSTONE BANK", "Riverstone Bank, N.A.")},
         "cardholders": ["EMMA CARTER REED", "JAMES MORGAN HALE"],
@@ -121,13 +123,14 @@ LOCALES = {
         "s": {
             "amex_doc": "Account Statement",
             "h_txndate": "Transaction Date", "h_procdate": "Posting Date", "h_details": "Details",
-            "h_foreign": "Foreign Spend", "h_foreign2": "Foreign Amount", "h_currency": "Currency",
+            "h_foreign": "Foreign Spend",
             "h_amount": "Amount in {cur}",
             "payment_prev": "PAYMENT RECEIVED - THANK YOU",
             "subholder": "New charges by {h} (additional cardholder)",
             "financial": "FINANCIAL TRANSACTIONS", "annual_fee": "ANNUAL MEMBERSHIP FEE",
             "welcome": "WELCOME PROMOTIONAL CREDIT",
             "fx_note": "Exchange rate {rate} + foreign transaction fee {com}",
+            "fx_note_wrapped": "Foreign spend {amt} {cur} - Exchange rate {rate} + fee {com}",
             "total_charges": "Total charges this period", "total_payments": "Total payments and credits",
             "sum_holder": "Cardholder", "sum_card": "Card number", "sum_period": "Statement period",
             "sum_due": "Payment due date", "sum_prevbal": "Previous balance", "sum_newbal": "New balance",
@@ -164,6 +167,12 @@ def money(x, loc):
     if loc["comma_decimal"]:
         s = s.replace(",", "@").replace(".", ",").replace("@", ".")
     return ("-" + s) if x < 0 else s
+
+
+def money_json(x):
+    """Ground-truth money: a 2-decimal, dot-separated string (locale-independent),
+    or None when absent. The HTML keeps the per-language comma/dot via money()."""
+    return None if x is None else f"{x:.2f}"
 
 
 def mag(lo, hi):
@@ -239,11 +248,11 @@ def to_json(meta, lines):
         "metadata": {
             "bankName": meta["bank"], "productType": meta["product"], "currency": meta["cur"],
             "accountLast4": meta["last4"], "periodStart": meta["start"].isoformat(),
-            "periodEnd": meta["end"].isoformat(), "openingBalance": meta["opening"],
-            "closingBalance": meta["closing"]},
+            "periodEnd": meta["end"].isoformat(), "openingBalance": money_json(meta["opening"]),
+            "closingBalance": money_json(meta["closing"])},
         "transactions": [
-            {"date": t["date"].isoformat(), "amount": t["amount"], "description": t["description"],
-             "runningBalance": t["running"], "type": t["type"]} for t in txns],
+            {"date": t["date"].isoformat(), "amount": money_json(t["amount"]), "description": t["description"],
+             "runningBalance": money_json(t["running"]), "type": t["type"]} for t in txns],
         "reconciled": True,
     }
 
@@ -256,7 +265,7 @@ def reconciles(meta, lines):
 
 # ---------------------------------------------------------------- AMEX
 
-def build_amex(loc, key, start, variant):
+def build_charge_card(loc, key, start):
     S = loc["s"]
     def mon(x): return money(x, loc)
     bank, legal = loc["banks"][key]
@@ -264,21 +273,30 @@ def build_amex(loc, key, start, variant):
     cities, merchants, fxpool = loc["cities"], loc["merchants"], loc["fx"]
     opening = mag(400, 1500)
     last4 = f"{random.randint(1000, 9999)}"
-    sub_at, fx_at = N_AMEX // 2, {5, N_AMEX // 2 + 2, N_AMEX - 3}
+    sub_at, fx_at = N_AMEX // 2, [5, N_AMEX // 2 + 2, N_AMEX - 3]
+    # FX detail shows up in two places within the one statement: inline in the
+    # foreign-spend column on some rows, on a wrapped continuation line under the
+    # description on others. The ground-truth JSON is identical either way.
+    fx_inline = {pos: (k % 2 == 0) for k, pos in enumerate(fx_at)}
     lines = [txn(start, +opening, S["payment_prev"], "payment", f_proc=start + timedelta(days=1), fx="", cr=True)]
 
     for i, d in enumerate(dates_from(start + timedelta(days=2), N_AMEX)):
         if i == sub_at:
             lines.append(dict(kind="subholder", holder=secondary))
-        if i in fx_at:
+        if i in fx_inline:
             name, cur, rate = random.choice(fxpool)
             foreign = mag(30, 400)
             base = round(foreign * rate, 2)
             com = round(base * 0.03, 2)
             total = round(base + com, 2)
-            note = S["fx_note"].format(rate=f"{rate:.4f}", com=mon(com))
+            if fx_inline[i]:
+                fxcol = f"{mon(foreign)} {cur}"
+                note = S["fx_note"].format(rate=f"{rate:.4f}", com=mon(com))
+            else:
+                fxcol = ""
+                note = S["fx_note_wrapped"].format(amt=mon(foreign), cur=cur, rate=f"{rate:.4f}", com=mon(com))
             lines.append(txn(d, -total, f"{name}  {cities[i % len(cities)]}", "purchase",
-                             f_proc=d + timedelta(days=1), fx=f"{mon(foreign)} {cur}", cr=False, note=note))
+                             f_proc=d + timedelta(days=1), fx=fxcol, cr=False, note=note))
         else:
             lines.append(txn(d, -mag(6, 180), f"{random.choice(merchants)}  {cities[i % len(cities)]}",
                              "purchase", f_proc=d + timedelta(days=1), fx="", cr=False))
@@ -294,10 +312,7 @@ def build_amex(loc, key, start, variant):
     meta = dict(bank=bank, product="credit", cur=loc["cur"], last4=last4, start=start, end=end,
                 opening=opening, closing=closing)
 
-    split = (variant == 2)
-    headers = [S["h_txndate"], S["h_procdate"], S["h_details"]]
-    headers += ([S["h_foreign2"], S["h_currency"]] if split else [S["h_foreign"]])
-    headers += [S["h_amount"].format(cur=loc["cur"])]
+    headers = [S["h_txndate"], S["h_procdate"], S["h_details"], S["h_foreign"], S["h_amount"].format(cur=loc["cur"])]
     nc = len(headers)
 
     def row(l):
@@ -307,11 +322,7 @@ def build_amex(loc, key, start, variant):
             return f'<tr class="section"><td colspan="{nc}">{l["label"]}</td></tr>'
         det = l["description"] + (f'<br><span class="fx-note">{l["note"]}</span>' if l.get("note") else "")
         imp = mon(abs(l["amount"])) + (' <span class="cr">CR</span>' if l["cr"] else "")
-        if split:
-            fa, fc = (l["fx"].rsplit(" ", 1) if l["fx"] else ("", ""))
-            fxc = f'<td class="num">{fa}</td><td>{fc}</td>'
-        else:
-            fxc = f'<td class="num">{l["fx"]}</td>'
+        fxc = f'<td class="num">{l["fx"]}</td>'
         return (f'<tr><td>{l["date"].strftime(loc["d_dot"])}</td><td>{l["f_proc"].strftime(loc["d_dot"])}</td>'
                 f'<td>{det}</td>{fxc}<td class="num">{imp}</td></tr>')
 
@@ -440,8 +451,7 @@ def main():
         d = os.path.join(args.out, lang)
         os.makedirs(d, exist_ok=True)
         jobs = [
-            ("amex_1", lambda: build_amex(loc, "amex1", date(2026, 1, 12), 1)),
-            ("amex_2", lambda: build_amex(loc, "amex2", date(2026, 2, 10), 2)),
+            ("charge_card", lambda: build_charge_card(loc, "amex1", date(2026, 1, 12))),
             ("credit_card", lambda: build_tdc(loc, "tdc", date(2026, 4, 5))),
             ("debit_account", lambda: build_tdd(loc, "tdd", date(2026, 3, 1))),
         ]
