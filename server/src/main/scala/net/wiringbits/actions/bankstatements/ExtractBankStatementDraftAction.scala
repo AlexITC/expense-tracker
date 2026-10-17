@@ -64,6 +64,7 @@ class ExtractBankStatementDraftAction @Inject() (
       ),
       reconciled = result.reconciled,
       discrepancy = result.discrepancy,
-      model = result.model
+      model = result.model,
+      stage = result.source
     )
 }

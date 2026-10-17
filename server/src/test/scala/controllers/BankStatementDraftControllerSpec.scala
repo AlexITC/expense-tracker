@@ -4,26 +4,34 @@ import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.github.f4b6a3.uuid.UuidCreator
 import controllers.common.PlayPostgresSpec
 import net.wiringbits.api.models.bankstatements.BankStatementDraft
+import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
 import net.wiringbits.common.models.Captcha
+import net.wiringbits.actions.bankstatements.ExtractBankStatementDraftAction
+import net.wiringbits.repositories.BankStatementDraftRepository
 import net.wiringbits.repositories.daos.BankStatementDraftDAO
 import net.wiringbits.repositories.models.{BankStatementDraft => DraftRecord}
-import net.wiringbits.services.{BlobStorage, NoOpBlobStorage}
+import net.wiringbits.services.AiStatementExtractor.{ExtractionResult, Meta, Txn}
+import net.wiringbits.services.{BlobStorage, NoOpBlobStorage, StatementExtractionService}
 import net.wiringbits.util.TokenGenerator
-import org.mockito.ArgumentMatchers.any
+import org.apache.pdfbox.pdmodel.font.{PDType1Font, Standard14Fonts}
+import org.apache.pdfbox.pdmodel.{PDDocument, PDPage, PDPageContentStream}
+import org.mockito.ArgumentMatchers.{any, anyString}
 import org.mockito.Mockito.*
 import org.scalatest.OptionValues.*
 import org.scalatestplus.mockito.MockitoSugar
 import play.api.db.Database
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
-import play.api.libs.json.Json
+import play.api.libs.json.{JsObject, Json}
 import utils.LoginUtils
 
-import java.time.{Instant, LocalDate}
+import java.io.ByteArrayOutputStream
+import java.time.{Clock, Instant, LocalDate}
 import java.util.UUID
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
+import scala.util.Using
 
 class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoSugar {
 
@@ -68,11 +76,15 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       ),
       reconciled = true,
       discrepancy = None,
-      model = "test"
+      model = "test",
+      stage = Some(ExtractionSource.BdaMarkdown)
     )
 
   // Seed a ready draft directly (no job) and return its id, so the background executor doesn't race the test.
-  private def seedReadyDraft(userId: UUID, payload: BankStatementDraft.Payload): UUID = {
+  private def seedReadyDraft(userId: UUID, payload: BankStatementDraft.Payload): UUID =
+    seedReadyDraftJson(userId, Json.toJson(payload).toString)
+
+  private def seedReadyDraftJson(userId: UUID, payloadJson: String): UUID = {
     val db = app.injector.instanceOf[Database]
     val now = Instant.now()
     val id = UuidCreator.getTimeOrderedEpoch()
@@ -80,10 +92,69 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       BankStatementDraftDAO.create(
         DraftRecord.Create(id, userId, "sha-" + UUID.randomUUID().toString, "stmt.pdf", "key", now, now)
       )
-      BankStatementDraftDAO.markReady(id, Json.toJson(payload).toString, now)
+      BankStatementDraftDAO.markReady(id, payloadJson, now)
     }
     id
   }
+
+  // A PDF with enough native text to pass PdfTextExtractor's usable-text check.
+  private def textPdfBytes: Array[Byte] =
+    Using.resource(new PDDocument()) { doc =>
+      val page = new PDPage()
+      doc.addPage(page)
+      Using.resource(new PDPageContentStream(doc, page)) { content =>
+        content.beginText()
+        content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 10)
+        content.newLineAtOffset(50, 700)
+        content.setLeading(14)
+        (1 to 5).foreach { _ =>
+          content.showText("15.01.26 MOCK PURCHASE MADRID -40.00 60.00")
+          content.newLine()
+        }
+        content.endText()
+      }
+      val out = new ByteArrayOutputStream()
+      doc.save(out)
+      out.toByteArray
+    }
+
+  // Run the extraction job on a fresh processing draft with a stubbed ladder, so the payload comes from toPayload.
+  private def extractDraft(userId: UUID, result: ExtractionResult): UUID = {
+    val db = app.injector.instanceOf[Database]
+    val now = Instant.now()
+    val id = UuidCreator.getTimeOrderedEpoch()
+    db.withConnection { implicit conn =>
+      BankStatementDraftDAO.create(
+        DraftRecord.Create(id, userId, "sha-" + UUID.randomUUID().toString, "stmt.pdf", "key", now, now)
+      )
+    }
+    val bytes = textPdfBytes
+    val blobStorage = new NoOpBlobStorage() {
+      override def get(storageKey: String): Future[Option[Array[Byte]]] = Future.successful(Some(bytes))
+    }
+    val extractionService = mock[StatementExtractionService]
+    when(extractionService.extract(anyString(), anyString(), anyString(), anyString()))
+      .thenReturn(Future.successful(result))
+    val action = new ExtractBankStatementDraftAction(
+      app.injector.instanceOf[BankStatementDraftRepository],
+      blobStorage,
+      extractionService
+    )(using app.injector.instanceOf[ExecutionContext], app.injector.instanceOf[Clock])
+    action(id).futureValue
+    id
+  }
+
+  private def extractionResult(source: Option[ExtractionSource]): ExtractionResult =
+    ExtractionResult(
+      reconciled = true,
+      discrepancy = None,
+      model = "test",
+      transactions = List(
+        Txn(LocalDate.of(2026, 1, 15), BigDecimal("-40.00"), "MOCK PURCHASE", Some(BigDecimal("60.00")), None)
+      ),
+      metadata = Meta(None, None, Some("EUR"), None, None, None, Some(BigDecimal("100.00")), Some(BigDecimal("60.00"))),
+      source = source
+    )
 
   "GET /bank-statements/drafts" should {
     "return an empty queue when there are no drafts" in withApiClient { implicit client =>
@@ -102,6 +173,43 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       val draft = client.getBankStatementDraft(id).futureValue
       draft.status must be("ready")
       draft.payload.value.transactions must have size 1
+    }
+  }
+
+  "GET /bank-statements/drafts/:id" should {
+    "return the extraction stage stored in the payload" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val id = seedReadyDraft(userId, reconcilingPayload)
+
+      client.getBankStatementDraft(id).futureValue.payload.value.stage must be(Some(ExtractionSource.BdaMarkdown))
+    }
+
+    "read a payload stored without a stage key as no stage" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val legacyJson = Json.toJson(reconcilingPayload).as[JsObject] - "stage"
+      val id = seedReadyDraftJson(userId, legacyJson.toString)
+
+      val draft = client.getBankStatementDraft(id).futureValue
+      draft.status must be("ready")
+      draft.payload.value.stage must be(None)
+    }
+
+    "return the stage the extraction ladder tagged on its result" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val id = extractDraft(userId, extractionResult(Some(ExtractionSource.PdfText)))
+
+      val draft = client.getBankStatementDraft(id).futureValue
+      draft.status must be("ready")
+      draft.payload.value.stage must be(Some(ExtractionSource.PdfText))
+    }
+
+    "return no stage when the extraction ladder left the result untagged" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val id = extractDraft(userId, extractionResult(None))
+
+      val draft = client.getBankStatementDraft(id).futureValue
+      draft.status must be("ready")
+      draft.payload.value.stage must be(None)
     }
   }
 
