@@ -1,5 +1,6 @@
 package net.wiringbits.repositories
 
+import net.wiringbits.api.models.bankstatements.ExtractionInfo
 import net.wiringbits.executors.DatabaseExecutionContext
 import net.wiringbits.repositories.daos.{BankStatementDAO, BankStatementRowDAO, DocumentDAO}
 import net.wiringbits.repositories.models.{BankStatement, BankStatementRow, BankStatementView, Document}
@@ -18,7 +19,7 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
       rows: List[BankStatementRow.Create]
   ): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      BankStatementDAO.create(stmt, metadata)
+      BankStatementDAO.create(stmt, metadata, extractionInfo = None)
       BankStatementRowDAO.createAll(rows)
     }
   }
@@ -30,11 +31,12 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
       document: Document.Create,
       stmt: BankStatement.Create,
       metadata: BankStatement.Metadata,
-      rows: List[BankStatementRow.Create]
+      rows: List[BankStatementRow.Create],
+      extractionInfo: Option[ExtractionInfo]
   ): Future[UUID] = Future {
     database.withTransaction { implicit conn =>
       DocumentDAO.create(document)
-      BankStatementDAO.create(stmt, metadata)
+      BankStatementDAO.create(stmt, metadata, extractionInfo)
       BankStatementRowDAO.createAll(rows)
       stmt.id
     }
