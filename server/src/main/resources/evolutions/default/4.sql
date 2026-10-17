@@ -1,7 +1,5 @@
 -- !Ups
 
--- How a confirmed statement was extracted. NULL when unknown (statements created before this column, or
--- drafts with no recorded stage). Shape:
---   {"stage": "pdf_text" | "bda_markdown" | "textract_tables" | "bda_custom",
---    "model": "<model id>", "reconciled": true|false, "discrepancy": "<text>" | absent}
+-- How a confirmed statement was extracted: a JSON-serialized ExtractionInfo
+-- (see net.wiringbits.api.models.bankstatements.ExtractionInfo). NULL when unknown.
 ALTER TABLE bank_statement ADD COLUMN extraction_info JSONB;

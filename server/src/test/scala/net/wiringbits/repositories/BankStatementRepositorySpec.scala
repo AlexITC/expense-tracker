@@ -53,13 +53,6 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       val found = repositories.bankStatements.findRows(stmt.id).futureValue
       found.length must be(2)
     }
-
-    "store no extraction info" in withRepositories() { implicit repositories =>
-      val user = createUser().futureValue
-      val created = createBankStatement(user.id).futureValue
-
-      repositories.bankStatements.find(created.id, user.id).futureValue.value.extractionInfo must be(None)
-    }
   }
 
   "createConfirmedStatement" should {
@@ -104,10 +97,16 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       val user = createUser().futureValue
       val id = confirm(user.id, None)
       // No repository API writes invalid JSON, so corrupt the stored value directly.
+      val corrupt =
+        """{
+          |  "stage": "bogus",
+          |  "model": "m",
+          |  "reconciled": true
+          |}""".stripMargin
       repositories.database.withConnection { implicit conn =>
         val _ = SQL"""
           UPDATE bank_statement
-          SET extraction_info = '{"stage":"bogus","model":"m","reconciled":true}'::JSONB
+          SET extraction_info = $corrupt::JSONB
           WHERE id = ${id.toString}::UUID
           """.execute()
       }

@@ -39,15 +39,19 @@ class ExtractBankStatementDraftAction @Inject() (
           bytes = bytesOpt.getOrElse(throw new RuntimeException("Statement file not found in storage"))
           text = PdfTextExtractor.extract(bytes).fold(err => throw new RuntimeException(err), identity)
           result <- extractionService.extract(s"draft $draftId", draft.sha256, draft.storageKey, text)
-          _ <- bankStatementDraftRepository.markReady(draftId, Json.toJson(toPayload(result)).toString, clock.instant())
+          payload = ExtractBankStatementDraftAction.toPayload(result)
+          _ <- bankStatementDraftRepository.markReady(draftId, Json.toJson(payload).toString, clock.instant())
         } yield ()
         run.recoverWith { case ex =>
           logger.warn(s"Draft $draftId extraction failed: ${ex.getMessage}")
           bankStatementDraftRepository.markFailed(draftId, ex.getMessage, clock.instant())
         }
     }
+}
 
-  private def toPayload(result: AiStatementExtractor.ExtractionResult): ApiDraft.Payload =
+object ExtractBankStatementDraftAction {
+
+  private[bankstatements] def toPayload(result: AiStatementExtractor.ExtractionResult): ApiDraft.Payload =
     ApiDraft.Payload(
       metadata = ApiDraft.Metadata(
         bankName = result.metadata.bankName,

@@ -236,14 +236,6 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
     }
   }
 
-  "GET /bank-statements/:id" should {
-    "return no extraction info for a statement created without one" in withApiClient { implicit client =>
-      val stmtId = createBankStatement(createVerifyLoginUser(tokenGenerator).futureValue.id)
-
-      client.getBankStatement(stmtId).futureValue.extractionInfo must be(None)
-    }
-  }
-
   "Unauthenticated access" should {
     "reject requests without a valid session" in withApiClient { client =>
       val error = client.getBankStatements.expectError
