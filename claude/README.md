@@ -31,9 +31,12 @@ scala-cli run claude/review.sc -- "review this branch"
 scala-cli run claude/implement.sc -- "Add a <feature> to <area>"
 ```
 
-`implement.sc` mutates the repo (branches, commits, a PR). To try it without
-touching your checkout, run it in a throwaway worktree:
-`git worktree add -b try ../try origin/main && cd ../try`.
+`implement.sc` runs in an isolated worktree (`.orca/worktrees/<prompt-hash>`,
+`RunTarget.Worktree`), so several features can run in parallel without sharing a
+checkout or branch, and your current checkout is left untouched. The first run
+for a prompt is a cold checkout (no build cache); Orca reuses it on retries and
+never auto-removes it. `review.sc` runs in-place — it reviews the branch you are
+on.
 
 ## Reviewers
 
@@ -50,19 +53,26 @@ files: server/.*\.scala          # optional regex; reviewer only fires when a ch
 Instructions to the reviewer: what to flag, and what NOT to flag.
 ```
 
-Add a rule = add a file here. A file named after a shipped reviewer (e.g.
-`security.md`) replaces that shipped one. Current reviewers:
+Add a rule = add a file here. A `files:` regex scopes a reviewer to matching
+paths (the default selector drops it otherwise); a file named after a shipped
+reviewer (e.g. `security.md`) replaces that shipped one. Current reviewers:
 
-- `coding-patterns.md` — Chimney for case-class mapping, no dropped `Future`s, no silent defaults for missing data.
-- `api-limits.md` — Tapir inputs in `lib/api/shared/` must bound string length and collection size.
+- `coding-patterns.md` — Chimney for case-class mapping, no dropped `Future`s, no silent defaults, prefer enums over stringly-typed values.
+- `architecture.md` (`server/src/main/scala`) — downward-only layering (no same-layer peer calls), external services behind their own class, trait + its impls in one file via the companion object.
+- `persistence.md` (`…/repositories`) — per-user queries scoped with `WHERE user_id`, reusable queries in DAOs, `withTransaction` for multi-call operations.
+- `tests.md` (`src/test/scala`) — no PII in fixtures, fakes/real over mocks, no external calls, no redundant action tests, multi-line JSON, method-only test descriptions.
+- `frontend.md` (`web/src/main/scala`) — fetch API data via `AsyncComponent`.
+- `api-limits.md` (`lib/api/shared`) — Tapir inputs must bound string length and collection size.
+- `evolutions.md` (`evolutions/default/*.sql`) — ≤1 new evolution per PR, existing ones immutable, no downs, FK ⇒ index, named constraints, no DB defaults, UPPER keywords / snake_case columns.
 
 ## Commit-message gate
 
 `CommitMessageCheck` (in `orca-checks.scala`) checks every commit in
 `defaultBase..HEAD`, skipping Orca's own `orca:` bookkeeping commits. It flags: a
-`claude.ai` / `Claude-Session:` / `Co-Authored-By: Claude` footer, a subject over
-72 chars, a missing body, and conversational references ("as requested", …). It
-fails loudly if git can't be read.
+Claude session reference (a `claude.ai/…` link or a `Claude-Session:` footer — a
+`Co-Authored-By: Claude` line is allowed), a subject over 72 chars, a missing
+body, and conversational references ("as requested", …). It fails loudly if git
+can't be read.
 
 ## Notes
 

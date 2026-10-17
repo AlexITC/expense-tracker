@@ -39,13 +39,12 @@ flow(OrcaArgs(args)):
     val diffRel = ".orca/review-input.diff"
     os.write.over(ctx.workDir / ".orca" / "review-input.diff", diffText)
 
+    // Reviewers on sonnet; the default selector drops any whose `files:` gate
+    // doesn't match the branch diff and picks among the rest.
     val report = reviewOnce(
-      // Reviewers run on sonnet — each one's scope is tiny, so the cheaper
-      // tier is plenty; the role default (opus) is overkill here.
       reviewers = allReviewers(claude.sonnet),
       task = Task(Title("Enforce project rules on this branch"), userPrompt),
-      diff = ReviewDiff.InFile(diffRel, changedFiles),
-      reviewerSelection = ReviewerSelector.allEveryRound
+      diff = ReviewDiff.InFile(diffRel, changedFiles)
     )
 
     val commitFindings = CommitMessageCheck().evaluate().findings

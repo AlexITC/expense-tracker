@@ -21,3 +21,8 @@ Flag a parser/importer that invents a required value it cannot determine —
 `LocalDate.now()`, a hardcoded year, `0` for a missing amount, a default
 currency, `getOrElse(<guess>)`. It must fail (`Left`/throw) so the record is
 rejected. Not: a default for a genuinely optional field.
+
+## Prefer enums over stringly-typed values
+Flag a `String` (or bare `Int` code) used to represent a fixed, known set of
+values — a status, kind, type, mode — where a Scala `enum`/sealed trait should
+model it. Not: genuinely free-form text (names, descriptions, external ids).

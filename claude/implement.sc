@@ -14,7 +14,9 @@
 
 import orca.{*, given}
 
-flow(OrcaArgs(args)):
+// Runs in an isolated worktree (.orca/worktrees/<prompt-hash>) so several
+// features can be implemented in parallel without sharing a checkout or branch.
+flow(OrcaArgs(args).copy(target = RunTarget.Worktree)):
   val brief =
     s"""$userPrompt
        |
@@ -24,8 +26,10 @@ flow(OrcaArgs(args)):
   val plan = stage("Plan"):
     Plan.autonomous.from(brief, planningAgent).value
 
-  // One review+fix per task, taken on trust; the final whole-run loop re-checks
-  // everything with fresh eyes before the PR.
+  // One review+fix per task, then a final whole-run loop re-checks everything
+  // before the PR. Reviewers run on sonnet; the default selector drops any whose
+  // `files:` gate doesn't match. The coder/fixer stays on the default coding
+  // agent, where the harder work is.
   val taskOpenFindings =
     for task <- plan.tasks yield
       stage(s"Task: ${task.title}"):
@@ -33,8 +37,6 @@ flow(OrcaArgs(args)):
         session.run(task.description)
         reviewThenFix(
           coderSession = session,
-          // Reviewers on sonnet (tiny per-criterion scope); the coder/fixer
-          // stays on the default coding agent, where the harder work is.
           reviewers = allReviewers(claude.sonnet),
           task = task,
           checks = List(CommitMessageCheck())
@@ -45,7 +47,6 @@ flow(OrcaArgs(args)):
     reviewAndFixLoop(
       coderSession = finalFixer,
       reviewers = allReviewers(claude.sonnet),
-      reviewerSelection = ReviewerSelector.allEveryRound,
       task = Task(Title("The whole planned change"), plan.brief),
       diff = ReviewDiff.WholeRun,
       checks = List(CommitMessageCheck()),

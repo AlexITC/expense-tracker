@@ -71,20 +71,20 @@ final class CommitMessageCheck extends ReviewCheck:
         reopens = None
       )
 
+    // A `Co-Authored-By: Claude` line is allowed; only a session link/footer is
+    // not. The claude.ai URL check also catches a "Generated with Claude Code"
+    // footer, since that comes with the session URL.
     val leaksSession =
-      message.contains("claude.ai/") ||
-        message.contains("Claude-Session") ||
-        message.contains("Co-Authored-By: Claude") ||
-        (message.contains("Generated with") && message.contains("Claude Code"))
+      message.contains("claude.ai/") || message.contains("Claude-Session")
 
     val sessionReference = Option.when(leaksSession)(
       finding(
-        "commit message leaks a Claude session reference",
-        "The message references the Claude session — a claude.ai link, a " +
-          "Claude-Session footer, or a Co-Authored-By/Generated-with-Claude " +
-          "line. A commit message must describe the change only.",
-        "Delete the claude.ai link and any Claude-Session / Co-Authored-By / " +
-          "Generated-with-Claude footer, then reword the commit."
+        "commit message links the Claude session",
+        "The message references the Claude session — a claude.ai link or a " +
+          "Claude-Session footer. A commit must not link the session (a " +
+          "`Co-Authored-By: Claude` line is fine).",
+        "Delete the claude.ai link and any Claude-Session footer, then reword " +
+          "the commit."
       )
     )
 
