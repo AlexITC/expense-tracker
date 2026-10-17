@@ -1,8 +1,5 @@
 package net.wiringbits.scripts
 
-import ch.qos.logback.classic.spi.ILoggingEvent
-import ch.qos.logback.classic.{Level, Logger as LogbackLogger}
-import ch.qos.logback.core.read.ListAppender
 import net.wiringbits.apis.{RealBdaClient, RealBedrockClient, RealTextractClient}
 import net.wiringbits.config.{AWSConfig, BdaConfig, BedrockConfig, S3Config}
 import net.wiringbits.executors.DatabaseExecutionContext
@@ -28,7 +25,7 @@ import scala.util.{Failure, Success, Try}
   * -> BDA custom, reconcile-gated, keep-best) against the synthetic PDFs under EVAL_DIR/statements, and writes the
   * parse for each one as `results/<lang>_<name>.parsed.json` in the SAME shape as the fixture JSON (metadata +
   * transactions, money as 2-decimal strings) so it diffs directly against its fixture. Each parse also carries two keys
-  * beyond the fixture shape: `producedBy` (which ladder stage produced it, from the service's INFO logs) and the
+  * beyond the fixture shape: `producedBy` (which ladder stage produced it, from the result's own `source`) and the
   * `reconciled` flag. Scoring is a separate concern: see `score.py`, which reads these parses + the fixtures.
   *
   * Needs real AWS (Bedrock + Textract + BDA), the S3 bucket, and a Postgres with the textract_cache table. On a re-run
@@ -87,12 +84,6 @@ object StatementPipelineEval {
     val cache = new TextractCacheRepository(database)
     val service = new StatementExtractionService(bedrock, bedrockConfig, textract, cache, bda, system)
 
-    val svcLogger = org.slf4j.LoggerFactory.getLogger(classOf[StatementExtractionService]).asInstanceOf[LogbackLogger]
-    svcLogger.setLevel(Level.INFO)
-    val appender = new ListAppender[ILoggingEvent]()
-    appender.start()
-    svcLogger.addAppender(appender)
-
     val pdfs = Files
       .walk(statementsDir)
       .iterator()
@@ -102,7 +93,6 @@ object StatementPipelineEval {
       .sortBy(_.toString)
 
     pdfs.foreach { pdf =>
-      appender.list.clear()
       val label = statementsDir.relativize(pdf).toString // e.g. en/charge_card.pdf
 
       Try {
@@ -111,22 +101,18 @@ object StatementPipelineEval {
         // On a re-run the ladder is served from textract_cache and never reads S3; EVAL_SKIP_UPLOAD avoids S3 then.
         if (!sys.env.contains("EVAL_SKIP_UPLOAD")) Await.result(blob.put(s"eval-seed567/$label", bytes), 2.minutes)
         val text = PdfTextExtractor.extract(bytes).fold(e => throw new RuntimeException(s"PDF text: $e"), identity)
-        val result = Await.result(service.extract(label, sha, s"eval-seed567/$label", text), 25.minutes)
+        val result = Await.result(service.extract(label, sha, s"eval-seed567/$label", text), 10.minutes)
 
-        val escalations = appender.list.asScala.toList
-          .map(_.getFormattedMessage)
-          .filter(_.contains("escalating:"))
-          .map(m => m.substring(m.indexOf("escalating:") + "escalating:".length).trim)
-        val attempted = "PDF text" :: escalations
-        val winner = if (result.reconciled) attempted.last else "none - kept best"
-
-        // Fixture shape plus provenance: which ladder stage produced this, and the full path it tried.
-        val parsed = fixtureShaped(result) ++ Json.obj("producedBy" -> winner, "attemptedRungs" -> attempted)
+        // Provenance comes straight from the result the ladder returns.
+        val producedBy = result.source.getOrElse("unknown")
+        val parsed = fixtureShaped(result) ++ Json.obj("producedBy" -> producedBy)
         Files.write(
           resultsDir.resolve(label.replace('/', '_').stripSuffix(".pdf") + ".parsed.json"),
           Json.prettyPrint(parsed).getBytes
         )
-        println(s"[eval] $label -> producedBy=$winner reconciled=${result.reconciled} rows=${result.transactions.size}")
+        println(
+          s"[eval] $label -> producedBy=$producedBy reconciled=${result.reconciled} rows=${result.transactions.size}"
+        )
       } match {
         case Success(_) => ()
         case Failure(e) => println(s"[eval] $label -> ERROR: ${e.getMessage}")
