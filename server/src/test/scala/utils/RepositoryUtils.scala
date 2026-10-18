@@ -5,10 +5,11 @@ import net.wiringbits.common.models.{Email, Name}
 import net.wiringbits.core.RepositoryComponents
 import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
-import net.wiringbits.repositories.daos.BackgroundJobDAO
+import net.wiringbits.repositories.daos.{BackgroundJobDAO, BankStatementDAO, BankStatementRowDAO}
 import net.wiringbits.repositories.models.{
   BackgroundJobData,
   BankStatement,
+  BankStatementRow,
   Category,
   Document,
   Expense,
@@ -270,9 +271,25 @@ trait RepositoryUtils {
     repository.importRules.create(userId, action, pattern, merchantId)
   }
 
+  /** Insert a bank statement (+ optional rows) directly via the DAOs. Lives here, not on the repository, because only
+    * tests create a statement outside the draft-confirm flow. `extractionInfo` is always None — a statement made
+    * outside the AI import has no extraction provenance.
+    */
+  def createStatement(
+      stmt: BankStatement.Create,
+      metadata: BankStatement.Metadata,
+      rows: List[BankStatementRow.Create]
+  )(using repositories: RepositoryComponents, ec: ExecutionContext): Future[Unit] =
+    Future {
+      repositories.database.withTransaction { implicit conn =>
+        BankStatementDAO.create(stmt, metadata, extractionInfo = None)
+        BankStatementRowDAO.createAll(rows)
+      }
+    }
+
   def createBankStatement(
       userId: UUID
-  )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[BankStatement.Create] = {
+  )(using repository: RepositoryComponents)(using ec: ExecutionContext): Future[BankStatement.Create] = {
     val now = Instant.now()
     for {
       doc <- createDocument(userId, sha256 = UUID.randomUUID().toString, kind = DocumentKind.BankStatementPdf)
@@ -283,7 +300,7 @@ trait RepositoryUtils {
         createdAt = now,
         updatedAt = now
       )
-      _ <- repository.bankStatements.create(stmt, sampleStatementMetadata, Nil)
+      _ <- createStatement(stmt, sampleStatementMetadata, Nil)
     } yield stmt
   }
 

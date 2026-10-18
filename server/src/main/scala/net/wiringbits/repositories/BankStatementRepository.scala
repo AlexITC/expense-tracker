@@ -13,17 +13,6 @@ import scala.concurrent.Future
 
 class BankStatementRepository @Inject() (database: Database)(implicit ec: DatabaseExecutionContext) {
 
-  def create(
-      stmt: BankStatement.Create,
-      metadata: BankStatement.Metadata,
-      rows: List[BankStatementRow.Create]
-  ): Future[Unit] = Future {
-    database.withTransaction { implicit conn =>
-      BankStatementDAO.create(stmt, metadata, extractionInfo = None)
-      BankStatementRowDAO.createAll(rows)
-    }
-  }
-
   /** Confirm a draft import: create the document + statement (with metadata) + rows in one transaction, no processing
     * job (the rows are already extracted). Used by the AI draft-import flow.
     */
