@@ -4,6 +4,8 @@ import com.olvind.mui.csstype.mod.Property.FlexDirection
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{
+  AiSuggestions,
+  AiSuggestionsStatus,
   ConfirmBankStatementRow,
   CreateExpenseFromRow,
   GetBankStatement,
@@ -67,6 +69,14 @@ object BankStatementReviewPage {
       case Left(err) => s"✗ $desc: $err"
     }
   }
+
+  /** AI suggestions are still being computed: not written yet (None) or explicitly Pending. */
+  def suggestionsPending(ai: Option[AiSuggestions]): Boolean =
+    ai.forall(_.status == AiSuggestionsStatus.Pending)
+
+  // Statements confirmed before AI suggestions existed stay NULL forever, so polling is capped.
+  private val SuggestionsPollMaxAttempts = 20
+  private val SuggestionsPollIntervalMs = 3000
 
   private val hintStyling = new CSSPropertiesUtils { fontSize = "0.8em"; color = "var(--lc-brand)" }
 
@@ -149,6 +159,33 @@ object BankStatementReviewPage {
         ()
       },
       js.Array(stmtIdOpt.map(_.toString).getOrElse(""))
+    )
+
+    // Poll for AI suggestions until they are resolved or the attempts cap is reached
+    val (suggestionsPollAttempts, setSuggestionsPollAttempts) = Hooks.useState(0)
+    val pollingSuggestions =
+      statement.exists(s => suggestionsPending(s.aiSuggestions)) &&
+        suggestionsPollAttempts < SuggestionsPollMaxAttempts
+    val suggestionsPollKey = s"${stmtIdOpt.map(_.toString).getOrElse("")}:$pollingSuggestions"
+    Hooks.useEffect(
+      () => {
+        (stmtIdOpt, pollingSuggestions) match {
+          case (Some(stmtId), true) =>
+            val timer = dom.window.setInterval(
+              () => {
+                setSuggestionsPollAttempts(_ + 1)
+                props.ctx.api.client.getBankStatement(stmtId).onComplete {
+                  case Success(full) => setStatement(cur => cur.map(_.copy(aiSuggestions = full.aiSuggestions)))
+                  case Failure(_) => ()
+                }
+              },
+              SuggestionsPollIntervalMs
+            )
+            () => { dom.window.clearInterval(timer); () }
+          case _ => () => ()
+        }
+      },
+      js.Array(suggestionsPollKey)
     )
 
     def isReadyToProcess(row: GetBankStatement.StatementRowData): Boolean =
@@ -403,6 +440,10 @@ object BankStatementReviewPage {
                     .sx(new CSSPropertiesUtils {
                       height = "22px"; fontSize = "12px"; color = "var(--lc-brand)"; backgroundColor = "var(--lc-tint)"
                     }): ReactElement)
+                else if (pollingSuggestions && row.ignoredAt.isEmpty && row.amount < 0)
+                  mui
+                    .Typography("suggesting…")
+                    .sx(new CSSPropertiesUtils { color = "var(--lc-hint)"; fontSize = "13px" })
                 else
                   mui.Typography("—").sx(new CSSPropertiesUtils { color = "var(--lc-hint)"; fontSize = "13px" })
             }
