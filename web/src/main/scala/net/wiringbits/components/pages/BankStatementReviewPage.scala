@@ -770,6 +770,7 @@ object BankStatementReviewPage {
                               merchants = merchantList,
                               categories = categoryList,
                               ruleList = ruleList,
+                              aiSuggestion = stmt.aiSuggestions.flatMap(_.rows.find(_.rowId == row.id)),
                               ctx = props.ctx,
                               onSuccess = expenseId => {
                                 setStatementRows(cur =>

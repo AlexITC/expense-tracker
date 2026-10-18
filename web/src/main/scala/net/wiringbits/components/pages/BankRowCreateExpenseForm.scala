@@ -2,7 +2,7 @@ package net.wiringbits.components.pages
 
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
-import net.wiringbits.api.models.bankstatements.{CreateExpenseFromRow, GetBankStatement}
+import net.wiringbits.api.models.bankstatements.{AiSuggestions, CreateExpenseFromRow, GetBankStatement}
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
 import net.wiringbits.api.models.merchants.{CreateImportRule, CreateMerchant, GetMerchants, ImportRuleAction}
 import net.wiringbits.api.models.receipts.GetReceipts
@@ -28,24 +28,51 @@ object BankRowCreateExpenseForm {
       merchants: List[GetMerchants.Response.Merchant],
       categories: List[GetCategories.Response.Category],
       ruleList: List[ImportRuleMatcher.Rule],
+      aiSuggestion: Option[AiSuggestions.RowSuggestion],
       ctx: AppContext,
       onSuccess: UUID => Unit,
       onCancel: () => Unit,
       onNewEntities: (Option[ImportRuleMatcher.Rule], Option[GetMerchants.Response.Merchant]) => Unit
   )
 
+  /** Initial (merchant, categoryId) for the form: a SetMerchant rule winner first, then the AI suggestion. Suggested
+    * ids that are not among the user's merchants/categories are dropped.
+    */
+  def initialSelection(
+      row: GetBankStatement.StatementRowData,
+      ruleList: List[ImportRuleMatcher.Rule],
+      merchants: List[GetMerchants.Response.Merchant],
+      categories: List[GetCategories.Response.Category],
+      aiSuggestion: Option[AiSuggestions.RowSuggestion]
+  ): (Option[GetMerchants.Response.Merchant], Option[UUID]) = {
+    val ruleMerchant = ImportRuleMatcher
+      .findRowWinner(ruleList, row.description)
+      .filter(_.action == ImportRuleAction.SetMerchant)
+      .flatMap(_.merchantId)
+      .flatMap(mid => merchants.find(_.id == mid))
+
+    ruleMerchant match {
+      case Some(m) => (Some(m), m.categoryId)
+      case None =>
+        aiSuggestion match {
+          case Some(s) =>
+            (
+              s.merchantId.flatMap(mid => merchants.find(_.id == mid)),
+              s.categoryId.filter(cid => categories.exists(_.id == cid))
+            )
+          case None => (None, None)
+        }
+    }
+  }
+
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
-    val matchedMerchant = ImportRuleMatcher
-      .findRowWinner(props.ruleList, props.row.description)
-      .filter(_.action == ImportRuleAction.SetMerchant)
-      .flatMap(_.merchantId)
-      .flatMap(mid => props.merchants.find(_.id == mid))
+    val (initMerchant, initCategoryIdOpt) =
+      initialSelection(props.row, props.ruleList, props.merchants, props.categories, props.aiSuggestion)
 
-    val initMerchantName = matchedMerchant.map(_.name).getOrElse(props.row.description)
-    val initMerchantIdOpt = matchedMerchant.map(_.id)
-    val initCategoryIdOpt = matchedMerchant.flatMap(_.categoryId)
+    val initMerchantName = initMerchant.map(_.name).getOrElse(props.row.description)
+    val initMerchantIdOpt = initMerchant.map(_.id)
     val initCategoryName =
       initCategoryIdOpt.flatMap(cid => props.categories.find(_.id == cid)).map(_.name).getOrElse("")
 
@@ -65,6 +92,27 @@ object BankRowCreateExpenseForm {
     val (receiptId, setReceiptId) = Hooks.useState[Option[UUID]](None)
     val (receipts, setReceipts) = Hooks.useState[List[GetReceipts.Response.Receipt]](Nil)
     val (error, setError) = Hooks.useState("")
+
+    // A suggestion can arrive (via polling) after the form was opened blank; apply it only while the
+    // merchant/category fields are still untouched so user edits are never overwritten.
+    val aiSuggestionKey = props.aiSuggestion.map(s => s"${s.merchantId}|${s.categoryId}").getOrElse("")
+    Hooks.useEffect(
+      () => {
+        val pristine = merchantIdOpt.isEmpty && merchantInput == props.row.description &&
+          categoryIdOpt.isEmpty && categoryInput.isEmpty
+        if (pristine) {
+          initMerchant.foreach { m =>
+            setMerchantInput(m.name)
+            setMerchantIdOpt(Some(m.id))
+          }
+          initCategoryIdOpt.foreach { cid =>
+            setCategoryIdOpt(Some(cid))
+            setCategoryInput(initCategoryName)
+          }
+        }
+      },
+      js.Array(aiSuggestionKey)
+    )
 
     Hooks.useEffect(
       () => {
