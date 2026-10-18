@@ -231,27 +231,68 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       client.prompts must have size 1
     }
 
-    "drop hallucinated ids and rows missing from the answer" in {
-      val shop = row("CORNER SHOP")
+    "drop a category id that is not one of the user's categories" in {
       val bus = row("METRO TICKET")
-      val missing = row("UNKNOWN STORE")
+      val client = new StubBedrockClient(answer("categoryId", bus.id -> Some(UUID.randomUUID())))
+
+      val result = resolve(client, List(bus), Nil, categories)
+
+      result.rows must be(List(AiSuggestions.RowSuggestion(bus.id, None, None)))
+    }
+
+    "drop a merchant id that is not one of the predicted category's merchants" in {
+      val shop = row("CORNER SHOP")
       val cornerShop = merchant("Corner Shop", Some(groceries.id))
       val uber = merchant("Uber", Some(transport.id))
       val client = new StubBedrockClient(
-        answer("categoryId", shop.id -> Some(groceries.id), bus.id -> Some(UUID.randomUUID())),
+        answer("categoryId", shop.id -> Some(groceries.id)),
         // Uber exists but is not one of the offered Groceries merchants.
         answer("merchantId", shop.id -> Some(uber.id))
       )
 
-      val result = resolve(client, List(shop, bus, missing), List(cornerShop, uber), categories)
+      val result = resolve(client, List(shop), List(cornerShop, uber), categories)
+
+      result.rows must be(List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None)))
+    }
+
+    "leave a row missing from the answer without a suggestion" in {
+      val shop = row("CORNER SHOP")
+      val missing = row("UNKNOWN STORE")
+      val client = new StubBedrockClient(answer("categoryId", shop.id -> Some(transport.id)))
+
+      val result = resolve(client, List(shop, missing), Nil, categories)
 
       result.rows must be(
         List(
-          AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None),
-          AiSuggestions.RowSuggestion(bus.id, None, None),
+          AiSuggestions.RowSuggestion(shop.id, Some(transport.id), None),
           AiSuggestions.RowSuggestion(missing.id, None, None)
         )
       )
+    }
+
+    "split the rows of each step into batches of at most BatchSize" in {
+      val rows = (0 to StatementSuggestionsService.BatchSize).toList.map(i => row(s"SHOP $i"))
+      val (first, second) = rows.splitAt(StatementSuggestionsService.BatchSize)
+      val cornerShop = merchant("Corner Shop", Some(groceries.id))
+      val client = new StubBedrockClient(
+        answer("categoryId", first.map(_.id -> Some(groceries.id))*),
+        answer("categoryId", second.map(_.id -> Some(groceries.id))*),
+        answer("merchantId", first.map(_.id -> Some(cornerShop.id))*),
+        answer("merchantId", second.map(_.id -> Some(cornerShop.id))*)
+      )
+
+      val result = resolve(client, rows, List(cornerShop), categories)
+
+      result.rows must be(rows.map(r => AiSuggestions.RowSuggestion(r.id, Some(groceries.id), Some(cornerShop.id))))
+      client.prompts must have size 4
+      List(client.prompts(0), client.prompts(2)).foreach { p =>
+        p must include(first.last.id.toString)
+        p must not include second.head.id.toString
+      }
+      List(client.prompts(1), client.prompts(3)).foreach { p =>
+        p must include(second.head.id.toString)
+        p must not include first.head.id.toString
+      }
     }
 
     "fail when the model answer is not valid JSON or has no rows array" in {

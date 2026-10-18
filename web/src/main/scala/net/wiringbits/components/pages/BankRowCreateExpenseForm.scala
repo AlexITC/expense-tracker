@@ -65,6 +65,16 @@ object BankRowCreateExpenseForm {
     }
   }
 
+  /** Whether the merchant/category fields still hold the values a blank form starts with (no rule/AI prefill). */
+  def isPristine(
+      row: GetBankStatement.StatementRowData,
+      merchantIdOpt: Option[UUID],
+      merchantInput: String,
+      categoryIdOpt: Option[UUID],
+      categoryInput: String
+  ): Boolean =
+    merchantIdOpt.isEmpty && merchantInput == row.description && categoryIdOpt.isEmpty && categoryInput.isEmpty
+
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
@@ -98,9 +108,7 @@ object BankRowCreateExpenseForm {
     val aiSuggestionKey = props.aiSuggestion.map(s => s"${s.merchantId}|${s.categoryId}").getOrElse("")
     Hooks.useEffect(
       () => {
-        val pristine = merchantIdOpt.isEmpty && merchantInput == props.row.description &&
-          categoryIdOpt.isEmpty && categoryInput.isEmpty
-        if (pristine) {
+        if (isPristine(props.row, merchantIdOpt, merchantInput, categoryIdOpt, categoryInput)) {
           initMerchant.foreach { m =>
             setMerchantInput(m.name)
             setMerchantIdOpt(Some(m.id))

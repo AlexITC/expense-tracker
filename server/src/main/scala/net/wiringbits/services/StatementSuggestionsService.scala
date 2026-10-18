@@ -13,9 +13,10 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Try
 
 /** Suggests a category and a merchant for each debit row of a statement that no import rule already handles. Two steps:
-  * one Bedrock call picks a category for every row, then one call per predicted category picks a merchant among that
-  * category's merchants. Any id the model returns outside the candidate set is dropped (no guess); unparseable output
-  * fails the Future. No DB access — the caller loads the inputs and persists the result.
+  * Bedrock picks a category for every row, then, per predicted category, picks a merchant among that category's
+  * merchants. Each step sends at most `BatchSize` rows per call so the answer fits the model's output-token cap. Any id
+  * the model returns outside the candidate set is dropped (no guess); unparseable output fails the Future. No DB access
+  * — the caller loads the inputs and persists the result.
   */
 class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(implicit ec: ExecutionContext) {
   import StatementSuggestionsService.*
@@ -62,8 +63,21 @@ class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(impli
       categories: List[Category],
       examples: List[(UUID, String)]
   ): Future[Map[UUID, Option[UUID]]] =
-    bedrockClient.suggest(categoryPrompt(categories, examples, rows)).map { raw =>
-      validateIds(parseAnswers(raw, CategoryField), rows.map(_.id), categories.map(_.id).toSet, CategoryField)
+    inBatches(rows) { batch =>
+      bedrockClient.suggest(categoryPrompt(categories, examples, batch)).map { raw =>
+        validateIds(parseAnswers(raw, CategoryField), batch.map(_.id), categories.map(_.id).toSet, CategoryField)
+      }
+    }
+
+  // Calls run sequentially (keeps the Bedrock load predictable); the per-batch answers are merged.
+  private def inBatches(rows: List[BankStatementRow])(
+      call: List[BankStatementRow] => Future[Map[UUID, Option[UUID]]]
+  ): Future[Map[UUID, Option[UUID]]] =
+    rows.grouped(BatchSize).foldLeft(Future.successful(Map.empty[UUID, Option[UUID]])) { (accF, batch) =>
+      for {
+        acc <- accF
+        answers <- call(batch)
+      } yield acc ++ answers
     }
 
   private def logResolved(
@@ -82,7 +96,7 @@ class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(impli
   private def describe(id: Option[UUID], nameOf: UUID => Option[String]): String =
     id.fold("none")(i => nameOf(i).fold(i.toString)(name => s"$i ($name)"))
 
-  // One call per predicted category that has merchants, sequentially (keeps the Bedrock load predictable).
+  // One step per predicted category that has merchants, one category after another.
   private def pickMerchants(
       rows: List[BankStatementRow],
       predicted: Map[UUID, Option[UUID]],
@@ -96,33 +110,35 @@ class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(impli
       else
         for {
           acc <- accF
-          raw <- bedrockClient.suggest(merchantPrompt(category, candidates, group))
-        } yield acc ++ validateIds(
-          parseAnswers(raw, MerchantField),
-          group.map(_.id),
-          candidates.map(_.id).toSet,
-          MerchantField
-        )
+          answers <- inBatches(group) { batch =>
+            bedrockClient.suggest(merchantPrompt(category, candidates, batch)).map { raw =>
+              validateIds(parseAnswers(raw, MerchantField), batch.map(_.id), candidates.map(_.id).toSet, MerchantField)
+            }
+          }
+        } yield acc ++ answers
     }
 }
 
 object StatementSuggestionsService {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
-  val CategoryField = "categoryId"
-  val MerchantField = "merchantId"
+  private[wiringbits] val CategoryField = "categoryId"
+  private[wiringbits] val MerchantField = "merchantId"
 
-  case class RowSelection(toResolve: List[BankStatementRow], creditsSkipped: Int, ruleSkipped: Int)
+  // Each answered row costs ~50-60 output tokens (two UUIDs); 40 rows stay well under RealBedrockClient's 4096 cap.
+  private[services] val BatchSize = 40
+
+  private case class RowSelection(toResolve: List[BankStatementRow], creditsSkipped: Int, ruleSkipped: Int)
 
   /** Debit rows that no import rule handles; credits and rule-matched rows get no suggestion. */
-  def selectRowsToResolve(rows: List[BankStatementRow], rules: List[ImportRuleMatcher.Rule]): RowSelection = {
+  private def selectRowsToResolve(rows: List[BankStatementRow], rules: List[ImportRuleMatcher.Rule]): RowSelection = {
     val debits = rows.filter(_.amount < 0)
     val toResolve = debits.filter(r => ImportRuleMatcher.findRowWinner(rules, r.description).isEmpty)
     RowSelection(toResolve, rows.size - debits.size, debits.size - toResolve.size)
   }
 
   /** The chosen merchant's category is authoritative; otherwise keep the predicted one. */
-  def finalSuggestion(
+  private[services] def finalSuggestion(
       rowId: UUID,
       predictedCategoryId: Option[UUID],
       chosenMerchantId: Option[UUID],
@@ -132,7 +148,7 @@ object StatementSuggestionsService {
     AiSuggestions.RowSuggestion(rowId, merchant.flatMap(_.categoryId).orElse(predictedCategoryId), merchant.map(_.id))
   }
 
-  def categoryPrompt(
+  private def categoryPrompt(
       categories: List[Category],
       examples: List[(UUID, String)],
       rows: List[BankStatementRow]
@@ -155,7 +171,7 @@ object StatementSuggestionsService {
        |${answerInstructions(CategoryField, "category")}""".stripMargin
   }
 
-  def merchantPrompt(category: Category, merchants: List[Merchant], rows: List[BankStatementRow]): String = {
+  private def merchantPrompt(category: Category, merchants: List[Merchant], rows: List[BankStatementRow]): String = {
     val categoryName = oneLine(category.name)
     s"""You match bank statement transactions (expenses in the category "$categoryName") to the merchant that charged them.
        |
@@ -171,7 +187,7 @@ object StatementSuggestionsService {
   /** Parse `{"rows":[{"rowId":...,"<field>":...|null}]}` into rowId -> raw id (None for null/absent). Fails loud with
     * the raw response when it is not JSON or has no `rows` array.
     */
-  def parseAnswers(raw: String, field: String): Map[String, Option[String]] = {
+  private def parseAnswers(raw: String, field: String): Map[String, Option[String]] = {
     val entries = Try(Json.parse(extractJsonObject(raw))).toOption
       .flatMap(json => (json \ "rows").asOpt[List[JsValue]])
       .getOrElse(throw new RuntimeException(s"Model did not return a valid suggestions answer: $raw"))
@@ -182,7 +198,7 @@ object StatementSuggestionsService {
 
   /** Keep only answers whose id is one of `allowed`; a hallucinated id or a row missing from the answer becomes None.
     */
-  def validateIds(
+  private def validateIds(
       answers: Map[String, Option[String]],
       rowIds: List[UUID],
       allowed: Set[UUID],

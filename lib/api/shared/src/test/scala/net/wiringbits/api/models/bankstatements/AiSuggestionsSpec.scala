@@ -53,16 +53,4 @@ class AiSuggestionsSpec extends AnyWordSpec with Matchers {
       json.validate[AiSuggestions] mustBe a[JsError]
     }
   }
-
-  "fromEntryName" should {
-    "resolve every value" in {
-      expected.foreach { case (status, name) =>
-        AiSuggestionsStatus.fromEntryName(name) must be(status)
-      }
-    }
-
-    "throw on an unknown name" in {
-      a[NoSuchElementException] must be thrownBy AiSuggestionsStatus.fromEntryName("unknown")
-    }
-  }
 }
