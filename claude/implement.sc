@@ -21,7 +21,12 @@ flow(OrcaArgs(args).copy(target = RunTarget.Worktree)):
     s"""$userPrompt
        |
        |Follow the project conventions in docs/guide/ (antipatterns.md,
-       |backend.md, frontend.md, data-infra.md, testing.md, ci-checklist.md).""".stripMargin
+       |backend.md, frontend.md, data-infra.md, testing.md, ci-checklist.md).
+       |
+       |While implementing a task, verify with TARGETED tests only: run
+       |`sbt "testOnly *TheSpec"` for the specs you touch, or `CI=true sbt
+       |Test/compile` to typecheck. Do NOT run the whole `sbt test` suite during a
+       |task — a final stage runs it once after the reviews converge.""".stripMargin
 
   val plan = stage("Plan"):
     Plan.autonomous.from(brief, planningAgent).value
@@ -42,8 +47,9 @@ flow(OrcaArgs(args).copy(target = RunTarget.Worktree)):
           checks = List(CommitMessageCheck())
         )
 
+  val finalFixer = codingAgent.session("final-fixer", seed = plan.brief)
+
   val openFindings = stage("Final review"):
-    val finalFixer = codingAgent.session("final-fixer", seed = plan.brief)
     reviewAndFixLoop(
       coderSession = finalFixer,
       reviewers = allReviewers(claude.sonnet),
@@ -52,6 +58,20 @@ flow(OrcaArgs(args).copy(target = RunTarget.Worktree)):
       checks = List(CommitMessageCheck()),
       maxFixTurns = 5,
       priorOpenFindings = taskOpenFindings.flatMap(_.findings)
+    )
+
+  // Reviews have converged and only targeted tests ran per task, so run the
+  // whole suite once here. The coder session drives it so it can start the
+  // Docker/Node env and fix a failure the targeted runs missed; CI re-runs it as
+  // the backstop if anything is still red when the PR opens.
+  stage("Full test suite"):
+    finalFixer.run(
+      """Run the full test suite exactly as CI does:
+        |`CI=true NODE_OPTIONS=--openssl-legacy-provider sbt test`
+        |(start the Docker testcontainers Postgres if needed, and use a Node that
+        |accepts --openssl-legacy-provider). If anything fails, fix it with a
+        |minimal change and re-run until the whole suite passes; do not touch
+        |unrelated code.""".stripMargin
     )
 
   openPrIfGitHub(

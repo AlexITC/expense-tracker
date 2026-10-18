@@ -12,11 +12,17 @@ import orca.{*, given}
   * commits (`orca:` subject): on a feature branch those are exactly the commits
   * that become the PR. A git failure is raised, not turned into an empty
   * message — the project rule is to fail loudly, never fabricate a default.
+  *
+  * It flags only what would be harmful if it reached the final commit — a Claude
+  * session link, or a reference to the conversation. It deliberately does NOT
+  * require a body or cap the subject length: PRs here squash-merge using the PR
+  * title + description, so intermediate commit messages are discarded and the PR
+  * body is the real commit body. (In the implement flow those commits are also
+  * auto-generated and can't be amended, so body/length rules only produced
+  * unfixable findings.)
   */
 final class CommitMessageCheck extends ReviewCheck:
   def name: String = "commit-message"
-
-  private val MaxSubjectLength = 72
 
   def evaluate()(using ctx: FlowContext, ev: InStage): ReviewResult =
     val base = ctx.git.defaultBase() match
@@ -53,9 +59,6 @@ final class CommitMessageCheck extends ReviewCheck:
       shortSha: String,
       message: String
   ): List[ReviewFinding] =
-    val lines = message.linesIterator.toList
-    val subject = lines.headOption.getOrElse("")
-    val body = lines.drop(1).dropWhile(_.isBlank)
     val lower = message.toLowerCase(java.util.Locale.ROOT)
 
     def finding(
@@ -88,25 +91,6 @@ final class CommitMessageCheck extends ReviewCheck:
       )
     )
 
-    val tooLong = Option.when(subject.length > MaxSubjectLength)(
-      finding(
-        "commit subject is too long",
-        s"The subject is ${subject.length} characters; keep it brief " +
-          s"(<= $MaxSubjectLength). Detail belongs in the body, not the subject.",
-        "Shorten the subject to a brief imperative summary; move detail to the " +
-          "body."
-      )
-    )
-
-    val noBody = Option.when(body.forall(_.isBlank))(
-      finding(
-        "commit message has no body explaining the change",
-        "The message is a subject only. It must say what the change does and, " +
-          "briefly, why.",
-        "Add a one- or two-sentence body covering what changed and why."
-      )
-    )
-
     val conversationMarkers = List(
       "as requested",
       "as you asked",
@@ -129,4 +113,4 @@ final class CommitMessageCheck extends ReviewCheck:
       )
     )
 
-    List(sessionReference, tooLong, noBody, conversational).flatten
+    List(sessionReference, conversational).flatten
