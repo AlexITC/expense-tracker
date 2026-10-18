@@ -74,6 +74,12 @@ object BankStatementReviewPage {
   def suggestionsPending(ai: Option[AiSuggestions]): Boolean =
     ai.forall(_.status == AiSuggestionsStatus.Pending)
 
+  /** Suggestions can be regenerated unless a computation is still Pending within the poll window; None (never
+    * generated) is allowed, and so is a Pending that outlived the poll window (likely a stuck or lost job).
+    */
+  def canRegenerateSuggestions(ai: Option[AiSuggestions], pollAttemptsExhausted: Boolean): Boolean =
+    pollAttemptsExhausted || !ai.exists(_.status == AiSuggestionsStatus.Pending)
+
   // Statements confirmed before AI suggestions existed stay NULL forever, so polling is capped.
   private val SuggestionsPollMaxAttempts = 20
   private val SuggestionsPollIntervalMs = 3000
@@ -163,6 +169,11 @@ object BankStatementReviewPage {
 
     // Poll for AI suggestions until they are resolved or the attempts cap is reached
     val (suggestionsPollAttempts, setSuggestionsPollAttempts) = Hooks.useState(0)
+    val (regeneratingSuggestions, setRegeneratingSuggestions) = Hooks.useState(false)
+    val regenerateSuggestionsDisabled = regeneratingSuggestions ||
+      !statement.exists(s =>
+        canRegenerateSuggestions(s.aiSuggestions, suggestionsPollAttempts >= SuggestionsPollMaxAttempts)
+      )
     val pollingSuggestions =
       statement.exists(s => suggestionsPending(s.aiSuggestions)) &&
         suggestionsPollAttempts < SuggestionsPollMaxAttempts
@@ -214,6 +225,22 @@ object BankStatementReviewPage {
           showToast("Row ignored")
         case Failure(ex) => setError(ex.getMessage)
       }
+
+    // Setting Pending and resetting the attempts re-enables the poll effect above
+    def handleRegenerateSuggestions(stmtId: UUID): Unit = {
+      setRegeneratingSuggestions(true)
+      props.ctx.api.client.regenerateBankStatementAiSuggestions(stmtId).onComplete {
+        case Success(resp) =>
+          setError("")
+          setStatement(cur => cur.map(_.copy(aiSuggestions = Some(resp.aiSuggestions))))
+          setSuggestionsPollAttempts(0)
+          setRegeneratingSuggestions(false)
+          showToast("Regenerating AI suggestions…")
+        case Failure(ex) =>
+          setError(ex.getMessage)
+          setRegeneratingSuggestions(false)
+      }
+    }
 
     def handleUnignore(stmtId: UUID, rowId: UUID): Unit =
       props.ctx.api.client.unignoreRow(stmtId, rowId).onComplete {
@@ -466,6 +493,15 @@ object BankStatementReviewPage {
                   .Typography(s"${statementRows.size} transactions")
                   .sx(new CSSPropertiesUtils { fontSize = "14px"; color = "var(--lc-text-2)" }),
                 mui.Box.sx(new CSSPropertiesUtils { flex = "1" })(),
+                mui.Button
+                  .normal()(
+                    if (regenerateSuggestionsDisabled) "Regenerating…"
+                    else "Regenerate AI suggestions"
+                  )
+                  .size("small")
+                  .variant("outlined")
+                  .disabled(regenerateSuggestionsDisabled)
+                  .onClick(_ => handleRegenerateSuggestions(stmt.id)),
                 mui.Button
                   .normal()("Auto-reconcile")
                   .size("small")
