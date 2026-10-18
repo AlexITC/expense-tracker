@@ -81,6 +81,29 @@ object BankStatementRowDAO {
       ORDER BY bsr.date DESC, bsr.id
       """.as(parser.*)
 
+  /** (categoryId, description) pairs from the user's own rows linked to a categorized expense, keeping the
+    * `perCategory` most recent rows per category.
+    */
+  def categorizedExamples(userId: UUID, perCategory: Int)(implicit conn: Connection): List[(UUID, String)] = {
+    val exampleParser = (get[UUID]("category_id") ~ str("description")).map { case categoryId ~ description =>
+      (categoryId, description)
+    }
+    SQL"""
+      SELECT category_id, description
+      FROM (
+        SELECT ecs.category_id, bsr.description, bsr.date, bsr.id,
+               ROW_NUMBER() OVER (PARTITION BY ecs.category_id ORDER BY bsr.date DESC, bsr.id) AS rn
+        FROM bank_statement_row bsr
+        JOIN bank_statement bs ON bsr.bank_statement_id = bs.id
+          AND bs.user_id = ${userId.toString}::UUID
+        JOIN expense_category_split ecs ON ecs.expense_id = bsr.expense_id
+          AND ecs.user_id = ${userId.toString}::UUID
+      ) ranked
+      WHERE rn <= $perCategory
+      ORDER BY category_id, date DESC, id
+      """.as(exampleParser.*)
+  }
+
   def setExpenseIdForUser(rowId: UUID, userId: UUID, expenseId: UUID, updatedAt: Instant)(implicit
       conn: Connection
   ): Unit = {

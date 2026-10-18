@@ -5,7 +5,7 @@ import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsSta
 import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
-import net.wiringbits.repositories.models.{BankStatement, BankStatementRow, Document}
+import net.wiringbits.repositories.models.{BankStatement, BankStatementRow, Document, Expense, ExpenseCategorySplit}
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
@@ -220,6 +220,101 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
 
       val ex = intercept[Exception](repositories.bankStatements.find(created.id, user.id).futureValue)
       ex.getMessage must include("AiSuggestions")
+    }
+  }
+
+  "findInternal" should {
+    "return the statement with its owner userId" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val created = createBankStatement(user.id).futureValue
+
+      val found = repositories.bankStatements.findInternal(created.id).futureValue.value
+      found.id must be(created.id)
+      found.userId must be(user.id)
+    }
+
+    "return None for an unknown id" in withRepositories() { implicit repositories =>
+      repositories.bankStatements.findInternal(UUID.randomUUID()).futureValue must be(None)
+    }
+  }
+
+  "categorizedRowExamples" should {
+    // createExpense generates the expense id, so the split (which needs it) is built here.
+    def createCategorizedExpense(userId: UUID, categoryId: UUID)(implicit
+        repositories: RepositoryComponents
+    ): UUID = {
+      val now = Instant.now()
+      val expense = Expense.Create(
+        id = UUID.randomUUID(),
+        userId = userId,
+        amount = BigDecimal("50.00"),
+        date = LocalDate.of(2024, 1, 15),
+        time = None,
+        merchantId = None,
+        notes = None,
+        createdAt = now,
+        updatedAt = now
+      )
+      val split = ExpenseCategorySplit.Create(UUID.randomUUID(), userId, expense.id, categoryId, expense.amount)
+      repositories.expenses.create(expense, List(split)).futureValue
+      expense.id
+    }
+
+    // Creates a statement with one row per description (day i+1 of January) and returns the rows.
+    def createRows(userId: UUID, descriptions: List[String])(implicit
+        repositories: RepositoryComponents
+    ): List[BankStatementRow.Create] = {
+      val doc = createDocument(userId, kind = DocumentKind.BankStatementPdf).futureValue
+      val now = Instant.now()
+      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, userId, now, now)
+      val rows = descriptions.zipWithIndex.map { case (description, i) =>
+        buildRow(stmt.id, i).copy(description = description, date = LocalDate.of(2024, 1, i + 1))
+      }
+      createStatement(stmt, sampleStatementMetadata, rows).futureValue
+      rows
+    }
+
+    def link(row: BankStatementRow.Create, userId: UUID, categoryId: UUID)(implicit
+        repositories: RepositoryComponents
+    ): Unit = {
+      val expenseId = createCategorizedExpense(userId, categoryId)
+      repositories.bankStatements.setRowExpenseIdForUser(row.id, userId, expenseId, Instant.now()).futureValue
+    }
+
+    "keep the most recent rows per category, up to the limit" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val groceries = createCategory(user.id, "Groceries").futureValue
+      val transport = createCategory(user.id, "Transport").futureValue
+      val rows = createRows(user.id, List("G1", "G2", "G3", "G4", "T1"))
+      rows.take(4).foreach(link(_, user.id, groceries.id))
+      link(rows(4), user.id, transport.id)
+
+      val result = repositories.bankStatements.categorizedRowExamples(user.id, perCategory = 3).futureValue
+      result.filter(_._1 == groceries.id).map(_._2) must be(List("G4", "G3", "G2"))
+      result.filter(_._1 == transport.id).map(_._2) must be(List("T1"))
+      result.length must be(4)
+    }
+
+    "exclude rows without an expense" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val category = createCategory(user.id).futureValue
+      val rows = createRows(user.id, List("Linked", "Unlinked"))
+      link(rows.head, user.id, category.id)
+
+      val result = repositories.bankStatements.categorizedRowExamples(user.id, perCategory = 3).futureValue
+      result must be(List(category.id -> "Linked"))
+    }
+
+    "never include another user's rows" in withRepositories() { implicit repositories =>
+      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
+      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val categoryA = createCategory(userA.id).futureValue
+      val categoryB = createCategory(userB.id).futureValue
+      link(createRows(userA.id, List("Mine")).head, userA.id, categoryA.id)
+      link(createRows(userB.id, List("Theirs")).head, userB.id, categoryB.id)
+
+      val result = repositories.bankStatements.categorizedRowExamples(userA.id, perCategory = 3).futureValue
+      result must be(List(categoryA.id -> "Mine"))
     }
   }
 

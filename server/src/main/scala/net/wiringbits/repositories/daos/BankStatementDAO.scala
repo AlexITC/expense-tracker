@@ -177,6 +177,13 @@ object BankStatementDAO {
         AND user_id = ${userId.toString}::UUID
       """.as(parser.singleOpt)
 
+  def findInternal(id: UUID)(implicit conn: Connection): Option[BankStatement] =
+    SQL"""
+      SELECT id, document_id, user_id, #$metadataColumns, created_at, updated_at
+      FROM bank_statement
+      WHERE id = ${id.toString}::UUID
+      """.as(parser.singleOpt)
+
   def findByDocumentIdInternal(documentId: UUID)(implicit conn: Connection): Option[BankStatement] =
     SQL"""
       SELECT id, document_id, user_id, #$metadataColumns, created_at, updated_at

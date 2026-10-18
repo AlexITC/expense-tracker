@@ -49,6 +49,12 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
     }
   }
 
+  def findInternal(id: UUID): Future[Option[BankStatement]] = Future {
+    database.withConnection { implicit conn =>
+      BankStatementDAO.findInternal(id)
+    }
+  }
+
   def findByDocumentId(documentId: UUID, userId: UUID): Future[Option[BankStatement]] = Future {
     database.withConnection { implicit conn =>
       BankStatementDAO.findByDocumentId(documentId, userId)
@@ -70,6 +76,12 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
   def allRows(userId: UUID): Future[List[BankStatementRow]] = Future {
     database.withConnection { implicit conn =>
       BankStatementRowDAO.allForUser(userId)
+    }
+  }
+
+  def categorizedRowExamples(userId: UUID, perCategory: Int): Future[List[(UUID, String)]] = Future {
+    database.withConnection { implicit conn =>
+      BankStatementRowDAO.categorizedExamples(userId, perCategory)
     }
   }
 
