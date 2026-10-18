@@ -2,8 +2,11 @@ package net.wiringbits.repositories.daos
 
 import anorm.*
 import anorm.SqlParser.*
+import net.wiringbits.api.models.bankstatements.ExtractionInfo
 import net.wiringbits.models.documents.DocumentStatus
 import net.wiringbits.repositories.models.{BankStatement, BankStatementView}
+
+import play.api.libs.json.Json
 
 import java.sql.Connection
 import java.time.{Instant, LocalDate}
@@ -59,9 +62,11 @@ object BankStatementDAO {
       str("filename") ~
       get[DocumentStatus]("status") ~
       get[Int]("total_rows") ~
-      get[Int]("processed_rows")).map {
+      get[Int]("processed_rows") ~
+      get[Option[ExtractionInfo]]("extraction_info")).map {
       case id ~ documentId ~ userId ~ bankName ~ productType ~ currency ~ accountLast4 ~
-          periodStart ~ periodEnd ~ createdAt ~ updatedAt ~ filename ~ status ~ totalRows ~ processedRows =>
+          periodStart ~ periodEnd ~ createdAt ~ updatedAt ~ filename ~ status ~ totalRows ~ processedRows ~
+          extractionInfo =>
         BankStatementView(
           id,
           documentId,
@@ -77,16 +82,19 @@ object BankStatementDAO {
           filename,
           status,
           totalRows,
-          processedRows
+          processedRows,
+          extractionInfo
         )
     }
 
-  def create(stmt: BankStatement.Create, metadata: BankStatement.Metadata)(implicit conn: Connection): Unit = {
+  def create(stmt: BankStatement.Create, metadata: BankStatement.Metadata, extractionInfo: Option[ExtractionInfo])(
+      implicit conn: Connection
+  ): Unit = {
     val _ = SQL"""
       INSERT INTO bank_statement (
         id, document_id, user_id,
         bank_name, product_type, currency, account_last4, period_start, period_end,
-        created_at, updated_at
+        created_at, updated_at, extraction_info
       )
       VALUES (
         ${stmt.id.toString}::UUID,
@@ -99,7 +107,8 @@ object BankStatementDAO {
         ${metadata.periodStart},
         ${metadata.periodEnd},
         ${stmt.createdAt},
-        ${stmt.updatedAt}
+        ${stmt.updatedAt},
+        ${extractionInfo.map(Json.toJson(_))}
       )
       """.execute()
   }
@@ -108,7 +117,7 @@ object BankStatementDAO {
     SQL"""
       SELECT bs.id, bs.document_id, bs.user_id, bs.bank_name, bs.product_type, bs.currency,
              bs.account_last4, bs.period_start, bs.period_end, bs.created_at, bs.updated_at,
-             d.filename, d.status,
+             bs.extraction_info, d.filename, d.status,
              COALESCE(rc.total_rows, 0) AS total_rows,
              COALESCE(rc.processed_rows, 0) AS processed_rows
       FROM bank_statement bs
@@ -129,7 +138,7 @@ object BankStatementDAO {
     SQL"""
       SELECT bs.id, bs.document_id, bs.user_id, bs.bank_name, bs.product_type, bs.currency,
              bs.account_last4, bs.period_start, bs.period_end, bs.created_at, bs.updated_at,
-             d.filename, d.status,
+             bs.extraction_info, d.filename, d.status,
              COALESCE(rc.total_rows, 0) AS total_rows,
              COALESCE(rc.processed_rows, 0) AS processed_rows
       FROM bank_statement bs

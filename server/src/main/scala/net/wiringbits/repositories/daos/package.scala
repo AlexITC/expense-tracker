@@ -3,6 +3,7 @@ package net.wiringbits.repositories
 import anorm.*
 import anorm.SqlParser.*
 import anorm.postgresql.*
+import net.wiringbits.api.models.bankstatements.ExtractionInfo
 import net.wiringbits.common.models.{Email, Name}
 import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobStatus, BackgroundJobType}
@@ -52,6 +53,10 @@ package object daos {
           )
         )
     }
+  }
+
+  implicit val extractionInfoColumn: Column[ExtractionInfo] = jsValueColumn.mapResult { js =>
+    js.validate[ExtractionInfo].asEither.left.map(e => TypeDoesNotMatch(s"Cannot parse ExtractionInfo: $e"))
   }
 
   implicit val citextToString: Column[String] = Column.nonNull { case (value, meta) =>

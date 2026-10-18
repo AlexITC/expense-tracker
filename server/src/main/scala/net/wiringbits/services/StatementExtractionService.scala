@@ -1,5 +1,6 @@
 package net.wiringbits.services
 
+import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
 import net.wiringbits.apis.{BdaClient, BedrockClient, TextractApiType, TextractClient}
 import net.wiringbits.config.BedrockConfig
 import net.wiringbits.repositories.TextractCacheRepository
@@ -45,33 +46,40 @@ class StatementExtractionService @Inject() (
 
   /** Run the full ladder. `label` is only for logging (a draft or statement id). */
   def extract(label: String, sha256: String, storageKey: String, text: String): Future[ExtractionResult] = {
-    def rung(prev: ExtractionResult, name: String, input: Future[Option[String]]): Future[ExtractionResult] =
+    def rung(prev: ExtractionResult, stage: ExtractionSource, input: Future[Option[String]]): Future[ExtractionResult] =
       if (prev.reconciled) Future.successful(prev)
       else
         input
           .flatMap {
             case Some(content) if content.trim.nonEmpty =>
-              logger.info(s"[$label] escalating: $name")
+              logger.info(s"[$label] escalating: ${stage.entryName}")
               extractReconciling(
                 label,
                 content,
                 attemptNo = 1,
                 prevFailure = None,
                 bestSoFar = Some(prev),
-                stage = name
+                stage = stage
               )
             case _ => Future.successful(prev)
           }
           .recover { case ex =>
-            logger.warn(s"[$label] rung '$name' failed (${ex.getMessage}); keeping best so far")
+            logger.warn(s"[$label] rung '${stage.entryName}' failed (${ex.getMessage}); keeping best so far")
             prev
           }
 
     for {
-      r1 <- extractReconciling(label, text, attemptNo = 1, prevFailure = None, bestSoFar = None, stage = "PDF text")
-      r2 <- rung(r1, "BDA markdown", fetchBdaMarkdown(sha256, storageKey))
-      r3 <- rung(r2, "Textract + text + BDA markdown", combinedRepresentation(label, sha256, storageKey, text))
-      r4 <- rung(r3, "BDA custom output", fetchBdaCustom(sha256, storageKey).map(_.map(Json.prettyPrint)))
+      r1 <- extractReconciling(
+        label,
+        text,
+        attemptNo = 1,
+        prevFailure = None,
+        bestSoFar = None,
+        stage = ExtractionSource.PdfText
+      )
+      r2 <- rung(r1, ExtractionSource.BdaMarkdown, fetchBdaMarkdown(sha256, storageKey))
+      r3 <- rung(r2, ExtractionSource.TextractTables, combinedRepresentation(label, sha256, storageKey, text))
+      r4 <- rung(r3, ExtractionSource.BdaCustom, fetchBdaCustom(sha256, storageKey).map(_.map(Json.prettyPrint)))
     } yield {
       logger.info(s"[$label] extraction done: reconciled=${r4.reconciled} transactions=${r4.transactions.size}")
       r4
@@ -174,7 +182,7 @@ class StatementExtractionService @Inject() (
       attemptNo: Int,
       prevFailure: Option[String],
       bestSoFar: Option[ExtractionResult],
-      stage: String
+      stage: ExtractionSource
   ): Future[ExtractionResult] =
     cachedExtractBankStatement(text, prevFailure).flatMap { raw =>
       AiStatementExtractor.parseAndVerify(raw, bedrockConfig.statementModelId) match {

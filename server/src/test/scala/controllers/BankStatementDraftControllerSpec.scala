@@ -3,7 +3,8 @@ package controllers
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.github.f4b6a3.uuid.UuidCreator
 import controllers.common.PlayPostgresSpec
-import net.wiringbits.api.models.bankstatements.BankStatementDraft
+import net.wiringbits.api.models.bankstatements.{BankStatementDraft, ExtractionInfo}
+import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
 import net.wiringbits.common.models.Captcha
@@ -18,7 +19,7 @@ import org.scalatestplus.mockito.MockitoSugar
 import play.api.db.Database
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
-import play.api.libs.json.Json
+import play.api.libs.json.{JsObject, Json}
 import utils.LoginUtils
 
 import java.time.{Instant, LocalDate}
@@ -68,11 +69,15 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       ),
       reconciled = true,
       discrepancy = None,
-      model = "test"
+      model = "test",
+      stage = Some(ExtractionSource.BdaMarkdown)
     )
 
   // Seed a ready draft directly (no job) and return its id, so the background executor doesn't race the test.
-  private def seedReadyDraft(userId: UUID, payload: BankStatementDraft.Payload): UUID = {
+  private def seedReadyDraft(userId: UUID, payload: BankStatementDraft.Payload): UUID =
+    seedReadyDraftJson(userId, Json.toJson(payload).toString)
+
+  private def seedReadyDraftJson(userId: UUID, payloadJson: String): UUID = {
     val db = app.injector.instanceOf[Database]
     val now = Instant.now()
     val id = UuidCreator.getTimeOrderedEpoch()
@@ -80,7 +85,7 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       BankStatementDraftDAO.create(
         DraftRecord.Create(id, userId, "sha-" + UUID.randomUUID().toString, "stmt.pdf", "key", now, now)
       )
-      BankStatementDraftDAO.markReady(id, Json.toJson(payload).toString, now)
+      BankStatementDraftDAO.markReady(id, payloadJson, now)
     }
     id
   }
@@ -102,6 +107,25 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       val draft = client.getBankStatementDraft(id).futureValue
       draft.status must be("ready")
       draft.payload.value.transactions must have size 1
+    }
+  }
+
+  "GET /bank-statements/drafts/:id" should {
+    "return the extraction stage stored in the payload" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val id = seedReadyDraft(userId, reconcilingPayload)
+
+      client.getBankStatementDraft(id).futureValue.payload.value.stage must be(Some(ExtractionSource.BdaMarkdown))
+    }
+
+    "read a payload stored without a stage key as no stage" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val legacyJson = Json.toJson(reconcilingPayload).as[JsObject] - "stage"
+      val id = seedReadyDraftJson(userId, legacyJson.toString)
+
+      val draft = client.getBankStatementDraft(id).futureValue
+      draft.status must be("ready")
+      draft.payload.value.stage must be(None)
     }
   }
 
@@ -155,6 +179,24 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       val id = seedReadyDraft(userId, noBank)
 
       client.confirmBankStatementDraft(id).failed.futureValue.getMessage must include("bank name")
+    }
+
+    "store the draft's extraction info on the statement" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val id = seedReadyDraft(userId, reconcilingPayload.copy(model = "model-y", discrepancy = Some("note")))
+
+      val stmtId = client.confirmBankStatementDraft(id).futureValue.bankStatementId
+      client.getBankStatement(stmtId).futureValue.extractionInfo must be(
+        Some(ExtractionInfo(ExtractionSource.BdaMarkdown, "model-y", reconciled = true, Some("note")))
+      )
+    }
+
+    "store no extraction info when the draft has no stage" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val id = seedReadyDraft(userId, reconcilingPayload.copy(stage = None))
+
+      val stmtId = client.confirmBankStatementDraft(id).futureValue.bankStatementId
+      client.getBankStatement(stmtId).futureValue.extractionInfo must be(None)
     }
   }
 

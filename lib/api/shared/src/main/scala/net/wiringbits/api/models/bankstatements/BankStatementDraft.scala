@@ -1,6 +1,7 @@
 package net.wiringbits.api.models.bankstatements
 
 import net.wiringbits.api.models.*
+import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
 import play.api.libs.json.{Format, Json}
 import sttp.tapir.Schema
 import sttp.tapir.generic.auto.*
@@ -46,7 +47,8 @@ object BankStatementDraft {
       transactions: List[Transaction],
       reconciled: Boolean,
       discrepancy: Option[String],
-      model: String
+      model: String,
+      stage: Option[ExtractionSource]
   )
   object Payload {
     implicit val format: Format[Payload] = Json.format[Payload]

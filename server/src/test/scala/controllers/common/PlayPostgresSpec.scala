@@ -94,7 +94,7 @@ trait PlayPostgresSpec extends PlayAPISpec with TestContainerForEach with GuiceO
       periodStart = LocalDate.of(2026, 1, 1),
       periodEnd = LocalDate.of(2026, 1, 31)
     )
-    repo.createConfirmedStatement(document, stmt, metadata, rows(stmtId)).futureValue
+    repo.createConfirmedStatement(document, stmt, metadata, rows(stmtId), extractionInfo = None).futureValue
     stmtId
   }
 

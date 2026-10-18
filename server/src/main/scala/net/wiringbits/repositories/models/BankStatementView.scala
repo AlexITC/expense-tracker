@@ -1,5 +1,6 @@
 package net.wiringbits.repositories.models
 
+import net.wiringbits.api.models.bankstatements.ExtractionInfo
 import net.wiringbits.models.documents.DocumentStatus
 
 import java.time.{Instant, LocalDate}
@@ -20,5 +21,6 @@ case class BankStatementView(
     documentFilename: String,
     documentStatus: DocumentStatus,
     totalRows: Int,
-    processedRows: Int
+    processedRows: Int,
+    extractionInfo: Option[ExtractionInfo]
 )

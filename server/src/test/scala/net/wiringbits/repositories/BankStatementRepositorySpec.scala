@@ -1,8 +1,11 @@
 package net.wiringbits.repositories
 
-import net.wiringbits.core.RepositorySpec
-import net.wiringbits.models.documents.DocumentKind
-import net.wiringbits.repositories.models.{BankStatement, BankStatementRow}
+import anorm.*
+import net.wiringbits.api.models.bankstatements.ExtractionInfo
+import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
+import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
+import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.repositories.models.{BankStatement, BankStatementRow, Document}
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
@@ -49,6 +52,67 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
 
       val found = repositories.bankStatements.findRows(stmt.id).futureValue
       found.length must be(2)
+    }
+  }
+
+  "createConfirmedStatement" should {
+    def confirm(userId: UUID, extractionInfo: Option[ExtractionInfo])(implicit
+        repositories: RepositoryComponents
+    ): UUID = {
+      val now = Instant.now()
+      val document = Document.Create(
+        id = UUID.randomUUID(),
+        userId = userId,
+        sha256 = UUID.randomUUID().toString,
+        storageKey = "key",
+        kind = DocumentKind.BankStatementPdf,
+        filename = "stmt.pdf",
+        status = DocumentStatus.Parsed,
+        createdAt = now,
+        updatedAt = now
+      )
+      val stmt = BankStatement.Create(UUID.randomUUID(), document.id, userId, now, now)
+      repositories.bankStatements
+        .createConfirmedStatement(document, stmt, sampleStatementMetadata, List(buildRow(stmt.id)), extractionInfo)
+        .futureValue
+    }
+
+    "persist the extraction info" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val info = ExtractionInfo(ExtractionSource.TextractTables, "model-x", reconciled = false, Some("off by 1"))
+      val id = confirm(user.id, Some(info))
+
+      repositories.bankStatements.find(id, user.id).futureValue.value.extractionInfo must be(Some(info))
+      repositories.bankStatements.all(user.id).futureValue.map(_.extractionInfo) must be(List(Some(info)))
+    }
+
+    "store no extraction info when none is given" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val id = confirm(user.id, None)
+
+      repositories.bankStatements.find(id, user.id).futureValue.value.extractionInfo must be(None)
+    }
+
+    "fail to read a stored extraction info with an unknown stage" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val id = confirm(user.id, None)
+      // No repository API writes invalid JSON, so corrupt the stored value directly.
+      val corrupt =
+        """{
+          |  "stage": "bogus",
+          |  "model": "m",
+          |  "reconciled": true
+          |}""".stripMargin
+      repositories.database.withConnection { implicit conn =>
+        val _ = SQL"""
+          UPDATE bank_statement
+          SET extraction_info = $corrupt::JSONB
+          WHERE id = ${id.toString}::UUID
+          """.execute()
+      }
+
+      val ex = intercept[Exception](repositories.bankStatements.find(id, user.id).futureValue)
+      ex.getMessage must include("ExtractionInfo")
     }
   }
 

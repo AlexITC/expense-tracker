@@ -1,7 +1,8 @@
 package net.wiringbits.actions.bankstatements
 
 import com.github.f4b6a3.uuid.UuidCreator
-import net.wiringbits.api.models.bankstatements.BankStatementDraft
+import io.scalaland.chimney.dsl.*
+import net.wiringbits.api.models.bankstatements.{BankStatementDraft, ExtractionInfo}
 import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
 import net.wiringbits.repositories.models.{BankStatement, BankStatementRow, Document}
 import net.wiringbits.repositories.{BankStatementDraftRepository, BankStatementRepository}
@@ -61,7 +62,8 @@ class ConfirmBankStatementDraftAction @Inject() (
           txnType = t.txnType.getOrElse("purchase")
         )
       }
-      _ <- bankStatementRepository.createConfirmedStatement(document, stmt, metadata, rows)
+      extractionInfo = payload.stage.map(s => payload.into[ExtractionInfo].withFieldConst(_.stage, s).transform)
+      _ <- bankStatementRepository.createConfirmedStatement(document, stmt, metadata, rows, extractionInfo)
       _ <- bankStatementDraftRepository.delete(draftId, userId)
     } yield {
       logger.info(s"Confirmed statement draft ${draft.id} into statement $stmtId (${payload.transactions.size} rows)")
