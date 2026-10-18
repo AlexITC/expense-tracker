@@ -3,7 +3,7 @@ package net.wiringbits.tasks
 import org.apache.pekko.actor.ActorSystem
 import com.google.inject.Inject
 import net.wiringbits.actions.documents.{ParseReceiptAction, PollReceiptAction, ProcessDocumentAction}
-import net.wiringbits.actions.bankstatements.ExtractBankStatementDraftAction
+import net.wiringbits.actions.bankstatements.{ExtractBankStatementDraftAction, ResolveStatementSuggestionsAction}
 import net.wiringbits.actions.internal.StreamPendingBackgroundJobsForeverAction
 import net.wiringbits.apis.EmailApi
 import net.wiringbits.apis.models.EmailRequest
@@ -29,7 +29,8 @@ class BackgroundJobsExecutorTask @Inject() (
     processDocumentAction: ProcessDocumentAction,
     pollReceiptAction: PollReceiptAction,
     parseReceiptAction: ParseReceiptAction,
-    extractBankStatementDraftAction: ExtractBankStatementDraftAction
+    extractBankStatementDraftAction: ExtractBankStatementDraftAction,
+    resolveStatementSuggestionsAction: ResolveStatementSuggestionsAction
 )(implicit
     ec: ExecutionContext,
     actorSystem: ActorSystem,
@@ -109,6 +110,21 @@ class BackgroundJobsExecutorTask @Inject() (
             Future.failed(
               new RuntimeException(
                 s"The given payload is not supported by the ExtractBankStatementDraft task, please double check, job id = ${job.id}"
+              )
+            )
+        }
+
+      case BackgroundJobType.ResolveStatementSuggestions =>
+        job.payload.asOpt[BackgroundJobPayload.ResolveStatementSuggestions] match {
+          case Some(typedPayload) =>
+            logger.info(
+              s"Dispatching ResolveStatementSuggestions job ${job.id}, bankStatementId=${typedPayload.bankStatementId}"
+            )
+            resolveStatementSuggestionsAction(typedPayload.bankStatementId)
+          case None =>
+            Future.failed(
+              new RuntimeException(
+                s"The given payload is not supported by the ResolveStatementSuggestions task, please double check, job id = ${job.id}"
               )
             )
         }

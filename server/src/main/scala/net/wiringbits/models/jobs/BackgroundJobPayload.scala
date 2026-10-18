@@ -53,6 +53,12 @@ object BackgroundJobPayload {
     implicit val extractBankStatementDraftFormat: Format[ExtractBankStatementDraft] = Json.format
   }
 
+  case class ResolveStatementSuggestions(bankStatementId: UUID) extends BackgroundJobPayload
+
+  object ResolveStatementSuggestions {
+    implicit val resolveStatementSuggestionsFormat: Format[ResolveStatementSuggestions] = Json.format
+  }
+
   implicit val backgroundJobPayloadWrites: Writes[BackgroundJobPayload] = {
     case payload: SendEmail => Json.toJson(payload)
     case payload: ProcessDocument => Json.toJson(payload)
@@ -61,5 +67,6 @@ object BackgroundJobPayload {
     case payload: PollReceipt => Json.toJson(payload)
     case payload: ParseReceipt => Json.toJson(payload)
     case payload: ExtractBankStatementDraft => Json.toJson(payload)
+    case payload: ResolveStatementSuggestions => Json.toJson(payload)
   }
 }
