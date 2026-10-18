@@ -8,6 +8,7 @@ import software.amazon.awssdk.services.bedrockruntime.model.{
   ContentBlock,
   ConversationRole,
   ConverseRequest,
+  ConverseResponse,
   InferenceConfiguration,
   Message,
   StopReason
@@ -17,6 +18,8 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.FutureConverters.*
 
 class RealBedrockClient(config: BedrockConfig)(implicit ec: ExecutionContext) extends BedrockClient {
+
+  private val SuggestionsMaxTokens = 4096
 
   private val client: BedrockRuntimeAsyncClient = {
     val credentials = AwsBasicCredentials.create(config.accessKeyId.string, config.secretAccessKey.string)
@@ -49,12 +52,37 @@ class RealBedrockClient(config: BedrockConfig)(implicit ec: ExecutionContext) ex
           s"Bedrock response was truncated at the ${config.statementMaxTokens}-token limit " +
             s"(statement too large for one response); raise bedrock.statementMaxTokens (BEDROCK_STATEMENT_MAX_TOKENS)"
         )
-      val content = response.output().message().content()
-      (0 until content.size())
-        .flatMap(i => Option(content.get(i).text()).filter(_.nonEmpty))
-        .headOption
-        .getOrElse(throw new RuntimeException(s"Bedrock returned no text content; stopReason=${response.stopReason()}"))
+      firstText(response)
     }
+  }
+
+  override def suggest(prompt: String): Future[String] = {
+    val message = Message
+      .builder()
+      .role(ConversationRole.USER)
+      .content(ContentBlock.fromText(prompt))
+      .build()
+    val request = ConverseRequest
+      .builder()
+      .modelId(config.suggestionsModelId)
+      .messages(message)
+      .inferenceConfig(InferenceConfiguration.builder().maxTokens(SuggestionsMaxTokens).temperature(0.0f).build())
+      .build()
+    client.converse(request).asScala.map { response =>
+      if (response.stopReason() == StopReason.MAX_TOKENS)
+        throw new RuntimeException(
+          s"Bedrock suggestions response was truncated at the $SuggestionsMaxTokens-token limit"
+        )
+      firstText(response)
+    }
+  }
+
+  private def firstText(response: ConverseResponse): String = {
+    val content = response.output().message().content()
+    (0 until content.size())
+      .flatMap(i => Option(content.get(i).text()).filter(_.nonEmpty))
+      .headOption
+      .getOrElse(throw new RuntimeException(s"Bedrock returned no text content; stopReason=${response.stopReason()}"))
   }
 
   private def buildExtractionPrompt(text: String, feedback: Option[String]): String = {

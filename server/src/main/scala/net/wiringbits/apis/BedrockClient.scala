@@ -9,4 +9,9 @@ trait BedrockClient {
     * correction hint from a previous attempt that didn't reconcile, so the model can try again.
     */
   def extractBankStatement(statementText: String, feedback: Option[String] = None): Future[String]
+
+  /** Run a short classification prompt on the configured suggestions model and return the model's raw text (the caller
+    * parses and validates it).
+    */
+  def suggest(prompt: String): Future[String]
 }

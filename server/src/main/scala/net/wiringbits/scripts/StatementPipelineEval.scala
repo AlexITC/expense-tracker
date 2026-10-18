@@ -66,8 +66,18 @@ object StatementPipelineEval {
     val secret = AWSSecretAccessKey(creds.secretAccessKey())
 
     val awsConfig = AWSConfig(key, secret, region, S3Config(bucket, None))
+    val suggestionsModelId = sys.env.getOrElse("BEDROCK_SUGGESTIONS_MODEL_ID", "eu.amazon.nova-lite-v1:0")
     val bedrockConfig =
-      BedrockConfig(key, secret, region, statementModelId, statementModelId, 16000, BedrockConfig.Real)
+      BedrockConfig(
+        key,
+        secret,
+        region,
+        statementModelId,
+        statementModelId,
+        16000,
+        suggestionsModelId,
+        BedrockConfig.Real
+      )
     val bdaConfig = BdaConfig(
       BdaConfig.Real,
       sys.env("BDA_PROFILE_ARN"),
