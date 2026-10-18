@@ -1,6 +1,6 @@
 package net.wiringbits.repositories
 
-import net.wiringbits.api.models.bankstatements.ExtractionInfo
+import net.wiringbits.api.models.bankstatements.{AiSuggestions, ExtractionInfo}
 import net.wiringbits.executors.DatabaseExecutionContext
 import net.wiringbits.repositories.daos.{BankStatementDAO, BankStatementRowDAO, DocumentDAO}
 import net.wiringbits.repositories.models.{BankStatement, BankStatementRow, BankStatementView, Document}
@@ -40,6 +40,12 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
   def all(userId: UUID): Future[List[BankStatementView]] = Future {
     database.withConnection { implicit conn =>
       BankStatementDAO.all(userId)
+    }
+  }
+
+  def setAiSuggestions(id: UUID, userId: UUID, suggestions: AiSuggestions, updatedAt: Instant): Future[Unit] = Future {
+    database.withConnection { implicit conn =>
+      BankStatementDAO.setAiSuggestions(id, userId, suggestions, updatedAt)
     }
   }
 

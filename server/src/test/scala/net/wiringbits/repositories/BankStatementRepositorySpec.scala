@@ -1,7 +1,7 @@
 package net.wiringbits.repositories
 
 import anorm.*
-import net.wiringbits.api.models.bankstatements.ExtractionInfo
+import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus, ExtractionInfo}
 import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
@@ -149,6 +149,77 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     "return an empty list when the user has no statements" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       repositories.bankStatements.all(user.id).futureValue must be(empty)
+    }
+  }
+
+  "setAiSuggestions" should {
+    def sampleSuggestions(status: AiSuggestionsStatus): AiSuggestions =
+      AiSuggestions(
+        status = status,
+        model = "model-x",
+        rows = List(
+          AiSuggestions.RowSuggestion(UUID.randomUUID(), Some(UUID.randomUUID()), Some(UUID.randomUUID())),
+          AiSuggestions.RowSuggestion(UUID.randomUUID(), None, None)
+        )
+      )
+
+    "leave the suggestions empty until they are set" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val created = createBankStatement(user.id).futureValue
+
+      repositories.bankStatements.find(created.id, user.id).futureValue.value.aiSuggestions must be(None)
+      repositories.bankStatements.all(user.id).futureValue.map(_.aiSuggestions) must be(List(None))
+    }
+
+    AiSuggestionsStatus.values.foreach { status =>
+      s"persist suggestions with status ${status.entryName}" in withRepositories() { implicit repositories =>
+        val user = createUser().futureValue
+        val created = createBankStatement(user.id).futureValue
+        val suggestions = sampleSuggestions(status)
+
+        repositories.bankStatements.setAiSuggestions(created.id, user.id, suggestions, Instant.now()).futureValue
+
+        repositories.bankStatements.find(created.id, user.id).futureValue.value.aiSuggestions must be(
+          Some(suggestions)
+        )
+        repositories.bankStatements.all(user.id).futureValue.map(_.aiSuggestions) must be(List(Some(suggestions)))
+      }
+    }
+
+    "fail when the statement belongs to another user" in withRepositories() { implicit repositories =>
+      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
+      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val created = createBankStatement(userA.id).futureValue
+
+      val ex = intercept[RuntimeException] {
+        repositories.bankStatements
+          .setAiSuggestions(created.id, userB.id, sampleSuggestions(AiSuggestionsStatus.Done), Instant.now())
+          .futureValue
+      }
+      ex.getMessage must include("Bank statement not found")
+      repositories.bankStatements.find(created.id, userA.id).futureValue.value.aiSuggestions must be(None)
+    }
+
+    "fail to read stored suggestions with an unknown status" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val created = createBankStatement(user.id).futureValue
+      // No repository API writes an unknown status, so corrupt the stored value directly.
+      val corrupt =
+        """{
+          |  "status": "bogus",
+          |  "model": "m",
+          |  "rows": []
+          |}""".stripMargin
+      repositories.database.withConnection { implicit conn =>
+        val _ = SQL"""
+          UPDATE bank_statement
+          SET ai_suggestions = $corrupt::JSONB
+          WHERE id = ${created.id.toString}::UUID
+          """.execute()
+      }
+
+      val ex = intercept[Exception](repositories.bankStatements.find(created.id, user.id).futureValue)
+      ex.getMessage must include("AiSuggestions")
     }
   }
 

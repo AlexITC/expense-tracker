@@ -1,6 +1,6 @@
 package net.wiringbits.repositories.models
 
-import net.wiringbits.api.models.bankstatements.ExtractionInfo
+import net.wiringbits.api.models.bankstatements.{AiSuggestions, ExtractionInfo}
 import net.wiringbits.models.documents.DocumentStatus
 
 import java.time.{Instant, LocalDate}
@@ -22,5 +22,6 @@ case class BankStatementView(
     documentStatus: DocumentStatus,
     totalRows: Int,
     processedRows: Int,
-    extractionInfo: Option[ExtractionInfo]
+    extractionInfo: Option[ExtractionInfo],
+    aiSuggestions: Option[AiSuggestions]
 )
