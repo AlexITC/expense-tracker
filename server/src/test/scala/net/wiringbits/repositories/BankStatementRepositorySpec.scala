@@ -36,7 +36,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     )
   }
 
-  "create" should {
+  "createStatement" should {
     "work with no rows" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       createBankStatement(user.id).futureValue
@@ -48,7 +48,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       val now = Instant.now()
       val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
       val rows = List(buildRow(stmt.id, 0), buildRow(stmt.id, 1))
-      repositories.bankStatements.create(stmt, sampleStatementMetadata, rows).futureValue
+      createStatement(stmt, sampleStatementMetadata, rows).futureValue
 
       val found = repositories.bankStatements.findRows(stmt.id).futureValue
       found.length must be(2)
@@ -196,9 +196,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       val doc = createDocument(user.id, kind = DocumentKind.BankStatementPdf).futureValue
       val now = Instant.now()
       val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
-      repositories.bankStatements
-        .create(stmt, sampleStatementMetadata, List(buildRow(stmt.id, 0), buildRow(stmt.id, 1)))
-        .futureValue
+      createStatement(stmt, sampleStatementMetadata, List(buildRow(stmt.id, 0), buildRow(stmt.id, 1))).futureValue
 
       val rows = repositories.bankStatements.allRows(user.id).futureValue
       rows.length must be(2)
@@ -212,7 +210,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       val now = Instant.now()
       val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
       val row = buildRow(stmt.id)
-      repositories.bankStatements.create(stmt, sampleStatementMetadata, List(row)).futureValue
+      createStatement(stmt, sampleStatementMetadata, List(row)).futureValue
 
       val rows = repositories.bankStatements.findRows(stmt.id).futureValue
       rows.length must be(1)
@@ -230,7 +228,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       val now = Instant.now()
       val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
       val row = buildRow(stmt.id)
-      repositories.bankStatements.create(stmt, sampleStatementMetadata, List(row)).futureValue
+      createStatement(stmt, sampleStatementMetadata, List(row)).futureValue
 
       repositories.bankStatements.setRowExpenseId(stmt.id, row.id, user.id, expense.id, Instant.now()).futureValue
       val linked = repositories.bankStatements.findRow(row.id, stmt.id).futureValue
@@ -263,7 +261,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       val now = Instant.now()
       val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
       val row = buildRow(stmt.id)
-      repositories.bankStatements.create(stmt, sampleStatementMetadata, List(row)).futureValue
+      createStatement(stmt, sampleStatementMetadata, List(row)).futureValue
 
       repositories.bankStatements.ignoreRow(stmt.id, row.id, user.id, Instant.now(), Instant.now()).futureValue
       val ignored = repositories.bankStatements.findRow(row.id, stmt.id).futureValue
