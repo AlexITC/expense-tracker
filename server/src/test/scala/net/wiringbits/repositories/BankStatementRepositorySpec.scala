@@ -5,10 +5,19 @@ import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsSta
 import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
-import net.wiringbits.repositories.models.{BankStatement, BankStatementRow, Document, Expense, ExpenseCategorySplit}
+import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
+import net.wiringbits.repositories.models.{
+  BackgroundJobData,
+  BankStatement,
+  BankStatementRow,
+  Document,
+  Expense,
+  ExpenseCategorySplit
+}
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
+import play.api.libs.json.Json
 import utils.RepositoryUtils
 
 import java.time.{Instant, LocalDate}
@@ -72,9 +81,36 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         updatedAt = now
       )
       val stmt = BankStatement.Create(UUID.randomUUID(), document.id, userId, now, now)
+      val job = BackgroundJobData.Create(
+        id = UUID.randomUUID(),
+        `type` = BackgroundJobType.ResolveStatementSuggestions,
+        payload = BackgroundJobPayload.ResolveStatementSuggestions(stmt.id),
+        status = BackgroundJobStatus.Pending,
+        executeAt = now,
+        createdAt = now,
+        updatedAt = now
+      )
       repositories.bankStatements
-        .createConfirmedStatement(document, stmt, sampleStatementMetadata, List(buildRow(stmt.id)), extractionInfo)
+        .createConfirmedStatement(document, stmt, sampleStatementMetadata, List(buildRow(stmt.id)), extractionInfo, job)
         .futureValue
+    }
+
+    "enqueue the given job with the statement" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val id = confirm(user.id, None)
+      // No repository API reads background jobs back, so inspect the stored rows directly.
+      val jobs = repositories.database.withConnection { implicit conn =>
+        SQL"""
+          SELECT type, payload::TEXT AS payload
+          FROM background_jobs
+          ORDER BY created_at
+          """.as((SqlParser.str("type") ~ SqlParser.str("payload")).map { case t ~ p => (t, p) }.*)
+      }
+
+      jobs.map(j => BackgroundJobType.withNameInsensitive(j._1)) must be(
+        List(BackgroundJobType.ResolveStatementSuggestions)
+      )
+      Json.parse(jobs.head._2) must be(Json.obj("bankStatementId" -> id.toString))
     }
 
     "persist the extraction info" in withRepositories() { implicit repositories =>

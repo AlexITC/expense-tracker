@@ -1,5 +1,6 @@
 package controllers
 
+import anorm.*
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.github.f4b6a3.uuid.UuidCreator
 import controllers.common.PlayPostgresSpec
@@ -8,6 +9,7 @@ import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
 import net.wiringbits.common.models.Captcha
+import net.wiringbits.models.jobs.BackgroundJobType
 import net.wiringbits.repositories.daos.BankStatementDraftDAO
 import net.wiringbits.repositories.models.{BankStatementDraft => DraftRecord}
 import net.wiringbits.services.{BlobStorage, NoOpBlobStorage}
@@ -197,6 +199,24 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
 
       val stmtId = client.confirmBankStatementDraft(id).futureValue.bankStatementId
       client.getBankStatement(stmtId).futureValue.extractionInfo must be(None)
+    }
+
+    "enqueue a ResolveStatementSuggestions job for the new statement" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val id = seedReadyDraft(userId, reconcilingPayload)
+
+      val stmtId = client.confirmBankStatementDraft(id).futureValue.bankStatementId
+      // No API reads background jobs back, so inspect the stored rows directly. The type is matched case-insensitively,
+      // like the DAO reads it. Any status: the live executor may already have run the job against MockBedrockClient.
+      val count = app.injector.instanceOf[Database].withConnection { implicit conn =>
+        SQL"""
+          SELECT COUNT(*)
+          FROM background_jobs
+          WHERE UPPER(type) = ${BackgroundJobType.ResolveStatementSuggestions.entryName}
+            AND payload ->> 'bankStatementId' = ${stmtId.toString}
+          """.as(SqlParser.scalar[Long].single)
+      }
+      count must be(1L)
     }
   }
 
