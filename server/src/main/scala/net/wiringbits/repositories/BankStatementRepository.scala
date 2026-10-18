@@ -1,9 +1,15 @@
 package net.wiringbits.repositories
 
-import net.wiringbits.api.models.bankstatements.ExtractionInfo
+import net.wiringbits.api.models.bankstatements.{AiSuggestions, ExtractionInfo}
 import net.wiringbits.executors.DatabaseExecutionContext
-import net.wiringbits.repositories.daos.{BankStatementDAO, BankStatementRowDAO, DocumentDAO}
-import net.wiringbits.repositories.models.{BankStatement, BankStatementRow, BankStatementView, Document}
+import net.wiringbits.repositories.daos.{BackgroundJobDAO, BankStatementDAO, BankStatementRowDAO, DocumentDAO}
+import net.wiringbits.repositories.models.{
+  BackgroundJobData,
+  BankStatement,
+  BankStatementRow,
+  BankStatementView,
+  Document
+}
 import play.api.db.Database
 
 import java.time.{Instant, LocalDate}
@@ -13,20 +19,22 @@ import scala.concurrent.Future
 
 class BankStatementRepository @Inject() (database: Database)(implicit ec: DatabaseExecutionContext) {
 
-  /** Confirm a draft import: create the document + statement (with metadata) + rows in one transaction, no processing
-    * job (the rows are already extracted). Used by the AI draft-import flow.
+  /** Confirm a draft import: create the document + statement (with metadata) + rows in one transaction, and enqueue the
+    * given job (the AI suggestions job; the rows are already extracted). Used by the AI draft-import flow.
     */
   def createConfirmedStatement(
       document: Document.Create,
       stmt: BankStatement.Create,
       metadata: BankStatement.Metadata,
       rows: List[BankStatementRow.Create],
-      extractionInfo: Option[ExtractionInfo]
+      extractionInfo: Option[ExtractionInfo],
+      job: BackgroundJobData.Create
   ): Future[UUID] = Future {
     database.withTransaction { implicit conn =>
       DocumentDAO.create(document)
       BankStatementDAO.create(stmt, metadata, extractionInfo)
       BankStatementRowDAO.createAll(rows)
+      BackgroundJobDAO.create(job)
       stmt.id
     }
   }
@@ -40,6 +48,18 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
   def all(userId: UUID): Future[List[BankStatementView]] = Future {
     database.withConnection { implicit conn =>
       BankStatementDAO.all(userId)
+    }
+  }
+
+  def setAiSuggestions(id: UUID, userId: UUID, suggestions: AiSuggestions, updatedAt: Instant): Future[Unit] = Future {
+    database.withConnection { implicit conn =>
+      BankStatementDAO.setAiSuggestions(id, userId, suggestions, updatedAt)
+    }
+  }
+
+  def findInternal(id: UUID): Future[Option[BankStatement]] = Future {
+    database.withConnection { implicit conn =>
+      BankStatementDAO.findInternal(id)
     }
   }
 
@@ -64,6 +84,12 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
   def allRows(userId: UUID): Future[List[BankStatementRow]] = Future {
     database.withConnection { implicit conn =>
       BankStatementRowDAO.allForUser(userId)
+    }
+  }
+
+  def categorizedRowExamples(userId: UUID, perCategory: Int): Future[List[(UUID, String)]] = Future {
+    database.withConnection { implicit conn =>
+      BankStatementRowDAO.categorizedExamples(userId, perCategory)
     }
   }
 

@@ -26,6 +26,7 @@ object AiExtractionProof {
       "amazon.nova-pro-v1:0",
       sys.env.getOrElse("BEDROCK_STATEMENT_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
       sys.env.getOrElse("BEDROCK_STATEMENT_MAX_TOKENS", "16000").toInt,
+      sys.env.getOrElse("BEDROCK_SUGGESTIONS_MODEL_ID", "eu.amazon.nova-lite-v1:0"),
       BedrockConfig.Real
     )
     val client = new RealBedrockClient(config)

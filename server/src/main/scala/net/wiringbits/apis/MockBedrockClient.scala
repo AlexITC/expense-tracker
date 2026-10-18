@@ -10,4 +10,8 @@ class MockBedrockClient extends BedrockClient {
         """"periodStart":"2026-01-01","periodEnd":"2026-01-31","openingBalance":100.00,"closingBalance":60.00},""" +
         """"transactions":[{"date":"2026-01-15","amount":-40.00,"description":"MOCK PURCHASE","runningBalance":60.00}]}"""
     )
+
+  // A valid "no suggestions" answer, so mock-mode suggestion jobs complete.
+  override def suggest(prompt: String): Future[String] =
+    Future.successful("""{"rows":[]}""")
 }

@@ -1,6 +1,6 @@
 package net.wiringbits.components.pages
 
-import net.wiringbits.api.models.bankstatements.GetBankStatement
+import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus, GetBankStatement}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -53,6 +53,26 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
     "use empty string description as-is in success label" in {
       val row = sampleRow(description = "")
       BankStatementReviewPage.resultLabel(row.id, Map(row.id -> row.description), Right(())) mustBe "✓ "
+    }
+  }
+
+  "suggestionsPending" should {
+    def suggestions(status: AiSuggestionsStatus) = Some(AiSuggestions(status, "eu.amazon.nova-lite-v1:0", Nil))
+
+    "be true when suggestions have not been written yet" in {
+      BankStatementReviewPage.suggestionsPending(None) mustBe true
+    }
+
+    "be true when the status is Pending" in {
+      BankStatementReviewPage.suggestionsPending(suggestions(AiSuggestionsStatus.Pending)) mustBe true
+    }
+
+    "be false when the status is Done" in {
+      BankStatementReviewPage.suggestionsPending(suggestions(AiSuggestionsStatus.Done)) mustBe false
+    }
+
+    "be false when the status is Failed" in {
+      BankStatementReviewPage.suggestionsPending(suggestions(AiSuggestionsStatus.Failed)) mustBe false
     }
   }
 }

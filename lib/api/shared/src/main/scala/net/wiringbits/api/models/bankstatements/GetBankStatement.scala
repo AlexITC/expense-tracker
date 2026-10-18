@@ -42,7 +42,8 @@ object GetBankStatement {
       periodEnd: LocalDate,
       statementRows: List[StatementRowData],
       createdAt: Instant,
-      extractionInfo: Option[ExtractionInfo]
+      extractionInfo: Option[ExtractionInfo],
+      aiSuggestions: Option[AiSuggestions]
   )
 
   object Response {

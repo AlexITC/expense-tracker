@@ -44,6 +44,7 @@ class GetBankStatementAction @Inject() (bankStatementRepository: BankStatementRe
         )
       },
       createdAt = view.createdAt,
-      extractionInfo = view.extractionInfo
+      extractionInfo = view.extractionInfo,
+      aiSuggestions = view.aiSuggestions
     )
 }

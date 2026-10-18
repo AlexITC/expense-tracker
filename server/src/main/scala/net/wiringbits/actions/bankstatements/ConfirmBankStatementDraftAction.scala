@@ -4,7 +4,8 @@ import com.github.f4b6a3.uuid.UuidCreator
 import io.scalaland.chimney.dsl.*
 import net.wiringbits.api.models.bankstatements.{BankStatementDraft, ExtractionInfo}
 import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
-import net.wiringbits.repositories.models.{BankStatement, BankStatementRow, Document}
+import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
+import net.wiringbits.repositories.models.{BackgroundJobData, BankStatement, BankStatementRow, Document}
 import net.wiringbits.repositories.{BankStatementDraftRepository, BankStatementRepository}
 import net.wiringbits.services.AiStatementExtractor
 import org.slf4j.LoggerFactory
@@ -16,7 +17,8 @@ import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 
 /** Confirm the current draft into a real statement + rows. Blocks unless the (possibly edited) draft reconciles and the
-  * required metadata is present. Writes everything in one transaction and deletes the draft.
+  * required metadata is present. Writes everything (plus the AI suggestions job) in one transaction and deletes the
+  * draft.
   */
 class ConfirmBankStatementDraftAction @Inject() (
     bankStatementDraftRepository: BankStatementDraftRepository,
@@ -63,10 +65,21 @@ class ConfirmBankStatementDraftAction @Inject() (
         )
       }
       extractionInfo = payload.stage.map(s => payload.into[ExtractionInfo].withFieldConst(_.stage, s).transform)
-      _ <- bankStatementRepository.createConfirmedStatement(document, stmt, metadata, rows, extractionInfo)
+      job = BackgroundJobData.Create(
+        id = UUID.randomUUID(),
+        `type` = BackgroundJobType.ResolveStatementSuggestions,
+        payload = BackgroundJobPayload.ResolveStatementSuggestions(stmtId),
+        status = BackgroundJobStatus.Pending,
+        executeAt = now,
+        createdAt = now,
+        updatedAt = now
+      )
+      _ <- bankStatementRepository.createConfirmedStatement(document, stmt, metadata, rows, extractionInfo, job)
       _ <- bankStatementDraftRepository.delete(draftId, userId)
     } yield {
-      logger.info(s"Confirmed statement draft ${draft.id} into statement $stmtId (${payload.transactions.size} rows)")
+      logger.info(
+        s"Confirmed statement draft ${draft.id} into statement $stmtId (${payload.transactions.size} rows), enqueued suggestions job ${job.id}"
+      )
       BankStatementDraft.Confirm.Response(stmtId)
     }
 

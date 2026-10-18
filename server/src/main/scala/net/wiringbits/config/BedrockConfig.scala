@@ -11,10 +11,11 @@ case class BedrockConfig(
     modelId: String,
     statementModelId: String,
     statementMaxTokens: Int,
+    suggestionsModelId: String,
     mode: BedrockConfig.Mode
 ) {
   override def toString: String =
-    s"BedrockConfig(region = $region, accessKeyId = ${accessKeyId.toString}, secretAccessKey = ${secretAccessKey.toString}, modelId = $modelId, mode = $mode)"
+    s"BedrockConfig(region = $region, accessKeyId = ${accessKeyId.toString}, secretAccessKey = ${secretAccessKey.toString}, modelId = $modelId, suggestionsModelId = $suggestionsModelId, mode = $mode)"
 }
 
 object BedrockConfig {
@@ -29,6 +30,7 @@ object BedrockConfig {
     val modelId = config.get[String]("modelId")
     val statementModelId = config.get[String]("statementModelId")
     val statementMaxTokens = config.get[Int]("statementMaxTokens")
+    val suggestionsModelId = config.get[String]("suggestionsModelId")
     val mode = config.get[String]("mode") match {
       case "mock" => Mock
       case "real" => Real
@@ -41,6 +43,7 @@ object BedrockConfig {
       modelId,
       statementModelId,
       statementMaxTokens,
+      suggestionsModelId,
       mode
     )
   }

@@ -3,10 +3,11 @@ package controllers
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.github.f4b6a3.uuid.UuidCreator
 import controllers.common.PlayPostgresSpec
-import net.wiringbits.api.models.bankstatements.CreateExpenseFromRow
+import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus, CreateExpenseFromRow}
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
 import net.wiringbits.common.models.Captcha
+import net.wiringbits.repositories.BankStatementRepository
 import net.wiringbits.repositories.models.BankStatementRow
 import net.wiringbits.services.{BlobStorage, NoOpBlobStorage}
 import net.wiringbits.util.TokenGenerator
@@ -233,6 +234,32 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
 
       val after = client.getBankStatement(stmtId).futureValue
       after.statementRows.head.ignoredAt must not be None
+    }
+  }
+
+  "GET /bank-statements/:id" should {
+    "return no AI suggestions for a fresh statement" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val (stmtId, _) = setupStmtWithRow()
+
+      client.getBankStatement(stmtId).futureValue.aiSuggestions must be(None)
+    }
+
+    "return the stored AI suggestions" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val (stmtId, rowId) = setupStmtWithRow()
+      val suggestions = AiSuggestions(
+        status = AiSuggestionsStatus.Done,
+        model = "model-x",
+        rows = List(AiSuggestions.RowSuggestion(rowId, Some(UUID.randomUUID()), None))
+      )
+      app.injector
+        .instanceOf[BankStatementRepository]
+        .setAiSuggestions(stmtId, userId, suggestions, Instant.now())
+        .futureValue
+
+      client.getBankStatement(stmtId).futureValue.aiSuggestions must be(Some(suggestions))
     }
   }
 

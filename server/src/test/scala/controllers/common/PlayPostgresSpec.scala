@@ -5,8 +5,9 @@ import com.dimafeng.testcontainers.scalatest.TestContainerForEach
 import com.github.f4b6a3.uuid.UuidCreator
 import net.wiringbits.api.ApiClient
 import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.BankStatementRepository
-import net.wiringbits.repositories.models.{BankStatement, BankStatementRow, Document}
+import net.wiringbits.repositories.models.{BackgroundJobData, BankStatement, BankStatementRow, Document}
 import org.scalatest.TestData
 import org.scalatest.time.SpanSugar.convertIntToGrainOfTime
 import org.scalatestplus.play.guice.GuiceOneServerPerTest
@@ -16,7 +17,7 @@ import play.api.{Application, Configuration, Environment, Mode}
 import sttp.client3.HttpClientFutureBackend
 
 import java.sql.DriverManager
-import java.time.{Instant, LocalDate}
+import java.time.{Duration, Instant, LocalDate}
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
@@ -94,7 +95,17 @@ trait PlayPostgresSpec extends PlayAPISpec with TestContainerForEach with GuiceO
       periodStart = LocalDate.of(2026, 1, 1),
       periodEnd = LocalDate.of(2026, 1, 31)
     )
-    repo.createConfirmedStatement(document, stmt, metadata, rows(stmtId), extractionInfo = None).futureValue
+    // Scheduled far in the future so the live executor never resolves suggestions while a test inspects the statement.
+    val job = BackgroundJobData.Create(
+      id = UUID.randomUUID(),
+      `type` = BackgroundJobType.ResolveStatementSuggestions,
+      payload = BackgroundJobPayload.ResolveStatementSuggestions(stmtId),
+      status = BackgroundJobStatus.Pending,
+      executeAt = now.plus(Duration.ofDays(365)),
+      createdAt = now,
+      updatedAt = now
+    )
+    repo.createConfirmedStatement(document, stmt, metadata, rows(stmtId), extractionInfo = None, job).futureValue
     stmtId
   }
 

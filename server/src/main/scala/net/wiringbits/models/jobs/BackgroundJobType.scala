@@ -16,6 +16,7 @@ object BackgroundJobType extends Enum[BackgroundJobType] {
   case object PollReceipt extends BackgroundJobType
   case object ParseReceipt extends BackgroundJobType
   case object ExtractBankStatementDraft extends BackgroundJobType
+  case object ResolveStatementSuggestions extends BackgroundJobType
 
   val values = findValues
 }
