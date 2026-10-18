@@ -259,6 +259,79 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
   }
 
+  "requestAiSuggestions" should {
+    val pending = AiSuggestions(status = AiSuggestionsStatus.Pending, model = "model-x", rows = Nil)
+
+    def buildJob(stmtId: UUID): BackgroundJobData.Create = {
+      val now = Instant.now()
+      BackgroundJobData.Create(
+        id = UUID.randomUUID(),
+        `type` = BackgroundJobType.ResolveStatementSuggestions,
+        payload = BackgroundJobPayload.ResolveStatementSuggestions(stmtId),
+        status = BackgroundJobStatus.Pending,
+        executeAt = now,
+        createdAt = now,
+        updatedAt = now
+      )
+    }
+
+    // No repository API reads background jobs back, so inspect the stored rows directly. Creating the statement's
+    // document also enqueues a ProcessDocument job, so only the suggestions jobs are read.
+    def storedSuggestionsJobs()(implicit repositories: RepositoryComponents): List[String] =
+      repositories.database.withConnection { implicit conn =>
+        SQL"""
+          SELECT payload::TEXT AS payload
+          FROM background_jobs
+          WHERE UPPER(type) = ${BackgroundJobType.ResolveStatementSuggestions.entryName}
+          ORDER BY created_at
+          """.as(SqlParser.str("payload").*)
+      }
+
+    "replace previously stored suggestions with the pending ones" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val created = createBankStatement(user.id).futureValue
+      val done = AiSuggestions(
+        status = AiSuggestionsStatus.Done,
+        model = "model-x",
+        rows = List(AiSuggestions.RowSuggestion(UUID.randomUUID(), Some(UUID.randomUUID()), None))
+      )
+      repositories.bankStatements.setAiSuggestions(created.id, user.id, done, Instant.now()).futureValue
+
+      repositories.bankStatements
+        .requestAiSuggestions(created.id, user.id, pending, buildJob(created.id), Instant.now())
+        .futureValue
+
+      repositories.bankStatements.find(created.id, user.id).futureValue.value.aiSuggestions must be(Some(pending))
+    }
+
+    "enqueue the given job" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val created = createBankStatement(user.id).futureValue
+
+      repositories.bankStatements
+        .requestAiSuggestions(created.id, user.id, pending, buildJob(created.id), Instant.now())
+        .futureValue
+
+      storedSuggestionsJobs().map(Json.parse) must be(List(Json.obj("bankStatementId" -> created.id.toString)))
+    }
+
+    "fail without enqueueing a job when the statement belongs to another user" in withRepositories() {
+      implicit repositories =>
+        val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
+        val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+        val created = createBankStatement(userA.id).futureValue
+
+        val ex = intercept[RuntimeException] {
+          repositories.bankStatements
+            .requestAiSuggestions(created.id, userB.id, pending, buildJob(created.id), Instant.now())
+            .futureValue
+        }
+        ex.getMessage must include("Bank statement not found")
+        repositories.bankStatements.find(created.id, userA.id).futureValue.value.aiSuggestions must be(None)
+        storedSuggestionsJobs() must be(empty)
+    }
+  }
+
   "findInternal" should {
     "return the statement with its owner userId" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue

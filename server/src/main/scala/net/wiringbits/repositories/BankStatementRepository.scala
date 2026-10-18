@@ -57,6 +57,22 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
     }
   }
 
+  /** Mark the statement's suggestions as pending and enqueue the job that recomputes them, in one transaction. The
+    * suggestions are written first so a missing or foreign statement fails before the job is created.
+    */
+  def requestAiSuggestions(
+      id: UUID,
+      userId: UUID,
+      pending: AiSuggestions,
+      job: BackgroundJobData.Create,
+      updatedAt: Instant
+  ): Future[Unit] = Future {
+    database.withTransaction { implicit conn =>
+      BankStatementDAO.setAiSuggestions(id, userId, pending, updatedAt)
+      BackgroundJobDAO.create(job)
+    }
+  }
+
   def findInternal(id: UUID): Future[Option[BankStatement]] = Future {
     database.withConnection { implicit conn =>
       BankStatementDAO.findInternal(id)
