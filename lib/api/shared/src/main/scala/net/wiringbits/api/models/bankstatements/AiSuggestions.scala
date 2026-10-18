@@ -50,6 +50,8 @@ object AiSuggestions {
   }
 
   implicit val format: Format[AiSuggestions] = Json.format[AiSuggestions]
-  implicit val schema: Schema[AiSuggestions] =
+  // lazy: deriving RowSuggestion's schema initializes this object, so a strict val would read RowSuggestion.schema
+  // while it is still null (ExceptionInInitializerError) whenever RowSuggestion is touched first.
+  implicit lazy val schema: Schema[AiSuggestions] =
     Schema.derived[AiSuggestions].name(Schema.SName("BankStatementAiSuggestions"))
 }
