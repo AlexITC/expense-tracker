@@ -68,10 +68,10 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
     )
   }
 
-  private def answer(field: String, pairs: (UUID, Option[UUID])*): String =
-    pairs
-      .map { case (rowId, id) => s"""{"rowId":"$rowId","$field":${id.fold("null")(i => s"\"$i\"")}}""" }
-      .mkString("""{"rows":[""", ",", "]}")
+  private def answer(name: String): String =
+    s"""{
+       |  "answer": "$name"
+       |}""".stripMargin
 
   private case class Seeded(
       userId: UUID,
@@ -112,17 +112,13 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
   "apply" should {
     "store Done suggestions for the debit rows no rule handles" in withRepositories() { implicit repositories =>
       val s = seed()
+      // Merchant prompts quote their category; category prompts are told apart by the row description.
       val client = new StubBedrockClient(prompt =>
-        if (prompt.contains("\"Groceries\""))
-          answer(StatementSuggestionsService.MerchantField, s.groceryRow.id -> Some(s.superMartId))
-        else if (prompt.contains("\"Transport\""))
-          answer(StatementSuggestionsService.MerchantField, s.taxiRow.id -> Some(s.uberId))
-        else
-          answer(
-            StatementSuggestionsService.CategoryField,
-            s.groceryRow.id -> Some(s.groceriesId),
-            s.taxiRow.id -> Some(s.transportId)
-          )
+        if (prompt.contains("\"Groceries\"")) answer("SuperMart")
+        else if (prompt.contains("\"Transport\"")) answer("Uber")
+        else if (prompt.contains("SUPERMART 123")) answer("Groceries")
+        else if (prompt.contains("UBER TRIP")) answer("Transport")
+        else fail(s"Unexpected prompt: $prompt")
       )
 
       action(client).apply(s.stmtId).futureValue
@@ -149,6 +145,27 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
         ex.getMessage must include("not json at all")
 
         storedSuggestions(s) must be(AiSuggestions(AiSuggestionsStatus.Failed, modelId, Nil))
+    }
+
+    "store Failed suggestions and fail when the user has rows but no categories" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val doc = createDocument(user.id, kind = DocumentKind.BankStatementPdf).futureValue
+        val now = Instant.now()
+        val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
+        createStatement(
+          stmt,
+          sampleStatementMetadata,
+          List(buildRow(stmt.id, 0, "CORNER SHOP", BigDecimal("-9.99")))
+        ).futureValue
+        val client = new StubBedrockClient(_ => fail("Bedrock must not be called without categories"))
+
+        val ex = intercept[Exception](action(client).apply(stmt.id).futureValue)
+        ex.getMessage must include("no categories")
+
+        repositories.bankStatements.find(stmt.id, user.id).futureValue.value.aiSuggestions.value must be(
+          AiSuggestions(AiSuggestionsStatus.Failed, modelId, Nil)
+        )
     }
 
     "fail when the statement does not exist" in withRepositories() { implicit repositories =>

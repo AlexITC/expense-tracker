@@ -10,7 +10,7 @@ import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import java.time.{Instant, LocalDate}
-import java.util.UUID
+import java.util.{Locale, UUID}
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
@@ -20,20 +20,28 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
 
   override implicit val patienceConfig: PatienceConfig = PatienceConfig(5.seconds, 50.milliseconds)
 
-  // Records every prompt and answers with the scripted responses, in order.
-  private class StubBedrockClient(responses: String*) extends BedrockClient {
+  // Records every prompt and answers it with `respond`; a prompt `respond` does not handle fails the test.
+  private class StubBedrockClient(respond: PartialFunction[String, String]) extends BedrockClient {
     val prompts: mutable.ListBuffer[String] = mutable.ListBuffer.empty
-    private val remaining = mutable.Queue(responses*)
 
     override def extractBankStatement(statementText: String, feedback: Option[String]): Future[String] =
       Future.failed(new UnsupportedOperationException("not used"))
 
     override def suggest(prompt: String): Future[String] = {
       prompts += prompt
-      if (remaining.isEmpty) Future.failed(new IllegalStateException("unexpected suggest call"))
-      else Future.successful(remaining.dequeue())
+      respond
+        .lift(prompt)
+        .fold(Future.failed[String](new IllegalStateException(s"unexpected suggest call: $prompt")))(
+          Future.successful
+        )
     }
+
+    def categoryPrompts: List[String] = prompts.toList.filter(isCategoryPrompt)
+    def merchantPrompts: List[String] = prompts.toList.filter(isMerchantPrompt)
   }
+
+  private def isCategoryPrompt(prompt: String) = prompt.contains("<category name>")
+  private def isMerchantPrompt(prompt: String) = prompt.contains("<merchant name>")
 
   private val now = Instant.now()
   private val userId = UUID.randomUUID()
@@ -63,10 +71,28 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
   private def merchant(name: String, categoryId: Option[UUID]) =
     Merchant(UUID.randomUUID(), userId, name, None, categoryId, None, reviewed = true, now, now)
 
-  private def answer(field: String, pairs: (UUID, Option[UUID])*): String =
-    pairs
-      .map { case (rowId, id) => s"""{"rowId":"$rowId","$field":${id.fold("null")(i => s"\"$i\"")}}""" }
-      .mkString("""{"rows":[""", ",", "]}")
+  private def answer(name: String): String =
+    s"""{
+       |  "answer": "$name"
+       |}""".stripMargin
+
+  // Category prompts get `categoryAnswer`; merchant prompts get `merchantAnswer`, when given.
+  private def stub(categoryAnswer: String, merchantAnswer: Option[String] = None) =
+    new StubBedrockClient({
+      case p if isCategoryPrompt(p) => answer(categoryAnswer)
+      case p if isMerchantPrompt(p) && merchantAnswer.isDefined => answer(merchantAnswer.get)
+    })
+
+  private def run(
+      client: BedrockClient,
+      rows: List[BankStatementRow],
+      merchants: List[Merchant],
+      categories: List[Category],
+      rules: List[ImportRuleMatcher.Rule] = Nil,
+      examples: List[(UUID, String)] = Nil
+  ): Future[AiSuggestions] =
+    new StatementSuggestionsService(client)
+      .resolve(userId, statementId, model, rows, rules, merchants, categories, examples)
 
   private def resolve(
       client: BedrockClient,
@@ -76,9 +102,7 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       rules: List[ImportRuleMatcher.Rule] = Nil,
       examples: List[(UUID, String)] = Nil
   ): AiSuggestions =
-    new StatementSuggestionsService(client)
-      .resolve(statementId, model, rows, rules, merchants, categories, examples)
-      .futureValue
+    run(client, rows, merchants, categories, rules, examples).futureValue
 
   private val groceries = category("Groceries")
   private val transport = category("Transport")
@@ -94,136 +118,144 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
         ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "bank fee", None),
         ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant, "netflix", Some(UUID.randomUUID()))
       )
-      val client = new StubBedrockClient(answer("categoryId", pending.id -> None))
+      val client = stub("Groceries")
 
       val result = resolve(client, List(ignored, ruled, credit, pending), Nil, categories, rules)
 
       result.status must be(AiSuggestionsStatus.Done)
       result.model must be(model)
-      result.rows must be(List(AiSuggestions.RowSuggestion(pending.id, None, None)))
+      result.rows must be(List(AiSuggestions.RowSuggestion(pending.id, Some(groceries.id), None)))
       client.prompts must have size 1
       client.prompts.head must include("CORNER SHOP 42")
       List("BANK FEE", "NETFLIX", "SALARY").foreach(d => client.prompts.head must not include d)
     }
 
-    "map the category step's answer to each row" in {
+    "send one category prompt per row" in {
       val bus = row("METRO TICKET")
       val shop = row("CORNER SHOP")
-      val client = new StubBedrockClient(answer("categoryId", bus.id -> Some(transport.id), shop.id -> None))
+      val client = new StubBedrockClient({
+        case p if p.contains("METRO TICKET") => answer("Transport")
+        case p if p.contains("CORNER SHOP") => answer("Groceries")
+      })
 
-      val result = resolve(client, List(bus, shop), Nil, categories, examples = List(transport.id -> "CITY BUS"))
+      val result = resolve(client, List(bus, shop), Nil, categories)
 
       result.rows must be(
         List(
           AiSuggestions.RowSuggestion(bus.id, Some(transport.id), None),
-          AiSuggestions.RowSuggestion(shop.id, None, None)
+          AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None)
         )
       )
-      client.prompts.head must include(transport.id.toString)
-      client.prompts.head must include("CITY BUS")
+      client.categoryPrompts must have size 2
+      client.categoryPrompts(0) must include("METRO TICKET")
+      client.categoryPrompts(0) must not include "CORNER SHOP"
+      client.categoryPrompts(1) must include("CORNER SHOP")
+      client.categoryPrompts(1) must not include "METRO TICKET"
     }
 
-    "offer only the predicted category's merchants in the merchant prompt" in {
+    "list category names with their examples, no ids and no way to answer none" in {
+      val bus = row("METRO TICKET")
+      val client = stub("Transport")
+
+      resolve(client, List(bus), Nil, categories, examples = List(transport.id -> "CITY BUS"))
+
+      val prompt = client.prompts.head
+      prompt must include("Groceries")
+      prompt must include("Transport")
+      prompt must include("CITY BUS")
+      List(groceries.id, transport.id, bus.id).foreach(id => prompt must not include id.toString)
+      List("none", "null").foreach(word => prompt.toLowerCase(Locale.ROOT) must not include word)
+    }
+
+    "map the returned category name to its id ignoring case and accents" in {
+      val shop = row("CORNER SHOP")
+      List("groceries", "  GROCERIES ", "Gróceries").foreach { name =>
+        resolve(stub(name), List(shop), Nil, categories).rows must be(
+          List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None))
+        )
+      }
+    }
+
+    "leave the row without a category when the name is unknown" in {
+      val shop = row("CORNER SHOP")
+      val cornerShop = merchant("Corner Shop", Some(groceries.id))
+      val client = stub("Restaurants")
+
+      resolve(client, List(shop), List(cornerShop), categories).rows must be(
+        List(AiSuggestions.RowSuggestion(shop.id, None, None))
+      )
+      client.merchantPrompts must be(empty)
+    }
+
+    "leave the row without a category when the name matches several categories" in {
+      val shop = row("CORNER SHOP")
+      val plain = category("Super")
+      val accented = category("Súper")
+
+      resolve(stub("super"), List(shop), Nil, List(plain, accented)).rows must be(
+        List(AiSuggestions.RowSuggestion(shop.id, None, None))
+      )
+    }
+
+    "offer only the predicted category's merchant names in the merchant prompt" in {
       val shop = row("CORNER SHOP")
       val cornerShop = merchant("Corner Shop", Some(groceries.id))
       val uber = merchant("Uber", Some(transport.id))
       val uncategorized = merchant("Mystery", None)
-      val client = new StubBedrockClient(
-        answer("categoryId", shop.id -> Some(groceries.id)),
-        answer("merchantId", shop.id -> None)
-      )
+      val client = stub("Groceries", Some("none"))
 
       resolve(client, List(shop), List(cornerShop, uber, uncategorized), categories)
 
       client.prompts must have size 2
-      val merchantPrompt = client.prompts(1)
-      merchantPrompt must include(cornerShop.id.toString)
-      merchantPrompt must not include uber.id.toString
-      merchantPrompt must not include uncategorized.id.toString
+      val prompt = client.merchantPrompts.head
+      prompt must include("Corner Shop")
+      prompt must include("CORNER SHOP")
+      prompt must include("\"Groceries\"")
+      List("Uber", "Mystery").foreach(name => prompt must not include name)
+      List(cornerShop.id, groceries.id, shop.id).foreach(id => prompt must not include id.toString)
     }
 
-    "set the chosen merchant and keep its category" in {
+    "set the chosen merchant" in {
       val shop = row("CORNER SHOP")
       val cornerShop = merchant("Corner Shop", Some(groceries.id))
-      val client = new StubBedrockClient(
-        answer("categoryId", shop.id -> Some(groceries.id)),
-        answer("merchantId", shop.id -> Some(cornerShop.id))
+
+      resolve(stub("Groceries", Some("corner shop")), List(shop), List(cornerShop), categories).rows must be(
+        List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), Some(cornerShop.id)))
       )
-
-      val result = resolve(client, List(shop), List(cornerShop), categories)
-
-      result.rows must be(List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), Some(cornerShop.id))))
     }
 
-    "resolve merchants per predicted category and merge every group" in {
+    "keep the predicted category when the merchant answer is none" in {
       val shop = row("CORNER SHOP")
-      val ride = row("UBER TRIP")
+      val cornerShop = merchant("Corner Shop", Some(groceries.id))
+
+      resolve(stub("Groceries", Some("None")), List(shop), List(cornerShop), categories).rows must be(
+        List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None))
+      )
+    }
+
+    "leave the merchant out when the name is not one of the offered merchants" in {
+      val shop = row("CORNER SHOP")
       val cornerShop = merchant("Corner Shop", Some(groceries.id))
       val uber = merchant("Uber", Some(transport.id))
-      val client = new StubBedrockClient(
-        answer("categoryId", shop.id -> Some(groceries.id), ride.id -> Some(transport.id)),
-        answer("merchantId", shop.id -> Some(cornerShop.id)),
-        answer("merchantId", ride.id -> Some(uber.id))
-      )
 
-      val result = resolve(client, List(shop, ride), List(cornerShop, uber), categories)
-
-      result.rows must be(
-        List(
-          AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), Some(cornerShop.id)),
-          AiSuggestions.RowSuggestion(ride.id, Some(transport.id), Some(uber.id))
-        )
+      resolve(stub("Groceries", Some("Uber")), List(shop), List(cornerShop, uber), categories).rows must be(
+        List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None))
       )
-      client.prompts must have size 3
-      val groceriesPrompt = client.prompts(1)
-      groceriesPrompt must include(cornerShop.id.toString)
-      groceriesPrompt must include(shop.id.toString)
-      groceriesPrompt must not include uber.id.toString
-      groceriesPrompt must not include ride.id.toString
-      val transportPrompt = client.prompts(2)
-      transportPrompt must include(uber.id.toString)
-      transportPrompt must include(ride.id.toString)
-      transportPrompt must not include cornerShop.id.toString
-      transportPrompt must not include shop.id.toString
     }
 
-    "fail when the merchant answer is not valid JSON" in {
+    "leave the merchant out when the name matches several merchants" in {
       val shop = row("CORNER SHOP")
-      val client = new StubBedrockClient(answer("categoryId", shop.id -> Some(groceries.id)), "not json")
+      val first = merchant("Corner Shop", Some(groceries.id))
+      val second = merchant("Corner  Shop", Some(groceries.id))
 
-      val error = new StatementSuggestionsService(client)
-        .resolve(
-          statementId,
-          model,
-          List(shop),
-          Nil,
-          List(merchant("Corner Shop", Some(groceries.id))),
-          categories,
-          Nil
-        )
-        .failed
-        .futureValue
-
-      error mustBe a[RuntimeException]
-      error.getMessage must include("not json")
-    }
-
-    "keep the predicted category when no merchant is chosen" in {
-      val shop = row("CORNER SHOP")
-      val cornerShop = merchant("Corner Shop", Some(groceries.id))
-      val client = new StubBedrockClient(
-        answer("categoryId", shop.id -> Some(groceries.id)),
-        answer("merchantId", shop.id -> None)
+      resolve(stub("Groceries", Some("Corner Shop")), List(shop), List(first, second), categories).rows must be(
+        List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None))
       )
-
-      val result = resolve(client, List(shop), List(cornerShop), categories)
-
-      result.rows must be(List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None)))
     }
 
     "skip the merchant step for a category without merchants" in {
       val bus = row("METRO TICKET")
-      val client = new StubBedrockClient(answer("categoryId", bus.id -> Some(transport.id)))
+      val client = stub("Transport")
 
       val result = resolve(client, List(bus), List(merchant("Corner Shop", Some(groceries.id))), categories)
 
@@ -231,95 +263,73 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       client.prompts must have size 1
     }
 
-    "drop a category id that is not one of the user's categories" in {
-      val bus = row("METRO TICKET")
-      val client = new StubBedrockClient(answer("categoryId", bus.id -> Some(UUID.randomUUID())))
-
-      val result = resolve(client, List(bus), Nil, categories)
-
-      result.rows must be(List(AiSuggestions.RowSuggestion(bus.id, None, None)))
-    }
-
-    "drop a merchant id that is not one of the predicted category's merchants" in {
-      val shop = row("CORNER SHOP")
-      val cornerShop = merchant("Corner Shop", Some(groceries.id))
-      val uber = merchant("Uber", Some(transport.id))
-      val client = new StubBedrockClient(
-        answer("categoryId", shop.id -> Some(groceries.id)),
-        // Uber exists but is not one of the offered Groceries merchants.
-        answer("merchantId", shop.id -> Some(uber.id))
-      )
-
-      val result = resolve(client, List(shop), List(cornerShop, uber), categories)
-
-      result.rows must be(List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None)))
-    }
-
-    "leave a row missing from the answer without a suggestion" in {
-      val shop = row("CORNER SHOP")
-      val missing = row("UNKNOWN STORE")
-      val client = new StubBedrockClient(answer("categoryId", shop.id -> Some(transport.id)))
-
-      val result = resolve(client, List(shop, missing), Nil, categories)
-
-      result.rows must be(
-        List(
-          AiSuggestions.RowSuggestion(shop.id, Some(transport.id), None),
-          AiSuggestions.RowSuggestion(missing.id, None, None)
-        )
-      )
-    }
-
-    "split the rows of each step into batches of at most BatchSize" in {
-      val rows = (0 to StatementSuggestionsService.BatchSize).toList.map(i => row(s"SHOP $i"))
-      val (first, second) = rows.splitAt(StatementSuggestionsService.BatchSize)
-      val cornerShop = merchant("Corner Shop", Some(groceries.id))
-      val client = new StubBedrockClient(
-        answer("categoryId", first.map(_.id -> Some(groceries.id))*),
-        answer("categoryId", second.map(_.id -> Some(groceries.id))*),
-        answer("merchantId", first.map(_.id -> Some(cornerShop.id))*),
-        answer("merchantId", second.map(_.id -> Some(cornerShop.id))*)
-      )
-
-      val result = resolve(client, rows, List(cornerShop), categories)
-
-      result.rows must be(rows.map(r => AiSuggestions.RowSuggestion(r.id, Some(groceries.id), Some(cornerShop.id))))
-      client.prompts must have size 4
-      List(client.prompts(0), client.prompts(2)).foreach { p =>
-        p must include(first.last.id.toString)
-        p must not include second.head.id.toString
-      }
-      List(client.prompts(1), client.prompts(3)).foreach { p =>
-        p must include(second.head.id.toString)
-        p must not include first.head.id.toString
-      }
-    }
-
-    "fail when the model answer is not valid JSON or has no rows array" in {
-      List("Sorry, I cannot help with that", """{"answer":[]}""").foreach { raw =>
-        val client = new StubBedrockClient(raw)
-        val error = new StatementSuggestionsService(client)
-          .resolve(statementId, model, List(row("CORNER SHOP")), Nil, Nil, categories, Nil)
-          .failed
-          .futureValue
+    "fail with the raw text when the model answer is not valid JSON or has no string answer" in {
+      val notAString =
+        """{
+          |  "answer": []
+          |}""".stripMargin
+      val oldShape =
+        """{
+          |  "rows": []
+          |}""".stripMargin
+      List("Sorry, I cannot help with that", notAString, oldShape).foreach { raw =>
+        val client = new StubBedrockClient({ case _ => raw })
+        val error = run(client, List(row("CORNER SHOP")), Nil, categories).failed.futureValue
         error mustBe a[RuntimeException]
         error.getMessage must include(raw)
       }
     }
 
-    "make no Bedrock call when there is nothing to resolve" in {
-      val client = new StubBedrockClient()
+    "fail with the raw text when the merchant answer is not valid JSON" in {
+      val shop = row("CORNER SHOP")
+      val client = new StubBedrockClient({
+        case p if isCategoryPrompt(p) => answer("Groceries")
+        case p if isMerchantPrompt(p) => "not json"
+      })
 
-      resolve(client, List(row("SALARY", BigDecimal(1000))), Nil, categories).rows must be(Nil)
+      val error =
+        run(client, List(shop), List(merchant("Corner Shop", Some(groceries.id))), categories).failed.futureValue
+
+      error mustBe a[RuntimeException]
+      error.getMessage must include("not json")
+    }
+
+    "make no Bedrock call and return Done with no rows when there is nothing to resolve" in {
+      val client = new StubBedrockClient(PartialFunction.empty)
+
+      resolve(client, List(row("SALARY", BigDecimal(1000))), Nil, categories) must be(
+        AiSuggestions(AiSuggestionsStatus.Done, model, Nil)
+      )
       client.prompts must be(empty)
     }
 
-    "make no Bedrock call when there are no categories" in {
-      val shop = row("CORNER SHOP")
-      val client = new StubBedrockClient()
+    "fail without calling Bedrock when there are rows but no categories" in {
+      val client = new StubBedrockClient(PartialFunction.empty)
 
-      resolve(client, List(shop), Nil, Nil).rows must be(List(AiSuggestions.RowSuggestion(shop.id, None, None)))
+      val error = run(client, List(row("CORNER SHOP")), Nil, Nil).failed.futureValue
+
+      error mustBe a[RuntimeException]
+      error.getMessage must include(userId.toString)
       client.prompts must be(empty)
+    }
+  }
+
+  "matchByName" should {
+    val names = List("Groceries", "Café Central")
+
+    "match ignoring case, accents and spacing" in {
+      StatementSuggestionsService.matchByName(" cafe   CENTRAL ", names)(identity) must be(Some("Café Central"))
+      StatementSuggestionsService.matchByName("GROCERIES", names)(identity) must be(Some("Groceries"))
+    }
+
+    "return None when no candidate matches" in {
+      StatementSuggestionsService.matchByName("Transport", names)(identity) must be(None)
+    }
+
+    "return None when several candidates differ only in spacing" in {
+      StatementSuggestionsService.matchByName("corner shop", List("Corner Shop", "Corner  Shop"))(identity) must be(
+        None
+      )
     }
   }
 

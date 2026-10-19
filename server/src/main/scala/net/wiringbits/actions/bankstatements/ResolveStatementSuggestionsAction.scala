@@ -58,7 +58,16 @@ class ResolveStatementSuggestionsAction @Inject() (
       categories <- categoriesRepository.all(userId)
       examples <- bankStatementRepository.categorizedRowExamples(userId, ExamplesPerCategory)
       rules = importRules.map(_.transformInto[ImportRuleMatcher.Rule])
-      suggestions <- suggestionsService.resolve(statement.id, modelId, rows, rules, merchants, categories, examples)
+      suggestions <- suggestionsService.resolve(
+        userId,
+        statement.id,
+        modelId,
+        rows,
+        rules,
+        merchants,
+        categories,
+        examples
+      )
     } yield suggestions
   }
 
