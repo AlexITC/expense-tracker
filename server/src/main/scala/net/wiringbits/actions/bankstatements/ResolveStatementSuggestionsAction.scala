@@ -3,7 +3,7 @@ package net.wiringbits.actions.bankstatements
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus}
 import net.wiringbits.api.utils.ImportRuleMatcher
 import io.scalaland.chimney.dsl.*
-import net.wiringbits.config.BedrockConfig
+import net.wiringbits.config.JevConfig
 import net.wiringbits.repositories.{
   BankStatementRepository,
   CategoriesRepository,
@@ -11,7 +11,7 @@ import net.wiringbits.repositories.{
   MerchantsRepository
 }
 import net.wiringbits.repositories.models.BankStatement
-import net.wiringbits.services.StatementSuggestionsService
+import net.wiringbits.services.JevStatementSuggestionsService
 import org.slf4j.LoggerFactory
 
 import java.time.Clock
@@ -29,8 +29,8 @@ class ResolveStatementSuggestionsAction @Inject() (
     importRuleRepository: ImportRuleRepository,
     merchantsRepository: MerchantsRepository,
     categoriesRepository: CategoriesRepository,
-    suggestionsService: StatementSuggestionsService,
-    bedrockConfig: BedrockConfig
+    suggestionsService: JevStatementSuggestionsService,
+    jevConfig: JevConfig
 )(implicit ec: ExecutionContext, clock: Clock) {
 
   import ResolveStatementSuggestionsAction.*
@@ -38,7 +38,7 @@ class ResolveStatementSuggestionsAction @Inject() (
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   def apply(bankStatementId: UUID): Future[Unit] = {
-    val modelId = bedrockConfig.suggestionsModelId
+    val modelId = jevConfig.model
     logger.info(s"Resolving AI suggestions job for statement $bankStatementId")
     bankStatementRepository.findInternal(bankStatementId).flatMap {
       case None => Future.failed(new RuntimeException(s"Bank statement $bankStatementId not found"))
@@ -76,17 +76,23 @@ class ResolveStatementSuggestionsAction @Inject() (
   private def store(statement: BankStatement, suggestions: AiSuggestions): Future[Unit] =
     bankStatementRepository.setAiSuggestions(statement.id, statement.userId, suggestions, clock.instant()).map { _ =>
       logger.info(
-        s"Stored AI suggestions for statement ${statement.id}: status ${suggestions.status.entryName}, " +
-          s"${suggestions.rows.size} rows, model ${suggestions.model}"
+        s"Stored AI suggestions for userId=${statement.userId}, statement ${statement.id}: " +
+          s"status ${suggestions.status.entryName}, ${suggestions.rows.size} rows, model ${suggestions.model}"
       )
     }
 
   // Always re-raise the original cause so the executor records it, even if the Failed write itself fails.
   private def recordFailure(statement: BankStatement, modelId: String, ex: Throwable): Future[Nothing] = {
-    logger.error(s"Resolving AI suggestions for statement ${statement.id} failed: ${ex.getMessage}", ex)
+    logger.error(
+      s"Resolving AI suggestions for userId=${statement.userId}, statement ${statement.id} failed: ${ex.getMessage}",
+      ex
+    )
     store(statement, AiSuggestions(AiSuggestionsStatus.Failed, modelId, Nil))
       .recover { case NonFatal(writeEx) =>
-        logger.error(s"Could not store Failed AI suggestions for statement ${statement.id}", writeEx)
+        logger.error(
+          s"Could not store Failed AI suggestions for userId=${statement.userId}, statement ${statement.id}",
+          writeEx
+        )
       }
       .flatMap(_ => Future.failed(ex))
   }

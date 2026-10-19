@@ -2,17 +2,16 @@ package net.wiringbits.actions.bankstatements
 
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus}
 import net.wiringbits.api.models.merchants.ImportRuleAction
-import net.wiringbits.apis.BedrockClient
-import net.wiringbits.config.BedrockConfig
+import net.wiringbits.apis.{JevChoice, JevClient}
+import net.wiringbits.config.JevConfig
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import net.wiringbits.models.documents.DocumentKind
-import net.wiringbits.models.{AWSAccessKeyId, AWSSecretAccessKey}
+import net.wiringbits.models.JevApiKey
 import net.wiringbits.repositories.models.{BankStatement, BankStatementRow, Expense, ExpenseCategorySplit}
-import net.wiringbits.services.StatementSuggestionsService
+import net.wiringbits.services.JevStatementSuggestionsService
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
-import software.amazon.awssdk.regions.Region
 import utils.RepositoryUtils
 
 import java.time.{Clock, Instant, LocalDate}
@@ -21,36 +20,43 @@ import scala.concurrent.Future
 
 class ResolveStatementSuggestionsActionSpec extends RepositorySpec with RepositoryUtils {
 
-  private val modelId = "test-suggestions-model"
+  private val modelId = "test-jev-model"
 
-  private val bedrockConfig = BedrockConfig(
-    AWSAccessKeyId("test"),
-    AWSSecretAccessKey("test"),
-    Region.EU_WEST_1,
-    modelId = "test-model",
-    statementModelId = "test-statement-model",
-    statementMaxTokens = 1000,
-    suggestionsModelId = modelId,
-    mode = BedrockConfig.Mock
-  )
+  private val jevConfig = JevConfig(JevApiKey("test"), "https://example.invalid", modelId, JevConfig.Mock)
 
-  // Answers each suggest call with whatever `respond` computes from the prompt.
-  private class StubBedrockClient(respond: String => String) extends BedrockClient {
-    override def extractBankStatement(statementText: String, feedback: Option[String]): Future[String] =
-      Future.failed(new UnsupportedOperationException("not used"))
-
-    override def suggest(prompt: String): Future[String] = Future.successful(respond(prompt))
+  // Answers each choose call with the criteria key `respond` picks from (state, questionName, criteria).
+  private class StubJevClient(respond: (String, String, Map[String, String]) => String) extends JevClient {
+    override def choose(
+        state: String,
+        questionName: String,
+        instructions: String,
+        criteria: Map[String, String]
+    ): Future[JevChoice] =
+      Future.successful(JevChoice(respond(state, questionName, criteria), BigDecimal(1), Map.empty))
   }
 
-  private def action(client: BedrockClient)(implicit repositories: RepositoryComponents) =
+  private class FailingJevClient(message: String) extends JevClient {
+    override def choose(
+        state: String,
+        questionName: String,
+        instructions: String,
+        criteria: Map[String, String]
+    ): Future[JevChoice] = Future.failed(new RuntimeException(message))
+  }
+
+  private def action(client: JevClient)(implicit repositories: RepositoryComponents) =
     new ResolveStatementSuggestionsAction(
       repositories.bankStatements,
       repositories.importRules,
       repositories.merchants,
       repositories.categories,
-      new StatementSuggestionsService(client),
-      bedrockConfig
+      new JevStatementSuggestionsService(client),
+      jevConfig
     )(using executionContext, Clock.systemUTC())
+
+  /** The key of the category criterion naming `name` (criteria may also list example descriptions). */
+  private def categoryKey(criteria: Map[String, String], name: String): String =
+    criteria.collectFirst { case (key, text) if text.startsWith(name) => key }.getOrElse(fail(s"No $name in $criteria"))
 
   private def buildRow(stmtId: UUID, index: Int, description: String, amount: BigDecimal): BankStatementRow.Create = {
     val now = Instant.now()
@@ -67,11 +73,6 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
       txnType = "purchase"
     )
   }
-
-  private def answer(name: String): String =
-    s"""{
-       |  "answer": "$name"
-       |}""".stripMargin
 
   private case class Seeded(
       userId: UUID,
@@ -112,13 +113,14 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
   "apply" should {
     "store Done suggestions for the debit rows no rule handles" in withRepositories() { implicit repositories =>
       val s = seed()
-      // Merchant prompts quote their category; category prompts are told apart by the row description.
-      val client = new StubBedrockClient(prompt =>
-        if (prompt.contains("\"Groceries\"")) answer("SuperMart")
-        else if (prompt.contains("\"Transport\"")) answer("Uber")
-        else if (prompt.contains("SUPERMART 123")) answer("Groceries")
-        else if (prompt.contains("UBER TRIP")) answer("Transport")
-        else fail(s"Unexpected prompt: $prompt")
+      val client = new StubJevClient((state, question, criteria) =>
+        (state, question) match {
+          case ("SUPERMART 123", "category") => categoryKey(criteria, "Groceries")
+          case ("SUPERMART 123", "merchant") => s.superMartId.toString
+          case ("UBER TRIP", "category") => categoryKey(criteria, "Transport")
+          case ("UBER TRIP", "merchant") => s.uberId.toString
+          case _ => fail(s"Unexpected question $question for '$state'")
+        }
       )
 
       action(client).apply(s.stmtId).futureValue
@@ -159,12 +161,13 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
         repositories.expenses.create(expense, List(split)).futureValue
         repositories.bankStatements.setRowExpenseIdForUser(earlierRow.id, s.userId, expense.id, now).futureValue
 
-        // The earlier row also shows up as a Groceries example, so match the transaction line itself.
-        val client = new StubBedrockClient(prompt =>
-          if (prompt.contains("Transaction: SUPERMART 123")) fail(s"History row sent to the model: $prompt")
-          else if (prompt.contains("\"Transport\"")) answer("Uber")
-          else if (prompt.contains("UBER TRIP")) answer("Transport")
-          else fail(s"Unexpected prompt: $prompt")
+        val client = new StubJevClient((state, question, criteria) =>
+          (state, question) match {
+            case ("SUPERMART 123", _) => fail(s"History row sent to JEV: $question for '$state'")
+            case ("UBER TRIP", "category") => categoryKey(criteria, "Transport")
+            case ("UBER TRIP", "merchant") => s.uberId.toString
+            case _ => fail(s"Unexpected question $question for '$state'")
+          }
         )
 
         action(client).apply(s.stmtId).futureValue
@@ -177,15 +180,14 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
         )
     }
 
-    "store Failed suggestions and fail when the model output is unparseable" in withRepositories() {
-      implicit repositories =>
-        val s = seed()
-        val client = new StubBedrockClient(_ => "not json at all")
+    "store Failed suggestions and fail when the JEV client fails" in withRepositories() { implicit repositories =>
+      val s = seed()
+      val client = new FailingJevClient("JEV is down")
 
-        val ex = intercept[Exception](action(client).apply(s.stmtId).futureValue)
-        ex.getMessage must include("not json at all")
+      val ex = intercept[Exception](action(client).apply(s.stmtId).futureValue)
+      ex.getMessage must include("JEV is down")
 
-        storedSuggestions(s) must be(AiSuggestions(AiSuggestionsStatus.Failed, modelId, Nil))
+      storedSuggestions(s) must be(AiSuggestions(AiSuggestionsStatus.Failed, modelId, Nil))
     }
 
     "store Failed suggestions and fail when the user has rows but no categories" in withRepositories() {
@@ -199,7 +201,7 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
           sampleStatementMetadata,
           List(buildRow(stmt.id, 0, "CORNER SHOP", BigDecimal("-9.99")))
         ).futureValue
-        val client = new StubBedrockClient(_ => fail("Bedrock must not be called without categories"))
+        val client = new StubJevClient((_, _, _) => fail("JEV must not be called without categories"))
 
         val ex = intercept[Exception](action(client).apply(stmt.id).futureValue)
         ex.getMessage must include("no categories")
@@ -210,7 +212,7 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
     }
 
     "fail when the statement does not exist" in withRepositories() { implicit repositories =>
-      val client = new StubBedrockClient(_ => fail("Bedrock must not be called for a missing statement"))
+      val client = new StubJevClient((_, _, _) => fail("JEV must not be called for a missing statement"))
       val id = UUID.randomUUID()
 
       val ex = intercept[Exception](action(client).apply(id).futureValue)

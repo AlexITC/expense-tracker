@@ -19,6 +19,11 @@ import scala.util.Try
   * that category has merchants, picks one of them by name (or "none"). A name that does not match exactly one candidate
   * is dropped (no guess); unparseable output fails the Future. No DB access — the caller loads the inputs and persists
   * the result.
+  *
+  * This was the prior suggestions engine. On the `eu.` cross-region inference profile it is throttled by the
+  * non-adjustable 20 req/min "Cross-region model inference requests per minute for Amazon Nova Lite" quota
+  * (ThrottlingException 429 on the per-row calls). `JevStatementSuggestionsService` is now the active engine; this one
+  * is kept, unwired, for reference and as a fallback.
   */
 class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(implicit ec: ExecutionContext) {
   import StatementSuggestionsService.*
