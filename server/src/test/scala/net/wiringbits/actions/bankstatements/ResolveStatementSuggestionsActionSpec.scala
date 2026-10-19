@@ -7,7 +7,7 @@ import net.wiringbits.config.BedrockConfig
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.{AWSAccessKeyId, AWSSecretAccessKey}
-import net.wiringbits.repositories.models.{BankStatement, BankStatementRow}
+import net.wiringbits.repositories.models.{BankStatement, BankStatementRow, Expense, ExpenseCategorySplit}
 import net.wiringbits.services.StatementSuggestionsService
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
@@ -134,6 +134,47 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
       )
       stored.rows.map(_.rowId) must not contain s.ruleRow.id
       stored.rows.map(_.rowId) must not contain s.creditRow.id
+    }
+
+    "use the category of an earlier row with the same description without asking the model" in withRepositories() {
+      implicit repositories =>
+        val s = seed()
+        val doc = createDocument(s.userId, sha256 = "earlier", kind = DocumentKind.BankStatementPdf).futureValue
+        val now = Instant.now()
+        val earlierStmt = BankStatement.Create(UUID.randomUUID(), doc.id, s.userId, now, now)
+        val earlierRow = buildRow(earlierStmt.id, 0, "SUPERMART 123", BigDecimal("-30.00"))
+        createStatement(earlierStmt, sampleStatementMetadata, List(earlierRow)).futureValue
+        val expense = Expense.Create(
+          id = UUID.randomUUID(),
+          userId = s.userId,
+          amount = BigDecimal("30.00"),
+          date = LocalDate.of(2025, 12, 15),
+          time = None,
+          merchantId = None,
+          notes = None,
+          createdAt = now,
+          updatedAt = now
+        )
+        val split = ExpenseCategorySplit.Create(UUID.randomUUID(), s.userId, expense.id, s.groceriesId, expense.amount)
+        repositories.expenses.create(expense, List(split)).futureValue
+        repositories.bankStatements.setRowExpenseIdForUser(earlierRow.id, s.userId, expense.id, now).futureValue
+
+        // The earlier row also shows up as a Groceries example, so match the transaction line itself.
+        val client = new StubBedrockClient(prompt =>
+          if (prompt.contains("Transaction: SUPERMART 123")) fail(s"History row sent to the model: $prompt")
+          else if (prompt.contains("\"Transport\"")) answer("Uber")
+          else if (prompt.contains("UBER TRIP")) answer("Transport")
+          else fail(s"Unexpected prompt: $prompt")
+        )
+
+        action(client).apply(s.stmtId).futureValue
+
+        storedSuggestions(s).rows.toSet must be(
+          Set(
+            AiSuggestions.RowSuggestion(s.groceryRow.id, Some(s.groceriesId), None),
+            AiSuggestions.RowSuggestion(s.taxiRow.id, Some(s.transportId), Some(s.uberId))
+          )
+        )
     }
 
     "store Failed suggestions and fail when the model output is unparseable" in withRepositories() {

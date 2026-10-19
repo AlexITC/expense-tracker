@@ -89,10 +89,11 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       merchants: List[Merchant],
       categories: List[Category],
       rules: List[ImportRuleMatcher.Rule] = Nil,
-      examples: List[(UUID, String)] = Nil
+      examples: List[(UUID, String)] = Nil,
+      history: Map[String, UUID] = Map.empty
   ): Future[AiSuggestions] =
     new StatementSuggestionsService(client)
-      .resolve(userId, statementId, model, rows, rules, merchants, categories, examples)
+      .resolve(userId, statementId, model, rows, rules, merchants, categories, examples, history)
 
   private def resolve(
       client: BedrockClient,
@@ -100,9 +101,10 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       merchants: List[Merchant],
       categories: List[Category],
       rules: List[ImportRuleMatcher.Rule] = Nil,
-      examples: List[(UUID, String)] = Nil
+      examples: List[(UUID, String)] = Nil,
+      history: Map[String, UUID] = Map.empty
   ): AiSuggestions =
-    run(client, rows, merchants, categories, rules, examples).futureValue
+    run(client, rows, merchants, categories, rules, examples, history).futureValue
 
   private val groceries = category("Groceries")
   private val transport = category("Transport")
@@ -301,6 +303,55 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
         AiSuggestions(AiSuggestionsStatus.Done, model, Nil)
       )
       client.prompts must be(empty)
+    }
+
+    "use the history category without calling Bedrock" in {
+      val shop = row("CORNER SHOP 42")
+      val client = new StubBedrockClient(PartialFunction.empty)
+      val merchants = List(merchant("Corner Shop", Some(groceries.id)))
+
+      resolve(client, List(shop), merchants, categories, history = Map("cornershop42" -> groceries.id)).rows must be(
+        List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None))
+      )
+      client.prompts must be(empty)
+    }
+
+    "hit the history for a description differing only in case or punctuation" in {
+      val shop = row("corner-shop #42")
+      val client = new StubBedrockClient(PartialFunction.empty)
+
+      resolve(client, List(shop), Nil, categories, history = Map("cornershop42" -> groceries.id)).rows must be(
+        List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None))
+      )
+      client.prompts must be(empty)
+    }
+
+    "send the row to the model when its history category is not among the categories" in {
+      val shop = row("CORNER SHOP 42")
+      val client = stub("Transport")
+
+      resolve(client, List(shop), Nil, categories, history = Map("cornershop42" -> UUID.randomUUID())).rows must be(
+        List(AiSuggestions.RowSuggestion(shop.id, Some(transport.id), None))
+      )
+      client.categoryPrompts must have size 1
+    }
+
+    "call the model only for the rows without history, keeping the row order" in {
+      val bus = row("METRO TICKET")
+      val shop = row("CORNER SHOP 42")
+      val client = stub("Transport")
+
+      val result = resolve(client, List(shop, bus), Nil, categories, history = Map("cornershop42" -> groceries.id))
+
+      result.rows must be(
+        List(
+          AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None),
+          AiSuggestions.RowSuggestion(bus.id, Some(transport.id), None)
+        )
+      )
+      client.categoryPrompts must have size 1
+      client.categoryPrompts.head must include("METRO TICKET")
+      client.categoryPrompts.head must not include "CORNER SHOP"
     }
 
     "fail without calling Bedrock when there are rows but no categories" in {

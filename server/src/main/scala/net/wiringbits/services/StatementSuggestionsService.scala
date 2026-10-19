@@ -13,18 +13,21 @@ import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Try
 
-/** Suggests a category and a merchant for each debit row of a statement that no import rule already handles. Rows are
-  * resolved one after another, each in up to two Bedrock calls: the model picks a category by name, then, when that
-  * category has merchants, picks one of them by name (or "none"). A name that does not match exactly one candidate is
-  * dropped (no guess); unparseable output fails the Future. No DB access — the caller loads the inputs and persists the
-  * result.
+/** Suggests a category and a merchant for each debit row of a statement that no import rule already handles. A row
+  * whose normalized description the user already filed under a category gets that category without a model call. Other
+  * rows are resolved one after another, each in up to two Bedrock calls: the model picks a category by name, then, when
+  * that category has merchants, picks one of them by name (or "none"). A name that does not match exactly one candidate
+  * is dropped (no guess); unparseable output fails the Future. No DB access — the caller loads the inputs and persists
+  * the result.
   */
 class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(implicit ec: ExecutionContext) {
   import StatementSuggestionsService.*
 
   private val logger = LoggerFactory.getLogger(this.getClass)
 
-  /** `examples` are (categoryId, row description) pairs of rows the user already filed under that category. */
+  /** `examples` are (categoryId, row description) pairs of rows the user already filed under that category. `history`
+    * maps a description normalized with `ImportRuleMatcher.normalize` to the category the user files it under.
+    */
   def resolve(
       userId: UUID,
       statementId: UUID,
@@ -33,7 +36,8 @@ class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(impli
       rules: List[ImportRuleMatcher.Rule],
       merchants: List[Merchant],
       categories: List[Category],
-      examples: List[(UUID, String)]
+      examples: List[(UUID, String)],
+      history: Map[String, UUID]
   ): Future[AiSuggestions] = {
     logger.info(s"Resolving AI suggestions for user $userId, statement $statementId with model $modelId")
     val selection = selectRowsToResolve(rows, rules)
@@ -50,20 +54,30 @@ class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(impli
       Future.failed(
         new RuntimeException(s"User $userId has no categories to suggest for statement $statementId")
       )
-    } else
+    } else {
+      val historyHits = historyCategories(toResolve, history, categories)
+      logger.info(
+        s"User $userId, statement $statementId: ${historyHits.size} rows resolved by history, " +
+          s"${toResolve.size - historyHits.size} sent to the model"
+      )
       // One row after another (keeps the Bedrock load predictable).
       toResolve
         .foldLeft(Future.successful(List.empty[AiSuggestions.RowSuggestion])) { (accF, row) =>
           for {
             acc <- accF
-            suggestion <- resolveRow(userId, row, merchants, categories, examples)
+            suggestion <- historyHits
+              .get(row.id)
+              .fold(resolveRow(userId, row, merchants, categories, examples)) { categoryId =>
+                Future.successful(AiSuggestions.RowSuggestion(row.id, Some(categoryId), None))
+              }
           } yield suggestion :: acc
         }
         .map { reversed =>
           val suggestions = reversed.reverse
-          logResolved(userId, statementId, toResolve, suggestions, categories, merchants)
+          logResolved(userId, statementId, toResolve, suggestions, historyHits.keySet, categories, merchants)
           AiSuggestions(status = AiSuggestionsStatus.Done, model = modelId, rows = suggestions)
         }
+    }
   }
 
   private def resolveRow(
@@ -121,14 +135,17 @@ class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(impli
       statementId: UUID,
       rows: List[BankStatementRow],
       suggestions: List[AiSuggestions.RowSuggestion],
+      fromHistory: Set[UUID],
       categories: List[Category],
       merchants: List[Merchant]
   ): Unit =
     rows.zip(suggestions).foreach { case (row, suggestion) =>
       val category = describe(suggestion.categoryId, id => categories.find(_.id == id).map(_.name))
       val merchant = describe(suggestion.merchantId, id => merchants.find(_.id == id).map(_.name))
+      val source = if (fromHistory.contains(row.id)) "history" else "model"
       logger.info(
-        s"User $userId, statement $statementId row '${row.description}': category $category, merchant $merchant"
+        s"User $userId, statement $statementId row '${row.description}': category $category, merchant $merchant " +
+          s"(from $source)"
       )
     }
 
@@ -147,6 +164,20 @@ object StatementSuggestionsService {
     val debits = rows.filter(_.amount < 0)
     val toResolve = debits.filter(r => RowRuleVerdict.verdict(rules, r.description) == RowRuleVerdict.NoRule)
     RowSelection(toResolve, rows.size - debits.size, debits.size - toResolve.size)
+  }
+
+  /** Row id → category for the rows whose normalized description is in `history`. A category that is not among the
+    * loaded ones (deleted since) is dropped, so that row goes to the model.
+    */
+  private def historyCategories(
+      rows: List[BankStatementRow],
+      history: Map[String, UUID],
+      categories: List[Category]
+  ): Map[UUID, UUID] = {
+    val categoryIds = categories.map(_.id).toSet
+    rows.flatMap { row =>
+      history.get(ImportRuleMatcher.normalize(row.description)).filter(categoryIds.contains).map(row.id -> _)
+    }.toMap
   }
 
   /** The chosen merchant's category is authoritative; otherwise keep the predicted one. */
