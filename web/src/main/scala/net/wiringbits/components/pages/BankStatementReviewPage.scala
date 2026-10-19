@@ -111,6 +111,26 @@ object BankStatementReviewPage {
     }
   }
 
+  /** The single primary button a row shows. Ready rows open the prefilled create form for review instead of importing
+    * straight away; bulk "Process ready" is the one-click path.
+    */
+  enum PrimaryAction {
+    case Linked, Unignore, IgnoreByRule, ReviewExpense, ReviewRefund, CreateRefund, CreateExpense
+  }
+
+  def primaryActionFor(
+      row: GetBankStatement.StatementRowData,
+      isReady: Boolean,
+      verdict: RowRuleVerdict.Verdict
+  ): PrimaryAction =
+    if (row.expenseId.isDefined || row.refundId.isDefined) PrimaryAction.Linked
+    else if (row.ignoredAt.isDefined) PrimaryAction.Unignore
+    else if (isReady && verdict == RowRuleVerdict.Ignore) PrimaryAction.IgnoreByRule
+    else if (isReady && row.amount > 0) PrimaryAction.ReviewRefund
+    else if (isReady) PrimaryAction.ReviewExpense
+    else if (row.amount > 0) PrimaryAction.CreateRefund
+    else PrimaryAction.CreateExpense
+
   // Statements confirmed before AI suggestions existed stay NULL forever, so polling is capped.
   private val SuggestionsPollMaxAttempts = 20
   private val SuggestionsPollIntervalMs = 3000
@@ -428,52 +448,59 @@ object BankStatementReviewPage {
           }
 
           def rowPrimaryAction(row: GetBankStatement.StatementRowData): ReactElement =
-            if (row.expenseId.isDefined || row.refundId.isDefined)
-              (mui.Button
-                .normal()("Linked")
-                .size("small")
-                .disabled(true)
-                .sx(new CSSPropertiesUtils { color = "var(--lc-brand)" })
-                .build: ReactElement)
-            else if (row.ignoredAt.isDefined)
-              (mui.Button
-                .normal()("Un-ignore")
-                .size("small")
-                .onClick(_ => handleUnignore(stmt.id, row.id))
-                .build: ReactElement)
-            else if (isReadyToProcess(row))
-              ruleVerdictFor(row) match {
-                case RowRuleVerdict.Ignore =>
-                  (mui.Button
-                    .normal()("Ignore")
-                    .size("small")
-                    .variant("contained")
-                    .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
-                    .onClick(_ => handleIgnore(stmt.id, row.id))
-                    .build: ReactElement)
-                case _ =>
-                  (mui.Button
-                    .normal()(if (row.amount > 0) "Import refund" else "Confirm")
-                    .size("small")
-                    .variant("contained")
-                    .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
-                    .onClick(_ => handleBulkImport(stmt.id, List(row.id)))
-                    .build: ReactElement)
-              }
-            else if (row.amount > 0)
-              (mui.Button
-                .normal()("Create refund")
-                .size("small")
-                .variant("outlined")
-                .onClick(_ => setCreatingRefundForRow(Some(row.id)))
-                .build: ReactElement)
-            else
-              (mui.Button
-                .normal()("Create expense")
-                .size("small")
-                .variant("outlined")
-                .onClick(_ => { setCreatingForRow(Some(row.id)); setLinkingForRow(None) })
-                .build: ReactElement)
+            primaryActionFor(row, isReadyToProcess(row), ruleVerdictFor(row)) match {
+              case PrimaryAction.Linked =>
+                (mui.Button
+                  .normal()("Linked")
+                  .size("small")
+                  .disabled(true)
+                  .sx(new CSSPropertiesUtils { color = "var(--lc-brand)" })
+                  .build: ReactElement)
+              case PrimaryAction.Unignore =>
+                (mui.Button
+                  .normal()("Un-ignore")
+                  .size("small")
+                  .onClick(_ => handleUnignore(stmt.id, row.id))
+                  .build: ReactElement)
+              case PrimaryAction.IgnoreByRule =>
+                (mui.Button
+                  .normal()("Ignore")
+                  .size("small")
+                  .variant("contained")
+                  .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
+                  .onClick(_ => handleIgnore(stmt.id, row.id))
+                  .build: ReactElement)
+              case PrimaryAction.ReviewRefund =>
+                (mui.Button
+                  .normal()("Import refund")
+                  .size("small")
+                  .variant("contained")
+                  .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
+                  .onClick(_ => setCreatingRefundForRow(Some(row.id)))
+                  .build: ReactElement)
+              case PrimaryAction.ReviewExpense =>
+                (mui.Button
+                  .normal()("Confirm")
+                  .size("small")
+                  .variant("contained")
+                  .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
+                  .onClick(_ => { setCreatingForRow(Some(row.id)); setLinkingForRow(None) })
+                  .build: ReactElement)
+              case PrimaryAction.CreateRefund =>
+                (mui.Button
+                  .normal()("Create refund")
+                  .size("small")
+                  .variant("outlined")
+                  .onClick(_ => setCreatingRefundForRow(Some(row.id)))
+                  .build: ReactElement)
+              case PrimaryAction.CreateExpense =>
+                (mui.Button
+                  .normal()("Create expense")
+                  .size("small")
+                  .variant("outlined")
+                  .onClick(_ => { setCreatingForRow(Some(row.id)); setLinkingForRow(None) })
+                  .build: ReactElement)
+            }
 
           // Small chip reused by the Match (merchant) and Category cells.
           def tintChip(lbl: String, textColor: String): ReactElement =
@@ -709,13 +736,17 @@ object BankStatementReviewPage {
                                 })
                             ),
                             mui.TableCell.sx(new CSSPropertiesUtils { maxWidth = "280px" })(
-                              mui
-                                .Typography(row.description)
-                                .sx(new CSSPropertiesUtils {
-                                  fontSize = "13px"; fontFamily = "\"IBM Plex Mono\", monospace"
-                                  overflow = "hidden"; textOverflow = "ellipsis"; whiteSpace = "nowrap"
-                                  display = "block"
-                                }),
+                              {
+                                val desc: ReactElement = mui
+                                  .Typography(row.description)
+                                  .sx(new CSSPropertiesUtils {
+                                    fontSize = "13px"; fontFamily = "\"IBM Plex Mono\", monospace"
+                                    overflow = "hidden"; textOverflow = "ellipsis"; whiteSpace = "nowrap"
+                                    display = "block"
+                                  })
+                                if (row.description.nonEmpty) mui.Tooltip(row.description)(desc)
+                                else desc
+                              },
                               if (row.txnType == "purchase") Fragment(): ReactElement
                               else
                                 mui.Chip

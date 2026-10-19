@@ -2,7 +2,7 @@ package net.wiringbits.components.pages
 
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus, GetBankStatement}
 import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction}
-import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -194,6 +194,45 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
 
     "resolve to None when nothing matches and there is no suggestion" in {
       BankStatementReviewPage.resolveImport(Nil, Nil, None, sampleRow("UNKNOWN SHOP")) mustBe None
+    }
+  }
+
+  "primaryActionFor" should {
+    import BankStatementReviewPage.{PrimaryAction, primaryActionFor}
+    val negative = sampleRow()
+    val positive = sampleRow().copy(amount = BigDecimal("45.00"))
+    val setMerchant = RowRuleVerdict.SetMerchant(Some(UUID.randomUUID()))
+
+    "review a ready negative row with a SetMerchant verdict as an expense" in {
+      primaryActionFor(negative, isReady = true, setMerchant) mustBe PrimaryAction.ReviewExpense
+    }
+
+    "review a ready positive row as a refund" in {
+      primaryActionFor(positive, isReady = true, RowRuleVerdict.NoRule) mustBe PrimaryAction.ReviewRefund
+    }
+
+    "ignore a ready row with an Ignore verdict in one click" in {
+      primaryActionFor(negative, isReady = true, RowRuleVerdict.Ignore) mustBe PrimaryAction.IgnoreByRule
+    }
+
+    "show Linked for a linked row even when it is ready" in {
+      primaryActionFor(negative.copy(expenseId = Some(UUID.randomUUID())), isReady = true, setMerchant) mustBe
+        PrimaryAction.Linked
+      primaryActionFor(positive.copy(refundId = Some(UUID.randomUUID())), isReady = true, setMerchant) mustBe
+        PrimaryAction.Linked
+    }
+
+    "offer Unignore for an ignored row" in {
+      primaryActionFor(negative.copy(ignoredAt = Some(Instant.now())), isReady = false, RowRuleVerdict.Ignore) mustBe
+        PrimaryAction.Unignore
+    }
+
+    "create an expense for a not-ready negative row" in {
+      primaryActionFor(negative, isReady = false, RowRuleVerdict.NoRule) mustBe PrimaryAction.CreateExpense
+    }
+
+    "create a refund for a not-ready positive row" in {
+      primaryActionFor(positive, isReady = false, RowRuleVerdict.NoRule) mustBe PrimaryAction.CreateRefund
     }
   }
 }
