@@ -80,6 +80,37 @@ object BankStatementReviewPage {
   def canRegenerateSuggestions(ai: Option[AiSuggestions], pollAttemptsExhausted: Boolean): Boolean =
     pollAttemptsExhausted || !ai.exists(_.status == AiSuggestionsStatus.Pending)
 
+  /** A row's resolved import target: the merchant to link (if any), the category the expense will get, and whether that
+    * category came from an AI suggestion (true) rather than a matched rule's merchant (false).
+    */
+  final case class ResolvedImport(merchantId: Option[UUID], categoryId: UUID, categoryFromAi: Boolean)
+
+  /** Resolve what importing a row would create. Merchant: a SetMerchant rule's merchant, else the AI-suggested
+    * merchant. Category: that rule-merchant's default category, else the AI-suggested category. An Ignore rule takes
+    * precedence over any suggestion, so such rows resolve to None (they are ignored, not imported). None also means
+    * "nothing to import yet" — no rule and no usable suggestion. AI suggestions are only consulted once Done.
+    */
+  def resolveImport(
+      ruleList: List[ImportRuleMatcher.Rule],
+      merchants: List[GetMerchants.Response.Merchant],
+      aiSuggestions: Option[AiSuggestions],
+      row: GetBankStatement.StatementRowData
+  ): Option[ResolvedImport] = {
+    val winner = ImportRuleMatcher.findRowWinner(ruleList, row.description)
+    if (winner.exists(_.action == ImportRuleAction.Ignore)) None
+    else {
+      val ruleMerchantId = winner.filter(_.action == ImportRuleAction.SetMerchant).flatMap(_.merchantId)
+      val ruleCategoryId = ruleMerchantId.flatMap(mid => merchants.find(_.id == mid).flatMap(_.categoryId))
+      val ai = aiSuggestions
+        .filter(_.status == AiSuggestionsStatus.Done)
+        .flatMap(_.rows.find(_.rowId == row.id))
+      val merchantId = ruleMerchantId.orElse(ai.flatMap(_.merchantId))
+      ruleCategoryId
+        .map(c => ResolvedImport(merchantId, c, categoryFromAi = false))
+        .orElse(ai.flatMap(_.categoryId).map(c => ResolvedImport(merchantId, c, categoryFromAi = true)))
+    }
+  }
+
   // Statements confirmed before AI suggestions existed stay NULL forever, so polling is capped.
   private val SuggestionsPollMaxAttempts = 20
   private val SuggestionsPollIntervalMs = 3000
@@ -199,13 +230,15 @@ object BankStatementReviewPage {
       js.Array(suggestionsPollKey)
     )
 
+    def ruleWinnerFor(row: GetBankStatement.StatementRowData): Option[ImportRuleMatcher.Rule] =
+      ImportRuleMatcher.findRowWinner(ruleList, row.description)
+
+    def resolveImport(row: GetBankStatement.StatementRowData): Option[ResolvedImport] =
+      BankStatementReviewPage.resolveImport(ruleList, merchantList, statement.flatMap(_.aiSuggestions), row)
+
     def isReadyToProcess(row: GetBankStatement.StatementRowData): Boolean =
       row.expenseId.isEmpty && row.refundId.isEmpty && row.ignoredAt.isEmpty && row.amount < 0 && {
-        ImportRuleMatcher.findRowWinner(ruleList, row.description) match {
-          case None => false
-          case Some(w) if w.action == ImportRuleAction.Ignore => true
-          case Some(w) => w.merchantId.exists(mid => merchantList.find(_.id == mid).exists(_.categoryId.isDefined))
-        }
+        ruleWinnerFor(row).exists(_.action == ImportRuleAction.Ignore) || resolveImport(row).isDefined
       }
 
     def filteredRows: List[GetBankStatement.StatementRowData] = rowFilter match {
@@ -305,53 +338,49 @@ object BankStatementReviewPage {
                 setBulkImportResults(cur => cur :+ (rowId -> Left("Row not found")))
                 loop(rest, done + 1, failed + 1)
               case Some(row) =>
-                ImportRuleMatcher.findRowWinner(ruleList, row.description) match {
-                  case Some(w) if w.action == ImportRuleAction.Ignore =>
-                    props.ctx.api.client.ignoreRow(stmtId, rowId).onComplete {
-                      case Success(_) =>
-                        setStatementRows(cur =>
-                          cur.map(r => if (r.id == rowId) r.copy(ignoredAt = Some(Instant.now())) else r)
-                        )
-                        setBulkImportResults(cur => cur :+ (rowId -> Right(())))
-                        setBulkImportProgress(Some((done + 1, total, failed)))
-                        loop(rest, done + 1, failed)
-                      case Failure(ex) =>
-                        setBulkImportResults(cur => cur :+ (rowId -> Left(ex.getMessage)))
-                        setBulkImportProgress(Some((done + 1, total, failed + 1)))
-                        loop(rest, done + 1, failed + 1)
-                    }
-                  case winner =>
-                    val merchantId = winner.filter(_.action == ImportRuleAction.SetMerchant).flatMap(_.merchantId)
-                    val catIdOpt = merchantId.flatMap(mid => merchantList.find(_.id == mid).flatMap(_.categoryId))
-                    catIdOpt match {
-                      case None =>
-                        setBulkImportResults(cur => cur :+ (rowId -> Left("No default category")))
-                        loop(rest, done + 1, failed + 1)
-                      case Some(catId) =>
-                        val req = CreateExpenseFromRow.Request(
-                          amount = row.amount.abs,
-                          date = row.date,
-                          time = None,
-                          merchantId = merchantId,
-                          notes = Some(row.description).filter(_.nonEmpty),
-                          splits = List(CreateExpenseFromRow.Split(catId, row.amount.abs)),
-                          receiptId = None
-                        )
-                        props.ctx.api.client.createExpenseFromRow(stmtId, rowId, req).onComplete {
-                          case Success(resp) =>
-                            setStatementRows(cur =>
-                              cur.map(r => if (r.id == rowId) r.copy(expenseId = Some(resp.expenseId)) else r)
-                            )
-                            setBulkImportResults(cur => cur :+ (rowId -> Right(())))
-                            setBulkImportProgress(Some((done + 1, total, failed)))
-                            loop(rest, done + 1, failed)
-                          case Failure(ex) =>
-                            setBulkImportResults(cur => cur :+ (rowId -> Left(ex.getMessage)))
-                            setBulkImportProgress(Some((done + 1, total, failed + 1)))
-                            loop(rest, done + 1, failed + 1)
-                        }
-                    }
-                }
+                if (ruleWinnerFor(row).exists(_.action == ImportRuleAction.Ignore))
+                  props.ctx.api.client.ignoreRow(stmtId, rowId).onComplete {
+                    case Success(_) =>
+                      setStatementRows(cur =>
+                        cur.map(r => if (r.id == rowId) r.copy(ignoredAt = Some(Instant.now())) else r)
+                      )
+                      setBulkImportResults(cur => cur :+ (rowId -> Right(())))
+                      setBulkImportProgress(Some((done + 1, total, failed)))
+                      loop(rest, done + 1, failed)
+                    case Failure(ex) =>
+                      setBulkImportResults(cur => cur :+ (rowId -> Left(ex.getMessage)))
+                      setBulkImportProgress(Some((done + 1, total, failed + 1)))
+                      loop(rest, done + 1, failed + 1)
+                  }
+                else
+                  resolveImport(row) match {
+                    case None =>
+                      setBulkImportResults(cur => cur :+ (rowId -> Left("No category")))
+                      loop(rest, done + 1, failed + 1)
+                    case Some(res) =>
+                      val req = CreateExpenseFromRow.Request(
+                        amount = row.amount.abs,
+                        date = row.date,
+                        time = None,
+                        merchantId = res.merchantId,
+                        notes = Some(row.description).filter(_.nonEmpty),
+                        splits = List(CreateExpenseFromRow.Split(res.categoryId, row.amount.abs)),
+                        receiptId = None
+                      )
+                      props.ctx.api.client.createExpenseFromRow(stmtId, rowId, req).onComplete {
+                        case Success(resp) =>
+                          setStatementRows(cur =>
+                            cur.map(r => if (r.id == rowId) r.copy(expenseId = Some(resp.expenseId)) else r)
+                          )
+                          setBulkImportResults(cur => cur :+ (rowId -> Right(())))
+                          setBulkImportProgress(Some((done + 1, total, failed)))
+                          loop(rest, done + 1, failed)
+                        case Failure(ex) =>
+                          setBulkImportResults(cur => cur :+ (rowId -> Left(ex.getMessage)))
+                          setBulkImportProgress(Some((done + 1, total, failed + 1)))
+                          loop(rest, done + 1, failed + 1)
+                      }
+                  }
             }
         }
       loop(ids, 0, 0)
@@ -446,34 +475,54 @@ object BankStatementReviewPage {
                 .onClick(_ => { setCreatingForRow(Some(row.id)); setLinkingForRow(None) })
                 .build: ReactElement)
 
+          // Small chip reused by the Match (merchant) and Category cells.
+          def tintChip(lbl: String, textColor: String): ReactElement =
+            (mui.Chip
+              .label(lbl)
+              .size("small")
+              .sx(new CSSPropertiesUtils {
+                height = "22px"; fontSize = "12px"; backgroundColor = "var(--lc-tint)"; color = textColor
+              }): ReactElement)
+
+          def dash: ReactElement =
+            mui.Typography("—").sx(new CSSPropertiesUtils { color = "var(--lc-hint)"; fontSize = "13px" })
+
+          def suggestingOrDash(row: GetBankStatement.StatementRowData): ReactElement =
+            if (pollingSuggestions && row.ignoredAt.isEmpty && row.amount < 0)
+              mui.Typography("suggesting…").sx(new CSSPropertiesUtils { color = "var(--lc-hint)"; fontSize = "13px" })
+            else dash
+
+          // Merchant linked on import — rule-matched or AI-suggested; "Linked"/"→ Ignore" take over when they apply.
           def matchCell(row: GetBankStatement.StatementRowData): ReactElement =
-            ImportRuleMatcher.findRowWinner(ruleList, row.description) match {
-              case Some(w) =>
-                val lbl =
-                  if (w.action == ImportRuleAction.Ignore) "→ Ignore"
-                  else w.merchantId.flatMap(mid => merchantList.find(_.id == mid)).map(_.name).getOrElse("")
-                (mui.Chip
-                  .label(lbl)
-                  .size("small")
-                  .sx(new CSSPropertiesUtils {
-                    height = "22px"; fontSize = "12px"; backgroundColor = "var(--lc-tint)";
-                    color = "var(--lc-brand-dark)"
-                  }): ReactElement)
-              case None =>
-                if (row.expenseId.isDefined || row.refundId.isDefined)
-                  (mui.Chip
-                    .label("Linked")
-                    .size("small")
-                    .sx(new CSSPropertiesUtils {
-                      height = "22px"; fontSize = "12px"; color = "var(--lc-brand)"; backgroundColor = "var(--lc-tint)"
-                    }): ReactElement)
-                else if (pollingSuggestions && row.ignoredAt.isEmpty && row.amount < 0)
-                  mui
-                    .Typography("suggesting…")
-                    .sx(new CSSPropertiesUtils { color = "var(--lc-hint)"; fontSize = "13px" })
-                else
-                  mui.Typography("—").sx(new CSSPropertiesUtils { color = "var(--lc-hint)"; fontSize = "13px" })
-            }
+            if (row.expenseId.isDefined || row.refundId.isDefined) tintChip("Linked", "var(--lc-brand)")
+            else if (ruleWinnerFor(row).exists(_.action == ImportRuleAction.Ignore))
+              tintChip("→ Ignore", "var(--lc-brand-dark)")
+            else
+              resolveImport(row).flatMap(_.merchantId).flatMap(mid => merchantList.find(_.id == mid)) match {
+                case Some(m) => tintChip(m.name, "var(--lc-brand-dark)")
+                case None => suggestingOrDash(row)
+              }
+
+          // Category the expense will get on import, tagged "AI" when it came from a suggestion rather than a rule.
+          def categoryCell(row: GetBankStatement.StatementRowData): ReactElement =
+            if (row.expenseId.isDefined || row.refundId.isDefined) dash
+            else if (ruleWinnerFor(row).exists(_.action == ImportRuleAction.Ignore)) dash
+            else
+              resolveImport(row) match {
+                case Some(res) =>
+                  val name = categoryList.find(_.id == res.categoryId).map(_.name).getOrElse("")
+                  mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px"; alignItems = "center" })(
+                    tintChip(name, "var(--lc-brand-dark)"),
+                    if (res.categoryFromAi)
+                      (mui
+                        .Typography("AI")
+                        .sx(new CSSPropertiesUtils {
+                          fontSize = "10px"; fontWeight = "700"; color = "var(--lc-hint)"; letterSpacing = "0.5px"
+                        }): ReactElement)
+                    else Fragment()
+                  )
+                case None => suggestingOrDash(row)
+              }
 
           mui.Box.sx(new CSSPropertiesUtils {
             display = "flex"; flexDirection = "column"; height = "100%"; minHeight = "0"
@@ -608,6 +657,7 @@ object BankStatementReviewPage {
                     mui.TableCell.sx(hcell)("Date"),
                     mui.TableCell.align("right").sx(hcell)("Amount"),
                     mui.TableCell.sx(hcell)("Description"),
+                    mui.TableCell.sx(hcell)("Category"),
                     mui.TableCell.sx(hcell)("Match"),
                     mui.TableCell.align("right").sx(hcell)("")
                   )
@@ -615,7 +665,7 @@ object BankStatementReviewPage {
                 if (tableRows.isEmpty)
                   mui.TableBody(
                     mui.TableRow(
-                      mui.TableCell.colSpan(6)(
+                      mui.TableCell.colSpan(7)(
                         mui
                           .Typography("No transactions in this view.")
                           .sx(new CSSPropertiesUtils {
@@ -676,6 +726,7 @@ object BankStatementReviewPage {
                                     backgroundColor = "var(--lc-tint)"; color = "var(--lc-text-2)"
                                   })
                             ),
+                            mui.TableCell(categoryCell(row)),
                             mui.TableCell(matchCell(row)),
                             mui.TableCell.align("right")(
                               mui.Box.sx(new CSSPropertiesUtils {
