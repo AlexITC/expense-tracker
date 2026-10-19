@@ -11,7 +11,8 @@ trait BedrockClient {
   def extractBankStatement(statementText: String, feedback: Option[String] = None): Future[String]
 
   /** Run a short classification prompt on the configured suggestions model and return the model's raw text (the caller
-    * parses and validates it).
+    * parses and validates it). Only used by the unwired Nova `StatementSuggestionsService`; the active suggestions
+    * engine is `JevStatementSuggestionsService`.
     */
   def suggest(prompt: String): Future[String]
 }

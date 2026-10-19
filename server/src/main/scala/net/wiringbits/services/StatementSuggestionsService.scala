@@ -19,6 +19,11 @@ import scala.util.Try
   * that category has merchants, picks one of them by name (or "none"). A name that does not match exactly one candidate
   * is dropped (no guess); unparseable output fails the Future. No DB access — the caller loads the inputs and persists
   * the result.
+  *
+  * This was the prior suggestions engine. On the `eu.` cross-region inference profile it is throttled by the
+  * non-adjustable 20 req/min "Cross-region model inference requests per minute for Amazon Nova Lite" quota
+  * (ThrottlingException 429 on the per-row calls). `JevStatementSuggestionsService` is now the active engine; this one
+  * is kept, unwired, for reference and as a fallback.
   */
 class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(implicit ec: ExecutionContext) {
   import StatementSuggestionsService.*
@@ -157,10 +162,13 @@ object StatementSuggestionsService {
 
   private val NoMerchant = "none"
 
-  private case class RowSelection(toResolve: List[BankStatementRow], creditsSkipped: Int, ruleSkipped: Int)
+  private[services] case class RowSelection(toResolve: List[BankStatementRow], creditsSkipped: Int, ruleSkipped: Int)
 
   /** Debit rows that no import rule handles; credits and rule-matched rows get no suggestion. */
-  private def selectRowsToResolve(rows: List[BankStatementRow], rules: List[ImportRuleMatcher.Rule]): RowSelection = {
+  private[services] def selectRowsToResolve(
+      rows: List[BankStatementRow],
+      rules: List[ImportRuleMatcher.Rule]
+  ): RowSelection = {
     val debits = rows.filter(_.amount < 0)
     val toResolve = debits.filter(r => RowRuleVerdict.verdict(rules, r.description) == RowRuleVerdict.NoRule)
     RowSelection(toResolve, rows.size - debits.size, debits.size - toResolve.size)
@@ -169,7 +177,7 @@ object StatementSuggestionsService {
   /** Row id → category for the rows whose normalized description is in `history`. A category that is not among the
     * loaded ones (deleted since) is dropped, so that row goes to the model.
     */
-  private def historyCategories(
+  private[services] def historyCategories(
       rows: List[BankStatementRow],
       history: Map[String, UUID],
       categories: List[Category]
@@ -257,7 +265,7 @@ object StatementSuggestionsService {
       .flatMap(json => (json \ "answer").asOpt[String])
       .getOrElse(throw new RuntimeException(s"Model did not return a valid suggestion answer: $raw"))
 
-  private def oneLine(s: String): String = s.replaceAll("\\s+", " ").trim
+  private[services] def oneLine(s: String): String = s.replaceAll("\\s+", " ").trim
 
   // Models sometimes wrap the JSON in markdown fences or a sentence; keep the outermost object.
   private def extractJsonObject(text: String): String = {
