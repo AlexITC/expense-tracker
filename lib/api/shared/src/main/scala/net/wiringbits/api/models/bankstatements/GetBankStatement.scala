@@ -21,7 +21,9 @@ object GetBankStatement {
       expenseId: Option[UUID],
       refundId: Option[UUID],
       ignoredAt: Option[Instant],
-      txnType: String
+      txnType: String,
+      expenseMerchantId: Option[UUID],
+      expenseCategoryId: Option[UUID]
   )
   object StatementRowData {
     implicit val format: Format[StatementRowData] = Json.format[StatementRowData]

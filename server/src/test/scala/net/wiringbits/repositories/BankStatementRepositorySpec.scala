@@ -10,6 +10,7 @@ import net.wiringbits.repositories.models.{
   BackgroundJobData,
   BankStatement,
   BankStatementRow,
+  BankStatementRowLinkedExpense,
   Document,
   Expense,
   ExpenseCategorySplit
@@ -349,7 +350,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
 
   // createExpense generates the expense id, so the split (which needs it) is built here.
   // One split per category, each for the full amount (the repository doesn't validate split totals).
-  private def createCategorizedExpense(userId: UUID, categoryIds: UUID*)(implicit
+  private def createCategorizedExpense(userId: UUID, merchantId: Option[UUID], categoryIds: UUID*)(implicit
       repositories: RepositoryComponents
   ): UUID = {
     val now = Instant.now()
@@ -359,7 +360,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       amount = BigDecimal("50.00"),
       date = LocalDate.of(2024, 1, 15),
       time = None,
-      merchantId = None,
+      merchantId = merchantId,
       notes = None,
       createdAt = now,
       updatedAt = now
@@ -388,7 +389,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
   private def link(row: BankStatementRow.Create, userId: UUID, categoryId: UUID)(implicit
       repositories: RepositoryComponents
   ): Unit = {
-    val expenseId = createCategorizedExpense(userId, categoryId)
+    val expenseId = createCategorizedExpense(userId, None, categoryId)
     repositories.bankStatements.setRowExpenseIdForUser(row.id, userId, expenseId, Instant.now()).futureValue
   }
 
@@ -495,7 +496,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       val groceries = createCategory(user.id, "Groceries").futureValue
       val dining = createCategory(user.id, "Dining").futureValue
       val rows = createRows(user.id, List("Walmart", "OXXO"))
-      val splitExpenseId = createCategorizedExpense(user.id, groceries.id, dining.id)
+      val splitExpenseId = createCategorizedExpense(user.id, None, groceries.id, dining.id)
       repositories.bankStatements.setRowExpenseIdForUser(rows(0).id, user.id, splitExpenseId, Instant.now()).futureValue
       link(rows(1), user.id, dining.id)
 
@@ -513,6 +514,67 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
 
       val result = repositories.bankStatements.categoryHistory(userA.id).futureValue
       result must be(Map("mine" -> categoryA.id))
+    }
+  }
+
+  "findRowLinkedExpenses" should {
+    "surface the merchant and category of a single-split expense" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val category = createCategory(user.id).futureValue
+      val merchant = createMerchant(user.id).futureValue
+      val row = createRows(user.id, List("OXXO")).head
+      val expenseId = createCategorizedExpense(user.id, Some(merchant.id), category.id)
+      repositories.bankStatements.setRowExpenseIdForUser(row.id, user.id, expenseId, Instant.now()).futureValue
+
+      val result = repositories.bankStatements.findRowLinkedExpenses(row.bankStatementId, user.id).futureValue
+      result must be(List(BankStatementRowLinkedExpense(row.id, Some(merchant.id), Some(category.id))))
+    }
+
+    "leave the category empty for a multi-split expense but keep the merchant" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val groceries = createCategory(user.id, "Groceries").futureValue
+        val dining = createCategory(user.id, "Dining").futureValue
+        val merchant = createMerchant(user.id).futureValue
+        val row = createRows(user.id, List("Walmart")).head
+        val expenseId = createCategorizedExpense(user.id, Some(merchant.id), groceries.id, dining.id)
+        repositories.bankStatements.setRowExpenseIdForUser(row.id, user.id, expenseId, Instant.now()).futureValue
+
+        val result = repositories.bankStatements.findRowLinkedExpenses(row.bankStatementId, user.id).futureValue
+        result must be(List(BankStatementRowLinkedExpense(row.id, Some(merchant.id), None)))
+    }
+
+    "leave the category empty for an expense without splits but keep the merchant" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val merchant = createMerchant(user.id).futureValue
+        val row = createRows(user.id, List("OXXO")).head
+        val expenseId = createCategorizedExpense(user.id, Some(merchant.id))
+        repositories.bankStatements.setRowExpenseIdForUser(row.id, user.id, expenseId, Instant.now()).futureValue
+
+        val result = repositories.bankStatements.findRowLinkedExpenses(row.bankStatementId, user.id).futureValue
+        result must be(List(BankStatementRowLinkedExpense(row.id, Some(merchant.id), None)))
+    }
+
+    "exclude rows without an expense" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val category = createCategory(user.id).futureValue
+      val rows = createRows(user.id, List("Linked", "Unlinked"))
+      link(rows.head, user.id, category.id)
+
+      val result = repositories.bankStatements.findRowLinkedExpenses(rows.head.bankStatementId, user.id).futureValue
+      result must be(List(BankStatementRowLinkedExpense(rows.head.id, None, Some(category.id))))
+    }
+
+    "never return another user's data" in withRepositories() { implicit repositories =>
+      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
+      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val category = createCategory(userA.id).futureValue
+      val row = createRows(userA.id, List("Mine")).head
+      link(row, userA.id, category.id)
+
+      val result = repositories.bankStatements.findRowLinkedExpenses(row.bankStatementId, userB.id).futureValue
+      result must be(empty)
     }
   }
 

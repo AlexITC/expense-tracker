@@ -5,6 +5,8 @@ import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.github.f4b6a3.uuid.UuidCreator
 import controllers.common.PlayPostgresSpec
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus, CreateExpenseFromRow}
+import net.wiringbits.api.models.categories.CreateCategory
+import net.wiringbits.api.models.merchants.CreateMerchant
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
 import net.wiringbits.common.models.Captcha
@@ -252,6 +254,41 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
   }
 
   "GET /bank-statements/:id" should {
+    "return the linked expense's merchant and category only on the linked row" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      implicit val now: Instant = Instant.now()
+      val userId = client.currentUser.futureValue.id
+      val linkedRowId = UuidCreator.getTimeOrderedEpoch()
+      val unlinkedRowId = UuidCreator.getTimeOrderedEpoch()
+      val stmtId = createBankStatementWithRows(
+        userId,
+        sid =>
+          List(
+            makeRow(linkedRowId, sid, BigDecimal("-50.00")),
+            makeRow(unlinkedRowId, sid, BigDecimal("-20.00")).copy(index = 1)
+          )
+      )
+      val category = client.createCategory(CreateCategory.Request("Groceries")).futureValue
+      val merchant = client.createMerchant(CreateMerchant.Request("Supermarket", None, None)).futureValue
+      val req = CreateExpenseFromRow.Request(
+        BigDecimal("50.00"),
+        sampleDate,
+        None,
+        Some(merchant.id),
+        None,
+        List(CreateExpenseFromRow.Split(category.id, BigDecimal("50.00")))
+      )
+      client.createExpenseFromRow(stmtId, linkedRowId, req).futureValue
+
+      val rows = client.getBankStatement(stmtId).futureValue.statementRows
+      val linked = rows.find(_.id == linkedRowId).value
+      linked.expenseMerchantId must be(Some(merchant.id))
+      linked.expenseCategoryId must be(Some(category.id))
+      val unlinked = rows.find(_.id == unlinkedRowId).value
+      unlinked.expenseMerchantId must be(None)
+      unlinked.expenseCategoryId must be(None)
+    }
+
     "return no AI suggestions for a fresh statement" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val (stmtId, _) = setupStmtWithRow()

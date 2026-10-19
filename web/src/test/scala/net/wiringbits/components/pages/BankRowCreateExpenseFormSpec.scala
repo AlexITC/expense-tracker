@@ -23,7 +23,9 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
     expenseId = None,
     refundId = None,
     ignoredAt = None,
-    txnType = "debit"
+    txnType = "debit",
+    expenseMerchantId = None,
+    expenseCategoryId = None
   )
 
   private val groceries = GetCategories.Response.Category(UUID.randomUUID(), "Groceries", Instant.now())

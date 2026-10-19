@@ -23,7 +23,9 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
       expenseId = None,
       refundId = None,
       ignoredAt = None,
-      txnType = "purchase"
+      txnType = "purchase",
+      expenseMerchantId = None,
+      expenseCategoryId = None
     )
 
   "BankStatementReviewPage.resultLabel" should {

@@ -1,8 +1,10 @@
 package net.wiringbits.actions.bankstatements
 
+import io.scalaland.chimney.dsl.*
 import net.wiringbits.api.models.documents.{DocumentStatus => ApiStatus}
 import net.wiringbits.api.models.bankstatements.GetBankStatement
 import net.wiringbits.repositories.BankStatementRepository
+import org.slf4j.LoggerFactory
 
 import java.util.UUID
 import javax.inject.Inject
@@ -12,11 +14,16 @@ class GetBankStatementAction @Inject() (bankStatementRepository: BankStatementRe
     ec: ExecutionContext
 ) {
 
+  private val logger = LoggerFactory.getLogger(this.getClass)
+
   def apply(id: UUID, userId: UUID): Future[GetBankStatement.Response] =
     for {
       viewOpt <- bankStatementRepository.find(id, userId)
       view = viewOpt.getOrElse(throw new RuntimeException("Bank statement not found"))
+      _ = logger.info(s"Get bank statement $id for user $userId")
       rows <- bankStatementRepository.findRows(id)
+      linkedExpenses <- bankStatementRepository.findRowLinkedExpenses(id, userId)
+      linkedByRowId = linkedExpenses.map(l => l.rowId -> l).toMap
     } yield GetBankStatement.Response(
       id = view.id,
       documentId = view.documentId,
@@ -29,19 +36,10 @@ class GetBankStatementAction @Inject() (bankStatementRepository: BankStatementRe
       periodStart = view.periodStart,
       periodEnd = view.periodEnd,
       statementRows = rows.map { r =>
-        GetBankStatement.StatementRowData(
-          id = r.id,
-          index = r.index,
-          date = r.date,
-          amount = r.amount,
-          description = r.description,
-          manuallyEdited = r.manuallyEdited,
-          confirmedAt = r.confirmedAt,
-          expenseId = r.expenseId,
-          refundId = r.refundId,
-          ignoredAt = r.ignoredAt,
-          txnType = r.txnType
-        )
+        r.into[GetBankStatement.StatementRowData]
+          .withFieldComputed(_.expenseMerchantId, r => linkedByRowId.get(r.id).flatMap(_.merchantId))
+          .withFieldComputed(_.expenseCategoryId, r => linkedByRowId.get(r.id).flatMap(_.categoryId))
+          .transform
       },
       createdAt = view.createdAt,
       extractionInfo = view.extractionInfo,

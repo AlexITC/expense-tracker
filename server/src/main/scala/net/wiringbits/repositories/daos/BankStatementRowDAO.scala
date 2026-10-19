@@ -3,7 +3,7 @@ package net.wiringbits.repositories.daos
 import anorm.*
 import anorm.SqlParser.*
 import net.wiringbits.api.utils.ImportRuleMatcher
-import net.wiringbits.repositories.models.BankStatementRow
+import net.wiringbits.repositories.models.{BankStatementRow, BankStatementRowLinkedExpense}
 
 import java.sql.Connection
 import java.time.{Instant, LocalDate}
@@ -129,6 +129,36 @@ object BankStatementRowDAO {
       ORDER BY last_used DESC, bsr.description, ecs.category_id
       """.as(historyParser.*)
     mostUsedCategoryByDescription(rows)
+  }
+
+  /** The merchant and category of the expense linked to each row of a statement. Rows without a linked expense are
+    * absent; the category is None unless the expense has exactly one category split.
+    */
+  def linkedExpenses(bankStatementId: UUID, userId: UUID)(implicit
+      conn: Connection
+  ): List[BankStatementRowLinkedExpense] = {
+    val linkedParser = (get[UUID]("id") ~ get[Option[UUID]]("merchant_id") ~ get[Option[UUID]]("category_id")).map {
+      case rowId ~ merchantId ~ categoryId => BankStatementRowLinkedExpense(rowId, merchantId, categoryId)
+    }
+    SQL"""
+      SELECT bsr.id, e.merchant_id, ecs.category_id
+      FROM bank_statement_row bsr
+      JOIN bank_statement bs ON bs.id = bsr.bank_statement_id
+        AND bs.user_id = ${userId.toString}::UUID
+      JOIN expense e ON e.id = bsr.expense_id
+        AND e.user_id = ${userId.toString}::UUID
+      LEFT JOIN (
+        SELECT expense_id
+        FROM expense_category_split
+        WHERE user_id = ${userId.toString}::UUID
+        GROUP BY expense_id
+        HAVING COUNT(*) = 1
+      ) single_split ON single_split.expense_id = bsr.expense_id
+      LEFT JOIN expense_category_split ecs ON ecs.expense_id = single_split.expense_id
+        AND ecs.user_id = ${userId.toString}::UUID
+      WHERE bsr.bank_statement_id = ${bankStatementId.toString}::UUID
+      ORDER BY bsr.index, bsr.id
+      """.as(linkedParser.*)
   }
 
   /** Groups (description, categoryId, uses) entries by normalized description and picks the most used category per
