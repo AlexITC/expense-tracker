@@ -120,6 +120,8 @@ the backend container:
 | `AWS_S3_BUCKET` | bucket for stored documents |
 | `BEDROCK_REGION`, `BEDROCK_ACCESS_KEY_ID`, `BEDROCK_SECRET_ACCESS_KEY` | statement extraction (Amazon Bedrock) |
 | `BDA_PROFILE_ARN`, `BDA_STANDARD_PROJECT_ARN`, `BDA_BANK_STATEMENT_BLUEPRINT_ARN`, `BDA_OUTPUT_S3_URI` | statement-extraction fallback (Bedrock Data Automation) |
+| `JEV_MODE` | `mock` (default, placeholder picks) or `real` for bank-statement row category/merchant suggestions (JEV) |
+| `JEV_API_KEY` (optional `JEV_BASE_URL`, `JEV_MODEL`) | JEV API credentials for the suggestions |
 
 ## Deployment
 

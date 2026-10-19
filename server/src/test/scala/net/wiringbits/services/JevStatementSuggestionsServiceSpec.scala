@@ -203,12 +203,12 @@ class JevStatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with 
       val shop = merchant("Corner Shop", Some(groceries.id))
       val market = merchant("Market", Some(groceries.id))
       val metro = merchant("Metro", Some(transport.id))
-      val client = stub(groceries, Some("none"))
+      val client = stub(groceries, Some(JevClient.NoMerchant))
 
       resolve(client, List(row("CORNER SHOP")), List(shop, market, metro), categories)
 
       client.merchantCalls.map(_.criteria.keySet) must be(
-        List(Set(shop.id.toString, market.id.toString, "none"))
+        List(Set(shop.id.toString, market.id.toString, JevClient.NoMerchant))
       )
       client.merchantCalls.head.criteria(shop.id.toString) must be("Corner Shop")
     }
@@ -236,7 +236,7 @@ class JevStatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with 
 
     "fail without the merchant call when the category has more than 254 merchants" in {
       val many = (1 to 255).toList.map(i => merchant(s"Merchant $i", Some(groceries.id)))
-      val client = stub(groceries, Some("none"))
+      val client = stub(groceries, Some(JevClient.NoMerchant))
 
       val error = run(client, List(row("CORNER SHOP")), many, categories).failed.futureValue
 
@@ -274,7 +274,7 @@ class JevStatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with 
     "keep the predicted category with no merchant when JEV answers none" in {
       val shop = merchant("Corner Shop", Some(groceries.id))
       val pending = row("CORNER SHOP")
-      val client = stub(groceries, Some("none"))
+      val client = stub(groceries, Some(JevClient.NoMerchant))
 
       val result = resolve(client, List(pending), List(shop), categories)
 

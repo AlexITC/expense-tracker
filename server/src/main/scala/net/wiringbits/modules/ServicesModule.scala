@@ -7,11 +7,9 @@ import net.wiringbits.apis.{
   JevClient,
   MockBdaClient,
   MockBedrockClient,
-  MockJevClient,
   MockTextractClient,
   RealBdaClient,
   RealBedrockClient,
-  RealJevClient,
   RealTextractClient,
   TextractClient
 }
@@ -59,8 +57,8 @@ class ServicesModule extends AbstractModule {
   @Singleton
   def jevClient(config: JevConfig, ws: WSClient, actorSystem: ActorSystem, ec: ExecutionContext): JevClient = {
     config.mode match {
-      case JevConfig.Mock => new MockJevClient()
-      case JevConfig.Real => new RealJevClient(config, ws, actorSystem)(using ec)
+      case JevConfig.Mock => new JevClient.MockJevClient()
+      case JevConfig.Real => new JevClient.RealJevClient(config, ws, actorSystem)(using ec)
     }
   }
 }

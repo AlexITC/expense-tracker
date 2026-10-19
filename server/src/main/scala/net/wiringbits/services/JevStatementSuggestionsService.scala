@@ -18,7 +18,8 @@ import scala.concurrent.{ExecutionContext, Future}
   */
 class JevStatementSuggestionsService @Inject() (jevClient: JevClient)(implicit ec: ExecutionContext) {
   import JevStatementSuggestionsService.*
-  import StatementSuggestionsService.{finalSuggestion, historyCategories, NoMerchant, oneLine, selectRowsToResolve}
+  import JevClient.NoMerchant
+  import StatementSuggestionsService.{finalSuggestion, historyCategories, oneLine, selectRowsToResolve}
 
   private val logger = LoggerFactory.getLogger(this.getClass)
 
@@ -55,31 +56,21 @@ class JevStatementSuggestionsService @Inject() (jevClient: JevClient)(implicit e
       val historyHits = historyCategories(toResolve, history, categories)
       val pending = toResolve.filterNot(row => historyHits.contains(row.id))
       // Each distinct description's first row, with all the rows sharing it.
-      val keyed = pending.map(row => dedupKey(row) -> row)
-      val rowsByKey = keyed.groupMap(_._1)(_._2)
-      val groups = keyed.distinctBy(_._1).map { case (key, first) => first -> rowsByKey.getOrElse(key, List(first)) }
+      val byKey = pending.groupBy(dedupKey)
+      val groups = pending.distinctBy(dedupKey).map(first => first -> byKey(dedupKey(first)))
       logger.info(
         s"userId=$userId, statement $statementId: ${historyHits.size} rows resolved by history, " +
           s"${pending.size} rows left as ${groups.size} distinct descriptions sent to JEV"
       )
       // One description after another (keeps the JEV load predictable).
       groups
-        .foldLeft(Future.successful((Map.empty[UUID, AiSuggestions.RowSuggestion], 0))) { case (accF, (first, group)) =>
+        .foldLeft(Future.successful(Map.empty[UUID, AiSuggestions.RowSuggestion])) { case (accF, (first, group)) =>
           for {
-            (acc, calls) <- accF
-            (suggestions, groupCalls) <- resolveGroup(
-              userId,
-              statementId,
-              first,
-              group,
-              merchants,
-              categories,
-              examples
-            )
-          } yield (acc ++ suggestions.map(s => s.rowId -> s), calls + groupCalls)
+            acc <- accF
+            suggestions <- resolveGroup(userId, statementId, first, group, merchants, categories, examples)
+          } yield acc ++ suggestions.map(s => s.rowId -> s)
         }
-        .map { case (resolved, calls) =>
-          logger.info(s"userId=$userId, statement $statementId: $calls JEV calls")
+        .map { resolved =>
           val suggestions = toResolve.flatMap { row =>
             historyHits
               .get(row.id)
@@ -91,9 +82,7 @@ class JevStatementSuggestionsService @Inject() (jevClient: JevClient)(implicit e
     }
   }
 
-  /** Resolves the rows sharing `first`'s description with a single category call and at most one merchant call; returns
-    * their suggestions and the number of JEV calls made.
-    */
+  /** Resolves the rows sharing `first`'s description with a single category call and at most one merchant call. */
   private def resolveGroup(
       userId: UUID,
       statementId: UUID,
@@ -102,7 +91,7 @@ class JevStatementSuggestionsService @Inject() (jevClient: JevClient)(implicit e
       merchants: List[Merchant],
       categories: List[Category],
       examples: List[(UUID, String)]
-  ): Future[(List[AiSuggestions.RowSuggestion], Int)] = {
+  ): Future[List[AiSuggestions.RowSuggestion]] = {
     // No amount in the state, so every row sharing the description gets the same answer.
     val state = oneLine(first.description)
     for {
@@ -120,8 +109,7 @@ class JevStatementSuggestionsService @Inject() (jevClient: JevClient)(implicit e
         s"userId=$userId, statement $statementId description '$state' (${group.size} rows): " +
           s"category ${category.name} (confidence ${categoryChoice.confidence}), merchant $merchantLog"
       )
-      val suggestions = group.map(row => finalSuggestion(row.id, Some(category.id), merchant.map(_.id), merchants))
-      (suggestions, 1 + merchantPick.size)
+      group.map(row => finalSuggestion(row.id, Some(category.id), merchant.map(_.id), merchants))
     }
   }
 

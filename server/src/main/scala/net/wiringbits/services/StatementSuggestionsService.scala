@@ -160,7 +160,7 @@ class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(impli
 
 object StatementSuggestionsService {
 
-  private[services] val NoMerchant = "none"
+  private val NoMerchant = "none"
 
   private[services] case class RowSelection(toResolve: List[BankStatementRow], creditsSkipped: Int, ruleSkipped: Int)
 

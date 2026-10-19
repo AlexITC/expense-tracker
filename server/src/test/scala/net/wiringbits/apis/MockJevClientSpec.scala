@@ -5,12 +5,13 @@ import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
 class MockJevClientSpec extends AnyWordSpec {
-  private val client = new MockJevClient()
+  private val client = new JevClient.MockJevClient()
 
   "choose" should {
     "pick none when it is offered" in {
-      val result = client.choose("state", "merchant", "Pick", Map("b" -> "B", "none" -> "No match", "a" -> "A"))
-      result.futureValue must be(JevChoice("none", BigDecimal(0), Map.empty))
+      val result =
+        client.choose("state", "merchant", "Pick", Map("b" -> "B", JevClient.NoMerchant -> "No match", "a" -> "A"))
+      result.futureValue must be(JevChoice(JevClient.NoMerchant, BigDecimal(0), Map.empty))
     }
 
     "pick the smallest key otherwise" in {

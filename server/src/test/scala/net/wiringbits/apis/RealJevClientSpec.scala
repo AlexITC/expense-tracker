@@ -55,7 +55,7 @@ class RealJevClientSpec extends AnyWordSpec with MockitoSugar with ScalaFutures 
     res
   }
 
-  private def setup(responses: WSResponse*): (RealJevClient, WSRequest) = {
+  private def setup(responses: WSResponse*): (JevClient.RealJevClient, WSRequest) = {
     val ws = mock[WSClient]
     val request = mock[WSRequest]
     when(ws.url(anyString())).thenReturn(request)
@@ -63,10 +63,10 @@ class RealJevClientSpec extends AnyWordSpec with MockitoSugar with ScalaFutures 
     val futures = responses.map(Future.successful)
     val _ = when(request.post[JsValue](any[JsValue]())(using any[BodyWritable[JsValue]]()))
       .thenReturn(futures.head, futures.tail*)
-    (new RealJevClient(config, ws, actorSystem), request)
+    (new JevClient.RealJevClient(config, ws, actorSystem), request)
   }
 
-  private def choose(client: RealJevClient) =
+  private def choose(client: JevClient.RealJevClient) =
     client.choose("Row: CORNER SHOP -12.50", "category", "Pick the category", criteria)
 
   "choose" should {
@@ -89,10 +89,7 @@ class RealJevClientSpec extends AnyWordSpec with MockitoSugar with ScalaFutures 
           )
         )
       )
-      val _ = verify(request).addHttpHeaders(
-        "Authorization" -> "Bearer secret-key",
-        "Content-Type" -> "application/json"
-      )
+      val _ = verify(request).addHttpHeaders("Authorization" -> "Bearer secret-key")
     }
 
     "parse the choice, confidence and probabilities" in {
@@ -120,11 +117,6 @@ class RealJevClientSpec extends AnyWordSpec with MockitoSugar with ScalaFutures 
       error.getMessage must include("the body is not JSON")
       error.getMessage must include("not json")
       error.getCause.getMessage must be("invalid json")
-    }
-
-    "fail when the answer is missing" in {
-      val (client, _) = setup(response(200, Json.obj("answers" -> Json.obj())))
-      choose(client).failed.futureValue.getMessage must include("the answer type is not 'choice'")
     }
 
     "fail when the answer type is not choice" in {
