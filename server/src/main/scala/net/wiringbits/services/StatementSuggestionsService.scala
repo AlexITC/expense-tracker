@@ -155,12 +155,15 @@ class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(impli
 
 object StatementSuggestionsService {
 
-  private val NoMerchant = "none"
+  private[services] val NoMerchant = "none"
 
-  private case class RowSelection(toResolve: List[BankStatementRow], creditsSkipped: Int, ruleSkipped: Int)
+  private[services] case class RowSelection(toResolve: List[BankStatementRow], creditsSkipped: Int, ruleSkipped: Int)
 
   /** Debit rows that no import rule handles; credits and rule-matched rows get no suggestion. */
-  private def selectRowsToResolve(rows: List[BankStatementRow], rules: List[ImportRuleMatcher.Rule]): RowSelection = {
+  private[services] def selectRowsToResolve(
+      rows: List[BankStatementRow],
+      rules: List[ImportRuleMatcher.Rule]
+  ): RowSelection = {
     val debits = rows.filter(_.amount < 0)
     val toResolve = debits.filter(r => RowRuleVerdict.verdict(rules, r.description) == RowRuleVerdict.NoRule)
     RowSelection(toResolve, rows.size - debits.size, debits.size - toResolve.size)
@@ -169,7 +172,7 @@ object StatementSuggestionsService {
   /** Row id → category for the rows whose normalized description is in `history`. A category that is not among the
     * loaded ones (deleted since) is dropped, so that row goes to the model.
     */
-  private def historyCategories(
+  private[services] def historyCategories(
       rows: List[BankStatementRow],
       history: Map[String, UUID],
       categories: List[Category]
@@ -257,7 +260,7 @@ object StatementSuggestionsService {
       .flatMap(json => (json \ "answer").asOpt[String])
       .getOrElse(throw new RuntimeException(s"Model did not return a valid suggestion answer: $raw"))
 
-  private def oneLine(s: String): String = s.replaceAll("\\s+", " ").trim
+  private[services] def oneLine(s: String): String = s.replaceAll("\\s+", " ").trim
 
   // Models sometimes wrap the JSON in markdown fences or a sentence; keep the outermost object.
   private def extractJsonObject(text: String): String = {
