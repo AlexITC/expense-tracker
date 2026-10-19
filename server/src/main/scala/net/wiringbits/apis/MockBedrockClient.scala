@@ -11,7 +11,7 @@ class MockBedrockClient extends BedrockClient {
         """"transactions":[{"date":"2026-01-15","amount":-40.00,"description":"MOCK PURCHASE","runningBalance":60.00}]}"""
     )
 
-  // A valid "no suggestions" answer, so mock-mode suggestion jobs complete.
+  // A valid answer that matches no candidate, so mock-mode suggestion jobs complete without suggestions.
   override def suggest(prompt: String): Future[String] =
-    Future.successful("""{"rows":[]}""")
+    Future.successful("""{"answer":"none"}""")
 }

@@ -2,6 +2,7 @@ package net.wiringbits.repositories.daos
 
 import anorm.*
 import anorm.SqlParser.*
+import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.repositories.models.BankStatementRow
 
 import java.sql.Connection
@@ -103,6 +104,55 @@ object BankStatementRowDAO {
       ORDER BY category_id, date DESC, id
       """.as(exampleParser.*)
   }
+
+  // Rows linked to single-split expenses only: a multi-split expense has no single category to learn from.
+  // Aggregated per (description, category) in SQL so only the distinct pairs reach the app.
+  def categoryHistory(userId: UUID)(implicit conn: Connection): Map[String, UUID] = {
+    val historyParser = (str("description") ~ get[UUID]("category_id") ~ int("uses")).map {
+      case description ~ categoryId ~ uses => (description, categoryId, uses)
+    }
+    val rows = SQL"""
+      SELECT bsr.description, ecs.category_id, COUNT(*)::INT AS uses, MAX(bsr.date) AS last_used
+      FROM bank_statement_row bsr
+      JOIN bank_statement bs ON bs.id = bsr.bank_statement_id
+        AND bs.user_id = ${userId.toString}::UUID
+      JOIN expense_category_split ecs ON ecs.expense_id = bsr.expense_id
+        AND ecs.user_id = ${userId.toString}::UUID
+      JOIN (
+        SELECT expense_id
+        FROM expense_category_split
+        WHERE user_id = ${userId.toString}::UUID
+        GROUP BY expense_id
+        HAVING COUNT(*) = 1
+      ) single_split ON single_split.expense_id = bsr.expense_id
+      GROUP BY bsr.description, ecs.category_id
+      ORDER BY last_used DESC, bsr.description, ecs.category_id
+      """.as(historyParser.*)
+    mostUsedCategoryByDescription(rows)
+  }
+
+  /** Groups (description, categoryId, uses) entries by normalized description and picks the most used category per
+    * group.
+    *
+    * The input must be ordered most recently used first; ties are broken by the earliest position, i.e. the most recent
+    * use. Descriptions that normalize to an empty key are dropped so they can't match each other.
+    */
+  def mostUsedCategoryByDescription(rows: List[(String, UUID, Int)]): Map[String, UUID] =
+    rows.zipWithIndex
+      .map { case ((description, categoryId, uses), position) =>
+        (ImportRuleMatcher.normalize(description), categoryId, uses, position)
+      }
+      .filter(_._1.nonEmpty)
+      .groupBy(_._1)
+      .view
+      .mapValues { entries =>
+        entries
+          .groupBy(_._2)
+          .map { case (categoryId, pairs) => (categoryId, pairs.map(_._3).sum, pairs.map(_._4).min) }
+          .minBy { case (_, count, firstPosition) => (-count, firstPosition) }
+          ._1
+      }
+      .toMap
 
   def setExpenseIdForUser(rowId: UUID, userId: UUID, expenseId: UUID, updatedAt: Instant)(implicit
       conn: Connection

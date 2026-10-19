@@ -347,49 +347,52 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
   }
 
+  // createExpense generates the expense id, so the split (which needs it) is built here.
+  // One split per category, each for the full amount (the repository doesn't validate split totals).
+  private def createCategorizedExpense(userId: UUID, categoryIds: UUID*)(implicit
+      repositories: RepositoryComponents
+  ): UUID = {
+    val now = Instant.now()
+    val expense = Expense.Create(
+      id = UUID.randomUUID(),
+      userId = userId,
+      amount = BigDecimal("50.00"),
+      date = LocalDate.of(2024, 1, 15),
+      time = None,
+      merchantId = None,
+      notes = None,
+      createdAt = now,
+      updatedAt = now
+    )
+    val splits = categoryIds.toList.map { categoryId =>
+      ExpenseCategorySplit.Create(UUID.randomUUID(), userId, expense.id, categoryId, expense.amount)
+    }
+    repositories.expenses.create(expense, splits).futureValue
+    expense.id
+  }
+
+  // Creates a statement with one row per description (day i+1 of January) and returns the rows.
+  private def createRows(userId: UUID, descriptions: List[String])(implicit
+      repositories: RepositoryComponents
+  ): List[BankStatementRow.Create] = {
+    val doc = createDocument(userId, kind = DocumentKind.BankStatementPdf).futureValue
+    val now = Instant.now()
+    val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, userId, now, now)
+    val rows = descriptions.zipWithIndex.map { case (description, i) =>
+      buildRow(stmt.id, i).copy(description = description, date = LocalDate.of(2024, 1, i + 1))
+    }
+    createStatement(stmt, sampleStatementMetadata, rows).futureValue
+    rows
+  }
+
+  private def link(row: BankStatementRow.Create, userId: UUID, categoryId: UUID)(implicit
+      repositories: RepositoryComponents
+  ): Unit = {
+    val expenseId = createCategorizedExpense(userId, categoryId)
+    repositories.bankStatements.setRowExpenseIdForUser(row.id, userId, expenseId, Instant.now()).futureValue
+  }
+
   "categorizedRowExamples" should {
-    // createExpense generates the expense id, so the split (which needs it) is built here.
-    def createCategorizedExpense(userId: UUID, categoryId: UUID)(implicit
-        repositories: RepositoryComponents
-    ): UUID = {
-      val now = Instant.now()
-      val expense = Expense.Create(
-        id = UUID.randomUUID(),
-        userId = userId,
-        amount = BigDecimal("50.00"),
-        date = LocalDate.of(2024, 1, 15),
-        time = None,
-        merchantId = None,
-        notes = None,
-        createdAt = now,
-        updatedAt = now
-      )
-      val split = ExpenseCategorySplit.Create(UUID.randomUUID(), userId, expense.id, categoryId, expense.amount)
-      repositories.expenses.create(expense, List(split)).futureValue
-      expense.id
-    }
-
-    // Creates a statement with one row per description (day i+1 of January) and returns the rows.
-    def createRows(userId: UUID, descriptions: List[String])(implicit
-        repositories: RepositoryComponents
-    ): List[BankStatementRow.Create] = {
-      val doc = createDocument(userId, kind = DocumentKind.BankStatementPdf).futureValue
-      val now = Instant.now()
-      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, userId, now, now)
-      val rows = descriptions.zipWithIndex.map { case (description, i) =>
-        buildRow(stmt.id, i).copy(description = description, date = LocalDate.of(2024, 1, i + 1))
-      }
-      createStatement(stmt, sampleStatementMetadata, rows).futureValue
-      rows
-    }
-
-    def link(row: BankStatementRow.Create, userId: UUID, categoryId: UUID)(implicit
-        repositories: RepositoryComponents
-    ): Unit = {
-      val expenseId = createCategorizedExpense(userId, categoryId)
-      repositories.bankStatements.setRowExpenseIdForUser(row.id, userId, expenseId, Instant.now()).futureValue
-    }
-
     "keep the most recent rows per category, up to the limit" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val groceries = createCategory(user.id, "Groceries").futureValue
@@ -424,6 +427,92 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
 
       val result = repositories.bankStatements.categorizedRowExamples(userA.id, perCategory = 3).futureValue
       result must be(List(categoryA.id -> "Mine"))
+    }
+  }
+
+  "categoryHistory" should {
+    "pick the most used category for a description" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val groceries = createCategory(user.id, "Groceries").futureValue
+      val dining = createCategory(user.id, "Dining").futureValue
+      val rows = createRows(user.id, List("OXXO", "OXXO", "OXXO"))
+      link(rows(0), user.id, groceries.id)
+      link(rows(1), user.id, groceries.id)
+      link(rows(2), user.id, dining.id)
+
+      val result = repositories.bankStatements.categoryHistory(user.id).futureValue
+      result must be(Map("oxxo" -> groceries.id))
+    }
+
+    "break ties by the most recent use" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val groceries = createCategory(user.id, "Groceries").futureValue
+      val dining = createCategory(user.id, "Dining").futureValue
+      val rows = createRows(user.id, List("OXXO", "OXXO"))
+      link(rows(0), user.id, groceries.id)
+      link(rows(1), user.id, dining.id)
+
+      val result = repositories.bankStatements.categoryHistory(user.id).futureValue
+      result must be(Map("oxxo" -> dining.id))
+    }
+
+    "share a key for descriptions that differ only in case or punctuation" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val groceries = createCategory(user.id, "Groceries").futureValue
+        val dining = createCategory(user.id, "Dining").futureValue
+        val rows = createRows(user.id, List("OXXO-123", "oxxo 123", "Oxxo.123"))
+        link(rows(0), user.id, groceries.id)
+        link(rows(1), user.id, groceries.id)
+        link(rows(2), user.id, dining.id)
+
+        val result = repositories.bankStatements.categoryHistory(user.id).futureValue
+        result must be(Map("oxxo123" -> groceries.id))
+    }
+
+    "drop descriptions that normalize to an empty key" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val category = createCategory(user.id).futureValue
+      val rows = createRows(user.id, List("***", "OXXO"))
+      rows.foreach(link(_, user.id, category.id))
+
+      val result = repositories.bankStatements.categoryHistory(user.id).futureValue
+      result must be(Map("oxxo" -> category.id))
+    }
+
+    "exclude rows without an expense" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val category = createCategory(user.id).futureValue
+      val rows = createRows(user.id, List("Linked", "Unlinked"))
+      link(rows.head, user.id, category.id)
+
+      val result = repositories.bankStatements.categoryHistory(user.id).futureValue
+      result must be(Map("linked" -> category.id))
+    }
+
+    "exclude expenses with several splits" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val groceries = createCategory(user.id, "Groceries").futureValue
+      val dining = createCategory(user.id, "Dining").futureValue
+      val rows = createRows(user.id, List("Walmart", "OXXO"))
+      val splitExpenseId = createCategorizedExpense(user.id, groceries.id, dining.id)
+      repositories.bankStatements.setRowExpenseIdForUser(rows(0).id, user.id, splitExpenseId, Instant.now()).futureValue
+      link(rows(1), user.id, dining.id)
+
+      val result = repositories.bankStatements.categoryHistory(user.id).futureValue
+      result must be(Map("oxxo" -> dining.id))
+    }
+
+    "never include another user's rows" in withRepositories() { implicit repositories =>
+      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
+      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val categoryA = createCategory(userA.id).futureValue
+      val categoryB = createCategory(userB.id).futureValue
+      link(createRows(userA.id, List("Mine")).head, userA.id, categoryA.id)
+      link(createRows(userB.id, List("Theirs")).head, userB.id, categoryB.id)
+
+      val result = repositories.bankStatements.categoryHistory(userA.id).futureValue
+      result must be(Map("mine" -> categoryA.id))
     }
   }
 

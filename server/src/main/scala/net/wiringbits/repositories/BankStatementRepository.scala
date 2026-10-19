@@ -109,6 +109,12 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
     }
   }
 
+  def categoryHistory(userId: UUID): Future[Map[String, UUID]] = Future {
+    database.withConnection { implicit conn =>
+      BankStatementRowDAO.categoryHistory(userId)
+    }
+  }
+
   def setRowExpenseIdForUser(rowId: UUID, userId: UUID, expenseId: UUID, updatedAt: Instant): Future[Unit] = Future {
     database.withConnection { implicit conn =>
       BankStatementRowDAO.setExpenseIdForUser(rowId, userId, expenseId, updatedAt)
