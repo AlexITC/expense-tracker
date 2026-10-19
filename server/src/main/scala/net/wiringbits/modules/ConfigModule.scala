@@ -93,6 +93,14 @@ class ConfigModule extends AbstractModule {
 
   @Provides
   @Singleton
+  def jevConfig(global: Configuration): JevConfig = {
+    val config = JevConfig(global.get[Configuration]("jev"))
+    logger.info(s"Config loaded: jev.mode=${config.mode}, baseUrl=${config.baseUrl}, model=${config.model}")
+    config
+  }
+
+  @Provides
+  @Singleton
   def telegramConfig(global: Configuration): TelegramConfig = {
     val config = TelegramConfig(global.get[Configuration]("telegram"))
     logger.info(s"Config loaded: $config")
