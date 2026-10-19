@@ -282,6 +282,22 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
       info.categoryName mustBe Some("Dining")
     }
 
+    "expose the linked expense's merchant and category names" in {
+      val m = UUID.randomUUID()
+      val c = UUID.randomUUID()
+      val row =
+        sampleRow().copy(expenseId = Some(UUID.randomUUID()), expenseMerchantId = Some(m), expenseCategoryId = Some(c))
+      val info = rowInfo(
+        Nil,
+        List(merchant(m, "Walmart", None)),
+        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
+        None,
+        row
+      )
+      info.linkedMerchantName mustBe Some("Walmart")
+      info.linkedCategory mustBe BankStatementReviewPage.LinkedCategory.Named("Groceries")
+    }
+
     "not mark a row ready when nothing resolves" in {
       val info = rowInfo(Nil, Nil, Nil, None, sampleRow("UNKNOWN SHOP"))
       info.isReady mustBe false
@@ -293,6 +309,74 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
       val rules = List(rule(ImportRuleAction.Ignore, "SUPERMARKET", None))
       rowInfo(rules, Nil, Nil, None, sampleRow().copy(expenseId = Some(UUID.randomUUID()))).isReady mustBe false
       rowInfo(rules, Nil, Nil, None, sampleRow().copy(amount = BigDecimal("10.00"))).isReady mustBe false
+    }
+  }
+
+  "menuItemsFor" should {
+    import BankStatementReviewPage.{RowMenuItem, menuItemsFor}
+
+    "offer only Unlink for a row linked to an expense" in {
+      menuItemsFor(sampleRow().copy(expenseId = Some(UUID.randomUUID()))) mustBe List(RowMenuItem.Unlink)
+    }
+
+    "offer only UnlinkRefund for a row linked to a refund" in {
+      menuItemsFor(sampleRow().copy(amount = BigDecimal("45.00"), refundId = Some(UUID.randomUUID()))) mustBe
+        List(RowMenuItem.UnlinkRefund)
+    }
+
+    "offer only Unignore for an ignored row" in {
+      menuItemsFor(sampleRow().copy(ignoredAt = Some(Instant.now()))) mustBe List(RowMenuItem.Unignore)
+    }
+
+    "offer link, rule and ignore for an unprocessed row" in {
+      menuItemsFor(sampleRow("UNKNOWN SHOP")) mustBe
+        List(RowMenuItem.LinkExpense, RowMenuItem.CreateRule, RowMenuItem.Ignore)
+    }
+  }
+
+  "linkedCategoryDisplay" should {
+    import BankStatementReviewPage.{LinkedCategory, linkedCategoryDisplay}
+    val c = UUID.randomUUID()
+    val categories = List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH))
+    val linked = sampleRow().copy(expenseId = Some(UUID.randomUUID()))
+
+    "resolve a single category to its name" in {
+      linkedCategoryDisplay(linked.copy(expenseCategoryId = Some(c)), categories) mustBe
+        LinkedCategory.Named("Groceries")
+    }
+
+    "show Multiple for a linked expense without a single category" in {
+      linkedCategoryDisplay(linked, categories) mustBe LinkedCategory.Multiple
+    }
+
+    "be Unknown when the category is not in the list" in {
+      linkedCategoryDisplay(linked.copy(expenseCategoryId = Some(UUID.randomUUID())), categories) mustBe
+        LinkedCategory.Unknown
+    }
+
+    "be Unknown for a refund-only link" in {
+      linkedCategoryDisplay(sampleRow().copy(refundId = Some(UUID.randomUUID())), categories) mustBe
+        LinkedCategory.Unknown
+    }
+  }
+
+  "linkedMerchantName" should {
+    import BankStatementReviewPage.linkedMerchantName
+    val m = UUID.randomUUID()
+    val merchants =
+      List(GetMerchants.Response.Merchant(m, "Walmart", None, None, None, reviewed = true, Instant.EPOCH))
+    val linked = sampleRow().copy(expenseId = Some(UUID.randomUUID()))
+
+    "resolve the linked expense's merchant to its name" in {
+      linkedMerchantName(linked.copy(expenseMerchantId = Some(m)), merchants) mustBe Some("Walmart")
+    }
+
+    "be None when the expense has no merchant" in {
+      linkedMerchantName(linked, merchants) mustBe None
+    }
+
+    "be None when the merchant is not in the list" in {
+      linkedMerchantName(linked.copy(expenseMerchantId = Some(UUID.randomUUID())), merchants) mustBe None
     }
   }
 }

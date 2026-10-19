@@ -3,7 +3,7 @@ package net.wiringbits.components.pages
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.api.models.bankstatements.GetBankStatement
 import net.wiringbits.api.utils.RowRuleVerdict
-import net.wiringbits.components.pages.BankStatementReviewPage.{ResolvedImport, RowInfo}
+import net.wiringbits.components.pages.BankStatementReviewPage.{LinkedCategory, ResolvedImport, RowInfo}
 import net.wiringbits.components.pages.BankStatementReviewRow.RowAction
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.BrowserRouter
 import org.scalajs.dom
@@ -53,9 +53,12 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
     resolved = Some(ResolvedImport(None, UUID.randomUUID(), categoryFromAi = true)),
     isReady = true,
     merchantName = None,
-    categoryName = Some("Groceries")
+    categoryName = Some("Groceries"),
+    linkedMerchantName = None,
+    linkedCategory = LinkedCategory.Unknown
   )
-  private val ignoreInfo = RowInfo(RowRuleVerdict.Ignore, None, isReady = true, None, None)
+  private val ignoreInfo =
+    RowInfo(RowRuleVerdict.Ignore, None, isReady = true, None, None, None, LinkedCategory.Unknown)
 
   private def props(
       r: GetBankStatement.StatementRowData,
@@ -152,6 +155,54 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
       clickMenuItem(0)
       clickMenuItem(1)
       received mustBe List(r.id -> RowAction.OpenLinkPicker, r.id -> RowAction.OpenRuleForm)
+    }
+
+    // A linked or ignored row's menu must only offer the undo action, and Unlink must reach the right handler.
+    "offer only the undo action in the menu of a linked or ignored row" in {
+      val linkedInfo = readyInfo.copy(isReady = false, resolved = None)
+      val expenseRow = row("SUPERMARKET").copy(expenseId = Some(UUID.randomUUID()))
+      val refundRow = row("REFUND").copy(amount = BigDecimal("45.00"), refundId = Some(UUID.randomUUID()))
+      val ignoredRow = row("SPAM").copy(ignoredAt = Some(Instant.now()))
+      val cases = List(
+        (expenseRow, "Unlink", RowAction.Unlink),
+        (refundRow, "Unlink", RowAction.UnlinkRefund),
+        (ignoredRow, "Un-ignore", RowAction.Unignore)
+      )
+      cases.foreach { case (r, label, expected) =>
+        var received = List.empty[(UUID, RowAction)]
+        render(List(r -> linkedInfo), (id, action) => received = received :+ (id -> action))
+        val buttons = container.querySelectorAll("button")
+        buttons(buttons.length - 1).asInstanceOf[dom.html.Element].click()
+        val items = dom.document.body.querySelectorAll("[role=menuitem]")
+        items.length mustBe 1
+        items(0).textContent mustBe label
+        items(0).asInstanceOf[dom.html.Element].click()
+        received mustBe List(r.id -> expected)
+        ReactDOM.unmountComponentAtNode(container)
+      }
+    }
+
+    "show the linked expense's category and merchant names" in {
+      val r = row("SUPERMARKET").copy(expenseId = Some(UUID.randomUUID()))
+      val info = readyInfo.copy(
+        isReady = false,
+        resolved = None,
+        linkedMerchantName = Some("Walmart"),
+        linkedCategory = LinkedCategory.Named("Groceries")
+      )
+      render(List(r -> info), (_, _) => ())
+      val cells = container.querySelectorAll("td")
+      cells(4).textContent mustBe "Groceries"
+      cells(5).textContent mustBe "Walmart"
+    }
+
+    "show Multiple and Linked when the linked expense has no single category or known merchant" in {
+      val r = row("SUPERMARKET").copy(expenseId = Some(UUID.randomUUID()))
+      val info = readyInfo.copy(isReady = false, resolved = None, linkedCategory = LinkedCategory.Multiple)
+      render(List(r -> info), (_, _) => ())
+      val cells = container.querySelectorAll("td")
+      cells(4).textContent mustBe "Multiple"
+      cells(5).textContent mustBe "Linked"
     }
 
     "report onToggleSelected when the checkbox is clicked" in {

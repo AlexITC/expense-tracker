@@ -3,7 +3,14 @@ package net.wiringbits.components.pages
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.api.models.bankstatements.GetBankStatement
 import net.wiringbits.api.utils.RowRuleVerdict
-import net.wiringbits.components.pages.BankStatementReviewPage.{PrimaryAction, RowInfo, primaryActionFor}
+import net.wiringbits.components.pages.BankStatementReviewPage.{
+  LinkedCategory,
+  PrimaryAction,
+  RowInfo,
+  RowMenuItem,
+  menuItemsFor,
+  primaryActionFor
+}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, React, ReactElement}
@@ -20,7 +27,7 @@ object BankStatementReviewRow {
 
   /** What a row asks the page to do; the page owns the drawers and the API calls. */
   enum RowAction {
-    case OpenExpenseForm, OpenRefundForm, OpenLinkPicker, OpenRuleForm, Ignore, Unignore
+    case OpenExpenseForm, OpenRefundForm, OpenLinkPicker, OpenRuleForm, Ignore, Unignore, Unlink, UnlinkRefund
   }
 
   case class Props(
@@ -115,9 +122,11 @@ object BankStatementReviewRow {
           mui.Typography("suggesting…").sx(new CSSPropertiesUtils { color = "var(--lc-hint)"; fontSize = "13px" })
         else dash
 
-      // Merchant linked on import — rule-matched or AI-suggested; "Linked"/"→ Ignore" take over when they apply.
+      // Linked rows show the linked expense's merchant (else "Linked"); other rows the merchant set on import, rule-matched
+      // or AI-suggested, with "→ Ignore" taking over when an Ignore rule applies.
       def matchCell: ReactElement =
-        if (row.expenseId.isDefined || row.refundId.isDefined) tintChip("Linked", "var(--lc-brand)")
+        if (row.expenseId.isDefined || row.refundId.isDefined)
+          tintChip(info.linkedMerchantName.getOrElse("Linked"), "var(--lc-brand)")
         else if (info.verdict == RowRuleVerdict.Ignore)
           tintChip("→ Ignore", "var(--lc-brand-dark)")
         else
@@ -126,9 +135,15 @@ object BankStatementReviewRow {
             case None => suggestingOrDash
           }
 
-      // Category the expense will get on import, tagged "AI" when it came from a suggestion rather than a rule.
+      // Linked rows show the linked expense's category; other rows the category the expense will get on import, tagged
+      // "AI" when it came from a suggestion rather than a rule.
       def categoryCell: ReactElement =
-        if (row.expenseId.isDefined || row.refundId.isDefined) dash
+        if (row.expenseId.isDefined || row.refundId.isDefined)
+          info.linkedCategory match {
+            case LinkedCategory.Named(name) => tintChip(name, "var(--lc-brand-dark)")
+            case LinkedCategory.Multiple => tintChip("Multiple", "var(--lc-text-2)")
+            case LinkedCategory.Unknown => dash
+          }
         else if (info.verdict == RowRuleVerdict.Ignore) dash
         else
           info.resolved match {
@@ -154,12 +169,21 @@ object BankStatementReviewRow {
             .anchorEl(anchor)
             // Menu types onClose as js.Any, so hand it a typed JS function.
             .onClose((((_, _) => setMenuAnchor(None)): js.Function2[js.Any, js.Any, Unit]))(
-              mui.MenuItem
-                .normal()("Link to existing expense")
-                .onClick(_ => closeMenuAnd(RowAction.OpenLinkPicker))
-                .build,
-              mui.MenuItem.normal()("Create import rule").onClick(_ => closeMenuAnd(RowAction.OpenRuleForm)).build,
-              mui.MenuItem.normal()("Ignore").onClick(_ => closeMenuAnd(RowAction.Ignore)).build
+              menuItemsFor(row).map { item =>
+                val (label, action) = item match {
+                  case RowMenuItem.LinkExpense => ("Link to existing expense", RowAction.OpenLinkPicker)
+                  case RowMenuItem.CreateRule => ("Create import rule", RowAction.OpenRuleForm)
+                  case RowMenuItem.Ignore => ("Ignore", RowAction.Ignore)
+                  case RowMenuItem.Unlink => ("Unlink", RowAction.Unlink)
+                  case RowMenuItem.UnlinkRefund => ("Unlink", RowAction.UnlinkRefund)
+                  case RowMenuItem.Unignore => ("Un-ignore", RowAction.Unignore)
+                }
+                (mui.MenuItem
+                  .normal()(label)
+                  .onClick(_ => closeMenuAnd(action))
+                  .withKey(item.toString)
+                  .build: ReactElement)
+              }*
             )
         }
 

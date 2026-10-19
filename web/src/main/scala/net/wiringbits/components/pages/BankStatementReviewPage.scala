@@ -130,7 +130,9 @@ object BankStatementReviewPage {
       resolved: Option[ResolvedImport],
       isReady: Boolean,
       merchantName: Option[String],
-      categoryName: Option[String]
+      categoryName: Option[String],
+      linkedMerchantName: Option[String],
+      linkedCategory: LinkedCategory
   )
 
   def rowInfo(
@@ -149,9 +151,51 @@ object BankStatementReviewPage {
       resolved = resolved,
       isReady = isReady,
       merchantName = resolved.flatMap(_.merchantId).flatMap(mid => merchants.find(_.id == mid)).map(_.name),
-      categoryName = resolved.flatMap(res => categories.find(_.id == res.categoryId)).map(_.name)
+      categoryName = resolved.flatMap(res => categories.find(_.id == res.categoryId)).map(_.name),
+      linkedMerchantName = linkedMerchantName(row, merchants),
+      linkedCategory = linkedCategoryDisplay(row, categories)
     )
   }
+
+  /** What the Category cell shows for a linked row. The server only reports a category for single-split expenses, so a
+    * linked expense without one is shown as Multiple; Unknown covers ids not loaded yet and refund-only links.
+    */
+  enum LinkedCategory {
+    case Named(name: String)
+    case Multiple
+    case Unknown
+  }
+
+  def linkedCategoryDisplay(
+      row: GetBankStatement.StatementRowData,
+      categories: List[GetCategories.Response.Category]
+  ): LinkedCategory =
+    if (row.expenseId.isEmpty) LinkedCategory.Unknown
+    else
+      row.expenseCategoryId match {
+        case None => LinkedCategory.Multiple
+        case Some(id) => categories.find(_.id == id).fold(LinkedCategory.Unknown)(c => LinkedCategory.Named(c.name))
+      }
+
+  /** The linked expense's merchant name, when it has one and it is in the loaded merchant list. */
+  def linkedMerchantName(
+      row: GetBankStatement.StatementRowData,
+      merchants: List[GetMerchants.Response.Merchant]
+  ): Option[String] =
+    row.expenseId.flatMap(_ => row.expenseMerchantId).flatMap(mid => merchants.find(_.id == mid)).map(_.name)
+
+  /** The entries of a row's "…" menu: a linked or ignored row can only be undone; an open row can be linked, get a rule
+    * or be ignored.
+    */
+  enum RowMenuItem {
+    case LinkExpense, CreateRule, Ignore, Unlink, UnlinkRefund, Unignore
+  }
+
+  def menuItemsFor(row: GetBankStatement.StatementRowData): List[RowMenuItem] =
+    if (row.expenseId.isDefined) List(RowMenuItem.Unlink)
+    else if (row.refundId.isDefined) List(RowMenuItem.UnlinkRefund)
+    else if (row.ignoredAt.isDefined) List(RowMenuItem.Unignore)
+    else List(RowMenuItem.LinkExpense, RowMenuItem.CreateRule, RowMenuItem.Ignore)
 
   /** The single primary button a row shows. Ready rows open the prefilled create form for review instead of importing
     * straight away; bulk "Process ready" is the one-click path.
@@ -343,7 +387,11 @@ object BankStatementReviewPage {
       props.ctx.api.client.unlinkRow(stmtId, rowId).onComplete {
         case Success(_) =>
           setError("")
-          setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(expenseId = None) else r))
+          setStatementRows(cur =>
+            cur.map(r =>
+              if (r.id == rowId) r.copy(expenseId = None, expenseMerchantId = None, expenseCategoryId = None) else r
+            )
+          )
         case Failure(ex) => setError(ex.getMessage)
       }
 
@@ -352,6 +400,16 @@ object BankStatementReviewPage {
         case Success(_) =>
           setError("")
           setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(refundId = None) else r))
+        case Failure(ex) => setError(ex.getMessage)
+      }
+
+    // The drawer forms only report the new expense id, so re-read the row to get the expense's merchant and category.
+    def refreshRow(stmtId: UUID, rowId: UUID): Unit =
+      props.ctx.api.client.getBankStatement(stmtId).onComplete {
+        case Success(full) =>
+          full.statementRows.find(_.id == rowId).foreach { fresh =>
+            setStatementRows(cur => cur.map(r => if (r.id == rowId) fresh else r))
+          }
         case Failure(ex) => setError(ex.getMessage)
       }
 
@@ -427,7 +485,15 @@ object BankStatementReviewPage {
                       props.ctx.api.client.createExpenseFromRow(stmtId, rowId, req).onComplete {
                         case Success(resp) =>
                           setStatementRows(cur =>
-                            cur.map(r => if (r.id == rowId) r.copy(expenseId = Some(resp.expenseId)) else r)
+                            cur.map(r =>
+                              if (r.id == rowId)
+                                r.copy(
+                                  expenseId = Some(resp.expenseId),
+                                  expenseMerchantId = res.merchantId,
+                                  expenseCategoryId = Some(res.categoryId)
+                                )
+                              else r
+                            )
                           )
                           setBulkImportResults(cur => cur :+ (rowId -> Right(())))
                           setBulkImportProgress(Some((done + 1, total, failed)))
@@ -459,6 +525,8 @@ object BankStatementReviewPage {
           case RowAction.OpenRuleForm => setRuleFormForRow(Some(rowId))
           case RowAction.Ignore => stmtIdOpt.foreach(handleIgnore(_, rowId))
           case RowAction.Unignore => stmtIdOpt.foreach(handleUnignore(_, rowId))
+          case RowAction.Unlink => stmtIdOpt.foreach(handleUnlink(_, rowId))
+          case RowAction.UnlinkRefund => stmtIdOpt.foreach(handleUnlinkRefund(_, rowId))
         },
       List(stmtIdOpt.map(_.toString).getOrElse(""))
     )
@@ -771,6 +839,7 @@ object BankStatementReviewPage {
                                   cur.map(r => if (r.id == row.id) r.copy(expenseId = Some(expenseId)) else r)
                                 )
                                 setCreatingForRow(None)
+                                refreshRow(stmt.id, row.id)
                                 showToast("Expense created")
                               },
                               onCancel = () => setCreatingForRow(None),
@@ -811,6 +880,7 @@ object BankStatementReviewPage {
                                   cur.map(r => if (r.id == row.id) r.copy(expenseId = Some(expenseId)) else r)
                                 )
                                 setLinkingForRow(None)
+                                refreshRow(stmt.id, row.id)
                               },
                               onCancel = () => setLinkingForRow(None)
                             )
