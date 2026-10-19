@@ -1,6 +1,7 @@
 package net.wiringbits.components.pages
 
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus, GetBankStatement}
+import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction}
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import org.scalatest.matchers.must.Matchers.*
@@ -233,6 +234,65 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
 
     "create a refund for a not-ready positive row" in {
       primaryActionFor(positive, isReady = false, RowRuleVerdict.NoRule) mustBe PrimaryAction.CreateRefund
+    }
+  }
+
+  "rowInfo" should {
+    import BankStatementReviewPage.rowInfo
+
+    def merchant(id: UUID, name: String, categoryId: Option[UUID]): GetMerchants.Response.Merchant =
+      GetMerchants.Response.Merchant(id, name, None, categoryId, None, reviewed = true, Instant.EPOCH)
+
+    def rule(action: ImportRuleAction, pattern: String, merchantId: Option[UUID]): ImportRuleMatcher.Rule =
+      ImportRuleMatcher.Rule(UUID.randomUUID(), action, pattern, merchantId)
+
+    "mark an unprocessed negative row with an Ignore rule as ready, with nothing to import" in {
+      val info = rowInfo(List(rule(ImportRuleAction.Ignore, "SUPERMARKET", None)), Nil, Nil, None, sampleRow())
+      info.verdict mustBe RowRuleVerdict.Ignore
+      info.resolved mustBe None
+      info.isReady mustBe true
+    }
+
+    "mark a row with a resolved import as ready and expose the merchant and category names" in {
+      val m = UUID.randomUUID()
+      val c = UUID.randomUUID()
+      val info = rowInfo(
+        List(rule(ImportRuleAction.SetMerchant, "SUPERMARKET", Some(m))),
+        List(merchant(m, "Walmart", Some(c))),
+        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
+        None,
+        sampleRow()
+      )
+      info.verdict mustBe RowRuleVerdict.SetMerchant(Some(m))
+      info.resolved mustBe Some(BankStatementReviewPage.ResolvedImport(Some(m), c, categoryFromAi = false))
+      info.isReady mustBe true
+      info.merchantName mustBe Some("Walmart")
+      info.categoryName mustBe Some("Groceries")
+    }
+
+    "take the category name from an AI suggestion" in {
+      val c = UUID.randomUUID()
+      val row = sampleRow("UNKNOWN SHOP")
+      val ai = Some(
+        AiSuggestions(AiSuggestionsStatus.Done, "m", List(AiSuggestions.RowSuggestion(row.id, Some(c), None)))
+      )
+      val info = rowInfo(Nil, Nil, List(GetCategories.Response.Category(c, "Dining", Instant.EPOCH)), ai, row)
+      info.resolved.map(_.categoryFromAi) mustBe Some(true)
+      info.merchantName mustBe None
+      info.categoryName mustBe Some("Dining")
+    }
+
+    "not mark a row ready when nothing resolves" in {
+      val info = rowInfo(Nil, Nil, Nil, None, sampleRow("UNKNOWN SHOP"))
+      info.isReady mustBe false
+      info.merchantName mustBe None
+      info.categoryName mustBe None
+    }
+
+    "not mark an already linked or a positive row ready" in {
+      val rules = List(rule(ImportRuleAction.Ignore, "SUPERMARKET", None))
+      rowInfo(rules, Nil, Nil, None, sampleRow().copy(expenseId = Some(UUID.randomUUID()))).isReady mustBe false
+      rowInfo(rules, Nil, Nil, None, sampleRow().copy(amount = BigDecimal("10.00"))).isReady mustBe false
     }
   }
 }
