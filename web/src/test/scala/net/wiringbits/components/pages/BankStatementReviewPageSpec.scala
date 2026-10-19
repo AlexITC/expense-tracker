@@ -75,4 +75,40 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
       BankStatementReviewPage.suggestionsPending(suggestions(AiSuggestionsStatus.Failed)) mustBe false
     }
   }
+
+  "canRegenerateSuggestions" should {
+    def suggestions(status: AiSuggestionsStatus) = Some(AiSuggestions(status, "eu.amazon.nova-lite-v1:0", Nil))
+
+    "be true when suggestions have never been generated" in {
+      BankStatementReviewPage.canRegenerateSuggestions(None, pollAttemptsExhausted = false) mustBe true
+    }
+
+    "be false when the status is Pending and polling is still active" in {
+      BankStatementReviewPage.canRegenerateSuggestions(
+        suggestions(AiSuggestionsStatus.Pending),
+        pollAttemptsExhausted = false
+      ) mustBe false
+    }
+
+    "be true when the status is Pending but the poll attempts are exhausted" in {
+      BankStatementReviewPage.canRegenerateSuggestions(
+        suggestions(AiSuggestionsStatus.Pending),
+        pollAttemptsExhausted = true
+      ) mustBe true
+    }
+
+    "be true when the status is Done" in {
+      BankStatementReviewPage.canRegenerateSuggestions(
+        suggestions(AiSuggestionsStatus.Done),
+        pollAttemptsExhausted = false
+      ) mustBe true
+    }
+
+    "be true when the status is Failed" in {
+      BankStatementReviewPage.canRegenerateSuggestions(
+        suggestions(AiSuggestionsStatus.Failed),
+        pollAttemptsExhausted = false
+      ) mustBe true
+    }
+  }
 }

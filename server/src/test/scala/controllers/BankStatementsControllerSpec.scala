@@ -1,5 +1,6 @@
 package controllers
 
+import anorm.*
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.github.f4b6a3.uuid.UuidCreator
 import controllers.common.PlayPostgresSpec
@@ -7,6 +8,7 @@ import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsSta
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
 import net.wiringbits.common.models.Captcha
+import net.wiringbits.models.jobs.BackgroundJobType
 import net.wiringbits.repositories.BankStatementRepository
 import net.wiringbits.repositories.models.BankStatementRow
 import net.wiringbits.services.{BlobStorage, NoOpBlobStorage}
@@ -14,6 +16,7 @@ import net.wiringbits.util.TokenGenerator
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.*
 import org.scalatestplus.mockito.MockitoSugar
+import play.api.db.Database
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
 import utils.LoginUtils
@@ -74,6 +77,17 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
     implicit val sttpBackend: sttp.client3.SttpBackend[scala.concurrent.Future, ?] = HttpClientFutureBackend()
     new ApiClient(ApiClient.Config(s"http://localhost:$port"))
   }
+
+  // Any status: the live executor may already have run the job against MockBedrockClient.
+  private def suggestionsJobCount(stmtId: UUID): Long =
+    app.injector.instanceOf[Database].withConnection { implicit conn =>
+      SQL"""
+        SELECT COUNT(*)
+        FROM background_jobs
+        WHERE UPPER(type) = ${BackgroundJobType.ResolveStatementSuggestions.entryName}
+          AND payload ->> 'bankStatementId' = ${stmtId.toString}
+        """.as(SqlParser.scalar[Long].single)
+    }
 
   "GET /bank-statements" should {
     "return totalRows=0 and processedRows=0 for a statement with no rows" in withApiClient { implicit client =>
@@ -260,6 +274,43 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
         .futureValue
 
       client.getBankStatement(stmtId).futureValue.aiSuggestions must be(Some(suggestions))
+    }
+  }
+
+  "POST /bank-statements/:id/ai-suggestions" should {
+    "return pending suggestions for a fresh statement" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val (stmtId, _) = setupStmtWithRow()
+
+      val response = client.regenerateBankStatementAiSuggestions(stmtId).futureValue
+      response.aiSuggestions.status must be(AiSuggestionsStatus.Pending)
+      response.aiSuggestions.rows must be(Nil)
+    }
+
+    "enqueue a ResolveStatementSuggestions job for the statement" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val (stmtId, _) = setupStmtWithRow()
+      // createBankStatementWithRows already enqueues one job per statement
+      suggestionsJobCount(stmtId) must be(1L)
+
+      client.regenerateBankStatementAiSuggestions(stmtId).futureValue
+      suggestionsJobCount(stmtId) must be(2L)
+    }
+
+    "fail for another user's statement without enqueuing a job" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val (stmtId, _) = setupStmtWithRow()
+      val client2 = buildClient()
+      createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
+
+      client2.regenerateBankStatementAiSuggestions(stmtId).expectError must be("Bank statement not found")
+      suggestionsJobCount(stmtId) must be(1L)
+    }
+
+    "fail for an unknown statement" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+
+      client.regenerateBankStatementAiSuggestions(UUID.randomUUID()).expectError must be("Bank statement not found")
     }
   }
 

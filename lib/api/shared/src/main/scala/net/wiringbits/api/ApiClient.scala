@@ -249,6 +249,9 @@ class ApiClient(config: ApiClient.Config)(implicit
   def getBankStatement(bankStatementId: UUID): Future[GetBankStatement.Response] =
     handleRequest(BankStatementsEndpoints.getOne, (bankStatementId, dummyUserId))
 
+  def regenerateBankStatementAiSuggestions(bankStatementId: UUID): Future[RegenerateAiSuggestions.Response] =
+    handleRequest(BankStatementsEndpoints.regenerateAiSuggestions, (bankStatementId, dummyUserId))
+
   def confirmBankStatementRow(
       bankStatementId: UUID,
       rowId: UUID,

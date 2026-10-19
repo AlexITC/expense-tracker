@@ -116,6 +116,16 @@ object BankStatementsEndpoints {
       .errorOut(oneOf(HttpErrors.badRequest))
       .summary("Get a bank statement with its rows")
 
+  def regenerateAiSuggestions(implicit
+      authHandler: ServerRequest => Future[UUID]
+  ): Endpoint[Unit, (UUID, Future[UUID]), ErrorResponse, RegenerateAiSuggestions.Response, Any] =
+    baseEndpoint.post
+      .in(path[UUID]("bankStatementId") / "ai-suggestions")
+      .in(userAuth)
+      .out(jsonBody[RegenerateAiSuggestions.Response])
+      .errorOut(oneOf(HttpErrors.badRequest))
+      .summary("(Re)generate the AI category/merchant suggestions for a bank statement")
+
   def confirmRow(implicit
       authHandler: ServerRequest => Future[UUID]
   ): Endpoint[
@@ -245,6 +255,7 @@ object BankStatementsEndpoints {
       getAll,
       getAllRows,
       getOne,
+      regenerateAiSuggestions,
       confirmRow,
       delete,
       createExpenseFromRow,

@@ -24,6 +24,7 @@ class BankStatementsController @Inject() (
     getBankStatementsAction: GetBankStatementsAction,
     getAllRowsAction: GetAllRowsAction,
     getBankStatementAction: GetBankStatementAction,
+    regenerateAiSuggestionsAction: RegenerateAiSuggestionsAction,
     confirmBankStatementRowAction: ConfirmBankStatementRowAction,
     deleteBankStatementAction: DeleteBankStatementAction,
     createExpenseFromRowAction: CreateExpenseFromRowAction,
@@ -120,6 +121,17 @@ class BankStatementsController @Inject() (
     for {
       userId <- userIdF
       response <- getBankStatementAction(bankStatementId, userId)
+    } yield Right(response)
+  }
+
+  private def regenerateAiSuggestions(
+      bankStatementId: UUID,
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, RegenerateAiSuggestions.Response]] = handleRequest {
+    logger.info(s"Regenerate AI suggestions: stmt=$bankStatementId")
+    for {
+      userId <- userIdF
+      response <- regenerateAiSuggestionsAction(bankStatementId, userId)
     } yield Right(response)
   }
 
@@ -245,6 +257,7 @@ class BankStatementsController @Inject() (
       BankStatementsEndpoints.getAll.serverLogic(getAll),
       BankStatementsEndpoints.getAllRows.serverLogic(getAllRows),
       BankStatementsEndpoints.getOne.serverLogic(getOne),
+      BankStatementsEndpoints.regenerateAiSuggestions.serverLogic(regenerateAiSuggestions),
       BankStatementsEndpoints.confirmRow.serverLogic(confirmRow),
       BankStatementsEndpoints.delete.serverLogic(delete),
       BankStatementsEndpoints.createExpenseFromRow.serverLogic(createExpenseFromRow),
