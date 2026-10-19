@@ -3,7 +3,7 @@ package net.wiringbits.utils
 import net.wiringbits.api.models.bankstatements.{CreateExpenseFromRow, GetBankStatement}
 import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction}
-import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 
 import java.util.UUID
 
@@ -23,23 +23,19 @@ object ReconciliationMatcher {
       merchants: List[GetMerchants.Response.Merchant]
   ): List[(GetBankStatement.StatementRowData, CreateExpenseFromRow.Request)] =
     rows.flatMap { row =>
-      ImportRuleMatcher.findRowWinner(rules, row.description) match {
-        case Some(w) if w.action == ImportRuleAction.SetMerchant =>
-          val merchantId = w.merchantId
-          val catIdOpt = merchantId.flatMap(mid => merchants.find(_.id == mid).flatMap(_.categoryId))
-          catIdOpt.map { catId =>
-            val req = CreateExpenseFromRow.Request(
-              amount = row.amount.abs,
-              date = row.date,
-              time = None,
-              merchantId = merchantId,
-              notes = Some(row.description).filter(_.nonEmpty),
-              splits = List(CreateExpenseFromRow.Split(catId, row.amount.abs)),
-              receiptId = None
-            )
-            row -> req
-          }
-        case _ => None
+      val merchantId = RowRuleVerdict.ruleMerchantId(rules, row.description)
+      val catIdOpt = merchantId.flatMap(mid => merchants.find(_.id == mid).flatMap(_.categoryId))
+      catIdOpt.map { catId =>
+        val req = CreateExpenseFromRow.Request(
+          amount = row.amount.abs,
+          date = row.date,
+          time = None,
+          merchantId = merchantId,
+          notes = Some(row.description).filter(_.nonEmpty),
+          splits = List(CreateExpenseFromRow.Split(catId, row.amount.abs)),
+          receiptId = None
+        )
+        row -> req
       }
     }
 

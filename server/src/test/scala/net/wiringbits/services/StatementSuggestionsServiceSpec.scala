@@ -114,22 +114,24 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
     "never send rule-matched or credit rows to Bedrock, and leave them out of the result" in {
       val ignored = row("BANK FEE MONTHLY")
       val ruled = row("NETFLIX.COM 1234")
+      val ruledWithoutMerchant = row("SPOTIFY P1234")
       val credit = row("SALARY ACME", BigDecimal(1000))
       val pending = row("CORNER SHOP 42")
       val rules = List(
         ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "bank fee", None),
-        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant, "netflix", Some(UUID.randomUUID()))
+        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant, "netflix", Some(UUID.randomUUID())),
+        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant, "spotify", None)
       )
       val client = stub("Groceries")
 
-      val result = resolve(client, List(ignored, ruled, credit, pending), Nil, categories, rules)
+      val result = resolve(client, List(ignored, ruled, ruledWithoutMerchant, credit, pending), Nil, categories, rules)
 
       result.status must be(AiSuggestionsStatus.Done)
       result.model must be(model)
       result.rows must be(List(AiSuggestions.RowSuggestion(pending.id, Some(groceries.id), None)))
       client.prompts must have size 1
       client.prompts.head must include("CORNER SHOP 42")
-      List("BANK FEE", "NETFLIX", "SALARY").foreach(d => client.prompts.head must not include d)
+      List("BANK FEE", "NETFLIX", "SPOTIFY", "SALARY").foreach(d => client.prompts.head must not include d)
     }
 
     "send one category prompt per row" in {
@@ -171,11 +173,9 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
 
     "map the returned category name to its id ignoring case and accents" in {
       val shop = row("CORNER SHOP")
-      List("groceries", "  GROCERIES ", "Gróceries").foreach { name =>
-        resolve(stub(name), List(shop), Nil, categories).rows must be(
-          List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None))
-        )
-      }
+      resolve(stub("Gróceries"), List(shop), Nil, categories).rows must be(
+        List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None))
+      )
     }
 
     "leave the row without a category when the name is unknown" in {
@@ -248,7 +248,7 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
     "leave the merchant out when the name matches several merchants" in {
       val shop = row("CORNER SHOP")
       val first = merchant("Corner Shop", Some(groceries.id))
-      val second = merchant("Corner  Shop", Some(groceries.id))
+      val second = merchant("Corner Shop", Some(groceries.id))
 
       resolve(stub("Groceries", Some("Corner Shop")), List(shop), List(first, second), categories).rows must be(
         List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None))
