@@ -6,7 +6,7 @@ import net.wiringbits.api.models.bankstatements.{AiSuggestions, CreateExpenseFro
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
 import net.wiringbits.api.models.merchants.{CreateImportRule, CreateMerchant, GetMerchants, ImportRuleAction}
 import net.wiringbits.api.models.receipts.GetReceipts
-import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
@@ -45,10 +45,8 @@ object BankRowCreateExpenseForm {
       categories: List[GetCategories.Response.Category],
       aiSuggestion: Option[AiSuggestions.RowSuggestion]
   ): (Option[GetMerchants.Response.Merchant], Option[UUID]) = {
-    val ruleMerchant = ImportRuleMatcher
-      .findRowWinner(ruleList, row.description)
-      .filter(_.action == ImportRuleAction.SetMerchant)
-      .flatMap(_.merchantId)
+    val ruleMerchant = RowRuleVerdict
+      .ruleMerchantId(ruleList, row.description)
       .flatMap(mid => merchants.find(_.id == mid))
 
     ruleMerchant match {

@@ -4,8 +4,8 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{CreateRefundFromRow, GetBankStatement}
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
-import net.wiringbits.api.models.merchants.{CreateMerchant, GetMerchants, ImportRuleAction}
-import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.api.models.merchants.{CreateMerchant, GetMerchants}
+import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
@@ -35,10 +35,8 @@ object BankRowCreateRefundForm {
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
-    val matchedMerchant = ImportRuleMatcher
-      .findRowWinner(props.ruleList, props.row.description)
-      .filter(_.action == ImportRuleAction.SetMerchant)
-      .flatMap(_.merchantId)
+    val matchedMerchant = RowRuleVerdict
+      .ruleMerchantId(props.ruleList, props.row.description)
       .flatMap(mid => props.merchants.find(_.id == mid))
 
     val initMerchantName = matchedMerchant.map(_.name).getOrElse("")

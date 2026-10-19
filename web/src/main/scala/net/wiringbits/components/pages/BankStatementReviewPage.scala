@@ -13,8 +13,8 @@ import net.wiringbits.api.models.bankstatements.{
   UnignoreRow
 }
 import net.wiringbits.api.models.categories.GetCategories
-import net.wiringbits.api.models.merchants.{GetImportRules, GetMerchants, ImportRuleAction}
-import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.api.models.merchants.{GetImportRules, GetMerchants}
+import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.Container
@@ -96,10 +96,10 @@ object BankStatementReviewPage {
       aiSuggestions: Option[AiSuggestions],
       row: GetBankStatement.StatementRowData
   ): Option[ResolvedImport] = {
-    val winner = ImportRuleMatcher.findRowWinner(ruleList, row.description)
-    if (winner.exists(_.action == ImportRuleAction.Ignore)) None
+    val verdict = RowRuleVerdict.verdict(ruleList, row.description)
+    if (verdict == RowRuleVerdict.Ignore) None
     else {
-      val ruleMerchantId = winner.filter(_.action == ImportRuleAction.SetMerchant).flatMap(_.merchantId)
+      val ruleMerchantId = RowRuleVerdict.ruleMerchantId(ruleList, row.description)
       val ruleCategoryId = ruleMerchantId.flatMap(mid => merchants.find(_.id == mid).flatMap(_.categoryId))
       val ai = aiSuggestions
         .filter(_.status == AiSuggestionsStatus.Done)
@@ -230,15 +230,15 @@ object BankStatementReviewPage {
       js.Array(suggestionsPollKey)
     )
 
-    def ruleWinnerFor(row: GetBankStatement.StatementRowData): Option[ImportRuleMatcher.Rule] =
-      ImportRuleMatcher.findRowWinner(ruleList, row.description)
+    def ruleVerdictFor(row: GetBankStatement.StatementRowData): RowRuleVerdict.Verdict =
+      RowRuleVerdict.verdict(ruleList, row.description)
 
     def resolveImport(row: GetBankStatement.StatementRowData): Option[ResolvedImport] =
       BankStatementReviewPage.resolveImport(ruleList, merchantList, statement.flatMap(_.aiSuggestions), row)
 
     def isReadyToProcess(row: GetBankStatement.StatementRowData): Boolean =
       row.expenseId.isEmpty && row.refundId.isEmpty && row.ignoredAt.isEmpty && row.amount < 0 && {
-        ruleWinnerFor(row).exists(_.action == ImportRuleAction.Ignore) || resolveImport(row).isDefined
+        ruleVerdictFor(row) == RowRuleVerdict.Ignore || resolveImport(row).isDefined
       }
 
     def filteredRows: List[GetBankStatement.StatementRowData] = rowFilter match {
@@ -338,7 +338,7 @@ object BankStatementReviewPage {
                 setBulkImportResults(cur => cur :+ (rowId -> Left("Row not found")))
                 loop(rest, done + 1, failed + 1)
               case Some(row) =>
-                if (ruleWinnerFor(row).exists(_.action == ImportRuleAction.Ignore))
+                if (ruleVerdictFor(row) == RowRuleVerdict.Ignore)
                   props.ctx.api.client.ignoreRow(stmtId, rowId).onComplete {
                     case Success(_) =>
                       setStatementRows(cur =>
@@ -442,8 +442,8 @@ object BankStatementReviewPage {
                 .onClick(_ => handleUnignore(stmt.id, row.id))
                 .build: ReactElement)
             else if (isReadyToProcess(row))
-              ImportRuleMatcher.findRowWinner(ruleList, row.description) match {
-                case Some(w) if w.action == ImportRuleAction.Ignore =>
+              ruleVerdictFor(row) match {
+                case RowRuleVerdict.Ignore =>
                   (mui.Button
                     .normal()("Ignore")
                     .size("small")
@@ -495,7 +495,7 @@ object BankStatementReviewPage {
           // Merchant linked on import — rule-matched or AI-suggested; "Linked"/"→ Ignore" take over when they apply.
           def matchCell(row: GetBankStatement.StatementRowData): ReactElement =
             if (row.expenseId.isDefined || row.refundId.isDefined) tintChip("Linked", "var(--lc-brand)")
-            else if (ruleWinnerFor(row).exists(_.action == ImportRuleAction.Ignore))
+            else if (ruleVerdictFor(row) == RowRuleVerdict.Ignore)
               tintChip("→ Ignore", "var(--lc-brand-dark)")
             else
               resolveImport(row).flatMap(_.merchantId).flatMap(mid => merchantList.find(_.id == mid)) match {
@@ -506,7 +506,7 @@ object BankStatementReviewPage {
           // Category the expense will get on import, tagged "AI" when it came from a suggestion rather than a rule.
           def categoryCell(row: GetBankStatement.StatementRowData): ReactElement =
             if (row.expenseId.isDefined || row.refundId.isDefined) dash
-            else if (ruleWinnerFor(row).exists(_.action == ImportRuleAction.Ignore)) dash
+            else if (ruleVerdictFor(row) == RowRuleVerdict.Ignore) dash
             else
               resolveImport(row) match {
                 case Some(res) =>

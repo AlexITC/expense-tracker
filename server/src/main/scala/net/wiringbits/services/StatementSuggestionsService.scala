@@ -1,7 +1,7 @@
 package net.wiringbits.services
 
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus}
-import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.apis.BedrockClient
 import net.wiringbits.repositories.models.{BankStatementRow, Category, Merchant}
 import org.slf4j.LoggerFactory
@@ -133,7 +133,7 @@ object StatementSuggestionsService {
   /** Debit rows that no import rule handles; credits and rule-matched rows get no suggestion. */
   private def selectRowsToResolve(rows: List[BankStatementRow], rules: List[ImportRuleMatcher.Rule]): RowSelection = {
     val debits = rows.filter(_.amount < 0)
-    val toResolve = debits.filter(r => ImportRuleMatcher.findRowWinner(rules, r.description).isEmpty)
+    val toResolve = debits.filter(r => RowRuleVerdict.verdict(rules, r.description) == RowRuleVerdict.NoRule)
     RowSelection(toResolve, rows.size - debits.size, debits.size - toResolve.size)
   }
 
