@@ -1,10 +1,12 @@
 package net.wiringbits.components.pages
 
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus, GetBankStatement}
+import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction}
+import net.wiringbits.api.utils.ImportRuleMatcher
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
-import java.time.LocalDate
+import java.time.{Instant, LocalDate}
 import java.util.UUID
 
 class BankStatementReviewPageSpec extends AnyWordSpec {
@@ -109,6 +111,87 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
         suggestions(AiSuggestionsStatus.Failed),
         pollAttemptsExhausted = false
       ) mustBe true
+    }
+  }
+
+  "resolveImport" should {
+    def merchant(id: UUID, categoryId: Option[UUID]): GetMerchants.Response.Merchant =
+      GetMerchants.Response.Merchant(id, "Merchant", None, categoryId, None, reviewed = true, Instant.EPOCH)
+
+    def rule(action: ImportRuleAction, pattern: String, merchantId: Option[UUID]): ImportRuleMatcher.Rule =
+      ImportRuleMatcher.Rule(UUID.randomUUID(), action, pattern, merchantId)
+
+    def done(rows: AiSuggestions.RowSuggestion*): Option[AiSuggestions] =
+      Some(AiSuggestions(AiSuggestionsStatus.Done, "eu.amazon.nova-lite-v1:0", rows.toList))
+
+    "take the category from a rule-matched merchant, not AI" in {
+      val row = sampleRow("SUPERMARKET")
+      val m = UUID.randomUUID()
+      val c = UUID.randomUUID()
+      BankStatementReviewPage.resolveImport(
+        List(rule(ImportRuleAction.SetMerchant, "SUPERMARKET", Some(m))),
+        List(merchant(m, Some(c))),
+        aiSuggestions = None,
+        row
+      ) mustBe Some(BankStatementReviewPage.ResolvedImport(Some(m), c, categoryFromAi = false))
+    }
+
+    "fall back to the AI category with no merchant when no rule matches" in {
+      val row = sampleRow("UNKNOWN SHOP")
+      val c = UUID.randomUUID()
+      BankStatementReviewPage.resolveImport(
+        Nil,
+        Nil,
+        done(AiSuggestions.RowSuggestion(row.id, Some(c), None)),
+        row
+      ) mustBe Some(BankStatementReviewPage.ResolvedImport(None, c, categoryFromAi = true))
+    }
+
+    "use the AI-suggested merchant and category when no rule matches" in {
+      val row = sampleRow("UNKNOWN SHOP")
+      val c = UUID.randomUUID()
+      val m = UUID.randomUUID()
+      BankStatementReviewPage.resolveImport(
+        Nil,
+        Nil,
+        done(AiSuggestions.RowSuggestion(row.id, Some(c), Some(m))),
+        row
+      ) mustBe Some(BankStatementReviewPage.ResolvedImport(Some(m), c, categoryFromAi = true))
+    }
+
+    "keep the rule merchant but take the category from AI when the merchant has no default category" in {
+      val row = sampleRow("SUPERMARKET")
+      val m = UUID.randomUUID()
+      val c = UUID.randomUUID()
+      BankStatementReviewPage.resolveImport(
+        List(rule(ImportRuleAction.SetMerchant, "SUPERMARKET", Some(m))),
+        List(merchant(m, None)),
+        done(AiSuggestions.RowSuggestion(row.id, Some(c), None)),
+        row
+      ) mustBe Some(BankStatementReviewPage.ResolvedImport(Some(m), c, categoryFromAi = true))
+    }
+
+    "resolve to None for an Ignore rule even when AI has a suggestion" in {
+      val row = sampleRow("SUPERMARKET")
+      val c = UUID.randomUUID()
+      BankStatementReviewPage.resolveImport(
+        List(rule(ImportRuleAction.Ignore, "SUPERMARKET", None)),
+        Nil,
+        done(AiSuggestions.RowSuggestion(row.id, Some(c), None)),
+        row
+      ) mustBe None
+    }
+
+    "ignore AI suggestions that are still Pending" in {
+      val row = sampleRow("UNKNOWN SHOP")
+      val c = UUID.randomUUID()
+      val pending =
+        Some(AiSuggestions(AiSuggestionsStatus.Pending, "m", List(AiSuggestions.RowSuggestion(row.id, Some(c), None))))
+      BankStatementReviewPage.resolveImport(Nil, Nil, pending, row) mustBe None
+    }
+
+    "resolve to None when nothing matches and there is no suggestion" in {
+      BankStatementReviewPage.resolveImport(Nil, Nil, None, sampleRow("UNKNOWN SHOP")) mustBe None
     }
   }
 }
