@@ -65,11 +65,12 @@ services:
       BDA_STANDARD_PROJECT_ARN: ${BDA_STANDARD_PROJECT_ARN:-REPLACE_ME}
       BDA_BANK_STATEMENT_BLUEPRINT_ARN: ${BDA_BANK_STATEMENT_BLUEPRINT_ARN:-REPLACE_ME}
       BDA_OUTPUT_S3_URI: ${BDA_OUTPUT_S3_URI:-REPLACE_ME}
-      # --- JEV: bank-statement row category/merchant suggestions, "mock" (default, placeholder picks) or "real" ---
+      # --- JEV: bank-statement row category/merchant suggestions + document classifier, "mock" (default) or "real" ---
       JEV_MODE: ${JEV_MODE:-mock}
       JEV_API_KEY: ${JEV_API_KEY:-REPLACE_ME}
       JEV_BASE_URL: ${JEV_BASE_URL:-https://api.typesafe.ai}
       JEV_MODEL: ${JEV_MODEL:-jev-latest}
+      JEV_MIN_CONFIDENCE: ${JEV_MIN_CONFIDENCE:-0.85}
     ports:
       - "9000:9000"   # optional: reach the backend directly
 
