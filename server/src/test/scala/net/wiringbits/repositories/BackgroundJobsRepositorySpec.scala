@@ -23,16 +23,16 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
       val createRequest = createBackgroundJobData()
 
       val failReason = "test"
+      val executeAt = Instant.now().plus(5, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.MILLIS)
       repositories.backgroundJobs
-        .setStatusToFailed(createRequest.id, executeAt = Instant.now(), failReason = failReason)
+        .setStatusToFailed(createRequest.id, executeAt = executeAt, failReason = failReason)
         .futureValue
-      val result = repositories.backgroundJobs.claimJobs(createRequest.`type`, 1.minute, limit = 10).futureValue
 
-      result.size must be(1)
-      val item = result.headOption.value
-      item.id must be(createRequest.id)
+      val item = jobOf(createRequest.id)
+      item.status must be(BackgroundJobStatus.Failed)
       item.errorCount must be(1)
       item.statusDetails must be(Some(failReason))
+      item.executeAt must be(executeAt)
     }
 
     "fail if the job doesn't exist" in withRepositories() { repositories =>
@@ -225,6 +225,14 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
       allClaimed.toSet must be(jobs.map(_.id).toSet)
     }
   }
+
+  private def jobOf(id: UUID)(using repositories: RepositoryComponents): BackgroundJobData =
+    repositories.database.withConnection { implicit conn =>
+      anorm
+        .SQL("SELECT * FROM background_jobs WHERE background_job_id = {id}::UUID")
+        .on("id" -> id.toString)
+        .as(backgroundJobParser.single)
+    }
 
   private def errorCountOf(id: UUID)(using repositories: RepositoryComponents): Int =
     repositories.database.withConnection { implicit conn =>
