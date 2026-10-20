@@ -8,7 +8,6 @@ import play.api.libs.json.Json
 import java.sql.Connection
 import java.time.{Clock, Instant}
 import java.util.UUID
-import scala.concurrent.Future
 import scala.concurrent.duration.FiniteDuration
 
 object BackgroundJobDAO {
@@ -30,25 +29,6 @@ object BackgroundJobDAO {
       )
       """
       .execute()
-  }
-
-  def streamPendingJobs(
-      allowedErrors: Int = 10,
-      fetchSize: Int = 1000
-  )(implicit
-      conn: Connection,
-      clock: Clock
-  ): org.apache.pekko.stream.scaladsl.Source[BackgroundJobData, Future[Int]] = {
-    val query = SQL"""
-      SELECT background_job_id, type, payload, status, status_details, error_count, execute_at, deadline, created_at, updated_at
-      FROM background_jobs
-      WHERE status != ${BackgroundJobStatus.Success.toString}
-        AND execute_at <= ${clock.instant()}
-        AND error_count < $allowedErrors
-      ORDER BY execute_at, background_job_id
-      """.withFetchSize(Some(fetchSize)) // without this, all data is loaded into memory
-
-    PekkoStream.source(query, backgroundJobParser)(using conn)
   }
 
   /** Atomically claims up to `limit` ready jobs of the given type, marking them Running until `now + timeout`.
