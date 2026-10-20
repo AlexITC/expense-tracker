@@ -1,7 +1,7 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.executors.DatabaseExecutionContext
-import net.wiringbits.models.documents.DocumentStatus
+import net.wiringbits.models.documents.{DocumentClassification, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.daos.{BackgroundJobDAO, DocumentDAO}
 import net.wiringbits.repositories.models.{BackgroundJobData, Document}
@@ -52,6 +52,12 @@ class DocumentsRepository @Inject() (database: Database)(implicit ec: DatabaseEx
   ): Future[Unit] = Future {
     database.withConnection { implicit conn =>
       DocumentDAO.updateStatus(id, status, parserVersion, clock.instant())
+    }
+  }
+
+  def updateClassification(id: UUID, userId: UUID, classification: DocumentClassification): Future[Unit] = Future {
+    database.withTransaction { implicit conn =>
+      DocumentDAO.updateClassification(id, userId, classification, clock.instant())
     }
   }
 

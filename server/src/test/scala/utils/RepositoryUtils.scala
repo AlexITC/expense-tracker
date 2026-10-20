@@ -9,6 +9,7 @@ import net.wiringbits.repositories.daos.{BackgroundJobDAO, BankStatementDAO, Ban
 import net.wiringbits.repositories.models.{
   BackgroundJobData,
   BankStatement,
+  BankStatementDraft,
   BankStatementRow,
   Category,
   Document,
@@ -392,5 +393,33 @@ trait RepositoryUtils {
     for {
       _ <- repository.documents.create(createRequest, job)
     } yield createRequest
+  }
+
+  def createBankStatementDraft(
+      userId: UUID,
+      sha256: String = "draft-sha",
+      filename: String = "statement.pdf",
+      storageKey: String = ""
+  )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[BankStatementDraft.Create] = {
+    val now = Instant.now()
+    val draft = BankStatementDraft.Create(
+      id = UUID.randomUUID(),
+      userId = userId,
+      sha256 = sha256,
+      filename = filename,
+      storageKey = storageKey,
+      createdAt = now,
+      updatedAt = now
+    )
+    val job = BackgroundJobData.Create(
+      id = UUID.randomUUID(),
+      `type` = BackgroundJobType.ExtractBankStatementDraft,
+      payload = BackgroundJobPayload.ExtractBankStatementDraft(draft.id),
+      status = BackgroundJobStatus.Pending,
+      executeAt = now,
+      createdAt = now,
+      updatedAt = now
+    )
+    repository.bankStatementDrafts.create(draft, job).map(_ => draft)
   }
 }

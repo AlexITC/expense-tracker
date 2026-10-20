@@ -1,6 +1,6 @@
 package net.wiringbits.repositories.daos
 
-import net.wiringbits.models.documents.DocumentStatus
+import net.wiringbits.models.documents.{DocumentClassification, DocumentStatus}
 import net.wiringbits.repositories.models.Document
 
 import java.sql.Connection
@@ -30,7 +30,8 @@ object DocumentDAO {
 
   def all(userId: UUID)(implicit conn: Connection): List[Document] = {
     SQL"""
-        SELECT id, user_id, sha256, storage_key, kind, filename, status, parser_version, created_at, updated_at
+        SELECT id, user_id, sha256, storage_key, kind, filename, status, parser_version, created_at, updated_at,
+          ai_classification, ai_classification_confidence, ai_injection_suspected, ai_injection_confidence
         FROM document
         WHERE user_id = ${userId.toString}::UUID
         ORDER BY created_at DESC, id
@@ -39,7 +40,8 @@ object DocumentDAO {
 
   def find(id: UUID, userId: UUID)(implicit conn: Connection): Option[Document] = {
     SQL"""
-        SELECT id, user_id, sha256, storage_key, kind, filename, status, parser_version, created_at, updated_at
+        SELECT id, user_id, sha256, storage_key, kind, filename, status, parser_version, created_at, updated_at,
+          ai_classification, ai_classification_confidence, ai_injection_suspected, ai_injection_confidence
         FROM document
         WHERE id = ${id.toString}::UUID
           AND user_id = ${userId.toString}::UUID
@@ -48,7 +50,8 @@ object DocumentDAO {
 
   def findById(id: UUID)(implicit conn: Connection): Option[Document] = {
     SQL"""
-        SELECT id, user_id, sha256, storage_key, kind, filename, status, parser_version, created_at, updated_at
+        SELECT id, user_id, sha256, storage_key, kind, filename, status, parser_version, created_at, updated_at,
+          ai_classification, ai_classification_confidence, ai_injection_suspected, ai_injection_confidence
         FROM document
         WHERE id = ${id.toString}::UUID
         """.as(documentParser.singleOpt)
@@ -56,7 +59,8 @@ object DocumentDAO {
 
   def findBySha256(userId: UUID, sha256: String)(implicit conn: Connection): Option[Document] = {
     SQL"""
-        SELECT id, user_id, sha256, storage_key, kind, filename, status, parser_version, created_at, updated_at
+        SELECT id, user_id, sha256, storage_key, kind, filename, status, parser_version, created_at, updated_at,
+          ai_classification, ai_classification_confidence, ai_injection_suspected, ai_injection_confidence
         FROM document
         WHERE user_id = ${userId.toString}::UUID
           AND sha256 = $sha256
@@ -75,6 +79,25 @@ object DocumentDAO {
             parser_version = $parserVersion,
             updated_at = $updatedAt
         WHERE id = ${id.toString}::UUID
+        """.executeUpdate()
+    if (updated == 0) throw new RuntimeException("Document not found")
+  }
+
+  def updateClassification(
+      id: UUID,
+      userId: UUID,
+      classification: DocumentClassification,
+      updatedAt: Instant
+  )(implicit conn: Connection): Unit = {
+    val updated = SQL"""
+        UPDATE document
+        SET ai_classification = ${classification.documentClass.entryName},
+            ai_classification_confidence = ${classification.confidence},
+            ai_injection_suspected = ${classification.injectionSuspected},
+            ai_injection_confidence = ${classification.injectionConfidence},
+            updated_at = $updatedAt
+        WHERE id = ${id.toString}::UUID
+          AND user_id = ${userId.toString}::UUID
         """.executeUpdate()
     if (updated == 0) throw new RuntimeException("Document not found")
   }

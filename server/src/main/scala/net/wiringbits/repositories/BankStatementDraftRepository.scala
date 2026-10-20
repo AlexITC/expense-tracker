@@ -1,6 +1,7 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.executors.DatabaseExecutionContext
+import net.wiringbits.models.documents.DocumentClassification
 import net.wiringbits.repositories.daos.{BackgroundJobDAO, BankStatementDraftDAO}
 import net.wiringbits.repositories.models.{BackgroundJobData, BankStatementDraft}
 import play.api.db.Database
@@ -53,6 +54,17 @@ class BankStatementDraftRepository @Inject() (database: Database)(implicit ec: D
   def updatePayload(id: UUID, userId: UUID, payload: String, updatedAt: Instant): Future[Unit] = Future {
     database.withConnection { implicit conn =>
       BankStatementDraftDAO.updatePayload(id, userId, payload, updatedAt)
+    }
+  }
+
+  def updateClassification(
+      id: UUID,
+      userId: UUID,
+      classification: DocumentClassification,
+      updatedAt: Instant
+  ): Future[Unit] = Future {
+    database.withTransaction { implicit conn =>
+      BankStatementDraftDAO.updateClassification(id, userId, classification, updatedAt)
     }
   }
 

@@ -25,6 +25,7 @@ trait RepositorySpec extends AnyWordSpec with PostgresSpec {
     val documents = new DocumentsRepository(db)(using Executors.databaseEC, clock)
     val textractCache = new TextractCacheRepository(db)(using Executors.databaseEC)
     val bankStatements = new BankStatementRepository(db)(using Executors.databaseEC)
+    val bankStatementDrafts = new BankStatementDraftRepository(db)(using Executors.databaseEC)
     val importRules = new ImportRuleRepository(db)(using Executors.databaseEC, clock)
     val receipts = new ReceiptRepository(db)(using Executors.databaseEC, clock)
     val refunds = new RefundsRepository(db)(using Executors.databaseEC, clock)
@@ -46,6 +47,7 @@ trait RepositorySpec extends AnyWordSpec with PostgresSpec {
         documents,
         textractCache,
         bankStatements,
+        bankStatementDrafts,
         importRules,
         receipts,
         refunds,
