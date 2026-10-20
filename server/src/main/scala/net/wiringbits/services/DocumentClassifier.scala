@@ -62,6 +62,17 @@ class DocumentClassifier @Inject() (jevClient: JevClient, jevConfig: JevConfig)(
           }
     }
 
+  /** The result for a classification stored earlier, so a document is classified once: rejecting it again only when the
+    * stored answer meets the current `jev.minConfidence`.
+    */
+  def fromStored(classification: DocumentClassification): Result =
+    if (classification.confidence >= jevConfig.minConfidence) Classified(classification)
+    else
+      Inconclusive(
+        s"stored type confidence ${classification.confidence} is below ${jevConfig.minConfidence}",
+        observed = Some(classification)
+      )
+
   private def ask(state: String): Future[DocumentClassification] =
     for {
       typeChoice <- jevClient.choose(state, TypeQuestion, TypeInstructions, TypeCriteria)

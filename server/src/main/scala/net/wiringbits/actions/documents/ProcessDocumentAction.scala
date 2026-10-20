@@ -1,28 +1,33 @@
 package net.wiringbits.actions.documents
 
 import net.wiringbits.apis.{TextractApiType, TextractClient}
-import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.models.documents.{DocumentClass, DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
-import net.wiringbits.repositories.models.{BackgroundJobData, TextractJob}
+import net.wiringbits.repositories.models.{BackgroundJobData, Document, TextractJob}
 import net.wiringbits.repositories.{
   BackgroundJobsRepository,
   DocumentsRepository,
   TextractCacheRepository,
   TextractJobRepository
 }
+import net.wiringbits.services.{BlobStorage, DocumentClassifier, DocumentTelegramNotifier, PdfTextExtractor}
 import org.slf4j.LoggerFactory
 
 import java.time.Clock
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.control.NonFatal
 
 class ProcessDocumentAction @Inject() (
     documentsRepository: DocumentsRepository,
     textractCacheRepository: TextractCacheRepository,
     textractJobRepository: TextractJobRepository,
     backgroundJobsRepository: BackgroundJobsRepository,
-    textractClient: TextractClient
+    textractClient: TextractClient,
+    blobStorage: BlobStorage,
+    documentClassifier: DocumentClassifier,
+    notifier: DocumentTelegramNotifier
 )(implicit ec: ExecutionContext, clock: Clock) {
 
   private val logger = LoggerFactory.getLogger(this.getClass)
@@ -54,6 +59,71 @@ class ProcessDocumentAction @Inject() (
   private def processReceiptOrInvoice(doc: net.wiringbits.repositories.models.Document): Future[Unit] =
     for {
       _ <- documentsRepository.updateStatus(doc.id, DocumentStatus.Processing, None)
+      result <- classify(doc)
+      _ <- result.flatMap(rejection(doc, _)) match {
+        case Some(rejected) =>
+          logger.info(s"userId=${doc.userId}, document ${doc.id} rejected as $rejected, skipping Textract")
+          for {
+            // The third argument is the parser version; the document table has no column for the rejection reason.
+            _ <- documentsRepository.updateStatus(doc.id, DocumentStatus.Unsupported, None)
+            _ <- notifier.notify(doc.id, doc.userId, DocumentTelegramNotifier.notATicketMessage(rejected))
+          } yield ()
+        case None => analyzeExpense(doc)
+      }
+    } yield ()
+
+  /** The document's class, classified once from its PDF text layer and then reused. None when there is nothing to
+    * classify (missing bytes, no text layer); the caller then proceeds to Textract as without the gate.
+    */
+  private def classify(doc: Document): Future[Option[DocumentClassifier.Result]] =
+    doc.classification match {
+      case Some(stored) =>
+        logger.info(s"userId=${doc.userId}, document ${doc.id} already classified as ${stored.documentClass}")
+        Future.successful(Some(documentClassifier.fromStored(stored)))
+      case None =>
+        blobStorage
+          .get(doc.storageKey)
+          .flatMap {
+            case None =>
+              // FAIL-OPEN, on purpose: Textract surfaces the missing file, the classifier only gates it.
+              logger.warn(s"userId=${doc.userId}, document ${doc.id} bytes not found, skipping classification")
+              Future.successful(None)
+            case Some(bytes) =>
+              PdfTextExtractor.extract(bytes) match {
+                // An image or a scanned PDF has no text layer to classify cheaply, so it goes to Textract as before.
+                case Left(_) => Future.successful(None)
+                case Right(text) =>
+                  for {
+                    // FAIL-OPEN, on purpose: an inconclusive result (JEV error, low confidence) never rejects.
+                    result <- documentClassifier.classify(doc.userId, s"document ${doc.id}", text)
+                    _ <- result.toPersist match {
+                      case Some(c) => documentsRepository.updateClassification(doc.id, doc.userId, c)
+                      case None => Future.unit
+                    }
+                  } yield Some(result)
+              }
+          }
+          .recover { case NonFatal(e) =>
+            // FAIL-OPEN, on purpose: a storage or database error in the optional gate must not block Textract.
+            logger.warn(
+              s"userId=${doc.userId}, document ${doc.id} classification failed: ${e.getClass.getSimpleName}, skipping it"
+            )
+            None
+          }
+    }
+
+  private def rejection(doc: Document, result: DocumentClassifier.Result): Option[DocumentClass] = {
+    // Deliberate deviation from "only purchase tickets": an Invoice upload accepts an invoice too, since the user
+    // picked that kind explicitly; a Receipt (web or Telegram photo) must be the itemized ticket.
+    val accepted: Set[DocumentClass] = doc.kind match {
+      case DocumentKind.Invoice => Set(DocumentClass.PurchaseTicket, DocumentClass.Invoice)
+      case _ => Set(DocumentClass.PurchaseTicket)
+    }
+    result.rejection(accepted)
+  }
+
+  private def analyzeExpense(doc: Document): Future[Unit] =
+    for {
       cachedOpt <- textractCacheRepository.find(doc.sha256, TextractApiType.AnalyzeExpense)
       _ <- cachedOpt match {
         case Some(_) =>
