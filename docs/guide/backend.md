@@ -265,7 +265,7 @@ Single-purpose validators in `validations/` are independently testable and reusa
 
 ## Background jobs
 
-The app uses a durable background job queue stored in the `background_jobs` table. Jobs are rows with a `type` (TEXT enum), a `payload` (JSONB), a `status` (pending / success / failed), and an `execute_at` timestamp.
+The app uses a durable background job queue stored in the `background_jobs` table. Jobs are rows with a `type` (TEXT enum), a `payload` (JSONB), a `status` (pending / running / success / failed), an `execute_at` timestamp, and a `deadline` (set while a job is running; once it passes, the claim is considered abandoned and the job can be reclaimed).
 
 **When to use background jobs**: for work that must happen asynchronously and survive a server restart — primarily email delivery. Do not use background jobs for synchronous validation or simple async work that can be awaited.
 
@@ -274,7 +274,8 @@ The app uses a durable background job queue stored in the `background_jobs` tabl
 1. Add a new case object to `BackgroundJobType` (enumeratum `Enum`).
 2. Add a new case class to `BackgroundJobPayload` with a `Format` for JSON serialisation.
 3. Enqueue from the repository inside a `withTransaction` block using `BackgroundJobDAO.create`.
-4. Add a `case` branch in `BackgroundJobsExecutorTask.execute` that handles the new type.
+4. Add a `case` branch in `BackgroundJobsExecutorTask.dispatch` that handles the new type.
+5. Add a `TypeSettings` entry for the new type in `BackgroundJobsExecutorConfig.defaultPerType`. The app fails at startup if any type is missing one.
 
 ```scala
 // 1. Enqueue inside a repository transaction — guaranteed to exist or not exist with the parent write
@@ -302,9 +303,12 @@ case BackgroundJobType.SendEmail =>
 
 **Caution:** Adding fields to an existing `BackgroundJobPayload` case class is a breaking change — jobs already in the database will fail JSON parsing. Prefer adding a new job type if the shape changes.
 
-The executor polls on a configurable interval (`BackgroundJobsExecutorConfig`), throttles to 100 jobs per minute, and processes one at a time (`Sink.foreachAsync(1)`) to avoid overloading the app. Failed jobs are retried with exponential back-off (`DelayGenerator.createDelay`).
+The executor runs one independent stream per job type (`BackgroundJobTypeRunner`), so a slow or stuck type never blocks the others. Each stream claims jobs on demand with an atomic `UPDATE ... FOR UPDATE SKIP LOCKED` (`BackgroundJobsRepository.claimJobs`), which marks them running until a deadline; concurrent claimers always get disjoint jobs. Per-type `TypeSettings` in `BackgroundJobsExecutorConfig` control `parallelism` (max jobs claimed or in flight), `timeout` (a job running longer is recorded as failed) and `pollInterval` (wait after an empty claim). If a stream terminates it is restarted after `interval`. Failed jobs are retried with exponential back-off (`DelayGenerator.createDelay`).
+
+Delivery is **at-least-once**: a job whose process crashed, or whose outcome could not be recorded, is reclaimed once its deadline passes, so handlers must be idempotent.
 
 @file: server/src/main/scala/net/wiringbits/tasks/BackgroundJobsExecutorTask.scala  
+@file: server/src/main/scala/net/wiringbits/tasks/BackgroundJobTypeRunner.scala  
 @file: server/src/main/scala/net/wiringbits/models/jobs/BackgroundJobPayload.scala  
 @file: server/src/main/scala/net/wiringbits/models/jobs/BackgroundJobType.scala  
 @file: server/src/main/scala/net/wiringbits/repositories/UsersRepository.scala (sendEmailLater)

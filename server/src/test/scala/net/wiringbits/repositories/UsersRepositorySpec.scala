@@ -1,28 +1,19 @@
 package net.wiringbits.repositories
 
-import org.apache.pekko.actor.ActorSystem
-import org.apache.pekko.stream.scaladsl.Sink
 import net.wiringbits.common.models.{Email, Name}
 import net.wiringbits.core.RepositorySpec
+import net.wiringbits.models.jobs.BackgroundJobType
 import net.wiringbits.repositories.models.User
 import net.wiringbits.util.EmailMessage
-import org.scalatest.BeforeAndAfterAll
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
 import utils.RepositoryUtils
 
 import java.util.UUID
+import scala.concurrent.duration.DurationInt
 
-class UsersRepositorySpec extends RepositorySpec with BeforeAndAfterAll with RepositoryUtils {
-
-  // required to test the streaming operations
-  private implicit lazy val system: ActorSystem = ActorSystem("UserRepositorySpec")
-
-  override def afterAll(): Unit = {
-    system.terminate().futureValue
-    super.afterAll()
-  }
+class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
 
   "create" should {
     "work" in withRepositories() { implicit repositories =>
@@ -159,10 +150,7 @@ class UsersRepositorySpec extends RepositorySpec with BeforeAndAfterAll with Rep
       val newPassword = "test"
       repositories.users.updatePassword(request.id, newPassword, EmailMessage.updatePassword(request.name)).futureValue
 
-      val response = repositories.backgroundJobs.streamPendingJobs.futureValue
-        .runWith(Sink.seq)
-        .futureValue
-      response.length must be(1)
+      repositories.backgroundJobs.claimJobs(BackgroundJobType.SendEmail, 1.minute, 10).futureValue.length must be(1)
     }
 
     "fail when the user doesn't exist" in withRepositories() { repositories =>
@@ -189,10 +177,7 @@ class UsersRepositorySpec extends RepositorySpec with BeforeAndAfterAll with Rep
       val request = createUser().futureValue
       repositories.users.verify(request.id, UUID.randomUUID(), EmailMessage.confirm(request.name)).futureValue
 
-      val response = repositories.backgroundJobs.streamPendingJobs.futureValue
-        .runWith(Sink.seq)
-        .futureValue
-      response.length must be(1)
+      repositories.backgroundJobs.claimJobs(BackgroundJobType.SendEmail, 1.minute, 10).futureValue.length must be(1)
     }
 
     "fail when the user doesn't exist" in withRepositories() { repositories =>
@@ -223,10 +208,7 @@ class UsersRepositorySpec extends RepositorySpec with BeforeAndAfterAll with Rep
       val newPassword = "test"
       repositories.users.resetPassword(request.id, newPassword, EmailMessage.resetPassword(request.name)).futureValue
 
-      val response = repositories.backgroundJobs.streamPendingJobs.futureValue
-        .runWith(Sink.seq)
-        .futureValue
-      response.length must be(1)
+      repositories.backgroundJobs.claimJobs(BackgroundJobType.SendEmail, 1.minute, 10).futureValue.length must be(1)
     }
 
     "fail when the user doesn't exist" in withRepositories() { repositories =>
