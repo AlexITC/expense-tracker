@@ -4,7 +4,11 @@ import enumeratum.EnumEntry.Uppercase
 import enumeratum.{Enum, EnumEntry}
 
 /** What kind of document an upload is, as told by the AI document classifier. `label` is for user messages. */
-sealed abstract class DocumentClass(val label: String) extends EnumEntry with Uppercase
+sealed abstract class DocumentClass(val label: String) extends EnumEntry with Uppercase {
+
+  /** The label with its indefinite article, e.g. "an invoice". */
+  def withArticle: String = s"${if (label.headOption.exists("aeiou".contains(_))) "an" else "a"} $label"
+}
 
 object DocumentClass extends Enum[DocumentClass] {
   case object BankStatement extends DocumentClass("bank statement")

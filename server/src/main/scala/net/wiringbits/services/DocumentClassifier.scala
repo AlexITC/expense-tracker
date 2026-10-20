@@ -47,12 +47,7 @@ class DocumentClassifier @Inject() (jevClient: JevClient, jevConfig: JevConfig)(
                 s"userId=$userId, $subject: possible prompt injection in the document text " +
                   s"(confidence ${classification.injectionConfidence}), advisory only"
               )
-            if (classification.confidence >= jevConfig.minConfidence) Classified(classification)
-            else
-              Inconclusive(
-                s"type confidence ${classification.confidence} is below ${jevConfig.minConfidence}",
-                observed = Some(classification)
-              )
+            judge(classification, "type confidence")
           }
           .recover { case NonFatal(e) =>
             // Only the exception class: JevClient's messages embed JEV's response body, which can echo the document text.
@@ -66,10 +61,13 @@ class DocumentClassifier @Inject() (jevClient: JevClient, jevConfig: JevConfig)(
     * stored answer meets the current `jev.minConfidence`.
     */
   def fromStored(classification: DocumentClassification): Result =
+    judge(classification, "stored type confidence")
+
+  private def judge(classification: DocumentClassification, what: String): Result =
     if (classification.confidence >= jevConfig.minConfidence) Classified(classification)
     else
       Inconclusive(
-        s"stored type confidence ${classification.confidence} is below ${jevConfig.minConfidence}",
+        s"$what ${classification.confidence} is below ${jevConfig.minConfidence}",
         observed = Some(classification)
       )
 
@@ -105,6 +103,10 @@ object DocumentClassifier {
       case Classified(c) => Some(c)
       case Inconclusive(_, observed) => observed
     }
+
+    /** Stores [[toPersist]] with `store`, when there is something to store. */
+    def persistWith(store: DocumentClassification => Future[Unit]): Future[Unit] =
+      toPersist.fold(Future.unit)(store)
   }
 
   /** The classes an upload of `kind` may be. Deliberate deviation from "only purchase tickets": an Invoice upload

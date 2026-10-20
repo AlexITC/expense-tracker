@@ -24,12 +24,12 @@ case class Document(
 
   /** The stored AI classification, when the document was classified (all four columns are set together). */
   def classification: Option[DocumentClassification] =
-    for {
-      documentClass <- aiClassification
-      confidence <- aiClassificationConfidence
-      injectionSuspected <- aiInjectionSuspected
-      injectionConfidence <- aiInjectionConfidence
-    } yield DocumentClassification(documentClass, confidence, injectionSuspected, injectionConfidence)
+    DocumentClassification.fromColumns(
+      aiClassification,
+      aiClassificationConfidence,
+      aiInjectionSuspected,
+      aiInjectionConfidence
+    )
 }
 
 object Document {

@@ -49,10 +49,9 @@ class ExtractBankStatementDraftAction @Inject() (
           bytes = bytesOpt.getOrElse(throw new RuntimeException("Statement file not found in storage"))
           text = PdfTextExtractor.extract(bytes).fold(err => throw new RuntimeException(err), identity)
           classification <- documentClassifier.classify(draft.userId, s"draft $draftId", text)
-          _ <- classification.toPersist match {
-            case Some(c) => bankStatementDraftRepository.updateClassification(draftId, draft.userId, c, clock.instant())
-            case None => Future.unit
-          }
+          _ <- classification.persistWith(
+            bankStatementDraftRepository.updateClassification(draftId, draft.userId, _, clock.instant())
+          )
           _ <- classification.rejection(Set(DocumentClass.BankStatement)) match {
             case Some(documentClass) => reject(draft, documentClass)
             case None => extract(draft, text)
@@ -67,9 +66,7 @@ class ExtractBankStatementDraftAction @Inject() (
   private def reject(draft: DraftRecord, documentClass: DocumentClass): Future[Unit] = {
     val reason = documentClass match {
       case DocumentClass.Other => "This doesn't look like a bank statement."
-      case _ =>
-        val article = if ("aeiou".contains(documentClass.label.head)) "an" else "a"
-        s"This looks like $article ${documentClass.label}, not a bank statement."
+      case _ => s"This looks like ${documentClass.withArticle}, not a bank statement."
     }
     logger.info(s"userId=${draft.userId}, draft ${draft.id}: classified as $documentClass, skipping extraction")
     bankStatementDraftRepository.markFailed(draft.id, reason, clock.instant())

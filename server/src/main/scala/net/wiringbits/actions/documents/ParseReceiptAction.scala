@@ -175,10 +175,7 @@ class ParseReceiptAction @Inject() (
           } else
             for {
               result <- documentClassifier.classify(doc.userId, s"document ${doc.id}", text)
-              _ <- result.toPersist match {
-                case Some(c) => documentsRepository.updateClassification(doc.id, doc.userId, c)
-                case None => Future.unit
-              }
+              _ <- result.persistWith(documentsRepository.updateClassification(doc.id, doc.userId, _))
               _ <- result.rejection(DocumentClassifier.acceptedFor(doc.kind)) match {
                 case Some(cls) =>
                   logger.info(s"userId=${doc.userId}, document ${doc.id} looks like $cls after Textract, advising user")

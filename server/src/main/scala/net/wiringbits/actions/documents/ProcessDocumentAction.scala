@@ -96,10 +96,7 @@ class ProcessDocumentAction @Inject() (
                   for {
                     // FAIL-OPEN, on purpose: an inconclusive result (JEV error, low confidence) never rejects.
                     result <- documentClassifier.classify(doc.userId, s"document ${doc.id}", text)
-                    _ <- result.toPersist match {
-                      case Some(c) => documentsRepository.updateClassification(doc.id, doc.userId, c)
-                      case None => Future.unit
-                    }
+                    _ <- result.persistWith(documentsRepository.updateClassification(doc.id, doc.userId, _))
                   } yield Some(result)
               }
           }

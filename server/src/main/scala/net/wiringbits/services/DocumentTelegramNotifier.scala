@@ -45,9 +45,6 @@ object DocumentTelegramNotifier {
     case DocumentClass.Other =>
       "This doesn't look like a purchase ticket — please send the itemized ticket."
     case other =>
-      s"This looks like ${article(other.label)} ${other.label}, not a purchase ticket — please send the itemized ticket."
+      s"This looks like ${other.withArticle}, not a purchase ticket — please send the itemized ticket."
   }
-
-  private def article(label: String): String =
-    if (label.headOption.exists("aeiou".contains(_))) "an" else "a"
 }
