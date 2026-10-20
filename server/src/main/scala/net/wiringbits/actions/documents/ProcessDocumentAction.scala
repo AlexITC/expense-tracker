@@ -1,7 +1,7 @@
 package net.wiringbits.actions.documents
 
 import net.wiringbits.apis.{TextractApiType, TextractClient}
-import net.wiringbits.models.documents.{DocumentClass, DocumentKind, DocumentStatus}
+import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.{BackgroundJobData, Document, TextractJob}
 import net.wiringbits.repositories.{
@@ -60,7 +60,7 @@ class ProcessDocumentAction @Inject() (
     for {
       _ <- documentsRepository.updateStatus(doc.id, DocumentStatus.Processing, None)
       result <- classify(doc)
-      _ <- result.flatMap(rejection(doc, _)) match {
+      _ <- result.flatMap(_.rejection(DocumentClassifier.acceptedFor(doc.kind))) match {
         case Some(rejected) =>
           logger.info(s"userId=${doc.userId}, document ${doc.id} rejected as $rejected, skipping Textract")
           for {
@@ -111,16 +111,6 @@ class ProcessDocumentAction @Inject() (
             None
           }
     }
-
-  private def rejection(doc: Document, result: DocumentClassifier.Result): Option[DocumentClass] = {
-    // Deliberate deviation from "only purchase tickets": an Invoice upload accepts an invoice too, since the user
-    // picked that kind explicitly; a Receipt (web or Telegram photo) must be the itemized ticket.
-    val accepted: Set[DocumentClass] = doc.kind match {
-      case DocumentKind.Invoice => Set(DocumentClass.PurchaseTicket, DocumentClass.Invoice)
-      case _ => Set(DocumentClass.PurchaseTicket)
-    }
-    result.rejection(accepted)
-  }
 
   private def analyzeExpense(doc: Document): Future[Unit] =
     for {

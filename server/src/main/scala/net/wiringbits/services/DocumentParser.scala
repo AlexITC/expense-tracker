@@ -85,6 +85,29 @@ object DocumentParser {
       case _ => Left(UnsupportedKind(kind))
     }
 
+  /** Rebuilds plain text from a cached AnalyzeExpense response, which has no LINE blocks: one "label: value" line per
+    * field (just the value when Textract found no label), summary fields first and then line items, in document order.
+    */
+  def reconstructText(response: JsValue): String = {
+    val docs = (response \ "ExpenseDocuments").asOpt[JsArray].map(_.value.toList).getOrElse(Nil)
+    val summaryFields = docs.flatMap(d => (d \ "SummaryFields").asOpt[JsArray].map(_.value.toList).getOrElse(Nil))
+    val lineItemFields = for {
+      doc <- docs
+      group <- (doc \ "LineItemGroups").asOpt[JsArray].map(_.value.toList).getOrElse(Nil)
+      item <- (group \ "LineItems").asOpt[JsArray].map(_.value.toList).getOrElse(Nil)
+      field <- (item \ "LineItemExpenseFields").asOpt[JsArray].map(_.value.toList).getOrElse(Nil)
+    } yield field
+    (summaryFields ++ lineItemFields)
+      .flatMap { f =>
+        val label = fieldLabel(f).trim
+        val value = fieldValue(f).trim
+        if (value.isEmpty) None
+        else if (label.isEmpty) Some(value)
+        else Some(s"$label: $value")
+      }
+      .mkString("\n")
+  }
+
   private val monthMap: Map[String, String] = Map(
     "jan" -> "01",
     "feb" -> "02",

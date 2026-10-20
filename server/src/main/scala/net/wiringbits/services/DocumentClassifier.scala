@@ -2,7 +2,7 @@ package net.wiringbits.services
 
 import net.wiringbits.apis.JevClient
 import net.wiringbits.config.JevConfig
-import net.wiringbits.models.documents.{DocumentClass, DocumentClassification}
+import net.wiringbits.models.documents.{DocumentClass, DocumentClassification, DocumentKind}
 import org.slf4j.LoggerFactory
 
 import java.util.UUID
@@ -105,6 +105,15 @@ object DocumentClassifier {
       case Classified(c) => Some(c)
       case Inconclusive(_, observed) => observed
     }
+  }
+
+  /** The classes an upload of `kind` may be. Deliberate deviation from "only purchase tickets": an Invoice upload
+    * accepts an invoice too, since the user picked that kind explicitly; a Receipt (web or Telegram photo) must be the
+    * itemized ticket.
+    */
+  def acceptedFor(kind: DocumentKind): Set[DocumentClass] = kind match {
+    case DocumentKind.Invoice => Set(DocumentClass.PurchaseTicket, DocumentClass.Invoice)
+    case _ => Set(DocumentClass.PurchaseTicket)
   }
 
   /** JEV answered the type with at least `jev.minConfidence`. */
