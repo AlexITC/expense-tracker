@@ -48,7 +48,9 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       expenseId = None,
       refundId = None,
       ignoredAt = None,
-      txnType = "purchase"
+      txnType = "purchase",
+      expenseMerchantId = None,
+      expenseCategoryId = None
     )
 
   private def makeExpense(

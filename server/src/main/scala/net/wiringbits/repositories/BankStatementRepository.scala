@@ -7,6 +7,7 @@ import net.wiringbits.repositories.models.{
   BackgroundJobData,
   BankStatement,
   BankStatementRow,
+  BankStatementRowLinkedExpense,
   BankStatementView,
   Document
 }
@@ -126,6 +127,13 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
       BankStatementRowDAO.findByStatementId(bankStatementId)
     }
   }
+
+  def findRowLinkedExpenses(bankStatementId: UUID, userId: UUID): Future[List[BankStatementRowLinkedExpense]] =
+    Future {
+      database.withConnection { implicit conn =>
+        BankStatementRowDAO.linkedExpenses(bankStatementId, userId)
+      }
+    }
 
   def findRow(rowId: UUID, bankStatementId: UUID): Future[Option[BankStatementRow]] = Future {
     database.withConnection { implicit conn =>

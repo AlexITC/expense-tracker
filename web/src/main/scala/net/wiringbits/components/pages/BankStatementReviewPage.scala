@@ -14,6 +14,7 @@ import net.wiringbits.api.models.bankstatements.{
 }
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{GetImportRules, GetMerchants}
+import net.wiringbits.components.pages.BankStatementReviewRow.RowAction
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -95,11 +96,22 @@ object BankStatementReviewPage {
       merchants: List[GetMerchants.Response.Merchant],
       aiSuggestions: Option[AiSuggestions],
       row: GetBankStatement.StatementRowData
-  ): Option[ResolvedImport] = {
-    val verdict = RowRuleVerdict.verdict(ruleList, row.description)
+  ): Option[ResolvedImport] =
+    resolveImport(RowRuleVerdict.verdict(ruleList, row.description), merchants, aiSuggestions, row)
+
+  /** Same as above, for a verdict the caller already computed for this row. */
+  def resolveImport(
+      verdict: RowRuleVerdict.Verdict,
+      merchants: List[GetMerchants.Response.Merchant],
+      aiSuggestions: Option[AiSuggestions],
+      row: GetBankStatement.StatementRowData
+  ): Option[ResolvedImport] =
     if (verdict == RowRuleVerdict.Ignore) None
     else {
-      val ruleMerchantId = RowRuleVerdict.ruleMerchantId(ruleList, row.description)
+      val ruleMerchantId = verdict match {
+        case RowRuleVerdict.SetMerchant(merchantId) => merchantId
+        case _ => None
+      }
       val ruleCategoryId = ruleMerchantId.flatMap(mid => merchants.find(_.id == mid).flatMap(_.categoryId))
       val ai = aiSuggestions
         .filter(_.status == AiSuggestionsStatus.Done)
@@ -109,7 +121,101 @@ object BankStatementReviewPage {
         .map(c => ResolvedImport(merchantId, c, categoryFromAi = false))
         .orElse(ai.flatMap(_.categoryId).map(c => ResolvedImport(merchantId, c, categoryFromAi = true)))
     }
+
+  /** Everything a table row derives from the rules, merchants, categories and AI suggestions, computed once per row so
+    * rendering does not re-run the rule matcher. The names are the display labels for the resolved import, if any.
+    */
+  final case class RowInfo(
+      verdict: RowRuleVerdict.Verdict,
+      resolved: Option[ResolvedImport],
+      isReady: Boolean,
+      merchantName: Option[String],
+      categoryName: Option[String],
+      linkedMerchantName: Option[String],
+      linkedCategory: LinkedCategory
+  )
+
+  def rowInfo(
+      ruleList: List[ImportRuleMatcher.Rule],
+      merchants: List[GetMerchants.Response.Merchant],
+      categories: List[GetCategories.Response.Category],
+      aiSuggestions: Option[AiSuggestions],
+      row: GetBankStatement.StatementRowData
+  ): RowInfo = {
+    val verdict = RowRuleVerdict.verdict(ruleList, row.description)
+    val resolved = resolveImport(verdict, merchants, aiSuggestions, row)
+    val isReady = row.expenseId.isEmpty && row.refundId.isEmpty && row.ignoredAt.isEmpty && row.amount < 0 &&
+      (verdict == RowRuleVerdict.Ignore || resolved.isDefined)
+    RowInfo(
+      verdict = verdict,
+      resolved = resolved,
+      isReady = isReady,
+      merchantName = resolved.flatMap(_.merchantId).flatMap(mid => merchants.find(_.id == mid)).map(_.name),
+      categoryName = resolved.flatMap(res => categories.find(_.id == res.categoryId)).map(_.name),
+      linkedMerchantName = linkedMerchantName(row, merchants),
+      linkedCategory = linkedCategoryDisplay(row, categories)
+    )
   }
+
+  /** What the Category cell shows for a linked row. The server only reports a category for single-split expenses, so a
+    * linked expense without one is shown as Multiple; Unknown covers ids not loaded yet and refund-only links.
+    */
+  enum LinkedCategory {
+    case Named(name: String)
+    case Multiple
+    case Unknown
+  }
+
+  def linkedCategoryDisplay(
+      row: GetBankStatement.StatementRowData,
+      categories: List[GetCategories.Response.Category]
+  ): LinkedCategory =
+    if (row.expenseId.isEmpty) LinkedCategory.Unknown
+    else
+      row.expenseCategoryId match {
+        case None => LinkedCategory.Multiple
+        case Some(id) => categories.find(_.id == id).fold(LinkedCategory.Unknown)(c => LinkedCategory.Named(c.name))
+      }
+
+  /** The linked expense's merchant name, when it has one and it is in the loaded merchant list. */
+  def linkedMerchantName(
+      row: GetBankStatement.StatementRowData,
+      merchants: List[GetMerchants.Response.Merchant]
+  ): Option[String] =
+    row.expenseId.flatMap(_ => row.expenseMerchantId).flatMap(mid => merchants.find(_.id == mid)).map(_.name)
+
+  /** The entries of a row's "…" menu: a linked or ignored row can only be undone; an open row can be linked, get a rule
+    * or be ignored.
+    */
+  enum RowMenuItem {
+    case LinkExpense, CreateRule, Ignore, Unlink, UnlinkRefund, Unignore
+  }
+
+  def menuItemsFor(row: GetBankStatement.StatementRowData): List[RowMenuItem] =
+    if (row.expenseId.isDefined) List(RowMenuItem.Unlink)
+    else if (row.refundId.isDefined) List(RowMenuItem.UnlinkRefund)
+    else if (row.ignoredAt.isDefined) List(RowMenuItem.Unignore)
+    else List(RowMenuItem.LinkExpense, RowMenuItem.CreateRule, RowMenuItem.Ignore)
+
+  /** The single primary button a row shows. Ready rows open the prefilled create form for review instead of importing
+    * straight away; bulk "Process ready" is the one-click path.
+    */
+  enum PrimaryAction {
+    case Linked, Unignore, IgnoreByRule, ReviewExpense, ReviewRefund, CreateRefund, CreateExpense
+  }
+
+  def primaryActionFor(
+      row: GetBankStatement.StatementRowData,
+      isReady: Boolean,
+      verdict: RowRuleVerdict.Verdict
+  ): PrimaryAction =
+    if (row.expenseId.isDefined || row.refundId.isDefined) PrimaryAction.Linked
+    else if (row.ignoredAt.isDefined) PrimaryAction.Unignore
+    else if (isReady && verdict == RowRuleVerdict.Ignore) PrimaryAction.IgnoreByRule
+    else if (isReady && row.amount > 0) PrimaryAction.ReviewRefund
+    else if (isReady) PrimaryAction.ReviewExpense
+    else if (row.amount > 0) PrimaryAction.CreateRefund
+    else PrimaryAction.CreateExpense
 
   // Statements confirmed before AI suggestions existed stay NULL forever, so polling is capped.
   private val SuggestionsPollMaxAttempts = 20
@@ -152,9 +258,6 @@ object BankStatementReviewPage {
     val (linkingForRow, setLinkingForRow) = Hooks.useState[Option[UUID]](None)
     val (creatingRefundForRow, setCreatingRefundForRow) = Hooks.useState[Option[UUID]](None)
     val (ruleFormForRow, setRuleFormForRow) = Hooks.useState[Option[UUID]](None)
-
-    val (menuAnchorPos, setMenuAnchorPos) = Hooks.useState[Option[(Double, Double)]](None)
-    val (menuForRow, setMenuForRow) = Hooks.useState[Option[UUID]](None)
 
     def showToast(msg: String): Unit = {
       setToast(Some(msg))
@@ -230,16 +333,13 @@ object BankStatementReviewPage {
       js.Array(suggestionsPollKey)
     )
 
-    def ruleVerdictFor(row: GetBankStatement.StatementRowData): RowRuleVerdict.Verdict =
-      RowRuleVerdict.verdict(ruleList, row.description)
-
-    def resolveImport(row: GetBankStatement.StatementRowData): Option[ResolvedImport] =
-      BankStatementReviewPage.resolveImport(ruleList, merchantList, statement.flatMap(_.aiSuggestions), row)
-
-    def isReadyToProcess(row: GetBankStatement.StatementRowData): Boolean =
-      row.expenseId.isEmpty && row.refundId.isEmpty && row.ignoredAt.isEmpty && row.amount < 0 && {
-        ruleVerdictFor(row) == RowRuleVerdict.Ignore || resolveImport(row).isDefined
-      }
+    // Rule matching is the expensive part of rendering a row, so it only re-runs when its inputs change.
+    val aiSuggestions = statement.flatMap(_.aiSuggestions)
+    val rowInfoById: Map[UUID, RowInfo] = Hooks.useMemo(
+      () => statementRows.map(r => r.id -> rowInfo(ruleList, merchantList, categoryList, aiSuggestions, r)).toMap,
+      List(statementRows, ruleList, merchantList, aiSuggestions, categoryList)
+    )
+    def isReadyToProcess(row: GetBankStatement.StatementRowData): Boolean = rowInfoById.get(row.id).exists(_.isReady)
 
     def filteredRows: List[GetBankStatement.StatementRowData] = rowFilter match {
       case "ignored" => statementRows.filter(_.ignoredAt.isDefined)
@@ -287,7 +387,11 @@ object BankStatementReviewPage {
       props.ctx.api.client.unlinkRow(stmtId, rowId).onComplete {
         case Success(_) =>
           setError("")
-          setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(expenseId = None) else r))
+          setStatementRows(cur =>
+            cur.map(r =>
+              if (r.id == rowId) r.copy(expenseId = None, expenseMerchantId = None, expenseCategoryId = None) else r
+            )
+          )
         case Failure(ex) => setError(ex.getMessage)
       }
 
@@ -296,6 +400,16 @@ object BankStatementReviewPage {
         case Success(_) =>
           setError("")
           setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(refundId = None) else r))
+        case Failure(ex) => setError(ex.getMessage)
+      }
+
+    // The drawer forms only report the new expense id, so re-read the row to get the expense's merchant and category.
+    def refreshRow(stmtId: UUID, rowId: UUID): Unit =
+      props.ctx.api.client.getBankStatement(stmtId).onComplete {
+        case Success(full) =>
+          full.statementRows.find(_.id == rowId).foreach { fresh =>
+            setStatementRows(cur => cur.map(r => if (r.id == rowId) fresh else r))
+          }
         case Failure(ex) => setError(ex.getMessage)
       }
 
@@ -338,7 +452,8 @@ object BankStatementReviewPage {
                 setBulkImportResults(cur => cur :+ (rowId -> Left("Row not found")))
                 loop(rest, done + 1, failed + 1)
               case Some(row) =>
-                if (ruleVerdictFor(row) == RowRuleVerdict.Ignore)
+                val info = rowInfoById.get(row.id)
+                if (info.exists(_.verdict == RowRuleVerdict.Ignore))
                   props.ctx.api.client.ignoreRow(stmtId, rowId).onComplete {
                     case Success(_) =>
                       setStatementRows(cur =>
@@ -353,7 +468,7 @@ object BankStatementReviewPage {
                       loop(rest, done + 1, failed + 1)
                   }
                 else
-                  resolveImport(row) match {
+                  info.flatMap(_.resolved) match {
                     case None =>
                       setBulkImportResults(cur => cur :+ (rowId -> Left("No category")))
                       loop(rest, done + 1, failed + 1)
@@ -370,7 +485,15 @@ object BankStatementReviewPage {
                       props.ctx.api.client.createExpenseFromRow(stmtId, rowId, req).onComplete {
                         case Success(resp) =>
                           setStatementRows(cur =>
-                            cur.map(r => if (r.id == rowId) r.copy(expenseId = Some(resp.expenseId)) else r)
+                            cur.map(r =>
+                              if (r.id == rowId)
+                                r.copy(
+                                  expenseId = Some(resp.expenseId),
+                                  expenseMerchantId = res.merchantId,
+                                  expenseCategoryId = Some(res.categoryId)
+                                )
+                              else r
+                            )
                           )
                           setBulkImportResults(cur => cur :+ (rowId -> Right(())))
                           setBulkImportProgress(Some((done + 1, total, failed)))
@@ -385,6 +508,28 @@ object BankStatementReviewPage {
         }
       loop(ids, 0, 0)
     }
+
+    // Stable across renders so the memoized rows only re-render when their own props change. They may only use setters
+    // and values that never change for this statement.
+    val onToggleSelected: (UUID, Boolean) => Unit = Hooks.useCallback(
+      (rowId: UUID, checked: Boolean) =>
+        if (checked) setSelectedRowIds(cur => cur + rowId) else setSelectedRowIds(cur => cur - rowId),
+      ""
+    )
+    val onRowAction: (UUID, RowAction) => Unit = Hooks.useCallback(
+      (rowId: UUID, action: RowAction) =>
+        action match {
+          case RowAction.OpenExpenseForm => setCreatingForRow(Some(rowId)); setLinkingForRow(None)
+          case RowAction.OpenRefundForm => setCreatingRefundForRow(Some(rowId))
+          case RowAction.OpenLinkPicker => setLinkingForRow(Some(rowId)); setCreatingForRow(None)
+          case RowAction.OpenRuleForm => setRuleFormForRow(Some(rowId))
+          case RowAction.Ignore => stmtIdOpt.foreach(handleIgnore(_, rowId))
+          case RowAction.Unignore => stmtIdOpt.foreach(handleUnignore(_, rowId))
+          case RowAction.Unlink => stmtIdOpt.foreach(handleUnlink(_, rowId))
+          case RowAction.UnlinkRefund => stmtIdOpt.foreach(handleUnlinkRefund(_, rowId))
+        },
+      List(stmtIdOpt.map(_.toString).getOrElse(""))
+    )
 
     val drawerOpen =
       creatingForRow.isDefined || creatingRefundForRow.isDefined ||
@@ -426,103 +571,6 @@ object BankStatementReviewPage {
             fontWeight = "700"; fontSize = "11px"; letterSpacing = "0.06em"
             textTransform = "uppercase"; color = "var(--lc-text-2)"
           }
-
-          def rowPrimaryAction(row: GetBankStatement.StatementRowData): ReactElement =
-            if (row.expenseId.isDefined || row.refundId.isDefined)
-              (mui.Button
-                .normal()("Linked")
-                .size("small")
-                .disabled(true)
-                .sx(new CSSPropertiesUtils { color = "var(--lc-brand)" })
-                .build: ReactElement)
-            else if (row.ignoredAt.isDefined)
-              (mui.Button
-                .normal()("Un-ignore")
-                .size("small")
-                .onClick(_ => handleUnignore(stmt.id, row.id))
-                .build: ReactElement)
-            else if (isReadyToProcess(row))
-              ruleVerdictFor(row) match {
-                case RowRuleVerdict.Ignore =>
-                  (mui.Button
-                    .normal()("Ignore")
-                    .size("small")
-                    .variant("contained")
-                    .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
-                    .onClick(_ => handleIgnore(stmt.id, row.id))
-                    .build: ReactElement)
-                case _ =>
-                  (mui.Button
-                    .normal()(if (row.amount > 0) "Import refund" else "Confirm")
-                    .size("small")
-                    .variant("contained")
-                    .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
-                    .onClick(_ => handleBulkImport(stmt.id, List(row.id)))
-                    .build: ReactElement)
-              }
-            else if (row.amount > 0)
-              (mui.Button
-                .normal()("Create refund")
-                .size("small")
-                .variant("outlined")
-                .onClick(_ => setCreatingRefundForRow(Some(row.id)))
-                .build: ReactElement)
-            else
-              (mui.Button
-                .normal()("Create expense")
-                .size("small")
-                .variant("outlined")
-                .onClick(_ => { setCreatingForRow(Some(row.id)); setLinkingForRow(None) })
-                .build: ReactElement)
-
-          // Small chip reused by the Match (merchant) and Category cells.
-          def tintChip(lbl: String, textColor: String): ReactElement =
-            (mui.Chip
-              .label(lbl)
-              .size("small")
-              .sx(new CSSPropertiesUtils {
-                height = "22px"; fontSize = "12px"; backgroundColor = "var(--lc-tint)"; color = textColor
-              }): ReactElement)
-
-          def dash: ReactElement =
-            mui.Typography("—").sx(new CSSPropertiesUtils { color = "var(--lc-hint)"; fontSize = "13px" })
-
-          def suggestingOrDash(row: GetBankStatement.StatementRowData): ReactElement =
-            if (pollingSuggestions && row.ignoredAt.isEmpty && row.amount < 0)
-              mui.Typography("suggesting…").sx(new CSSPropertiesUtils { color = "var(--lc-hint)"; fontSize = "13px" })
-            else dash
-
-          // Merchant linked on import — rule-matched or AI-suggested; "Linked"/"→ Ignore" take over when they apply.
-          def matchCell(row: GetBankStatement.StatementRowData): ReactElement =
-            if (row.expenseId.isDefined || row.refundId.isDefined) tintChip("Linked", "var(--lc-brand)")
-            else if (ruleVerdictFor(row) == RowRuleVerdict.Ignore)
-              tintChip("→ Ignore", "var(--lc-brand-dark)")
-            else
-              resolveImport(row).flatMap(_.merchantId).flatMap(mid => merchantList.find(_.id == mid)) match {
-                case Some(m) => tintChip(m.name, "var(--lc-brand-dark)")
-                case None => suggestingOrDash(row)
-              }
-
-          // Category the expense will get on import, tagged "AI" when it came from a suggestion rather than a rule.
-          def categoryCell(row: GetBankStatement.StatementRowData): ReactElement =
-            if (row.expenseId.isDefined || row.refundId.isDefined) dash
-            else if (ruleVerdictFor(row) == RowRuleVerdict.Ignore) dash
-            else
-              resolveImport(row) match {
-                case Some(res) =>
-                  val name = categoryList.find(_.id == res.categoryId).map(_.name).getOrElse("")
-                  mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px"; alignItems = "center" })(
-                    tintChip(name, "var(--lc-brand-dark)"),
-                    if (res.categoryFromAi)
-                      (mui
-                        .Typography("AI")
-                        .sx(new CSSPropertiesUtils {
-                          fontSize = "10px"; fontWeight = "700"; color = "var(--lc-hint)"; letterSpacing = "0.5px"
-                        }): ReactElement)
-                    else Fragment()
-                  )
-                case None => suggestingOrDash(row)
-              }
 
           mui.Box.sx(new CSSPropertiesUtils {
             display = "flex"; flexDirection = "column"; height = "100%"; minHeight = "0"
@@ -677,80 +725,20 @@ object BankStatementReviewPage {
                 else
                   mui.TableBody(
                     Fragment(
-                      tableRows.map { row =>
-                        val amtSign = if (row.amount > 0) "+" else ""
-                        val amtColor = if (row.amount > 0) "var(--lc-brand)" else "var(--lc-error)"
-                        val showCb = rowFilter == "unprocessed" || rowFilter == "ready"
-                        (mui.TableRow
-                          .hover(true)
-                          .selected(selectedRowIds.contains(row.id))(
-                            mui.TableCell.padding("checkbox")(
-                              if (showCb)
-                                (mui.Checkbox
-                                  .checked(selectedRowIds.contains(row.id))
-                                  .size("small")
-                                  .onChange((_, checked) =>
-                                    if (checked)
-                                      setSelectedRowIds(cur => cur + row.id)
-                                    else setSelectedRowIds(cur => cur - row.id)
-                                  ): ReactElement)
-                              else Fragment()
-                            ),
-                            mui.TableCell.sx(new CSSPropertiesUtils {
-                              fontFamily = "\"IBM Plex Mono\", monospace"
-                              fontSize = "13px"; color = "var(--lc-text-2)"; whiteSpace = "nowrap"
-                            })(row.date.toString),
-                            mui.TableCell.align("right")(
-                              mui
-                                .Typography(s"$amtSign${row.amount}")
-                                .sx(new CSSPropertiesUtils {
-                                  fontWeight = "700"; fontSize = "13px"; color = amtColor
-                                  fontFamily = "\"IBM Plex Mono\", monospace"
-                                })
-                            ),
-                            mui.TableCell.sx(new CSSPropertiesUtils { maxWidth = "280px" })(
-                              mui
-                                .Typography(row.description)
-                                .sx(new CSSPropertiesUtils {
-                                  fontSize = "13px"; fontFamily = "\"IBM Plex Mono\", monospace"
-                                  overflow = "hidden"; textOverflow = "ellipsis"; whiteSpace = "nowrap"
-                                  display = "block"
-                                }),
-                              if (row.txnType == "purchase") Fragment(): ReactElement
-                              else
-                                mui.Chip
-                                  .label(row.txnType)
-                                  .size("small")
-                                  .sx(new CSSPropertiesUtils {
-                                    height = "18px"; fontSize = "11px"; marginTop = "2px";
-                                    backgroundColor = "var(--lc-tint)"; color = "var(--lc-text-2)"
-                                  })
-                            ),
-                            mui.TableCell(categoryCell(row)),
-                            mui.TableCell(matchCell(row)),
-                            mui.TableCell.align("right")(
-                              mui.Box.sx(new CSSPropertiesUtils {
-                                display = "flex"; gap = "4px"
-                                justifyContent = "flex-end"; alignItems = "center"
-                              })(
-                                rowPrimaryAction(row),
-                                (mui.IconButton
-                                  .normal()(
-                                    mui
-                                      .Typography("…")
-                                      .sx(new CSSPropertiesUtils { fontSize = "18px"; lineHeight = "1" })
-                                  )
-                                  .size("small")
-                                  .onClick(e => {
-                                    val rect = e.currentTarget.asInstanceOf[dom.Element].getBoundingClientRect()
-                                    setMenuAnchorPos(Some((rect.right, rect.bottom)))
-                                    setMenuForRow(Some(row.id))
-                                  })
-                                  .build: ReactElement)
-                              )
+                      tableRows.flatMap { row =>
+                        rowInfoById.get(row.id).map { info =>
+                          (BankStatementReviewRow(
+                            BankStatementReviewRow.Props(
+                              row = row,
+                              info = info,
+                              selected = selectedRowIds.contains(row.id),
+                              showCheckbox = rowFilter == "unprocessed" || rowFilter == "ready",
+                              pollingSuggestions = pollingSuggestions,
+                              onToggleSelected = onToggleSelected,
+                              onAction = onRowAction
                             )
-                          )
-                          .withKey(row.id.toString): ReactElement)
+                          ).withKey(row.id.toString): ReactElement)
+                        }
                       }*
                     )
                   )
@@ -774,60 +762,6 @@ object BankStatementReviewPage {
                 )
               else Fragment()
             ),
-            // ── Row overflow menu (fixed-position custom dropdown) ──
-            menuAnchorPos match {
-              case Some((ax, ay)) if menuForRow.isDefined =>
-                def closeMenu(): Unit = { setMenuAnchorPos(None); setMenuForRow(None) }
-                val menuItemSx = new CSSPropertiesUtils {
-                  padding = "10px 16px"; cursor = "pointer"; fontSize = "14px"
-                }
-                Fragment(
-                  (mui.Box
-                    .sx(new CSSPropertiesUtils {
-                      position = "fixed"; top = "0"; left = "0"; right = "0"; bottom = "0"; zIndex = "1200"
-                    })
-                    .onClick(_ => closeMenu())(): ReactElement),
-                  (mui.Box.sx(new CSSPropertiesUtils {
-                    position = "fixed"
-                    right = s"${org.scalajs.dom.window.innerWidth - ax}px"
-                    top = s"${ay}px"
-                    backgroundColor = "var(--lc-paper)"; border = "1px solid var(--lc-border)"
-                    borderRadius = "6px"; boxShadow = "0 4px 16px rgba(0,0,0,0.12)"
-                    zIndex = "1300"; minWidth = "200px"; overflow = "hidden"
-                  })(
-                    mui.Box
-                      .sx(menuItemSx)
-                      .onClick(_ =>
-                        menuForRow.foreach { rowId =>
-                          setLinkingForRow(Some(rowId)); setCreatingForRow(None); closeMenu()
-                        }
-                      )(
-                        mui.Typography("Link to existing expense").sx(new CSSPropertiesUtils { fontSize = "14px" })
-                      ),
-                    mui.Divider(),
-                    mui.Box
-                      .sx(menuItemSx)
-                      .onClick(_ =>
-                        menuForRow.foreach { rowId =>
-                          setRuleFormForRow(Some(rowId)); closeMenu()
-                        }
-                      )(
-                        mui.Typography("Create import rule").sx(new CSSPropertiesUtils { fontSize = "14px" })
-                      ),
-                    mui.Divider(),
-                    mui.Box
-                      .sx(menuItemSx)
-                      .onClick(_ =>
-                        menuForRow.foreach { rowId =>
-                          handleIgnore(stmt.id, rowId); closeMenu()
-                        }
-                      )(
-                        mui.Typography("Ignore").sx(new CSSPropertiesUtils { fontSize = "14px" })
-                      )
-                  ): ReactElement)
-                )
-              case _ => Fragment()
-            },
             // ── Detail Drawer ──
             mui.Drawer
               .anchor("right")
@@ -905,6 +839,7 @@ object BankStatementReviewPage {
                                   cur.map(r => if (r.id == row.id) r.copy(expenseId = Some(expenseId)) else r)
                                 )
                                 setCreatingForRow(None)
+                                refreshRow(stmt.id, row.id)
                                 showToast("Expense created")
                               },
                               onCancel = () => setCreatingForRow(None),
@@ -945,6 +880,7 @@ object BankStatementReviewPage {
                                   cur.map(r => if (r.id == row.id) r.copy(expenseId = Some(expenseId)) else r)
                                 )
                                 setLinkingForRow(None)
+                                refreshRow(stmt.id, row.id)
                               },
                               onCancel = () => setLinkingForRow(None)
                             )

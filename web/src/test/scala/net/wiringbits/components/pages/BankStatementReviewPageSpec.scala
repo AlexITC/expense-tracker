@@ -1,8 +1,9 @@
 package net.wiringbits.components.pages
 
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus, GetBankStatement}
+import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction}
-import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -23,7 +24,9 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
       expenseId = None,
       refundId = None,
       ignoredAt = None,
-      txnType = "purchase"
+      txnType = "purchase",
+      expenseMerchantId = None,
+      expenseCategoryId = None
     )
 
   "BankStatementReviewPage.resultLabel" should {
@@ -192,6 +195,188 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
 
     "resolve to None when nothing matches and there is no suggestion" in {
       BankStatementReviewPage.resolveImport(Nil, Nil, None, sampleRow("UNKNOWN SHOP")) mustBe None
+    }
+  }
+
+  "primaryActionFor" should {
+    import BankStatementReviewPage.{PrimaryAction, primaryActionFor}
+    val negative = sampleRow()
+    val positive = sampleRow().copy(amount = BigDecimal("45.00"))
+    val setMerchant = RowRuleVerdict.SetMerchant(Some(UUID.randomUUID()))
+
+    "review a ready negative row with a SetMerchant verdict as an expense" in {
+      primaryActionFor(negative, isReady = true, setMerchant) mustBe PrimaryAction.ReviewExpense
+    }
+
+    "review a ready positive row as a refund" in {
+      primaryActionFor(positive, isReady = true, RowRuleVerdict.NoRule) mustBe PrimaryAction.ReviewRefund
+    }
+
+    "ignore a ready row with an Ignore verdict in one click" in {
+      primaryActionFor(negative, isReady = true, RowRuleVerdict.Ignore) mustBe PrimaryAction.IgnoreByRule
+    }
+
+    "show Linked for a linked row even when it is ready" in {
+      primaryActionFor(negative.copy(expenseId = Some(UUID.randomUUID())), isReady = true, setMerchant) mustBe
+        PrimaryAction.Linked
+      primaryActionFor(positive.copy(refundId = Some(UUID.randomUUID())), isReady = true, setMerchant) mustBe
+        PrimaryAction.Linked
+    }
+
+    "offer Unignore for an ignored row" in {
+      primaryActionFor(negative.copy(ignoredAt = Some(Instant.now())), isReady = false, RowRuleVerdict.Ignore) mustBe
+        PrimaryAction.Unignore
+    }
+
+    "create an expense for a not-ready negative row" in {
+      primaryActionFor(negative, isReady = false, RowRuleVerdict.NoRule) mustBe PrimaryAction.CreateExpense
+    }
+
+    "create a refund for a not-ready positive row" in {
+      primaryActionFor(positive, isReady = false, RowRuleVerdict.NoRule) mustBe PrimaryAction.CreateRefund
+    }
+  }
+
+  "rowInfo" should {
+    import BankStatementReviewPage.rowInfo
+
+    def merchant(id: UUID, name: String, categoryId: Option[UUID]): GetMerchants.Response.Merchant =
+      GetMerchants.Response.Merchant(id, name, None, categoryId, None, reviewed = true, Instant.EPOCH)
+
+    def rule(action: ImportRuleAction, pattern: String, merchantId: Option[UUID]): ImportRuleMatcher.Rule =
+      ImportRuleMatcher.Rule(UUID.randomUUID(), action, pattern, merchantId)
+
+    "mark an unprocessed negative row with an Ignore rule as ready, with nothing to import" in {
+      val info = rowInfo(List(rule(ImportRuleAction.Ignore, "SUPERMARKET", None)), Nil, Nil, None, sampleRow())
+      info.verdict mustBe RowRuleVerdict.Ignore
+      info.resolved mustBe None
+      info.isReady mustBe true
+    }
+
+    "mark a row with a resolved import as ready and expose the merchant and category names" in {
+      val m = UUID.randomUUID()
+      val c = UUID.randomUUID()
+      val info = rowInfo(
+        List(rule(ImportRuleAction.SetMerchant, "SUPERMARKET", Some(m))),
+        List(merchant(m, "Walmart", Some(c))),
+        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
+        None,
+        sampleRow()
+      )
+      info.verdict mustBe RowRuleVerdict.SetMerchant(Some(m))
+      info.resolved mustBe Some(BankStatementReviewPage.ResolvedImport(Some(m), c, categoryFromAi = false))
+      info.isReady mustBe true
+      info.merchantName mustBe Some("Walmart")
+      info.categoryName mustBe Some("Groceries")
+    }
+
+    "take the category name from an AI suggestion" in {
+      val c = UUID.randomUUID()
+      val row = sampleRow("UNKNOWN SHOP")
+      val ai = Some(
+        AiSuggestions(AiSuggestionsStatus.Done, "m", List(AiSuggestions.RowSuggestion(row.id, Some(c), None)))
+      )
+      val info = rowInfo(Nil, Nil, List(GetCategories.Response.Category(c, "Dining", Instant.EPOCH)), ai, row)
+      info.resolved.map(_.categoryFromAi) mustBe Some(true)
+      info.merchantName mustBe None
+      info.categoryName mustBe Some("Dining")
+    }
+
+    "expose the linked expense's merchant and category names" in {
+      val m = UUID.randomUUID()
+      val c = UUID.randomUUID()
+      val row =
+        sampleRow().copy(expenseId = Some(UUID.randomUUID()), expenseMerchantId = Some(m), expenseCategoryId = Some(c))
+      val info = rowInfo(
+        Nil,
+        List(merchant(m, "Walmart", None)),
+        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
+        None,
+        row
+      )
+      info.linkedMerchantName mustBe Some("Walmart")
+      info.linkedCategory mustBe BankStatementReviewPage.LinkedCategory.Named("Groceries")
+    }
+
+    "not mark a row ready when nothing resolves" in {
+      val info = rowInfo(Nil, Nil, Nil, None, sampleRow("UNKNOWN SHOP"))
+      info.isReady mustBe false
+      info.merchantName mustBe None
+      info.categoryName mustBe None
+    }
+
+    "not mark an already linked or a positive row ready" in {
+      val rules = List(rule(ImportRuleAction.Ignore, "SUPERMARKET", None))
+      rowInfo(rules, Nil, Nil, None, sampleRow().copy(expenseId = Some(UUID.randomUUID()))).isReady mustBe false
+      rowInfo(rules, Nil, Nil, None, sampleRow().copy(amount = BigDecimal("10.00"))).isReady mustBe false
+    }
+  }
+
+  "menuItemsFor" should {
+    import BankStatementReviewPage.{RowMenuItem, menuItemsFor}
+
+    "offer only Unlink for a row linked to an expense" in {
+      menuItemsFor(sampleRow().copy(expenseId = Some(UUID.randomUUID()))) mustBe List(RowMenuItem.Unlink)
+    }
+
+    "offer only UnlinkRefund for a row linked to a refund" in {
+      menuItemsFor(sampleRow().copy(amount = BigDecimal("45.00"), refundId = Some(UUID.randomUUID()))) mustBe
+        List(RowMenuItem.UnlinkRefund)
+    }
+
+    "offer only Unignore for an ignored row" in {
+      menuItemsFor(sampleRow().copy(ignoredAt = Some(Instant.now()))) mustBe List(RowMenuItem.Unignore)
+    }
+
+    "offer link, rule and ignore for an unprocessed row" in {
+      menuItemsFor(sampleRow("UNKNOWN SHOP")) mustBe
+        List(RowMenuItem.LinkExpense, RowMenuItem.CreateRule, RowMenuItem.Ignore)
+    }
+  }
+
+  "linkedCategoryDisplay" should {
+    import BankStatementReviewPage.{LinkedCategory, linkedCategoryDisplay}
+    val c = UUID.randomUUID()
+    val categories = List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH))
+    val linked = sampleRow().copy(expenseId = Some(UUID.randomUUID()))
+
+    "resolve a single category to its name" in {
+      linkedCategoryDisplay(linked.copy(expenseCategoryId = Some(c)), categories) mustBe
+        LinkedCategory.Named("Groceries")
+    }
+
+    "show Multiple for a linked expense without a single category" in {
+      linkedCategoryDisplay(linked, categories) mustBe LinkedCategory.Multiple
+    }
+
+    "be Unknown when the category is not in the list" in {
+      linkedCategoryDisplay(linked.copy(expenseCategoryId = Some(UUID.randomUUID())), categories) mustBe
+        LinkedCategory.Unknown
+    }
+
+    "be Unknown for a refund-only link" in {
+      linkedCategoryDisplay(sampleRow().copy(refundId = Some(UUID.randomUUID())), categories) mustBe
+        LinkedCategory.Unknown
+    }
+  }
+
+  "linkedMerchantName" should {
+    import BankStatementReviewPage.linkedMerchantName
+    val m = UUID.randomUUID()
+    val merchants =
+      List(GetMerchants.Response.Merchant(m, "Walmart", None, None, None, reviewed = true, Instant.EPOCH))
+    val linked = sampleRow().copy(expenseId = Some(UUID.randomUUID()))
+
+    "resolve the linked expense's merchant to its name" in {
+      linkedMerchantName(linked.copy(expenseMerchantId = Some(m)), merchants) mustBe Some("Walmart")
+    }
+
+    "be None when the expense has no merchant" in {
+      linkedMerchantName(linked, merchants) mustBe None
+    }
+
+    "be None when the merchant is not in the list" in {
+      linkedMerchantName(linked.copy(expenseMerchantId = Some(UUID.randomUUID())), merchants) mustBe None
     }
   }
 }
