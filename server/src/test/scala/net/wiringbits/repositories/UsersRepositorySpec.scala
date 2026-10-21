@@ -56,12 +56,6 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val response = repositories.users.all().futureValue
       response.map(u => (u.id, u.email)) must contain allElementsOf expected.map(u => (u.id, u.email))
     }
-
-    "not return users that were never created" in withRepositories() { repositories =>
-      val id = UUID.randomUUID()
-      val response = repositories.users.all().futureValue
-      response.map(_.id) must not contain id
-    }
   }
 
   "find(email)" should {

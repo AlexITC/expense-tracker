@@ -29,7 +29,7 @@ trait PlayPostgresSpec extends PlayAPISpec with GuiceOneServerPerTest {
     * This allows to not write a custom application.conf for testing. The shared container is already evolved, so Play's
     * startup evolutions find nothing to apply.
     */
-  private def loadConfigWithoutEvolutions(env: Environment, container: PostgreSQLContainer): Configuration = {
+  private def loadConfigForContainer(env: Environment, container: PostgreSQLContainer): Configuration = {
     val map = Map(
       "db.default.username" -> container.username,
       "db.default.password" -> container.password,
@@ -40,7 +40,7 @@ trait PlayPostgresSpec extends PlayAPISpec with GuiceOneServerPerTest {
   }
 
   def guiceApplicationBuilder(container: PostgreSQLContainer): GuiceApplicationBuilder =
-    GuiceApplicationBuilder(loadConfiguration = env => loadConfigWithoutEvolutions(env, container))
+    GuiceApplicationBuilder(loadConfiguration = env => loadConfigForContainer(env, container))
       .in(Mode.Test)
 
   override def newAppForTest(testData: TestData): Application =

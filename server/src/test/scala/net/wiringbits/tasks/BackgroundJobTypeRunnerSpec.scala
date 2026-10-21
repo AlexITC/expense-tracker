@@ -36,11 +36,6 @@ class BackgroundJobTypeRunnerSpec extends RepositorySpec with RepositoryUtils wi
 
   private val settings = TypeSettings(parallelism = 1, timeout = 10.seconds, pollInterval = 50.millis)
 
-  private def withEmptyJobQueue[T](runTest: RepositoryComponents => T): T = withRepositories() { repositories =>
-    clearBackgroundJobs()(using repositories)
-    runTest(repositories)
-  }
-
   "source" should {
     "never run more jobs concurrently than the type parallelism" in withEmptyJobQueue { implicit repositories =>
       val jobs = (1 to 5).map(_ => createBackgroundJobData())

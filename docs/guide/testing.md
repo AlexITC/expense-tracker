@@ -41,7 +41,7 @@ This applies to every level of nesting: `should` subjects, `when` clauses, and `
 
 **RULE-TE-002 — Backend integration tests: `PostgresSpec` + `RepositoryUtils`**
 
-All tests that hit the database extend `PostgresSpec` (spins up PostgreSQL 13 via testcontainers, applies evolutions, tears down after each test). Test data is created via `RepositoryUtils`:
+All tests that hit the database extend `PostgresSpec` (shares one PostgreSQL 13 testcontainer, evolved once, across the whole test JVM; tests must use random unique values and user-scoped assertions). Test data is created via `RepositoryUtils`:
 
 ```scala
 class UsersRepositorySpec extends PostgresSpec {

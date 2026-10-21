@@ -18,11 +18,6 @@ import scala.concurrent.duration.*
 
 class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
 
-  private def withEmptyJobQueue[T](runTest: RepositoryComponents => T): T = withRepositories() { repositories =>
-    clearBackgroundJobs()(using repositories)
-    runTest(repositories)
-  }
-
   "setStatusToFailed" should {
     "work" in withEmptyJobQueue { implicit repositories =>
       val createRequest = createBackgroundJobData()
