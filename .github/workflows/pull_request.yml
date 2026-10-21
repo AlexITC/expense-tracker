@@ -97,10 +97,9 @@ jobs:
       - name: Prepare server build
         run: sbt --client server/dist
 
-      # Runs last and standalone: `dev-web` is a blocking webpack-dev-server watch that
-      # the script tears down by killing its sbt JVM, so it can't share the thin-client
-      # server. Shut that server down first so dev-web gets a clean, dedicated sbt.
+      # dev-web is a blocking webpack-dev-server watch that the script tears down by
+      # killing its sbt JVM, so it runs as its own standalone sbt (`--no-server`, set in
+      # the script) rather than the shared thin-client server. Runs last so its
+      # web/target writes don't race the shared server's build steps.
       - name: Test dev-web
-        run: |
-          sbt --client shutdown || true
-          ./scripts/test-dev-web.sh
+        run: ./scripts/test-dev-web.sh
