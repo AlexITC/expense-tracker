@@ -10,6 +10,7 @@ import java.util.UUID
 case class BankStatementDraft(
     id: UUID,
     userId: UUID,
+    documentId: UUID,
     sha256: String,
     filename: String,
     storageKey: String,
@@ -27,9 +28,21 @@ object BankStatementDraft {
     val Failed = "failed"
   }
 
+  /** The document behind a new draft: an existing one (a re-upload after discard) or a new one to insert with it. */
+  enum DocumentLink {
+    case Existing(id: UUID)
+    case New(document: Document.Create)
+
+    def documentId: UUID = this match {
+      case Existing(id) => id
+      case New(document) => document.id
+    }
+  }
+
   case class Create(
       id: UUID,
       userId: UUID,
+      documentId: UUID,
       sha256: String,
       filename: String,
       storageKey: String,

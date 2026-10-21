@@ -6,6 +6,7 @@ import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
+import net.wiringbits.repositories.daos.DocumentDAO
 import net.wiringbits.repositories.models.{
   BackgroundJobData,
   BankStatement,
@@ -70,6 +71,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         repositories: RepositoryComponents
     ): UUID = {
       val now = Instant.now()
+      // Inserted directly, like the upload does, so no ProcessDocument job is enqueued alongside it.
       val document = Document.Create(
         id = UUID.randomUUID(),
         userId = userId,
@@ -80,6 +82,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         createdAt = now,
         updatedAt = now
       )
+      repositories.database.withConnection { implicit conn => DocumentDAO.create(document) }
       val stmt = BankStatement.Create(UUID.randomUUID(), document.id, userId, now, now)
       val job = BackgroundJobData.Create(
         id = UUID.randomUUID(),
@@ -91,8 +94,52 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         updatedAt = now
       )
       repositories.bankStatements
-        .createConfirmedStatement(document, stmt, sampleStatementMetadata, List(buildRow(stmt.id)), extractionInfo, job)
+        .createConfirmedStatement(stmt, sampleStatementMetadata, List(buildRow(stmt.id)), extractionInfo, job)
         .futureValue
+    }
+
+    "mark the existing document parsed without creating another" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val id = confirm(user.id, None)
+      val stmt = repositories.bankStatements.find(id, user.id).futureValue.value
+
+      val documents = repositories.documents.all(user.id).futureValue
+      documents.map(_.id) must be(List(stmt.documentId))
+    }
+
+    "reject a document owned by another user without touching it" in withRepositories() { implicit repositories =>
+      val owner = createUser().futureValue
+      val other = createUser().futureValue
+      val now = Instant.now()
+      val document = Document.Create(
+        id = UUID.randomUUID(),
+        userId = owner.id,
+        sha256 = UUID.randomUUID().toString,
+        storageKey = "key",
+        kind = DocumentKind.BankStatementPdf,
+        filename = "stmt.pdf",
+        createdAt = now,
+        updatedAt = now
+      )
+      repositories.database.withConnection { implicit conn => DocumentDAO.create(document) }
+      val stmt = BankStatement.Create(UUID.randomUUID(), document.id, other.id, now, now)
+      val job = BackgroundJobData.Create(
+        id = UUID.randomUUID(),
+        `type` = BackgroundJobType.ResolveStatementSuggestions,
+        payload = BackgroundJobPayload.ResolveStatementSuggestions(stmt.id),
+        status = BackgroundJobStatus.Pending,
+        executeAt = now,
+        createdAt = now,
+        updatedAt = now
+      )
+
+      val ex = intercept[Exception](
+        repositories.bankStatements
+          .createConfirmedStatement(stmt, sampleStatementMetadata, Nil, None, job)
+          .futureValue
+      )
+      ex.getMessage must include("Document not found")
+      repositories.bankStatements.all(other.id).futureValue must be(empty)
     }
 
     "enqueue the given job with the statement" in withRepositories() { implicit repositories =>

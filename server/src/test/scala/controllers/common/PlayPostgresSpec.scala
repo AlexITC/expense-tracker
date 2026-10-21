@@ -7,10 +7,12 @@ import net.wiringbits.core.SharedPostgres
 import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.BankStatementRepository
+import net.wiringbits.repositories.daos.DocumentDAO
 import net.wiringbits.repositories.models.{BackgroundJobData, BankStatement, BankStatementRow, Document}
 import org.scalatest.TestData
 import org.scalatest.time.SpanSugar.convertIntToGrainOfTime
 import org.scalatestplus.play.guice.GuiceOneServerPerTest
+import play.api.db.Database
 import play.api.inject.guice.GuiceApplicationBuilder
 import play.api.{Application, Configuration, Environment, Mode}
 import sttp.client3.HttpClientFutureBackend
@@ -89,7 +91,8 @@ trait PlayPostgresSpec extends PlayAPISpec with GuiceOneServerPerTest {
       createdAt = now,
       updatedAt = now
     )
-    repo.createConfirmedStatement(document, stmt, metadata, rows(stmtId), extractionInfo = None, job).futureValue
+    app.injector.instanceOf[Database].withConnection { implicit conn => DocumentDAO.create(document) }
+    repo.createConfirmedStatement(stmt, metadata, rows(stmtId), extractionInfo = None, job).futureValue
     stmtId
   }
 
