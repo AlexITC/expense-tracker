@@ -73,7 +73,7 @@ trait RepositoryUtils {
   }
 
   def createUser(
-      email: Email = Email.trusted("hello@wiringbits.net")
+      email: Email = RandomData.randomEmail()
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[User.CreateUser] = {
     val createRequest = User.CreateUser(
       id = UUID.randomUUID(),
