@@ -36,8 +36,13 @@ class BackgroundJobTypeRunnerSpec extends RepositorySpec with RepositoryUtils wi
 
   private val settings = TypeSettings(parallelism = 1, timeout = 10.seconds, pollInterval = 50.millis)
 
+  private def withEmptyJobQueue[T](runTest: RepositoryComponents => T): T = withRepositories() { repositories =>
+    clearBackgroundJobs()(using repositories)
+    runTest(repositories)
+  }
+
   "source" should {
-    "never run more jobs concurrently than the type parallelism" in withRepositories() { implicit repositories =>
+    "never run more jobs concurrently than the type parallelism" in withEmptyJobQueue { implicit repositories =>
       val jobs = (1 to 5).map(_ => createBackgroundJobData())
       val gate = Promise[Unit]()
       val inFlight = new AtomicInteger(0)
@@ -63,7 +68,7 @@ class BackgroundJobTypeRunnerSpec extends RepositorySpec with RepositoryUtils wi
       killSwitch.shutdown()
     }
 
-    "keep processing a type while another type is blocked" in withRepositories() { implicit repositories =>
+    "keep processing a type while another type is blocked" in withEmptyJobQueue { implicit repositories =>
       val blockedJob = createBackgroundJobData(backgroundJobType = BackgroundJobType.ExtractBankStatementDraft)
       val jobs = (1 to 3).map(_ => createBackgroundJobData(backgroundJobType = BackgroundJobType.SendEmail))
       val blockedStarted = Promise[Unit]()
@@ -87,7 +92,7 @@ class BackgroundJobTypeRunnerSpec extends RepositorySpec with RepositoryUtils wi
       killSwitch.shutdown()
     }
 
-    "record a timed out job as failed and free its slot" in withRepositories() { implicit repositories =>
+    "record a timed out job as failed and free its slot" in withEmptyJobQueue { implicit repositories =>
       val stuckJob = createBackgroundJobData(executeAt = Instant.now().minus(1, ChronoUnit.MINUTES))
       val nextJob = createBackgroundJobData()
       val before = Instant.now()
@@ -109,7 +114,7 @@ class BackgroundJobTypeRunnerSpec extends RepositorySpec with RepositoryUtils wi
       killSwitch.shutdown()
     }
 
-    "record a failed job with exponential backoff" in withRepositories() { implicit repositories =>
+    "record a failed job with exponential backoff" in withEmptyJobQueue { implicit repositories =>
       val job = createBackgroundJobData()
       val before = Instant.now()
 
@@ -128,7 +133,7 @@ class BackgroundJobTypeRunnerSpec extends RepositorySpec with RepositoryUtils wi
       killSwitch.shutdown()
     }
 
-    "record a successful job" in withRepositories() { implicit repositories =>
+    "record a successful job" in withEmptyJobQueue { implicit repositories =>
       val job = createBackgroundJobData()
 
       val killSwitch = run(BackgroundJobType.SendEmail, settings, _ => Future.unit)
@@ -139,7 +144,7 @@ class BackgroundJobTypeRunnerSpec extends RepositorySpec with RepositoryUtils wi
       killSwitch.shutdown()
     }
 
-    "record a job whose dispatch throws synchronously as failed" in withRepositories() { implicit repositories =>
+    "record a job whose dispatch throws synchronously as failed" in withEmptyJobQueue { implicit repositories =>
       val failingJob = createBackgroundJobData(executeAt = Instant.now().minus(1, ChronoUnit.MINUTES))
       val nextJob = createBackgroundJobData()
 
@@ -159,7 +164,7 @@ class BackgroundJobTypeRunnerSpec extends RepositorySpec with RepositoryUtils wi
       killSwitch.shutdown()
     }
 
-    "keep processing after a claim fails" in withRepositories() { implicit repositories =>
+    "keep processing after a claim fails" in withEmptyJobQueue { implicit repositories =>
       val job = createBackgroundJobData()
       val claimAttempts = new AtomicInteger(0)
       val repository =
@@ -182,7 +187,7 @@ class BackgroundJobTypeRunnerSpec extends RepositorySpec with RepositoryUtils wi
       killSwitch.shutdown()
     }
 
-    "keep processing after recording an outcome fails" in withRepositories() { implicit repositories =>
+    "keep processing after recording an outcome fails" in withEmptyJobQueue { implicit repositories =>
       val unrecordedJob = createBackgroundJobData(executeAt = Instant.now().minus(1, ChronoUnit.MINUTES))
       val nextJob = createBackgroundJobData()
       val repository =
@@ -206,7 +211,7 @@ class BackgroundJobTypeRunnerSpec extends RepositorySpec with RepositoryUtils wi
       killSwitch.shutdown()
     }
 
-    "stop claiming a job once it reaches the allowed errors" in withRepositories() { implicit repositories =>
+    "stop claiming a job once it reaches the allowed errors" in withEmptyJobQueue { implicit repositories =>
       val job = createBackgroundJobData()
       // the repository runs 2 days ahead of the runner, so the backoff (at most 2^9 minutes) never defers the reclaim
       val futureClock = Clock.offset(Clock.systemUTC, Duration.ofDays(2))

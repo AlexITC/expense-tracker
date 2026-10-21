@@ -72,6 +72,16 @@ trait RepositoryUtils {
     createRequest
   }
 
+  /** background_jobs is a global queue that isn't scoped by user, and claims pick any pending job of a type, so claim
+    * semantics can only be tested against an empty queue. Only the background job specs should call this.
+    */
+  def clearBackgroundJobs()(using repositories: RepositoryComponents): Unit = {
+    repositories.database.withConnection { implicit conn =>
+      anorm.SQL("DELETE FROM background_jobs").executeUpdate()
+    }
+    ()
+  }
+
   def createUser(
       email: Email = RandomData.randomEmail()
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[User.CreateUser] = {
