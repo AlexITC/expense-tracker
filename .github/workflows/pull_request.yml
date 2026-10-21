@@ -40,7 +40,7 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       # Install JDK 25 from GitHub's toolcache (not coursier). The Scala setup
       # below then uses this system JVM, so coursier never fetches its JVM index
@@ -61,7 +61,7 @@ jobs:
         run: npm install -g yarn
 
       - name: Cache compiled code
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             **/target/
