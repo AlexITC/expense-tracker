@@ -2,8 +2,9 @@ package net.wiringbits.actions.bankstatements
 
 import com.github.f4b6a3.uuid.UuidCreator
 import net.wiringbits.api.models.bankstatements.BankStatementDraft as ApiDraft
+import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
-import net.wiringbits.repositories.models.{BackgroundJobData, BankStatementDraft as DraftRecord}
+import net.wiringbits.repositories.models.{BackgroundJobData, Document, BankStatementDraft as DraftRecord}
 import net.wiringbits.repositories.{BankStatementDraftRepository, BankStatementRepository, DocumentsRepository}
 import net.wiringbits.services.BlobStorage
 import org.slf4j.LoggerFactory
@@ -45,8 +46,27 @@ class CreateBankStatementDraftAction @Inject() (
       alreadyUploaded <- blobStorage.exists(storageKey)
       _ <- if (alreadyUploaded) Future.unit else blobStorage.put(storageKey, bytes)
       now = clock.instant()
+      // The document outlives a discarded draft, so a re-upload links to it instead of inserting a duplicate.
+      (documentId, newDocument) = existingDoc match {
+        case Some(doc) if doc.kind == DocumentKind.BankStatementPdf => (doc.id, None)
+        case Some(doc) =>
+          throw new RuntimeException(s"This file was already uploaded as a ${doc.kind.entryName} document")
+        case None =>
+          val doc = Document.Create(
+            id = UuidCreator.getTimeOrderedEpoch(),
+            userId = userId,
+            sha256 = sha256,
+            storageKey = storageKey,
+            kind = DocumentKind.BankStatementPdf,
+            filename = filename,
+            status = DocumentStatus.Ingested,
+            createdAt = now,
+            updatedAt = now
+          )
+          (doc.id, Some(doc))
+      }
       draftId = UuidCreator.getTimeOrderedEpoch()
-      draft = DraftRecord.Create(draftId, userId, sha256, filename, storageKey, now, now)
+      draft = DraftRecord.Create(draftId, userId, documentId, sha256, filename, storageKey, now, now)
       job = BackgroundJobData.Create(
         id = UUID.randomUUID(),
         `type` = BackgroundJobType.ExtractBankStatementDraft,
@@ -56,9 +76,12 @@ class CreateBankStatementDraftAction @Inject() (
         createdAt = now,
         updatedAt = now
       )
-      _ <- bankStatementDraftRepository.create(draft, job)
+      _ <- bankStatementDraftRepository.create(newDocument, draft, job)
     } yield {
-      logger.info(s"Created statement draft $draftId (processing); enqueued extraction job")
+      logger.info(
+        s"Created statement draft $draftId (processing) for user $userId, document $documentId " +
+          s"(${if (newDocument.isDefined) "new" else "reused"}); enqueued extraction job"
+      )
       ApiDraft.Data(draftId, filename, DraftRecord.Status.Processing, None, None)
     }
   }

@@ -1,8 +1,8 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.executors.DatabaseExecutionContext
-import net.wiringbits.repositories.daos.{BackgroundJobDAO, BankStatementDraftDAO}
-import net.wiringbits.repositories.models.{BackgroundJobData, BankStatementDraft}
+import net.wiringbits.repositories.daos.{BackgroundJobDAO, BankStatementDraftDAO, DocumentDAO}
+import net.wiringbits.repositories.models.{BackgroundJobData, BankStatementDraft, Document}
 import play.api.db.Database
 
 import java.time.Instant
@@ -30,9 +30,16 @@ class BankStatementDraftRepository @Inject() (database: Database)(implicit ec: D
     }
   }
 
-  /** Create the draft (status=processing) and enqueue its extraction job in one transaction. */
-  def create(draft: BankStatementDraft.Create, job: BackgroundJobData.Create): Future[Unit] = Future {
+  /** Create the draft (status=processing) and enqueue its extraction job in one transaction. `document` is the new
+    * document behind the draft, or None when the draft links to an existing one (a re-upload after discard).
+    */
+  def create(
+      document: Option[Document.Create],
+      draft: BankStatementDraft.Create,
+      job: BackgroundJobData.Create
+  ): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
+      document.foreach(DocumentDAO.create)
       BankStatementDraftDAO.create(draft)
       BackgroundJobDAO.create(job)
     }

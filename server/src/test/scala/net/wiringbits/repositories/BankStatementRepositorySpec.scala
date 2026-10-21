@@ -6,6 +6,7 @@ import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
+import net.wiringbits.repositories.daos.DocumentDAO
 import net.wiringbits.repositories.models.{
   BackgroundJobData,
   BankStatement,
@@ -70,6 +71,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         repositories: RepositoryComponents
     ): UUID = {
       val now = Instant.now()
+      // Inserted directly, like the upload does, so no ProcessDocument job is enqueued alongside it.
       val document = Document.Create(
         id = UUID.randomUUID(),
         userId = userId,
@@ -77,10 +79,11 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         storageKey = "key",
         kind = DocumentKind.BankStatementPdf,
         filename = "stmt.pdf",
-        status = DocumentStatus.Parsed,
+        status = DocumentStatus.Ingested,
         createdAt = now,
         updatedAt = now
       )
+      repositories.database.withConnection { implicit conn => DocumentDAO.create(document) }
       val stmt = BankStatement.Create(UUID.randomUUID(), document.id, userId, now, now)
       val job = BackgroundJobData.Create(
         id = UUID.randomUUID(),
@@ -92,8 +95,18 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         updatedAt = now
       )
       repositories.bankStatements
-        .createConfirmedStatement(document, stmt, sampleStatementMetadata, List(buildRow(stmt.id)), extractionInfo, job)
+        .createConfirmedStatement(stmt, sampleStatementMetadata, List(buildRow(stmt.id)), extractionInfo, job)
         .futureValue
+    }
+
+    "mark the existing document parsed without creating another" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val id = confirm(user.id, None)
+      val stmt = repositories.bankStatements.find(id, user.id).futureValue.value
+
+      val documents = repositories.documents.all(user.id).futureValue
+      documents.map(_.id) must be(List(stmt.documentId))
+      documents.head.status must be(DocumentStatus.Parsed)
     }
 
     "enqueue the given job with the statement" in withRepositories() { implicit repositories =>

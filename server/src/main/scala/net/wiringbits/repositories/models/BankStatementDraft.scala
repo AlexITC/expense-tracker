@@ -10,6 +10,7 @@ import java.util.UUID
 case class BankStatementDraft(
     id: UUID,
     userId: UUID,
+    documentId: UUID,
     sha256: String,
     filename: String,
     storageKey: String,
@@ -30,6 +31,7 @@ object BankStatementDraft {
   case class Create(
       id: UUID,
       userId: UUID,
+      documentId: UUID,
       sha256: String,
       filename: String,
       storageKey: String,

@@ -2,14 +2,14 @@ package net.wiringbits.repositories
 
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, ExtractionInfo}
 import net.wiringbits.executors.DatabaseExecutionContext
+import net.wiringbits.models.documents.DocumentStatus
 import net.wiringbits.repositories.daos.{BackgroundJobDAO, BankStatementDAO, BankStatementRowDAO, DocumentDAO}
 import net.wiringbits.repositories.models.{
   BackgroundJobData,
   BankStatement,
   BankStatementRow,
   BankStatementRowLinkedExpense,
-  BankStatementView,
-  Document
+  BankStatementView
 }
 import play.api.db.Database
 
@@ -20,11 +20,11 @@ import scala.concurrent.Future
 
 class BankStatementRepository @Inject() (database: Database)(implicit ec: DatabaseExecutionContext) {
 
-  /** Confirm a draft import: create the document + statement (with metadata) + rows in one transaction, and enqueue the
-    * given job (the AI suggestions job; the rows are already extracted). Used by the AI draft-import flow.
+  /** Confirm a draft import: mark the draft's existing document Parsed and create the statement (with metadata) + rows
+    * in one transaction, and enqueue the given job (the AI suggestions job; the rows are already extracted). Used by
+    * the AI draft-import flow.
     */
   def createConfirmedStatement(
-      document: Document.Create,
       stmt: BankStatement.Create,
       metadata: BankStatement.Metadata,
       rows: List[BankStatementRow.Create],
@@ -32,7 +32,7 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
       job: BackgroundJobData.Create
   ): Future[UUID] = Future {
     database.withTransaction { implicit conn =>
-      DocumentDAO.create(document)
+      DocumentDAO.updateStatus(stmt.documentId, DocumentStatus.Parsed, parserVersion = None, updatedAt = stmt.updatedAt)
       BankStatementDAO.create(stmt, metadata, extractionInfo)
       BankStatementRowDAO.createAll(rows)
       BackgroundJobDAO.create(job)

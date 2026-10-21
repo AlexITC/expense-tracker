@@ -15,6 +15,7 @@ case class RepositoryComponents(
     documents: DocumentsRepository,
     textractCache: TextractCacheRepository,
     bankStatements: BankStatementRepository,
+    bankStatementDrafts: BankStatementDraftRepository,
     importRules: ImportRuleRepository,
     receipts: ReceiptRepository,
     refunds: RefundsRepository,
