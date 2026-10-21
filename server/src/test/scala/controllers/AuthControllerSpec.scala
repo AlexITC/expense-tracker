@@ -16,6 +16,7 @@ import org.scalatestplus.mockito.MockitoSugar
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
 import utils.LoginUtils
+import utils.RandomData.randomEmail
 
 import java.time.temporal.ChronoUnit
 import java.time.{Clock, Instant}
@@ -52,7 +53,7 @@ class AuthControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoSu
   "POST /auth/login" should {
     "return the response from a correct user" in withApiClient { implicit client =>
       val name = Name.trusted("wiringbits")
-      val email = Email.trusted("test1@email.com")
+      val email = randomEmail()
       val loginResponse =
         createVerifyLoginUser(tokenGenerator, nameMaybe = Some(name), emailMaybe = Some(email)).futureValue
 
@@ -103,7 +104,7 @@ class AuthControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoSu
     }
 
     "login after successful email confirmation" in withApiClient { implicit client =>
-      val email = Email.trusted("test1@email.com")
+      val email = randomEmail()
       val response = createVerifyLoginUser(tokenGenerator, emailMaybe = Some(email)).futureValue
 
       response.email must be(email)
@@ -172,7 +173,7 @@ class AuthControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoSu
   "GET /auth/me" should {
     "return current logged user" in withApiClient { implicit client =>
       val name = Name.trusted("wiringbits")
-      val email = Email.trusted("test1@email.com")
+      val email = randomEmail()
       createVerifyLoginUser(tokenGenerator, nameMaybe = Some(name), emailMaybe = Some(email)).futureValue
       val currentUser = client.currentUser.futureValue
 

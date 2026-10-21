@@ -150,6 +150,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         SQL"""
           SELECT type, payload::TEXT AS payload
           FROM background_jobs
+          WHERE payload->>'bankStatementId' = ${id.toString}
           ORDER BY created_at
           """.as((SqlParser.str("type") ~ SqlParser.str("payload")).map { case t ~ p => (t, p) }.*)
       }
@@ -209,8 +210,8 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "return None when the statement belongs to another user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createBankStatement(userA.id).futureValue
 
       repositories.bankStatements.find(created.id, userB.id).futureValue must be(None)
@@ -219,8 +220,8 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
 
   "all" should {
     "return only the requesting user's statements" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       createBankStatement(userA.id).futureValue
       createBankStatement(userA.id).futureValue
       createBankStatement(userB.id).futureValue
@@ -270,8 +271,8 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "fail when the statement belongs to another user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createBankStatement(userA.id).futureValue
 
       val ex = intercept[RuntimeException] {
@@ -323,13 +324,14 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     // No repository API reads background jobs back, so inspect the stored rows directly. Creating the statement's
-    // document also enqueues a ProcessDocument job, so only the suggestions jobs are read.
-    def storedSuggestionsJobs()(implicit repositories: RepositoryComponents): List[String] =
+    // document also enqueues a ProcessDocument job, so only the suggestions jobs for the given statement are read.
+    def storedSuggestionsJobs(bankStatementId: UUID)(implicit repositories: RepositoryComponents): List[String] =
       repositories.database.withConnection { implicit conn =>
         SQL"""
           SELECT payload::TEXT AS payload
           FROM background_jobs
           WHERE UPPER(type) = ${BackgroundJobType.ResolveStatementSuggestions.entryName}
+            AND payload->>'bankStatementId' = ${bankStatementId.toString}
           ORDER BY created_at
           """.as(SqlParser.str("payload").*)
       }
@@ -359,13 +361,15 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         .requestAiSuggestions(created.id, user.id, pending, buildJob(created.id), Instant.now())
         .futureValue
 
-      storedSuggestionsJobs().map(Json.parse) must be(List(Json.obj("bankStatementId" -> created.id.toString)))
+      storedSuggestionsJobs(created.id).map(Json.parse) must be(
+        List(Json.obj("bankStatementId" -> created.id.toString))
+      )
     }
 
     "fail without enqueueing a job when the statement belongs to another user" in withRepositories() {
       implicit repositories =>
-        val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-        val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+        val userA = createUser().futureValue
+        val userB = createUser().futureValue
         val created = createBankStatement(userA.id).futureValue
 
         val ex = intercept[RuntimeException] {
@@ -375,7 +379,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         }
         ex.getMessage must include("Bank statement not found")
         repositories.bankStatements.find(created.id, userA.id).futureValue.value.aiSuggestions must be(None)
-        storedSuggestionsJobs() must be(empty)
+        storedSuggestionsJobs(created.id) must be(empty)
     }
   }
 
@@ -465,8 +469,8 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "never include another user's rows" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val categoryA = createCategory(userA.id).futureValue
       val categoryB = createCategory(userB.id).futureValue
       link(createRows(userA.id, List("Mine")).head, userA.id, categoryA.id)
@@ -551,8 +555,8 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "never include another user's rows" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val categoryA = createCategory(userA.id).futureValue
       val categoryB = createCategory(userB.id).futureValue
       link(createRows(userA.id, List("Mine")).head, userA.id, categoryA.id)
@@ -613,8 +617,8 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "never return another user's data" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val category = createCategory(userA.id).futureValue
       val row = createRows(userA.id, List("Mine")).head
       link(row, userA.id, category.id)
@@ -712,8 +716,8 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "fail when the statement does not belong to the user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val expense = createExpense(userB.id).futureValue
       val created = createBankStatement(userA.id).futureValue
 

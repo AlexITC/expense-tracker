@@ -37,8 +37,8 @@ class SavingsRepositorySpec extends RepositorySpec with RepositoryUtils {
 
   "allGoals" should {
     "return only the requesting user's goals" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       createSavingsGoal(userA.id, name = "Goal A1").futureValue
       createSavingsGoal(userA.id, name = "Goal A2").futureValue
       createSavingsGoal(userB.id, name = "Goal B1").futureValue
@@ -68,8 +68,8 @@ class SavingsRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "return None when the goal belongs to another user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createSavingsGoal(userA.id).futureValue
       repositories.savings.findGoal(created.id, userB.id).futureValue must be(None)
     }
@@ -102,8 +102,8 @@ class SavingsRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "fail when the goal does not belong to the user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createSavingsGoal(userA.id).futureValue
 
       val ex = intercept[RuntimeException] {
@@ -126,8 +126,8 @@ class SavingsRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "fail when the goal does not belong to the user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createSavingsGoal(userA.id).futureValue
 
       val ex = intercept[RuntimeException] {
@@ -179,8 +179,8 @@ class SavingsRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "return None when the allocation belongs to another user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val goal = createSavingsGoal(userA.id).futureValue
       val created = createSavingsAllocation(userA.id, goal.id).futureValue
       repositories.savings.findAllocation(created.id, goal.id, userB.id).futureValue must be(None)
@@ -215,8 +215,8 @@ class SavingsRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "fail when the allocation does not belong to the user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val goal = createSavingsGoal(userA.id).futureValue
       val created = createSavingsAllocation(userA.id, goal.id).futureValue
 

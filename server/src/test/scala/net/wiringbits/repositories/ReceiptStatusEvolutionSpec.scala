@@ -1,20 +1,31 @@
 package net.wiringbits.repositories
 
 import anorm.*
-import net.wiringbits.core.PostgresSpec
+import com.dimafeng.testcontainers.PostgreSQLContainer
+import com.dimafeng.testcontainers.scalatest.TestContainerForEach
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
+import org.testcontainers.utility.DockerImageName
 import play.api.db.Databases
 import play.api.db.evolutions.{ClassLoaderEvolutionsReader, Evolutions, SimpleEvolutionsReader}
 
+import java.sql.DriverManager
 import java.util.UUID
 
-class ReceiptStatusEvolutionSpec extends AnyWordSpec with PostgresSpec {
+class ReceiptStatusEvolutionSpec extends AnyWordSpec with TestContainerForEach {
+
+  // A migration test applies evolutions incrementally, so it needs its own container rather than the
+  // shared one (which has every evolution pre-applied).
+  override val containerDef: PostgreSQLContainer.Def =
+    PostgreSQLContainer.Def(DockerImageName.parse("postgres:18"))
 
   "evolution 7" should {
     "backfill receipt.status from the receipt's document and drop the document status columns" in withContainers {
       postgres =>
-        initDatabase(postgres)
+        val initConn =
+          DriverManager.getConnection(postgres.jdbcUrl, postgres.container.getUsername, postgres.container.getPassword)
+        try initConn.createStatement().execute("CREATE EXTENSION IF NOT EXISTS CITEXT;")
+        finally initConn.close()
         val database = Databases(
           driver = "org.postgresql.Driver",
           url = postgres.jdbcUrl,

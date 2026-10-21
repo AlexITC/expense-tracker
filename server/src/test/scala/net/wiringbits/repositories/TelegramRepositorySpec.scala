@@ -4,7 +4,7 @@ import net.wiringbits.core.RepositorySpec
 import org.scalatest.OptionValues.convertOptionToValuable
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
-import utils.RepositoryUtils
+import utils.{RandomData, RepositoryUtils}
 
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -15,13 +15,15 @@ class TelegramRepositorySpec extends RepositorySpec with RepositoryUtils {
   "createLinkToken" should {
     "work" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
-      repositories.telegram.createLinkToken("abc123", user.id, Instant.now().plus(1, ChronoUnit.DAYS)).futureValue
+      repositories.telegram
+        .createLinkToken(RandomData.randomString("token"), user.id, Instant.now().plus(1, ChronoUnit.DAYS))
+        .futureValue
     }
 
     "fail when the user doesn't exist" in withRepositories() { implicit repositories =>
       val ex = intercept[RuntimeException] {
         repositories.telegram
-          .createLinkToken("abc123", UUID.randomUUID(), Instant.now().plus(1, ChronoUnit.DAYS))
+          .createLinkToken(RandomData.randomString("token"), UUID.randomUUID(), Instant.now().plus(1, ChronoUnit.DAYS))
           .futureValue
       }
       ex.getCause.getMessage must include("telegram_link_token_users_fk")
@@ -29,10 +31,11 @@ class TelegramRepositorySpec extends RepositorySpec with RepositoryUtils {
 
     "fail on duplicate token" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
-      repositories.telegram.createLinkToken("duptoken1", user.id, Instant.now().plus(1, ChronoUnit.DAYS)).futureValue
+      val token = RandomData.randomString("token")
+      repositories.telegram.createLinkToken(token, user.id, Instant.now().plus(1, ChronoUnit.DAYS)).futureValue
 
       val ex = intercept[RuntimeException] {
-        repositories.telegram.createLinkToken("duptoken1", user.id, Instant.now().plus(1, ChronoUnit.DAYS)).futureValue
+        repositories.telegram.createLinkToken(token, user.id, Instant.now().plus(1, ChronoUnit.DAYS)).futureValue
       }
       ex.getCause.getMessage must include("telegram_link_token_token_unique")
     }
@@ -41,7 +44,7 @@ class TelegramRepositorySpec extends RepositorySpec with RepositoryUtils {
   "findLinkToken" should {
     "return the token when it exists" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
-      val token = "findme01"
+      val token = RandomData.randomString("token")
       val expiresAt = Instant.now().plus(1, ChronoUnit.DAYS).truncatedTo(ChronoUnit.MILLIS)
       repositories.telegram.createLinkToken(token, user.id, expiresAt).futureValue
 
@@ -52,7 +55,7 @@ class TelegramRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "return None when the token doesn't exist" in withRepositories() { repositories =>
-      val result = repositories.telegram.findLinkToken("nonexistent").futureValue
+      val result = repositories.telegram.findLinkToken(RandomData.randomString("token")).futureValue
       result must be(None)
     }
   }
@@ -60,7 +63,7 @@ class TelegramRepositorySpec extends RepositorySpec with RepositoryUtils {
   "deleteLinkToken" should {
     "work" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
-      val token = "todelete1"
+      val token = RandomData.randomString("token")
       repositories.telegram.createLinkToken(token, user.id, Instant.now().plus(1, ChronoUnit.DAYS)).futureValue
 
       repositories.telegram.deleteLinkToken(token).futureValue
@@ -76,22 +79,25 @@ class TelegramRepositorySpec extends RepositorySpec with RepositoryUtils {
   "createBotUser" should {
     "work" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
-      repositories.telegram.createBotUser(UUID.randomUUID(), user.id, 100L).futureValue
+      repositories.telegram.createBotUser(UUID.randomUUID(), user.id, RandomData.randomTelegramUserId()).futureValue
     }
 
     "fail when the user doesn't exist" in withRepositories() { implicit repositories =>
       val ex = intercept[RuntimeException] {
-        repositories.telegram.createBotUser(UUID.randomUUID(), UUID.randomUUID(), 200L).futureValue
+        repositories.telegram
+          .createBotUser(UUID.randomUUID(), UUID.randomUUID(), RandomData.randomTelegramUserId())
+          .futureValue
       }
       ex.getCause.getMessage must include("telegram_bot_user_users_fk")
     }
 
     "fail on duplicate telegram_user_id" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
-      repositories.telegram.createBotUser(UUID.randomUUID(), user.id, 300L).futureValue
+      val telegramUserId = RandomData.randomTelegramUserId()
+      repositories.telegram.createBotUser(UUID.randomUUID(), user.id, telegramUserId).futureValue
 
       val ex = intercept[RuntimeException] {
-        repositories.telegram.createBotUser(UUID.randomUUID(), user.id, 300L).futureValue
+        repositories.telegram.createBotUser(UUID.randomUUID(), user.id, telegramUserId).futureValue
       }
       ex.getCause.getMessage must include("telegram_bot_user_telegram_user_id_unique")
     }
@@ -100,7 +106,7 @@ class TelegramRepositorySpec extends RepositorySpec with RepositoryUtils {
   "findBotUserByTelegramId" should {
     "return the bot user when it exists" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
-      val telegramUserId = 400L
+      val telegramUserId = RandomData.randomTelegramUserId()
       val id = UUID.randomUUID()
       repositories.telegram.createBotUser(id, user.id, telegramUserId).futureValue
 
@@ -111,7 +117,7 @@ class TelegramRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "return None when the telegram user doesn't exist" in withRepositories() { repositories =>
-      repositories.telegram.findBotUserByTelegramId(999L).futureValue must be(None)
+      repositories.telegram.findBotUserByTelegramId(RandomData.randomTelegramUserId()).futureValue must be(None)
     }
   }
 }

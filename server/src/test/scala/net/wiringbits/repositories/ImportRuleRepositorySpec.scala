@@ -33,8 +33,8 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
 
   "all" should {
     "return only the requesting user's rules" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       createImportRule(userA.id, pattern = "rule1").futureValue
       createImportRule(userA.id, pattern = "rule2").futureValue
       createImportRule(userB.id, pattern = "rule3").futureValue
@@ -59,8 +59,8 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "return None when the rule belongs to another user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val id = createImportRule(userA.id).futureValue
       repositories.importRules.find(id, userB.id).futureValue must be(None)
     }
@@ -137,8 +137,8 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "fail when the rule does not belong to the user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val id = createImportRule(userA.id).futureValue
 
       val ex = intercept[RuntimeException] {
