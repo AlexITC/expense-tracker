@@ -108,8 +108,8 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "reject a document owned by another user without touching it" in withRepositories() { implicit repositories =>
-      val owner = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val other = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val owner = createUser().futureValue
+      val other = createUser().futureValue
       val now = Instant.now()
       val document = Document.Create(
         id = UUID.randomUUID(),
