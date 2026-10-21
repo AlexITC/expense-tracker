@@ -9,9 +9,8 @@ import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, Ba
 import net.wiringbits.repositories.BankStatementRepository
 import net.wiringbits.repositories.daos.DocumentDAO
 import net.wiringbits.repositories.models.{BackgroundJobData, BankStatement, BankStatementRow, Document}
-import org.scalatest.TestData
 import org.scalatest.time.SpanSugar.convertIntToGrainOfTime
-import org.scalatestplus.play.guice.GuiceOneServerPerTest
+import org.scalatestplus.play.guice.GuiceOneServerPerSuite
 import play.api.db.Database
 import play.api.inject.guice.GuiceApplicationBuilder
 import play.api.{Application, Configuration, Environment, Mode}
@@ -22,7 +21,7 @@ import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 
-trait PlayPostgresSpec extends PlayAPISpec with GuiceOneServerPerTest {
+trait PlayPostgresSpec extends PlayAPISpec with GuiceOneServerPerSuite {
   implicit val executionContext: ExecutionContext = ExecutionContext.Implicits.global
   override implicit val patienceConfig: PatienceConfig = PatienceConfig(30.seconds, 1.second)
 
@@ -45,7 +44,7 @@ trait PlayPostgresSpec extends PlayAPISpec with GuiceOneServerPerTest {
     GuiceApplicationBuilder(loadConfiguration = env => loadConfigForContainer(env, container))
       .in(Mode.Test)
 
-  override def newAppForTest(testData: TestData): Application =
+  override def fakeApplication(): Application =
     guiceApplicationBuilder(SharedPostgres.container).build()
 
   def withApiClient[A](runTest: ApiClient => A): A = {
