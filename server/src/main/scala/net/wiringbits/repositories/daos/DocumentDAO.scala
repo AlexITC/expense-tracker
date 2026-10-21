@@ -79,6 +79,22 @@ object DocumentDAO {
     if (updated == 0) throw new RuntimeException("Document not found")
   }
 
+  def updateStatusForUser(
+      id: UUID,
+      userId: UUID,
+      status: DocumentStatus,
+      updatedAt: Instant
+  )(implicit conn: Connection): Unit = {
+    val updated = SQL"""
+        UPDATE document
+        SET status = ${status.toString},
+            updated_at = $updatedAt
+        WHERE id = ${id.toString}::UUID
+          AND user_id = ${userId.toString}::UUID
+        """.executeUpdate()
+    if (updated == 0) throw new RuntimeException("Document not found")
+  }
+
   def delete(id: UUID, userId: UUID)(implicit conn: Connection): Unit = {
     val deleted = SQL"""
         DELETE FROM document

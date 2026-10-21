@@ -109,6 +109,43 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       documents.head.status must be(DocumentStatus.Parsed)
     }
 
+    "reject a document owned by another user without touching it" in withRepositories() { implicit repositories =>
+      val owner = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
+      val other = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val now = Instant.now()
+      val document = Document.Create(
+        id = UUID.randomUUID(),
+        userId = owner.id,
+        sha256 = UUID.randomUUID().toString,
+        storageKey = "key",
+        kind = DocumentKind.BankStatementPdf,
+        filename = "stmt.pdf",
+        status = DocumentStatus.Ingested,
+        createdAt = now,
+        updatedAt = now
+      )
+      repositories.database.withConnection { implicit conn => DocumentDAO.create(document) }
+      val stmt = BankStatement.Create(UUID.randomUUID(), document.id, other.id, now, now)
+      val job = BackgroundJobData.Create(
+        id = UUID.randomUUID(),
+        `type` = BackgroundJobType.ResolveStatementSuggestions,
+        payload = BackgroundJobPayload.ResolveStatementSuggestions(stmt.id),
+        status = BackgroundJobStatus.Pending,
+        executeAt = now,
+        createdAt = now,
+        updatedAt = now
+      )
+
+      val ex = intercept[Exception](
+        repositories.bankStatements
+          .createConfirmedStatement(stmt, sampleStatementMetadata, Nil, None, job)
+          .futureValue
+      )
+      ex.getMessage must include("Document not found")
+      repositories.documents.all(owner.id).futureValue.map(_.status) must be(List(DocumentStatus.Ingested))
+      repositories.bankStatements.all(other.id).futureValue must be(empty)
+    }
+
     "enqueue the given job with the statement" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val id = confirm(user.id, None)

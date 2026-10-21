@@ -32,7 +32,7 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
       job: BackgroundJobData.Create
   ): Future[UUID] = Future {
     database.withTransaction { implicit conn =>
-      DocumentDAO.updateStatus(stmt.documentId, DocumentStatus.Parsed, parserVersion = None, updatedAt = stmt.updatedAt)
+      DocumentDAO.updateStatusForUser(stmt.documentId, stmt.userId, DocumentStatus.Parsed, updatedAt = stmt.updatedAt)
       BankStatementDAO.create(stmt, metadata, extractionInfo)
       BankStatementRowDAO.createAll(rows)
       BackgroundJobDAO.create(job)
