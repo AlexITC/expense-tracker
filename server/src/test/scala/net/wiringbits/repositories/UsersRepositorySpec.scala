@@ -1,18 +1,17 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.common.models.{Email, Name}
-import net.wiringbits.core.RepositorySpec
+import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import net.wiringbits.models.jobs.BackgroundJobType
-import net.wiringbits.repositories.models.User
+import net.wiringbits.repositories.daos.backgroundJobParser
+import net.wiringbits.repositories.models.{BackgroundJobData, User}
 import net.wiringbits.util.EmailMessage
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
-import utils.RepositoryUtils
+import utils.{RandomData, RepositoryUtils}
 
 import java.util.UUID
-import scala.concurrent.duration.DurationInt
-
 class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
 
   "create" should {
@@ -30,7 +29,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
     "fail when the id already exists" in withRepositories() { implicit repositories =>
       val request = createUser().futureValue
       val ex = intercept[RuntimeException] {
-        repositories.users.create(request.copy(email = Email.trusted("email2@wiringbits.net"))).futureValue
+        repositories.users.create(request.copy(email = RandomData.randomEmail())).futureValue
       }
       // TODO: This should be a better message
       ex.getCause.getMessage must startWith(
@@ -52,18 +51,16 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
 
   "all" should {
     "return the existing users" in withRepositories() { implicit repositories =>
-      val expected = 3
-      for (i <- 1 to expected) {
-        createUser(email = Email.trusted(s"test$i@wiringbits.net")).futureValue
-      }
+      val expected = List.fill(3)(createUser().futureValue)
 
       val response = repositories.users.all().futureValue
-      response.length must be(3)
+      response.map(u => (u.id, u.email)) must contain allElementsOf expected.map(u => (u.id, u.email))
     }
 
-    "return no users" in withRepositories() { repositories =>
+    "not return users that were never created" in withRepositories() { repositories =>
+      val id = UUID.randomUUID()
       val response = repositories.users.all().futureValue
-      response.isEmpty must be(true)
+      response.map(_.id) must not contain id
     }
   }
 
@@ -86,7 +83,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "return no result when the email doesn't exists" in withRepositories() { repositories =>
-      val email = Email.trusted("hello@wiringbits.net")
+      val email = RandomData.randomEmail()
       val response = repositories.users.find(email).futureValue
       response.isEmpty must be(true)
     }
@@ -150,7 +147,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val newPassword = "test"
       repositories.users.updatePassword(request.id, newPassword, EmailMessage.updatePassword(request.name)).futureValue
 
-      repositories.backgroundJobs.claimJobs(BackgroundJobType.SendEmail, 1.minute, 10).futureValue.length must be(1)
+      sendEmailJobsOf(request.email).map(_.`type`) must be(List(BackgroundJobType.SendEmail))
     }
 
     "fail when the user doesn't exist" in withRepositories() { repositories =>
@@ -177,7 +174,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val request = createUser().futureValue
       repositories.users.verify(request.id, UUID.randomUUID(), EmailMessage.confirm(request.name)).futureValue
 
-      repositories.backgroundJobs.claimJobs(BackgroundJobType.SendEmail, 1.minute, 10).futureValue.length must be(1)
+      sendEmailJobsOf(request.email).map(_.`type`) must be(List(BackgroundJobType.SendEmail))
     }
 
     "fail when the user doesn't exist" in withRepositories() { repositories =>
@@ -208,7 +205,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val newPassword = "test"
       repositories.users.resetPassword(request.id, newPassword, EmailMessage.resetPassword(request.name)).futureValue
 
-      repositories.backgroundJobs.claimJobs(BackgroundJobType.SendEmail, 1.minute, 10).futureValue.length must be(1)
+      sendEmailJobsOf(request.email).map(_.`type`) must be(List(BackgroundJobType.SendEmail))
     }
 
     "fail when the user doesn't exist" in withRepositories() { repositories =>
@@ -221,4 +218,13 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       )
     }
   }
+
+  // No repository API reads background jobs back, so inspect the stored rows for the given recipient directly.
+  private def sendEmailJobsOf(email: Email)(using repositories: RepositoryComponents): List[BackgroundJobData] =
+    repositories.database.withConnection { implicit conn =>
+      anorm
+        .SQL("SELECT * FROM background_jobs WHERE payload->>'email' = {email}")
+        .on("email" -> email.string)
+        .as(backgroundJobParser.*)
+    }
 }

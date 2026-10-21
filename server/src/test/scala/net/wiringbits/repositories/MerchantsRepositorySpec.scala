@@ -40,8 +40,8 @@ class MerchantsRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "allow the same name for different users" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       createMerchant(userA.id, name = "Amazon").futureValue
       createMerchant(userB.id, name = "Amazon").futureValue
     }
@@ -49,8 +49,8 @@ class MerchantsRepositorySpec extends RepositorySpec with RepositoryUtils {
 
   "all" should {
     "return only the requesting user's merchants" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       createMerchant(userA.id, name = "Amazon").futureValue
       createMerchant(userA.id, name = "Walmart").futureValue
       createMerchant(userB.id, name = "Target").futureValue
@@ -75,8 +75,8 @@ class MerchantsRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "return None when the merchant belongs to another user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createMerchant(userA.id).futureValue
       repositories.merchants.find(created.id, userB.id).futureValue must be(None)
     }
@@ -135,8 +135,8 @@ class MerchantsRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "fail when the merchant does not belong to the user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createMerchant(userA.id).futureValue
 
       val ex = intercept[RuntimeException] {
@@ -155,8 +155,8 @@ class MerchantsRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "fail when the merchant does not belong to the user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createMerchant(userA.id).futureValue
 
       val ex = intercept[RuntimeException] {

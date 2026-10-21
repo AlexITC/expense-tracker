@@ -8,7 +8,7 @@ import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
 import play.api.libs.json.Json
-import utils.RepositoryUtils
+import utils.{RandomData, RepositoryUtils}
 
 import java.time.Instant
 import java.util.UUID
@@ -36,8 +36,8 @@ class DocumentsRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "not return another user's documents" in withRepositories() { implicit repositories =>
-      val user1 = createUser(email = net.wiringbits.common.models.Email.trusted("u1@test.com")).futureValue
-      val user2 = createUser(email = net.wiringbits.common.models.Email.trusted("u2@test.com")).futureValue
+      val user1 = createUser().futureValue
+      val user2 = createUser().futureValue
       createDocument(user1.id).futureValue
 
       repositories.documents.all(user2.id).futureValue must be(empty)
@@ -55,8 +55,8 @@ class DocumentsRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "not find document of a different user" in withRepositories() { implicit repositories =>
-      val user1 = createUser(email = net.wiringbits.common.models.Email.trusted("u1@test.com")).futureValue
-      val user2 = createUser(email = net.wiringbits.common.models.Email.trusted("u2@test.com")).futureValue
+      val user1 = createUser().futureValue
+      val user2 = createUser().futureValue
       createDocument(user1.id, sha256 = "shared").futureValue
 
       repositories.documents.findBySha256(user2.id, "shared").futureValue must be(empty)
@@ -88,8 +88,8 @@ class DocumentsRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "fail when document belongs to another user" in withRepositories() { implicit repositories =>
-      val user1 = createUser(email = net.wiringbits.common.models.Email.trusted("u1@test.com")).futureValue
-      val user2 = createUser(email = net.wiringbits.common.models.Email.trusted("u2@test.com")).futureValue
+      val user1 = createUser().futureValue
+      val user2 = createUser().futureValue
       val doc = createDocument(user1.id).futureValue
 
       val error = repositories.documents.delete(doc.id, user2.id).expectError
@@ -106,33 +106,35 @@ class DocumentsRepositorySpec extends RepositorySpec with RepositoryUtils {
 
   "textractCache" should {
     "store and retrieve by (sha256, apiType)" in withRepositories() { implicit repositories =>
+      val sha256 = RandomData.randomString("sha")
       val response = Json.obj("JobStatus" -> "SUCCEEDED")
       repositories.textractCache
-        .create(TextractCache.Create("mysha256", "analyze_expense", response, Instant.now()))
+        .create(TextractCache.Create(sha256, "analyze_expense", response, Instant.now()))
         .futureValue
 
-      val found = repositories.textractCache.find("mysha256", "analyze_expense").futureValue
+      val found = repositories.textractCache.find(sha256, "analyze_expense").futureValue
       found must not be empty
-      found.get.sha256 must be("mysha256")
+      found.get.sha256 must be(sha256)
       found.get.apiType must be("analyze_expense")
     }
 
     "be global — same (sha256, apiType) across users reuses cache" in withRepositories() { implicit repositories =>
-      val user1 = createUser(email = net.wiringbits.common.models.Email.trusted("u1@test.com")).futureValue
-      val user2 = createUser(email = net.wiringbits.common.models.Email.trusted("u2@test.com")).futureValue
-      createDocument(user1.id, sha256 = "global").futureValue
+      val user1 = createUser().futureValue
+      val user2 = createUser().futureValue
+      val sha256 = RandomData.randomString("sha")
+      createDocument(user1.id, sha256 = sha256).futureValue
       createDocument(user2.id, sha256 = "global2").futureValue
 
       val response = Json.obj("JobStatus" -> "SUCCEEDED")
       repositories.textractCache
-        .create(TextractCache.Create("global", "analyze_expense", response, Instant.now()))
+        .create(TextractCache.Create(sha256, "analyze_expense", response, Instant.now()))
         .futureValue
       repositories.textractCache
-        .create(TextractCache.Create("global", "analyze_expense", response, Instant.now()))
+        .create(TextractCache.Create(sha256, "analyze_expense", response, Instant.now()))
         .futureValue
 
       // ON CONFLICT DO NOTHING — still only one row
-      val found = repositories.textractCache.find("global", "analyze_expense").futureValue
+      val found = repositories.textractCache.find(sha256, "analyze_expense").futureValue
       found must not be empty
     }
   }
