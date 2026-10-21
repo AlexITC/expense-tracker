@@ -25,6 +25,7 @@ import play.api.inject.guice.GuiceApplicationBuilder
 import play.api.libs.json.{JsObject, Json}
 import utils.LoginUtils
 
+import java.security.MessageDigest
 import java.time.{Instant, LocalDate}
 import java.util.UUID
 import scala.concurrent.Future
@@ -203,6 +204,33 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       val second = client.createBankStatementDraft(sampleBytes, "stmt.pdf").futureValue
       storedDraftDocumentId(second.id, userId) must be(documentId)
       storedDocuments(userId).map(_.id) must be(List(documentId))
+    }
+
+    "reject a file already uploaded as another kind of document" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val now = Instant.now()
+      val sha256 = MessageDigest.getInstance("SHA-256").digest(sampleBytes).map("%02x".format(_)).mkString
+      val receipt = Document.Create(
+        id = UuidCreator.getTimeOrderedEpoch(),
+        userId = userId,
+        sha256 = sha256,
+        storageKey = "key",
+        kind = DocumentKind.Receipt,
+        filename = "receipt.pdf",
+        status = DocumentStatus.Parsed,
+        createdAt = now,
+        updatedAt = now
+      )
+      app.injector.instanceOf[Database].withConnection { implicit conn => DocumentDAO.create(receipt) }
+
+      client.createBankStatementDraft(sampleBytes, "stmt.pdf").failed.futureValue.getMessage must include(
+        "already uploaded"
+      )
+      client.listBankStatementDrafts.futureValue.drafts must be(empty)
+      val documents = storedDocuments(userId)
+      documents.map(_.id) must be(List(receipt.id))
+      documents.head.kind must be(DocumentKind.Receipt)
+      documents.head.status must be(DocumentStatus.Parsed)
     }
   }
 

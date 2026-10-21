@@ -10,7 +10,7 @@ import net.wiringbits.services.BlobStorage
 import org.slf4j.LoggerFactory
 
 import java.security.MessageDigest
-import java.time.{Clock, LocalDate}
+import java.time.{Clock, Instant, LocalDate}
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
@@ -46,27 +46,9 @@ class CreateBankStatementDraftAction @Inject() (
       alreadyUploaded <- blobStorage.exists(storageKey)
       _ <- if (alreadyUploaded) Future.unit else blobStorage.put(storageKey, bytes)
       now = clock.instant()
-      // The document outlives a discarded draft, so a re-upload links to it instead of inserting a duplicate.
-      (documentId, newDocument) = existingDoc match {
-        case Some(doc) if doc.kind == DocumentKind.BankStatementPdf => (doc.id, None)
-        case Some(doc) =>
-          throw new RuntimeException(s"This file was already uploaded as a ${doc.kind.entryName} document")
-        case None =>
-          val doc = Document.Create(
-            id = UuidCreator.getTimeOrderedEpoch(),
-            userId = userId,
-            sha256 = sha256,
-            storageKey = storageKey,
-            kind = DocumentKind.BankStatementPdf,
-            filename = filename,
-            status = DocumentStatus.Ingested,
-            createdAt = now,
-            updatedAt = now
-          )
-          (doc.id, Some(doc))
-      }
+      documentLink = resolveDocument(existingDoc, userId, sha256, storageKey, filename, now)
       draftId = UuidCreator.getTimeOrderedEpoch()
-      draft = DraftRecord.Create(draftId, userId, documentId, sha256, filename, storageKey, now, now)
+      draft = DraftRecord.Create(draftId, userId, documentLink.documentId, sha256, filename, storageKey, now, now)
       job = BackgroundJobData.Create(
         id = UUID.randomUUID(),
         `type` = BackgroundJobType.ExtractBankStatementDraft,
@@ -76,14 +58,47 @@ class CreateBankStatementDraftAction @Inject() (
         createdAt = now,
         updatedAt = now
       )
-      _ <- bankStatementDraftRepository.create(newDocument, draft, job)
+      _ <- bankStatementDraftRepository.create(documentLink, draft, job)
     } yield {
+      val linkLabel = documentLink match {
+        case DraftRecord.DocumentLink.New(_) => "new"
+        case DraftRecord.DocumentLink.Existing(_) => "reused"
+      }
       logger.info(
-        s"Created statement draft $draftId (processing) for user $userId, document $documentId " +
-          s"(${if (newDocument.isDefined) "new" else "reused"}); enqueued extraction job"
+        s"Created statement draft $draftId (processing) for user $userId, document ${documentLink.documentId} " +
+          s"($linkLabel); enqueued extraction job"
       )
       ApiDraft.Data(draftId, filename, DraftRecord.Status.Processing, None, None)
     }
+  }
+
+  /** The document outlives a discarded draft, so a re-upload links to it instead of inserting a duplicate (the (user,
+    * sha256) pair is unique). A file already uploaded as another kind of document can't become a statement.
+    */
+  private def resolveDocument(
+      existing: Option[Document],
+      userId: UUID,
+      sha256: String,
+      storageKey: String,
+      filename: String,
+      now: Instant
+  ): DraftRecord.DocumentLink = existing match {
+    case Some(doc) if doc.kind == DocumentKind.BankStatementPdf => DraftRecord.DocumentLink.Existing(doc.id)
+    case Some(doc) => throw AlreadyUploadedAsOtherKind(doc.kind)
+    case None =>
+      DraftRecord.DocumentLink.New(
+        Document.Create(
+          id = UuidCreator.getTimeOrderedEpoch(),
+          userId = userId,
+          sha256 = sha256,
+          storageKey = storageKey,
+          kind = DocumentKind.BankStatementPdf,
+          filename = filename,
+          status = DocumentStatus.Ingested,
+          createdAt = now,
+          updatedAt = now
+        )
+      )
   }
 
   private def computeSha256(bytes: Array[Byte]): String = {
@@ -91,3 +106,6 @@ class CreateBankStatementDraftAction @Inject() (
     digest.digest(bytes).map("%02x".format(_)).mkString
   }
 }
+
+private final case class AlreadyUploadedAsOtherKind(kind: DocumentKind)
+    extends RuntimeException(s"This file was already uploaded as a ${kind.entryName} document")

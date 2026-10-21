@@ -48,7 +48,9 @@ class BankStatementDraftRepositorySpec extends RepositorySpec with RepositoryUti
         updatedAt = now
       )
       val draft = buildDraft(user.id, document.id, document.sha256)
-      repositories.bankStatementDrafts.create(Some(document), draft, buildJob(draft.id)).futureValue
+      repositories.bankStatementDrafts
+        .create(BankStatementDraft.DocumentLink.New(document), draft, buildJob(draft.id))
+        .futureValue
 
       repositories.bankStatementDrafts.findByIdForUser(draft.id, user.id).futureValue.value.documentId must be(
         document.id
@@ -66,7 +68,9 @@ class BankStatementDraftRepositorySpec extends RepositorySpec with RepositoryUti
       val existing =
         createDocument(user.id, sha256 = "sha-existing", kind = DocumentKind.BankStatementPdf).futureValue
       val draft = buildDraft(user.id, existing.id, existing.sha256)
-      repositories.bankStatementDrafts.create(None, draft, buildJob(draft.id)).futureValue
+      repositories.bankStatementDrafts
+        .create(BankStatementDraft.DocumentLink.Existing(existing.id), draft, buildJob(draft.id))
+        .futureValue
 
       repositories.bankStatementDrafts.findByIdForUser(draft.id, user.id).futureValue.value.documentId must be(
         existing.id
@@ -80,7 +84,9 @@ class BankStatementDraftRepositorySpec extends RepositorySpec with RepositoryUti
       val user = createUser().futureValue
       val existing = createDocument(user.id, kind = DocumentKind.BankStatementPdf).futureValue
       val draft = buildDraft(user.id, existing.id, existing.sha256)
-      repositories.bankStatementDrafts.create(None, draft, buildJob(draft.id)).futureValue
+      repositories.bankStatementDrafts
+        .create(BankStatementDraft.DocumentLink.Existing(existing.id), draft, buildJob(draft.id))
+        .futureValue
 
       repositories.bankStatementDrafts.delete(draft.id, user.id).futureValue must be(true)
       repositories.documents.findById(existing.id).futureValue must not be empty
