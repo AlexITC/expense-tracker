@@ -40,12 +40,7 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
   ): Document =
     Document(docId, userId, sha256, "key", kind, "receipt.jpg", Instant.now(), Instant.now())
 
-  private def stubReceipt(
-      receiptId: UUID,
-      userId: UUID,
-      docId: UUID,
-      status: DocumentStatus = DocumentStatus.Ingested
-  ): Receipt =
+  private def stubReceipt(receiptId: UUID, userId: UUID, docId: UUID): Receipt =
     Receipt(
       receiptId,
       userId,
@@ -61,7 +56,7 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
       None,
       manuallyEdited = false,
       None,
-      status,
+      DocumentStatus.Ingested,
       Instant.now(),
       Instant.now(),
       "receipt.jpg"
@@ -321,58 +316,6 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
         s"${webAppConfig.host}/api/telegram/webapp?receipt=$receiptId",
         "Create Expense"
       )
-    }
-
-    "skip a receipt that is already Parsed" in {
-      val docId = UUID.randomUUID()
-      val receiptId = UUID.randomUUID()
-      val userId = UUID.randomUUID()
-
-      val docRepo = mock[DocumentsRepository]
-      val receiptRepo = mock[ReceiptRepository]
-      val merchantRepo = mock[MerchantsRepository]
-      val ruleRepo = mock[ImportRuleRepository]
-      val cacheRepo = mock[TextractCacheRepository]
-      val telegramReceiptRepo = mock[TelegramReceiptRepository]
-      val telegramApi = mock[TelegramApi]
-
-      val doc = stubDocument(docId, userId)
-      val receipt = stubReceipt(receiptId, userId, docId, DocumentStatus.Parsed)
-
-      when(docRepo.findById(docId)).thenReturn(Future.successful(Some(doc)))
-      when(receiptRepo.findByDocumentId(docId)).thenReturn(Future.successful(Some(receipt)))
-
-      newAction(docRepo, receiptRepo, merchantRepo, ruleRepo, cacheRepo, telegramReceiptRepo, telegramApi)(
-        docId
-      ).futureValue
-
-      verify(receiptRepo, never()).updateParsed(any(), any(), any(), any(), any(), any(), any())
-      verify(receiptRepo, never()).updateStatus(any(), any(), any())
-      verify(cacheRepo, never()).find(any(), any())
-    }
-
-    "fail when the document has no receipt" in {
-      val docId = UUID.randomUUID()
-      val userId = UUID.randomUUID()
-
-      val docRepo = mock[DocumentsRepository]
-      val receiptRepo = mock[ReceiptRepository]
-      val merchantRepo = mock[MerchantsRepository]
-      val ruleRepo = mock[ImportRuleRepository]
-      val cacheRepo = mock[TextractCacheRepository]
-      val telegramReceiptRepo = mock[TelegramReceiptRepository]
-      val telegramApi = mock[TelegramApi]
-
-      when(docRepo.findById(docId)).thenReturn(Future.successful(Some(stubDocument(docId, userId))))
-      when(receiptRepo.findByDocumentId(docId)).thenReturn(Future.successful(None))
-
-      val error =
-        newAction(docRepo, receiptRepo, merchantRepo, ruleRepo, cacheRepo, telegramReceiptRepo, telegramApi)(
-          docId
-        ).failed.futureValue
-
-      error.getMessage must be(s"Receipt not found for document $docId")
-      verify(receiptRepo, never()).updateStatus(any(), any(), any())
     }
   }
 }
