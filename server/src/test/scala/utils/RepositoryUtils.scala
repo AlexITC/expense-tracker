@@ -337,7 +337,6 @@ trait RepositoryUtils {
       storageKey = "",
       kind = DocumentKind.Receipt,
       filename = "receipt.pdf",
-      status = DocumentStatus.Ingested,
       createdAt = now,
       updatedAt = now
     )
@@ -367,8 +366,7 @@ trait RepositoryUtils {
       sha256: String = "abc123",
       storageKey: String = "",
       kind: DocumentKind = DocumentKind.Receipt,
-      filename: String = "test.pdf",
-      status: DocumentStatus = DocumentStatus.Ingested
+      filename: String = "test.pdf"
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[Document.Create] = {
     val now = Instant.now()
     val createRequest = Document.Create(
@@ -378,7 +376,6 @@ trait RepositoryUtils {
       storageKey = storageKey,
       kind = kind,
       filename = filename,
-      status = status,
       createdAt = now,
       updatedAt = now
     )

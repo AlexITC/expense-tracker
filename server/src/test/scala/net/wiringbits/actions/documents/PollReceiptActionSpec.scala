@@ -1,7 +1,7 @@
 package net.wiringbits.actions.documents
 
 import net.wiringbits.apis.TextractClient
-import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.repositories.{
   BackgroundJobsRepository,
   DocumentsRepository,
@@ -32,8 +32,6 @@ class PollReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures 
       "key",
       kind,
       "file.pdf",
-      DocumentStatus.Ingested,
-      None,
       Instant.now(),
       Instant.now()
     )

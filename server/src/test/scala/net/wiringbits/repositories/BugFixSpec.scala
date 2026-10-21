@@ -2,7 +2,7 @@ package net.wiringbits.repositories
 
 import net.wiringbits.core.RepositorySpec
 import net.wiringbits.models.documents.DocumentStatus
-import net.wiringbits.repositories.daos.{DocumentDAO, ReceiptDAO}
+import net.wiringbits.repositories.daos.ReceiptDAO
 import net.wiringbits.repositories.models.{BankStatement, Receipt}
 import net.wiringbits.common.models.Email
 import org.scalatest.concurrent.ScalaFutures.*
@@ -56,19 +56,6 @@ class BugFixSpec extends RepositorySpec with RepositoryUtils {
       }.expectError
 
       error must include("already linked")
-    }
-  }
-
-  // Bug 2a: DocumentDAO.updateStatus silently ignores a non-existent ID
-  "DocumentDAO.updateStatus" should {
-    "fail when the document does not exist" in withRepositories() { implicit repositories =>
-      val error = Future {
-        repositories.database.withConnection { implicit conn =>
-          DocumentDAO.updateStatus(UUID.randomUUID(), DocumentStatus.Parsed, None, Instant.now())
-        }
-      }.expectError
-
-      error must include("not found")
     }
   }
 

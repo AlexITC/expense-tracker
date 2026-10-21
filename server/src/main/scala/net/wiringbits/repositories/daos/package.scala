@@ -221,8 +221,6 @@ package object daos {
       "storage_key",
       "kind",
       "filename",
-      "status",
-      "parser_version",
       "created_at",
       "updated_at"
     )

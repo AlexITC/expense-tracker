@@ -1,6 +1,6 @@
 package net.wiringbits.actions.documents
 
-import net.wiringbits.api.models.documents.{DocumentStatus => ApiStatus, GetDocument}
+import net.wiringbits.api.models.documents.GetDocument
 import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.repositories.{BankStatementRepository, DocumentsRepository}
 import net.wiringbits.repositories.models.BankStatementRow
@@ -24,8 +24,6 @@ class GetDocumentAction @Inject() (
       sha256 = doc.sha256,
       kind = doc.kind.entryName,
       filename = doc.filename,
-      status = ApiStatus.fromEntryName(doc.status.entryName),
-      parserVersion = doc.parserVersion,
       statementRows = statementRows,
       createdAt = doc.createdAt
     )

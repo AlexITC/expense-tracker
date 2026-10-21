@@ -1,7 +1,6 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.core.RepositorySpec
-import net.wiringbits.models.documents.DocumentStatus
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.{BackgroundJobData, Document, TextractCache}
 import org.scalatest.OptionValues.*
@@ -21,7 +20,6 @@ class DocumentsRepositorySpec extends RepositorySpec with RepositoryUtils {
       val doc = createDocument(user.id).futureValue
       val found = repositories.documents.find(doc.id, user.id).futureValue
       found must not be empty
-      found.get.status must be(DocumentStatus.Ingested)
     }
   }
 
@@ -60,21 +58,6 @@ class DocumentsRepositorySpec extends RepositorySpec with RepositoryUtils {
       createDocument(user1.id, sha256 = "shared").futureValue
 
       repositories.documents.findBySha256(user2.id, "shared").futureValue must be(empty)
-    }
-  }
-
-  "updateStatus" should {
-    "update to Parsed with parser version" in withRepositories() { implicit repositories =>
-      val user = createUser().futureValue
-      val doc = createDocument(user.id).futureValue
-
-      repositories.documents
-        .updateStatus(doc.id, DocumentStatus.Parsed, Some("v1.0"))
-        .futureValue
-
-      val found = repositories.documents.find(doc.id, user.id).futureValue.get
-      found.status must be(DocumentStatus.Parsed)
-      found.parserVersion must be(Some("v1.0"))
     }
   }
 

@@ -36,10 +36,9 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
       docId: UUID,
       userId: UUID,
       sha256: String = "deadbeef",
-      kind: DocumentKind = DocumentKind.Receipt,
-      status: DocumentStatus = DocumentStatus.Ingested
+      kind: DocumentKind = DocumentKind.Receipt
   ): Document =
-    Document(docId, userId, sha256, "key", kind, "receipt.jpg", status, None, Instant.now(), Instant.now())
+    Document(docId, userId, sha256, "key", kind, "receipt.jpg", Instant.now(), Instant.now())
 
   private def stubReceipt(
       receiptId: UUID,

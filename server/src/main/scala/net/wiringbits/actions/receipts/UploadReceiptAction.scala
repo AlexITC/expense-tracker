@@ -48,7 +48,6 @@ class UploadReceiptAction @Inject() (
             storageKey = storageKey,
             kind = kind,
             filename = filename,
-            status = DocumentStatus.Ingested,
             createdAt = now,
             updatedAt = now
           )

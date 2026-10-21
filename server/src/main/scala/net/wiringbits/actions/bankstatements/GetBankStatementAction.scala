@@ -28,7 +28,9 @@ class GetBankStatementAction @Inject() (bankStatementRepository: BankStatementRe
       id = view.id,
       documentId = view.documentId,
       documentFilename = view.documentFilename,
-      documentStatus = ApiStatus.fromEntryName(view.documentStatus.entryName),
+      // A bank_statement row only exists once a draft is confirmed (statement-at-confirm), and confirm always
+      // wrote Parsed, so this is the invariant rather than a guessed default.
+      documentStatus = ApiStatus.Parsed,
       bankName = view.bankName,
       productType = view.productType,
       currency = view.currency,
