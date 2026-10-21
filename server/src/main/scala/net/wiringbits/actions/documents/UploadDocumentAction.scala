@@ -1,8 +1,8 @@
 package net.wiringbits.actions.documents
 
 import com.github.f4b6a3.uuid.UuidCreator
-import net.wiringbits.api.models.documents.{DocumentStatus => ApiStatus, UploadDocument}
-import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.api.models.documents.UploadDocument
+import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.DocumentsRepository
 import net.wiringbits.repositories.models.{BackgroundJobData, Document}
@@ -32,7 +32,7 @@ class UploadDocumentAction @Inject() (
       response <- existingOpt match {
         case Some(existing) =>
           logger.info(s"Upload dedup: sha256=$sha256 already exists as document ${existing.id}, returning existing")
-          Future.successful(UploadDocument.Response(existing.id, ApiStatus.fromEntryName(existing.status.entryName)))
+          Future.successful(UploadDocument.Response(existing.id))
         case None =>
           val now = clock.instant()
           val uploadDate = LocalDate.now(clock)
@@ -46,7 +46,6 @@ class UploadDocumentAction @Inject() (
             storageKey = storageKey,
             kind = kind,
             filename = filename,
-            status = DocumentStatus.Ingested,
             createdAt = now,
             updatedAt = now
           )
@@ -70,7 +69,7 @@ class UploadDocumentAction @Inject() (
                 blobStorage.put(storageKey, bytes)
               }
             _ <- documentsRepository.create(document, job)
-          } yield UploadDocument.Response(documentId, ApiStatus.Ingested)
+          } yield UploadDocument.Response(documentId)
       }
     } yield response
   }

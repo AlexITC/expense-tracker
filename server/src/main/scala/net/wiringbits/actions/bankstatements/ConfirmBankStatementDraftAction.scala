@@ -3,10 +3,9 @@ package net.wiringbits.actions.bankstatements
 import com.github.f4b6a3.uuid.UuidCreator
 import io.scalaland.chimney.dsl.*
 import net.wiringbits.api.models.bankstatements.{BankStatementDraft, ExtractionInfo}
-import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
-import net.wiringbits.repositories.models.{BackgroundJobData, BankStatement, BankStatementRow, Document}
-import net.wiringbits.repositories.{BankStatementDraftRepository, BankStatementRepository}
+import net.wiringbits.repositories.models.{BackgroundJobData, BankStatement, BankStatementRow}
+import net.wiringbits.repositories.{BankStatementDraftRepository, BankStatementRepository, DocumentsRepository}
 import net.wiringbits.services.AiStatementExtractor
 import org.slf4j.LoggerFactory
 import play.api.libs.json.Json
@@ -22,7 +21,8 @@ import scala.concurrent.{ExecutionContext, Future}
   */
 class ConfirmBankStatementDraftAction @Inject() (
     bankStatementDraftRepository: BankStatementDraftRepository,
-    bankStatementRepository: BankStatementRepository
+    bankStatementRepository: BankStatementRepository,
+    documentsRepository: DocumentsRepository
 )(implicit ec: ExecutionContext, clock: Clock) {
 
   private val logger = LoggerFactory.getLogger(this.getClass)
@@ -31,25 +31,15 @@ class ConfirmBankStatementDraftAction @Inject() (
     for {
       existing <- bankStatementDraftRepository.findByIdForUser(draftId, userId)
       draft = existing.getOrElse(throw new RuntimeException("Draft not found"))
+      document <- documentsRepository.find(draft.documentId, userId)
+      _ = if (document.isEmpty) throw new RuntimeException("The draft's document was not found")
       payloadStr = draft.payload.getOrElse(throw new RuntimeException("The draft is not ready to confirm yet"))
       payload = Json.parse(payloadStr).as[BankStatementDraft.Payload]
       _ = requireReconciled(payload)
       metadata = requireMetadata(payload.metadata)
       now = clock.instant()
-      documentId = UuidCreator.getTimeOrderedEpoch()
       stmtId = UuidCreator.getTimeOrderedEpoch()
-      document = Document.Create(
-        id = documentId,
-        userId = userId,
-        sha256 = draft.sha256,
-        storageKey = draft.storageKey,
-        kind = DocumentKind.BankStatementPdf,
-        filename = draft.filename,
-        status = DocumentStatus.Parsed,
-        createdAt = now,
-        updatedAt = now
-      )
-      stmt = BankStatement.Create(stmtId, documentId, userId, createdAt = now, updatedAt = now)
+      stmt = BankStatement.Create(stmtId, draft.documentId, userId, createdAt = now, updatedAt = now)
       rows = payload.transactions.zipWithIndex.map { case (t, i) =>
         BankStatementRow.Create(
           id = UuidCreator.getTimeOrderedEpoch(),
@@ -74,11 +64,11 @@ class ConfirmBankStatementDraftAction @Inject() (
         createdAt = now,
         updatedAt = now
       )
-      _ <- bankStatementRepository.createConfirmedStatement(document, stmt, metadata, rows, extractionInfo, job)
+      _ <- bankStatementRepository.createConfirmedStatement(stmt, metadata, rows, extractionInfo, job)
       _ <- bankStatementDraftRepository.delete(draftId, userId)
     } yield {
       logger.info(
-        s"Confirmed statement draft ${draft.id} into statement $stmtId (${payload.transactions.size} rows), enqueued suggestions job ${job.id}"
+        s"Confirmed statement draft ${draft.id} for user $userId into statement $stmtId (document ${draft.documentId}) (${payload.transactions.size} rows), enqueued suggestions job ${job.id}"
       )
       BankStatementDraft.Confirm.Response(stmtId)
     }

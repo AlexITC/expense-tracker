@@ -5,6 +5,7 @@ import net.wiringbits.api.models.merchants.ImportRuleAction
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.config.WebAppConfig
 import net.wiringbits.models.documents.DocumentStatus
+import net.wiringbits.repositories.models.{Document, Receipt}
 import net.wiringbits.repositories.{
   DocumentsRepository,
   ImportRuleRepository,
@@ -13,7 +14,6 @@ import net.wiringbits.repositories.{
   TelegramReceiptRepository,
   TextractCacheRepository
 }
-import net.wiringbits.repositories.models.Document
 import net.wiringbits.services.{DocumentClassifier, DocumentParser, DocumentTelegramNotifier}
 import org.slf4j.LoggerFactory
 import play.api.libs.json.JsValue
@@ -43,119 +43,109 @@ class ParseReceiptAction @Inject() (
     for {
       docOpt <- documentsRepository.findById(documentId)
       doc = docOpt.getOrElse(throw new RuntimeException(s"Document not found: $documentId"))
+      receiptOpt <- receiptRepository.findByDocumentId(documentId)
+      receipt = receiptOpt.getOrElse(throw new RuntimeException(s"Receipt not found for document $documentId"))
       _ <-
-        if (doc.status == DocumentStatus.Parsed) {
-          logger.info(s"Document $documentId already Parsed, skipping")
+        if (receipt.status == DocumentStatus.Parsed) {
+          logger.info(s"Receipt ${receipt.id} (userId=${receipt.userId}) already Parsed, skipping")
           Future.unit
-        } else parse(doc)
+        } else parse(doc, receipt)
     } yield ()
 
-  private def parse(doc: Document): Future[Unit] =
+  private def parse(doc: Document, receipt: Receipt): Future[Unit] =
     textractCacheRepository.find(doc.sha256, TextractApiType.AnalyzeExpense).flatMap {
       case None =>
-        logger.error(s"No AnalyzeExpense cache for document ${doc.id}, marking Unsupported")
+        logger.error(s"No AnalyzeExpense cache for document ${doc.id} (userId=${receipt.userId}), marking Unsupported")
         for {
-          _ <- documentsRepository.updateStatus(doc.id, DocumentStatus.Unsupported, None)
+          _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Unsupported)
           _ <- notifyTelegramError(doc.id, "Could not parse the receipt: analysis data not found.")
         } yield ()
       case Some(cache) =>
+        // Advisory post-OCR classification (fail-open) before parsing the cached Textract result.
         classifyAfterTextract(doc, cache.response).flatMap { _ =>
-          parseCached(doc, cache.response)
-        }
-    }
-
-  private def parseCached(doc: Document, response: JsValue): Future[Unit] =
-    DocumentParser.parse(response, doc.kind.entryName) match {
-      case Right(parsed) =>
-        receiptRepository.findByDocumentId(doc.id).flatMap {
-          case None =>
-            logger.error(s"No receipt stub for document ${doc.id}, marking Unsupported")
-            documentsRepository.updateStatus(doc.id, DocumentStatus.Unsupported, None)
-          case Some(receipt) =>
-            val date =
-              parsed.transaction_date.flatMap(d => scala.util.Try(java.time.LocalDate.parse(d)).toOption)
-            val time =
-              parsed.transaction_time.flatMap(t => scala.util.Try(java.time.LocalTime.parse(t)).toOption)
-            for {
-              _ <- receiptRepository.updateParsed(
-                id = receipt.id,
-                amount = parsed.amount,
-                date = date,
-                time = time,
-                merchantName = parsed.vendor_name,
-                taxId = parsed.tax_id,
-                parserVersion = Some(DocumentParser.currentVersion)
-              )
-              _ <- parsed.vendor_name match {
-                case Some(name) if name.nonEmpty =>
-                  ruleRepository.all(doc.userId).flatMap { rules =>
-                    val matchingRule = ImportRuleMatcher.findReceiptWinner(
-                      rules.map(r => ImportRuleMatcher.Rule(r.id, r.action, r.pattern, r.merchantId)),
-                      name
-                    )
-                    matchingRule match {
-                      case Some(rule) =>
-                        rule.merchantId match {
-                          case Some(mid) => receiptRepository.setMerchantId(receipt.id, mid)
-                          case None => Future.unit
-                        }
-                      case None =>
-                        merchantsRepository.createPendingIfAbsent(doc.userId, name).flatMap { merchantId =>
-                          for {
-                            _ <- receiptRepository.setMerchantId(receipt.id, merchantId)
-                            exists <- ruleRepository.existsByUserPatternMerchant(doc.userId, name, merchantId)
-                            _ <-
-                              if (exists) Future.unit
-                              else
-                                ruleRepository
-                                  .create(
-                                    doc.userId,
-                                    ImportRuleAction.SetMerchant,
-                                    name,
-                                    Some(merchantId),
-                                    autoCreated = true
-                                  )
-                                  .map(_ => ())
-                          } yield ()
-                        }
+          DocumentParser.parse(cache.response, doc.kind.entryName) match {
+            case Right(parsed) =>
+              val date =
+                parsed.transaction_date.flatMap(d => scala.util.Try(java.time.LocalDate.parse(d)).toOption)
+              val time =
+                parsed.transaction_time.flatMap(t => scala.util.Try(java.time.LocalTime.parse(t)).toOption)
+              for {
+                _ <- receiptRepository.updateParsed(
+                  id = receipt.id,
+                  amount = parsed.amount,
+                  date = date,
+                  time = time,
+                  merchantName = parsed.vendor_name,
+                  taxId = parsed.tax_id,
+                  parserVersion = Some(DocumentParser.currentVersion)
+                )
+                _ <- parsed.vendor_name match {
+                  case Some(name) if name.nonEmpty =>
+                    ruleRepository.all(doc.userId).flatMap { rules =>
+                      val matchingRule = ImportRuleMatcher.findReceiptWinner(
+                        rules.map(r => ImportRuleMatcher.Rule(r.id, r.action, r.pattern, r.merchantId)),
+                        name
+                      )
+                      matchingRule match {
+                        case Some(rule) =>
+                          rule.merchantId match {
+                            case Some(mid) => receiptRepository.setMerchantId(receipt.id, mid)
+                            case None => Future.unit
+                          }
+                        case None =>
+                          merchantsRepository.createPendingIfAbsent(doc.userId, name).flatMap { merchantId =>
+                            for {
+                              _ <- receiptRepository.setMerchantId(receipt.id, merchantId)
+                              exists <- ruleRepository.existsByUserPatternMerchant(doc.userId, name, merchantId)
+                              _ <-
+                                if (exists) Future.unit
+                                else
+                                  ruleRepository
+                                    .create(
+                                      doc.userId,
+                                      ImportRuleAction.SetMerchant,
+                                      name,
+                                      Some(merchantId),
+                                      autoCreated = true
+                                    )
+                                    .map(_ => ())
+                            } yield ()
+                          }
+                      }
                     }
+                  case _ => Future.unit
+                }
+                _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Parsed)
+                _ <- telegramReceiptRepository
+                  .findByReceiptId(receipt.id)
+                  .flatMap {
+                    case None => Future.unit
+                    case Some(tr) =>
+                      val webAppUrl = s"${webAppConfig.host}/api/telegram/webapp?receipt=${receipt.id}"
+                      val summary =
+                        parsed.vendor_name.map(n => s"Receipt from $n parsed.").getOrElse("Receipt parsed.")
+                      telegramApi
+                        .sendMessageWithWebAppButton(tr.chatId, summary, webAppUrl, "Create Expense")
+                        .map(_ => ())
                   }
-                case _ => Future.unit
-              }
-              _ <- documentsRepository.updateStatus(
-                doc.id,
-                DocumentStatus.Parsed,
-                Some(DocumentParser.currentVersion)
-              )
-              _ <- telegramReceiptRepository
-                .findByReceiptId(receipt.id)
-                .flatMap {
-                  case None => Future.unit
-                  case Some(tr) =>
-                    val webAppUrl = s"${webAppConfig.host}/api/telegram/webapp?receipt=${receipt.id}"
-                    val summary =
-                      parsed.vendor_name.map(n => s"Receipt from $n parsed.").getOrElse("Receipt parsed.")
-                    telegramApi
-                      .sendMessageWithWebAppButton(tr.chatId, summary, webAppUrl, "Create Expense")
-                      .map(_ => ())
-                }
-                .recover { case e =>
-                  logger.warn(s"Failed to notify Telegram for document ${doc.id}: ${e.getMessage}")
-                }
-            } yield ()
+                  .recover { case e =>
+                    logger.warn(s"Failed to notify Telegram for document ${doc.id}: ${e.getMessage}")
+                  }
+              } yield ()
+            case Left(DocumentParser.UnsupportedKind(kind)) =>
+              logger.warn(s"Document ${doc.id} (userId=${receipt.userId}) has unsupported kind '$kind'")
+              for {
+                _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Unsupported)
+                _ <- notifyTelegramError(doc.id, "Could not parse the receipt: unsupported document format.")
+              } yield ()
+            case Left(DocumentParser.ParseError(reason)) =>
+              logger.warn(s"Document ${doc.id} (userId=${receipt.userId}) parse failed: $reason")
+              for {
+                _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.ParseFailed)
+                _ <- notifyTelegramError(doc.id, "Could not parse the receipt.")
+              } yield ()
+          }
         }
-      case Left(DocumentParser.UnsupportedKind(kind)) =>
-        logger.warn(s"Document ${doc.id} has unsupported kind '$kind'")
-        for {
-          _ <- documentsRepository.updateStatus(doc.id, DocumentStatus.Unsupported, None)
-          _ <- notifyTelegramError(doc.id, "Could not parse the receipt: unsupported document format.")
-        } yield ()
-      case Left(DocumentParser.ParseError(reason)) =>
-        logger.warn(s"Document ${doc.id} parse failed: $reason")
-        for {
-          _ <- documentsRepository.updateStatus(doc.id, DocumentStatus.ParseFailed, None)
-          _ <- notifyTelegramError(doc.id, "Could not parse the receipt.")
-        } yield ()
     }
 
   /** Classifies a document that had no text layer to classify before Textract (photos, scans) from the Textract text.

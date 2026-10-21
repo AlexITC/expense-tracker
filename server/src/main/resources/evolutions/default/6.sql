@@ -1,16 +1,10 @@
 -- !Ups
 
--- AI document classification: ai_classification is a DocumentClass entryName (BANKSTATEMENT, PURCHASETICKET,
--- BANKVOUCHER, INVOICE or OTHER) with its confidence, plus the advisory prompt-injection signal and its confidence.
--- NULL means the document was not classified.
-ALTER TABLE document
-  ADD COLUMN ai_classification TEXT NULL,
-  ADD COLUMN ai_classification_confidence NUMERIC NULL,
-  ADD COLUMN ai_injection_suspected BOOLEAN NULL,
-  ADD COLUMN ai_injection_confidence NUMERIC NULL;
+-- When a RUNNING claim on a background job expires: past this instant the claim is considered abandoned
+-- (e.g. the worker crashed) and the job can be claimed again. NULL until the job is claimed.
+-- Not to be confused with execute_at, which is when the job may run.
+ALTER TABLE background_jobs ADD COLUMN deadline TIMESTAMPTZ NULL;
 
-ALTER TABLE bank_statement_draft
-  ADD COLUMN ai_classification TEXT NULL,
-  ADD COLUMN ai_classification_confidence NUMERIC NULL,
-  ADD COLUMN ai_injection_suspected BOOLEAN NULL,
-  ADD COLUMN ai_injection_confidence NUMERIC NULL;
+-- Supports claimJobs polling: skips terminal Success rows, which are never deleted and would otherwise be scanned
+-- on every poll. Status is stored as the case-object name, hence 'Success'.
+CREATE INDEX background_jobs_claim_idx ON background_jobs (type, execute_at, background_job_id) WHERE status <> 'Success';

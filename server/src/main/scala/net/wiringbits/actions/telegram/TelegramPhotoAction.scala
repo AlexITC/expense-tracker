@@ -79,7 +79,6 @@ class TelegramPhotoAction @Inject() (
           storageKey = storageKey,
           kind = DocumentKind.Receipt,
           filename = filename,
-          status = DocumentStatus.Ingested,
           createdAt = now,
           updatedAt = now
         )
@@ -88,6 +87,7 @@ class TelegramPhotoAction @Inject() (
           userId = userId,
           documentId = documentId,
           manuallyEdited = false,
+          status = DocumentStatus.Ingested,
           createdAt = now,
           updatedAt = now
         )

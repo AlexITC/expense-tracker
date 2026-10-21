@@ -1,7 +1,7 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.executors.DatabaseExecutionContext
-import net.wiringbits.models.documents.{DocumentClassification, DocumentStatus}
+import net.wiringbits.models.documents.DocumentClassification
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.daos.{BackgroundJobDAO, DocumentDAO}
 import net.wiringbits.repositories.models.{BackgroundJobData, Document}
@@ -42,16 +42,6 @@ class DocumentsRepository @Inject() (database: Database)(implicit ec: DatabaseEx
   def findBySha256(userId: UUID, sha256: String): Future[Option[Document]] = Future {
     database.withConnection { implicit conn =>
       DocumentDAO.findBySha256(userId, sha256)
-    }
-  }
-
-  def updateStatus(
-      id: UUID,
-      status: DocumentStatus,
-      parserVersion: Option[String]
-  ): Future[Unit] = Future {
-    database.withConnection { implicit conn =>
-      DocumentDAO.updateStatus(id, status, parserVersion, clock.instant())
     }
   }
 

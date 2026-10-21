@@ -2,6 +2,7 @@ package net.wiringbits.repositories.daos
 
 import anorm.*
 import anorm.SqlParser.*
+import net.wiringbits.models.documents.DocumentStatus
 import net.wiringbits.repositories.models.Receipt
 
 import java.sql.Connection
@@ -18,12 +19,13 @@ object ReceiptDAO {
 
   def create(receipt: Receipt.Create)(implicit conn: Connection): Unit = {
     val _ = SQL"""
-      INSERT INTO receipt (id, user_id, document_id, manually_edited, created_at, updated_at)
+      INSERT INTO receipt (id, user_id, document_id, manually_edited, status, created_at, updated_at)
       VALUES (
         ${receipt.id.toString}::UUID,
         ${receipt.userId.toString}::UUID,
         ${receipt.documentId.toString}::UUID,
         ${receipt.manuallyEdited},
+        ${receipt.status.toString},
         ${receipt.createdAt},
         ${receipt.updatedAt}
       )
@@ -33,8 +35,8 @@ object ReceiptDAO {
   def findByDocumentId(documentId: UUID)(implicit conn: Connection): Option[Receipt] =
     SQL"""
       SELECT r.id, r.user_id, r.document_id, r.amount, r.date, r.time, r.merchant_name, r.tax_id,
-             r.merchant_id, r.expense_id, r.refund_id, r.ignored_at, r.manually_edited, r.parser_version, r.created_at, r.updated_at,
-             d.filename, d.status
+             r.merchant_id, r.expense_id, r.refund_id, r.ignored_at, r.manually_edited, r.parser_version, r.status,
+             r.created_at, r.updated_at, d.filename
       FROM receipt r
       JOIN document d ON r.document_id = d.id
       WHERE r.document_id = ${documentId.toString}::UUID
@@ -43,8 +45,8 @@ object ReceiptDAO {
   def find(id: UUID, userId: UUID)(implicit conn: Connection): Option[Receipt] =
     SQL"""
       SELECT r.id, r.user_id, r.document_id, r.amount, r.date, r.time, r.merchant_name, r.tax_id,
-             r.merchant_id, r.expense_id, r.refund_id, r.ignored_at, r.manually_edited, r.parser_version, r.created_at, r.updated_at,
-             d.filename, d.status
+             r.merchant_id, r.expense_id, r.refund_id, r.ignored_at, r.manually_edited, r.parser_version, r.status,
+             r.created_at, r.updated_at, d.filename
       FROM receipt r
       JOIN document d ON r.document_id = d.id
       WHERE r.id = ${id.toString}::UUID
@@ -54,8 +56,8 @@ object ReceiptDAO {
   def all(userId: UUID)(implicit conn: Connection): List[Receipt] =
     SQL"""
       SELECT r.id, r.user_id, r.document_id, r.amount, r.date, r.time, r.merchant_name, r.tax_id,
-             r.merchant_id, r.expense_id, r.refund_id, r.ignored_at, r.manually_edited, r.parser_version, r.created_at, r.updated_at,
-             d.filename, d.status
+             r.merchant_id, r.expense_id, r.refund_id, r.ignored_at, r.manually_edited, r.parser_version, r.status,
+             r.created_at, r.updated_at, d.filename
       FROM receipt r
       JOIN document d ON r.document_id = d.id
       WHERE r.user_id = ${userId.toString}::UUID
@@ -82,6 +84,19 @@ object ReceiptDAO {
           parser_version = $parserVersion,
           updated_at = $updatedAt
       WHERE id = ${id.toString}::UUID
+      """.executeUpdate()
+    if (updated == 0) throw new RuntimeException("Receipt not found")
+  }
+
+  def updateStatus(id: UUID, userId: UUID, status: DocumentStatus, updatedAt: Instant)(implicit
+      conn: Connection
+  ): Unit = {
+    val updated = SQL"""
+      UPDATE receipt
+      SET status = ${status.toString},
+          updated_at = $updatedAt
+      WHERE id = ${id.toString}::UUID
+        AND user_id = ${userId.toString}::UUID
       """.executeUpdate()
     if (updated == 0) throw new RuntimeException("Receipt not found")
   }

@@ -17,7 +17,7 @@ class GetReceiptAction @Inject() (receiptRepository: ReceiptRepository)(implicit
         id = r.id,
         documentId = r.documentId,
         documentFilename = r.documentFilename,
-        documentStatus = ApiStatus.fromEntryName(r.documentStatus.entryName),
+        documentStatus = ApiStatus.fromEntryName(r.status.entryName),
         amount = r.amount,
         date = r.date,
         time = r.time,

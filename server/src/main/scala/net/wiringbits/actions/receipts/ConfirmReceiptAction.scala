@@ -25,7 +25,7 @@ class ConfirmReceiptAction @Inject() (
       receiptOpt <- receiptRepository.find(receiptId, userId)
       receipt = receiptOpt.getOrElse(throw new RuntimeException("Receipt not found"))
       _ <-
-        if (receipt.documentStatus != DocumentStatus.Parsed)
+        if (receipt.status != DocumentStatus.Parsed)
           Future.failed(new RuntimeException("Receipt is not in Parsed status"))
         else Future.unit
       _ <-

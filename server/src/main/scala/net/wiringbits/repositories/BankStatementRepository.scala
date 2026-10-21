@@ -8,8 +8,7 @@ import net.wiringbits.repositories.models.{
   BankStatement,
   BankStatementRow,
   BankStatementRowLinkedExpense,
-  BankStatementView,
-  Document
+  BankStatementView
 }
 import play.api.db.Database
 
@@ -20,11 +19,11 @@ import scala.concurrent.Future
 
 class BankStatementRepository @Inject() (database: Database)(implicit ec: DatabaseExecutionContext) {
 
-  /** Confirm a draft import: create the document + statement (with metadata) + rows in one transaction, and enqueue the
-    * given job (the AI suggestions job; the rows are already extracted). Used by the AI draft-import flow.
+  /** Confirm a draft import: mark the draft's existing document Parsed and create the statement (with metadata) + rows
+    * in one transaction, and enqueue the given job (the AI suggestions job; the rows are already extracted). Used by
+    * the AI draft-import flow.
     */
   def createConfirmedStatement(
-      document: Document.Create,
       stmt: BankStatement.Create,
       metadata: BankStatement.Metadata,
       rows: List[BankStatementRow.Create],
@@ -32,7 +31,9 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
       job: BackgroundJobData.Create
   ): Future[UUID] = Future {
     database.withTransaction { implicit conn =>
-      DocumentDAO.create(document)
+      // The confirmed statement must reference a document owned by the same user.
+      if (DocumentDAO.find(stmt.documentId, stmt.userId).isEmpty)
+        throw new RuntimeException("Document not found")
       BankStatementDAO.create(stmt, metadata, extractionInfo)
       BankStatementRowDAO.createAll(rows)
       BackgroundJobDAO.create(job)

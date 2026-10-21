@@ -24,6 +24,7 @@ import org.scalatestplus.mockito.MockitoSugar
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
 import utils.LoginUtils
+import utils.RandomData.randomString
 
 import java.time.{Instant, LocalDate}
 import java.util.UUID
@@ -51,6 +52,9 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
   private val sampleBytes2: Array[Byte] = "fake-receipt-content-2".getBytes("UTF-8")
   private val sampleDate = LocalDate.of(2024, 1, 15)
 
+  /** textract_cache is keyed globally by sha256, so tests asserting on cache hits/misses need content of their own. */
+  private def randomReceiptBytes(): Array[Byte] = randomString("fake-receipt-").getBytes("UTF-8")
+
   /** Drives a receipt document through the full async Textract lifecycle. MockTextractClient uses inProgressPolls=2, so
     * 3 poll calls clear IN_PROGRESS and reach SUCCEEDED.
     */
@@ -71,9 +75,7 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
       merchantName: Option[String] = None
   ): Unit = {
     val receiptRepo = app.injector.instanceOf[ReceiptRepository]
-    val docRepo = app.injector.instanceOf[DocumentsRepository]
-    val receipt = receiptRepo.find(receiptId, userId).futureValue.get
-    docRepo.updateStatus(receipt.documentId, ServerDocumentStatus.Parsed, None).futureValue
+    receiptRepo.updateStatus(receiptId, userId, ServerDocumentStatus.Parsed).futureValue
     receiptRepo.updateParsed(receiptId, Some(amount), Some(sampleDate), None, merchantName, None, None).futureValue
   }
 
@@ -90,7 +92,7 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
     "upload starts job; in-progress polls re-enqueue; succeeded assembles cache; parser runs to Parsed" in withApiClient {
       implicit client =>
         createVerifyLoginUser(tokenGenerator).futureValue
-        val receiptId = client.uploadReceipt(sampleBytes, "receipt", "test.jpg").futureValue.id
+        val receiptId = client.uploadReceipt(randomReceiptBytes(), "receipt", "test.jpg").futureValue.id
         val documentId = client.getReceipt(receiptId).futureValue.documentId
 
         client.getReceipt(receiptId).futureValue.documentStatus must be(ApiDocumentStatus.Ingested)
@@ -127,7 +129,7 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
     "cache hit before start: pre-existing cache skips new Textract job, ParseReceipt runs directly" in withApiClient {
       implicit client =>
         createVerifyLoginUser(tokenGenerator).futureValue
-        val receiptId = client.uploadReceipt(sampleBytes, "receipt", "test.jpg").futureValue.id
+        val receiptId = client.uploadReceipt(randomReceiptBytes(), "receipt", "test.jpg").futureValue.id
         val documentId = client.getReceipt(receiptId).futureValue.documentId
         val docRepo = app.injector.instanceOf[DocumentsRepository]
         val sha256 = docRepo.findById(documentId).futureValue.get.sha256
@@ -154,7 +156,7 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
 
     "job FAILED → document marked Unsupported, nothing cached" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val receiptId = client.uploadReceipt(sampleBytes, "receipt", "fail.jpg").futureValue.id
+      val receiptId = client.uploadReceipt(randomReceiptBytes(), "receipt", "fail.jpg").futureValue.id
       val documentId = client.getReceipt(receiptId).futureValue.documentId
 
       app.injector.instanceOf[ProcessDocumentAction].apply(documentId).futureValue
@@ -216,6 +218,23 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
 
       val receipts = client.getReceipts.futureValue
       receipts.data.length must be(2)
+    }
+
+    "list items report the receipt status as documentStatus" in withApiClient { implicit client =>
+      val loginResp = createVerifyLoginUser(tokenGenerator).futureValue
+      val receiptId = client.uploadReceipt(sampleBytes, "receipt", "test.jpg").futureValue.id
+      client.getReceipts.futureValue.data.find(_.id == receiptId).get.documentStatus must be(
+        ApiDocumentStatus.Ingested
+      )
+
+      app.injector
+        .instanceOf[ReceiptRepository]
+        .updateStatus(receiptId, loginResp.id, ServerDocumentStatus.ParseFailed)
+        .futureValue
+
+      client.getReceipts.futureValue.data.find(_.id == receiptId).get.documentStatus must be(
+        ApiDocumentStatus.ParseFailed
+      )
     }
 
     "duplicate sha256 returns the existing receipt id (not a new one)" in withApiClient { implicit client =>

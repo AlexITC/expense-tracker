@@ -1,6 +1,7 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.executors.DatabaseExecutionContext
+import net.wiringbits.models.documents.DocumentStatus
 import net.wiringbits.repositories.daos.{
   BackgroundJobDAO,
   BankStatementRowDAO,
@@ -61,6 +62,12 @@ class ReceiptRepository @Inject() (database: Database)(implicit ec: DatabaseExec
   ): Future[Unit] = Future {
     database.withConnection { implicit conn =>
       ReceiptDAO.updateParsed(id, amount, date, time, merchantName, taxId, parserVersion, clock.instant())
+    }
+  }
+
+  def updateStatus(id: UUID, userId: UUID, status: DocumentStatus): Future[Unit] = Future {
+    database.withConnection { implicit conn =>
+      ReceiptDAO.updateStatus(id, userId, status, clock.instant())
     }
   }
 

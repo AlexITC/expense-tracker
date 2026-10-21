@@ -35,8 +35,8 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "allow the same name for different users" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       createCategory(userA.id, name = "Groceries").futureValue
       createCategory(userB.id, name = "Groceries").futureValue
     }
@@ -44,8 +44,8 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
 
   "all" should {
     "return only the requesting user's categories" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       createCategory(userA.id, name = "Groceries").futureValue
       createCategory(userA.id, name = "Transport").futureValue
       createCategory(userB.id, name = "Utilities").futureValue
@@ -69,8 +69,8 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "return None when the category belongs to another user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createCategory(userA.id).futureValue
       repositories.categories.find(created.id, userB.id).futureValue must be(None)
     }
@@ -113,8 +113,8 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "fail when the category does not belong to the user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createCategory(userA.id).futureValue
 
       val ex = intercept[RuntimeException] {
@@ -133,8 +133,8 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "fail when the category does not belong to the user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createCategory(userA.id).futureValue
 
       val ex = intercept[RuntimeException] {

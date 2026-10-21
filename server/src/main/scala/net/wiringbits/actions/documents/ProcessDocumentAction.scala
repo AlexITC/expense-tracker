@@ -3,10 +3,11 @@ package net.wiringbits.actions.documents
 import net.wiringbits.apis.{TextractApiType, TextractClient}
 import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
-import net.wiringbits.repositories.models.{BackgroundJobData, Document, TextractJob}
+import net.wiringbits.repositories.models.{BackgroundJobData, Document, Receipt, TextractJob}
 import net.wiringbits.repositories.{
   BackgroundJobsRepository,
   DocumentsRepository,
+  ReceiptRepository,
   TextractCacheRepository,
   TextractJobRepository
 }
@@ -21,6 +22,7 @@ import scala.util.control.NonFatal
 
 class ProcessDocumentAction @Inject() (
     documentsRepository: DocumentsRepository,
+    receiptRepository: ReceiptRepository,
     textractCacheRepository: TextractCacheRepository,
     textractJobRepository: TextractJobRepository,
     backgroundJobsRepository: BackgroundJobsRepository,
@@ -36,39 +38,46 @@ class ProcessDocumentAction @Inject() (
     for {
       docOpt <- documentsRepository.findById(documentId)
       doc = docOpt.getOrElse(throw new RuntimeException(s"Document not found: $documentId"))
-      _ <-
-        if (
-          doc.status == DocumentStatus.Parsed || doc.status == DocumentStatus.ParseFailed || doc.status == DocumentStatus.Unsupported
-        ) {
-          logger.info(s"Document $documentId already in terminal status ${doc.status}, skipping")
+      _ <- doc.kind match {
+        // Bank statements are imported via the AI draft flow and have no receipt row, so there is nothing to process.
+        case DocumentKind.BankStatementPdf =>
+          logger.info(
+            s"Skipping Textract for bank statement ${doc.id} (userId=${doc.userId}); statements are imported via the AI draft flow"
+          )
           Future.unit
-        } else process(doc)
+        case _ => processReceiptOrInvoice(doc)
+      }
     } yield ()
 
-  private def process(doc: net.wiringbits.repositories.models.Document): Future[Unit] = {
-    logger.info(s"Processing document ${doc.id} (sha256=${doc.sha256}, kind=${doc.kind})")
-    doc.kind match {
-      // Bank statements are imported via the AI draft flow (already Parsed on confirm), so they never reach here.
-      case DocumentKind.BankStatementPdf =>
-        logger.info(s"Skipping Textract for bank statement ${doc.id}; statements are imported via the AI draft flow")
-        Future.unit
-      case _ => processReceiptOrInvoice(doc)
-    }
-  }
-
-  private def processReceiptOrInvoice(doc: net.wiringbits.repositories.models.Document): Future[Unit] =
+  private def processReceiptOrInvoice(doc: Document): Future[Unit] =
     for {
-      _ <- documentsRepository.updateStatus(doc.id, DocumentStatus.Processing, None)
+      receiptOpt <- receiptRepository.findByDocumentId(doc.id)
+      receipt = receiptOpt.getOrElse(throw new RuntimeException(s"Receipt not found for document ${doc.id}"))
+      _ <-
+        if (
+          receipt.status == DocumentStatus.Parsed || receipt.status == DocumentStatus.ParseFailed || receipt.status == DocumentStatus.Unsupported
+        ) {
+          logger.info(
+            s"Receipt ${receipt.id} (userId=${receipt.userId}) already in terminal status ${receipt.status}, skipping"
+          )
+          Future.unit
+        } else gateThenAnalyze(doc, receipt)
+    } yield ()
+
+  /** Classify the document's text layer (cheap) before paying for Textract. If it is confidently not the kind we accept
+    * (e.g. a bank voucher dropped into the receipt flow), reject it and skip Textract; otherwise run the analysis.
+    */
+  private def gateThenAnalyze(doc: Document, receipt: Receipt): Future[Unit] =
+    for {
       result <- classify(doc)
       _ <- result.flatMap(_.rejection(DocumentClassifier.acceptedFor(doc.kind))) match {
         case Some(rejected) =>
           logger.info(s"userId=${doc.userId}, document ${doc.id} rejected as $rejected, skipping Textract")
           for {
-            // The third argument is the parser version; the document table has no column for the rejection reason.
-            _ <- documentsRepository.updateStatus(doc.id, DocumentStatus.Unsupported, None)
+            _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Unsupported)
             _ <- notifier.notify(doc.id, doc.userId, DocumentTelegramNotifier.notATicketMessage(rejected))
           } yield ()
-        case None => analyzeExpense(doc)
+        case None => analyze(doc, receipt)
       }
     } yield ()
 
@@ -109,14 +118,18 @@ class ProcessDocumentAction @Inject() (
           }
     }
 
-  private def analyzeExpense(doc: Document): Future[Unit] =
+  private def analyze(doc: Document, receipt: Receipt): Future[Unit] = {
+    logger.info(s"Processing document ${doc.id} (userId=${doc.userId}, sha256=${doc.sha256}, kind=${doc.kind})")
     for {
+      _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Processing)
       cachedOpt <- textractCacheRepository.find(doc.sha256, TextractApiType.AnalyzeExpense)
       _ <- cachedOpt match {
         case Some(_) =>
-          logger.info(s"Textract cache hit for receipt ${doc.id}, enqueuing parse directly")
+          logger.info(
+            s"Textract cache hit for receipt ${receipt.id} (userId=${receipt.userId}), enqueuing parse directly"
+          )
           for {
-            _ <- documentsRepository.updateStatus(doc.id, DocumentStatus.Analyzed, None)
+            _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Analyzed)
             _ <- enqueueParseReceipt(doc.id)
           } yield ()
         case None =>
@@ -139,6 +152,7 @@ class ProcessDocumentAction @Inject() (
           } yield ()
       }
     } yield ()
+  }
 
   private def enqueuePollReceipt(documentId: UUID): Future[Unit] = {
     val now = clock.instant()

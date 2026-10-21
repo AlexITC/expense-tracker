@@ -1,31 +1,25 @@
 package net.wiringbits.tasks
 
 import org.apache.pekko.actor.ActorSystem
+import org.apache.pekko.stream.scaladsl.Sink
 import com.google.inject.Inject
 import net.wiringbits.actions.documents.{ParseReceiptAction, PollReceiptAction, ProcessDocumentAction}
 import net.wiringbits.actions.bankstatements.{ExtractBankStatementDraftAction, ResolveStatementSuggestionsAction}
-import net.wiringbits.actions.internal.StreamPendingBackgroundJobsForeverAction
 import net.wiringbits.apis.EmailApi
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.config.BackgroundJobsExecutorConfig
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobType}
-import net.wiringbits.repositories.BackgroundJobsRepository
 import net.wiringbits.repositories.models.BackgroundJobData
-import net.wiringbits.util.{DelayGenerator, EmailMessage}
+import net.wiringbits.util.EmailMessage
 import org.slf4j.LoggerFactory
 
-import java.time.Clock
-import java.time.temporal.ChronoUnit
-import scala.concurrent.duration.DurationInt
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.control.NonFatal
 import scala.util.{Failure, Success}
 
 class BackgroundJobsExecutorTask @Inject() (
     config: BackgroundJobsExecutorConfig,
-    streamPendingBackgroundJobsForeverAction: StreamPendingBackgroundJobsForeverAction,
+    runner: BackgroundJobTypeRunner,
     emailApi: EmailApi,
-    backgroundJobsRepository: BackgroundJobsRepository,
     processDocumentAction: ProcessDocumentAction,
     pollReceiptAction: PollReceiptAction,
     parseReceiptAction: ParseReceiptAction,
@@ -33,18 +27,21 @@ class BackgroundJobsExecutorTask @Inject() (
     resolveStatementSuggestionsAction: ResolveStatementSuggestionsAction
 )(implicit
     ec: ExecutionContext,
-    actorSystem: ActorSystem,
-    clock: Clock
+    actorSystem: ActorSystem
 ) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   logger.info("Starting the background jobs executor task")
-  actorSystem.scheduler.scheduleOnce(config.interval) {
-    run()
+  // resolved eagerly so a missing type fails at startup
+  private val settingsPerType = BackgroundJobType.values.map(t => t -> config.settingsFor(t))
+  settingsPerType.foreach { case (jobType, settings) =>
+    actorSystem.scheduler.scheduleOnce(config.interval) {
+      run(jobType, settings)
+    }
   }
 
-  private def execute(job: BackgroundJobData): Future[Unit] = {
-    val executionResult = job.`type` match {
+  private def dispatch(job: BackgroundJobData): Future[Unit] = {
+    job.`type` match {
       case BackgroundJobType.SendEmail =>
         job.payload.asOpt[BackgroundJobPayload.SendEmail] match {
           case Some(typedPayload) => sendEmail(typedPayload)
@@ -129,17 +126,6 @@ class BackgroundJobsExecutorTask @Inject() (
             )
         }
     }
-
-    executionResult
-      .flatMap { _ =>
-        backgroundJobsRepository.setStatusToSuccess(job.id)
-      }
-      .recoverWith { case NonFatal(ex) =>
-        val minutesUntilExecute = DelayGenerator.createDelay(job.errorCount)
-        val executeAt = clock.instant().plus(minutesUntilExecute, ChronoUnit.MINUTES)
-        logger.warn(s"Job with id ${job.id} failed: ${ex.getMessage}", ex)
-        backgroundJobsRepository.setStatusToFailed(job.id, executeAt, ex.getMessage)
-      }
   }
 
   // TODO: Move to another file
@@ -148,22 +134,18 @@ class BackgroundJobsExecutorTask @Inject() (
     emailApi.sendEmail(emailRequest)
   }
 
-  def run(): Unit = {
-    // TODO: Allow configuring the throttling mechanism
-    // the reason to throttle and handle 1 background job concurrently is to avoid overloading the app
-    val result = streamPendingBackgroundJobsForeverAction()
-      .throttle(100, 1.minute)
-      .runWith(org.apache.pekko.stream.scaladsl.Sink.foreachAsync(1)(execute))
+  private def run(jobType: BackgroundJobType, settings: BackgroundJobsExecutorConfig.TypeSettings): Unit = {
+    val result = runner.source(jobType, settings, dispatch).runWith(Sink.ignore)
 
     result.onComplete {
       case Failure(ex) =>
         logger.error(
-          s"Failed to process pending background jobs, retrying after ${config.interval}: ${ex.getMessage}",
+          s"Failed to process pending $jobType background jobs, retrying after ${config.interval}: ${ex.getMessage}",
           ex
         )
-        actorSystem.scheduler.scheduleOnce(config.interval) { run() }
+        actorSystem.scheduler.scheduleOnce(config.interval) { run(jobType, settings) }
 
-      case Success(_) => actorSystem.scheduler.scheduleOnce(config.interval) { run() }
+      case Success(_) => actorSystem.scheduler.scheduleOnce(config.interval) { run(jobType, settings) }
     }
   }
 }

@@ -14,6 +14,7 @@ object BankStatementDraftDAO {
   private val parser: RowParser[BankStatementDraft] =
     (get[UUID]("id") ~
       get[UUID]("user_id") ~
+      get[UUID]("document_id") ~
       str("sha256") ~
       str("filename") ~
       str("storage_key") ~
@@ -26,11 +27,12 @@ object BankStatementDraftDAO {
       get[Option[BigDecimal]]("ai_classification_confidence") ~
       get[Option[Boolean]]("ai_injection_suspected") ~
       get[Option[BigDecimal]]("ai_injection_confidence")).map {
-      case id ~ userId ~ sha256 ~ filename ~ storageKey ~ status ~ error ~ payload ~ createdAt ~ updatedAt ~
+      case id ~ userId ~ documentId ~ sha256 ~ filename ~ storageKey ~ status ~ error ~ payload ~ createdAt ~ updatedAt ~
           aiClassification ~ aiClassificationConfidence ~ aiInjectionSuspected ~ aiInjectionConfidence =>
         BankStatementDraft(
           id,
           userId,
+          documentId,
           sha256,
           filename,
           storageKey,
@@ -47,7 +49,7 @@ object BankStatementDraftDAO {
     }
 
   private val selectColumns =
-    "id, user_id, sha256, filename, storage_key, status, error, payload::TEXT AS payload, created_at, updated_at, " +
+    "id, user_id, document_id, sha256, filename, storage_key, status, error, payload::TEXT AS payload, created_at, updated_at, " +
       "ai_classification, ai_classification_confidence, ai_injection_suspected, ai_injection_confidence"
 
   def listByUser(userId: UUID)(implicit conn: Connection): List[BankStatementDraft] =
@@ -68,10 +70,13 @@ object BankStatementDraftDAO {
 
   def create(draft: BankStatementDraft.Create)(implicit conn: Connection): Unit = {
     val _ = SQL"""
-      INSERT INTO bank_statement_draft (id, user_id, sha256, filename, storage_key, status, created_at, updated_at)
+      INSERT INTO bank_statement_draft (
+        id, user_id, document_id, sha256, filename, storage_key, status, created_at, updated_at
+      )
       VALUES (
         ${draft.id.toString}::UUID,
         ${draft.userId.toString}::UUID,
+        ${draft.documentId.toString}::UUID,
         ${draft.sha256},
         ${draft.filename},
         ${draft.storageKey},

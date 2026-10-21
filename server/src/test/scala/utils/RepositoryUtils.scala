@@ -6,6 +6,11 @@ import net.wiringbits.core.RepositoryComponents
 import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.daos.{BackgroundJobDAO, BankStatementDAO, BankStatementRowDAO}
+import net.wiringbits.apis.{JevClient, TelegramApi}
+import net.wiringbits.config.{JevConfig, TelegramConfig}
+import net.wiringbits.models.JevApiKey
+import net.wiringbits.services.{BlobStorage, DocumentClassifier, DocumentTelegramNotifier, NoOpBlobStorage}
+import play.api.inject.DefaultApplicationLifecycle
 import net.wiringbits.repositories.models.{
   BackgroundJobData,
   BankStatement,
@@ -53,14 +58,15 @@ trait RepositoryUtils {
       id: UUID = UUID.randomUUID(),
       backgroundJobType: BackgroundJobType = BackgroundJobType.SendEmail,
       status: BackgroundJobStatus = BackgroundJobStatus.Pending,
-      payload: BackgroundJobPayload = backgroundJobPayload
+      payload: BackgroundJobPayload = backgroundJobPayload,
+      executeAt: Instant = Instant.now()
   )(using repositories: RepositoryComponents): BackgroundJobData.Create = {
     val createRequest = BackgroundJobData.Create(
       id = id,
       `type` = backgroundJobType,
       payload = payload,
       status = status,
-      executeAt = Instant.now(),
+      executeAt = executeAt,
       createdAt = Instant.now(),
       updatedAt = Instant.now()
     )
@@ -73,7 +79,7 @@ trait RepositoryUtils {
   }
 
   def createUser(
-      email: Email = Email.trusted("hello@wiringbits.net")
+      email: Email = RandomData.randomEmail()
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[User.CreateUser] = {
     val createRequest = User.CreateUser(
       id = UUID.randomUUID(),
@@ -337,7 +343,6 @@ trait RepositoryUtils {
       storageKey = "",
       kind = DocumentKind.Receipt,
       filename = "receipt.pdf",
-      status = DocumentStatus.Ingested,
       createdAt = now,
       updatedAt = now
     )
@@ -346,6 +351,7 @@ trait RepositoryUtils {
       userId = userId,
       documentId = docId,
       manuallyEdited = false,
+      status = DocumentStatus.Ingested,
       createdAt = now,
       updatedAt = now
     )
@@ -366,8 +372,7 @@ trait RepositoryUtils {
       sha256: String = "abc123",
       storageKey: String = "",
       kind: DocumentKind = DocumentKind.Receipt,
-      filename: String = "test.pdf",
-      status: DocumentStatus = DocumentStatus.Ingested
+      filename: String = "test.pdf"
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[Document.Create] = {
     val now = Instant.now()
     val createRequest = Document.Create(
@@ -377,7 +382,6 @@ trait RepositoryUtils {
       storageKey = storageKey,
       kind = kind,
       filename = filename,
-      status = status,
       createdAt = now,
       updatedAt = now
     )
@@ -402,9 +406,20 @@ trait RepositoryUtils {
       storageKey: String = ""
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[BankStatementDraft.Create] = {
     val now = Instant.now()
+    val document = Document.Create(
+      id = UUID.randomUUID(),
+      userId = userId,
+      sha256 = sha256,
+      storageKey = if (storageKey.isEmpty) "key" else storageKey,
+      kind = DocumentKind.BankStatementPdf,
+      filename = filename,
+      createdAt = now,
+      updatedAt = now
+    )
     val draft = BankStatementDraft.Create(
       id = UUID.randomUUID(),
       userId = userId,
+      documentId = document.id,
       sha256 = sha256,
       filename = filename,
       storageKey = storageKey,
@@ -420,6 +435,27 @@ trait RepositoryUtils {
       createdAt = now,
       updatedAt = now
     )
-    repository.bankStatementDrafts.create(draft, job).map(_ => draft)
+    repository.bankStatementDrafts
+      .create(BankStatementDraft.DocumentLink.New(document), draft, job)
+      .map(_ => draft)
   }
+
+  // --- test doubles for the AI classification gate (never exercised by non-classifier tests) ---
+  def noOpBlobStorage: BlobStorage = new NoOpBlobStorage
+
+  def mockDocumentClassifier(using ec: ExecutionContext): DocumentClassifier =
+    new DocumentClassifier(
+      new JevClient.MockJevClient,
+      JevConfig(JevApiKey("test"), "https://example.invalid", "jev-test", JevConfig.Mock, BigDecimal("0.85"))
+    )
+
+  def documentTelegramNotifier(using repository: RepositoryComponents, ec: ExecutionContext): DocumentTelegramNotifier =
+    new DocumentTelegramNotifier(
+      repository.receipts,
+      repository.telegramReceipt,
+      new TelegramApi(
+        TelegramConfig(enabled = false, botToken = "test-token", webhookSecret = "test-secret", botName = "test"),
+        new DefaultApplicationLifecycle
+      )
+    )
 }

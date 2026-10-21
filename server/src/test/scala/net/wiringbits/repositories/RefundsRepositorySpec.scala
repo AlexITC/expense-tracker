@@ -34,8 +34,8 @@ class RefundsRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "return None when the refund belongs to another user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createRefund(userA.id).futureValue
       repositories.refunds.find(created.id, userB.id).futureValue must be(None)
     }
@@ -48,8 +48,8 @@ class RefundsRepositorySpec extends RepositorySpec with RepositoryUtils {
 
   "all" should {
     "return only the requesting user's refunds" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       createRefund(userA.id).futureValue
       createRefund(userA.id).futureValue
       createRefund(userB.id).futureValue
@@ -89,8 +89,8 @@ class RefundsRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "fail when the refund does not belong to the user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createRefund(userA.id).futureValue
 
       val ex = intercept[RuntimeException] {

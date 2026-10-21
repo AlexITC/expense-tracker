@@ -1,28 +1,18 @@
 package net.wiringbits.repositories
 
-import org.apache.pekko.actor.ActorSystem
-import org.apache.pekko.stream.scaladsl.Sink
 import net.wiringbits.common.models.{Email, Name}
-import net.wiringbits.core.RepositorySpec
-import net.wiringbits.repositories.models.User
+import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
+import net.wiringbits.models.jobs.BackgroundJobType
+import net.wiringbits.repositories.daos.backgroundJobParser
+import net.wiringbits.repositories.models.{BackgroundJobData, User}
 import net.wiringbits.util.EmailMessage
-import org.scalatest.BeforeAndAfterAll
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
-import utils.RepositoryUtils
+import utils.{RandomData, RepositoryUtils}
 
 import java.util.UUID
-
-class UsersRepositorySpec extends RepositorySpec with BeforeAndAfterAll with RepositoryUtils {
-
-  // required to test the streaming operations
-  private implicit lazy val system: ActorSystem = ActorSystem("UserRepositorySpec")
-
-  override def afterAll(): Unit = {
-    system.terminate().futureValue
-    super.afterAll()
-  }
+class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
 
   "create" should {
     "work" in withRepositories() { implicit repositories =>
@@ -39,7 +29,7 @@ class UsersRepositorySpec extends RepositorySpec with BeforeAndAfterAll with Rep
     "fail when the id already exists" in withRepositories() { implicit repositories =>
       val request = createUser().futureValue
       val ex = intercept[RuntimeException] {
-        repositories.users.create(request.copy(email = Email.trusted("email2@wiringbits.net"))).futureValue
+        repositories.users.create(request.copy(email = RandomData.randomEmail())).futureValue
       }
       // TODO: This should be a better message
       ex.getCause.getMessage must startWith(
@@ -61,18 +51,10 @@ class UsersRepositorySpec extends RepositorySpec with BeforeAndAfterAll with Rep
 
   "all" should {
     "return the existing users" in withRepositories() { implicit repositories =>
-      val expected = 3
-      for (i <- 1 to expected) {
-        createUser(email = Email.trusted(s"test$i@wiringbits.net")).futureValue
-      }
+      val expected = List.fill(3)(createUser().futureValue)
 
       val response = repositories.users.all().futureValue
-      response.length must be(3)
-    }
-
-    "return no users" in withRepositories() { repositories =>
-      val response = repositories.users.all().futureValue
-      response.isEmpty must be(true)
+      response.map(u => (u.id, u.email)) must contain allElementsOf expected.map(u => (u.id, u.email))
     }
   }
 
@@ -95,7 +77,7 @@ class UsersRepositorySpec extends RepositorySpec with BeforeAndAfterAll with Rep
     }
 
     "return no result when the email doesn't exists" in withRepositories() { repositories =>
-      val email = Email.trusted("hello@wiringbits.net")
+      val email = RandomData.randomEmail()
       val response = repositories.users.find(email).futureValue
       response.isEmpty must be(true)
     }
@@ -159,10 +141,7 @@ class UsersRepositorySpec extends RepositorySpec with BeforeAndAfterAll with Rep
       val newPassword = "test"
       repositories.users.updatePassword(request.id, newPassword, EmailMessage.updatePassword(request.name)).futureValue
 
-      val response = repositories.backgroundJobs.streamPendingJobs.futureValue
-        .runWith(Sink.seq)
-        .futureValue
-      response.length must be(1)
+      sendEmailJobsOf(request.email).map(_.`type`) must be(List(BackgroundJobType.SendEmail))
     }
 
     "fail when the user doesn't exist" in withRepositories() { repositories =>
@@ -189,10 +168,7 @@ class UsersRepositorySpec extends RepositorySpec with BeforeAndAfterAll with Rep
       val request = createUser().futureValue
       repositories.users.verify(request.id, UUID.randomUUID(), EmailMessage.confirm(request.name)).futureValue
 
-      val response = repositories.backgroundJobs.streamPendingJobs.futureValue
-        .runWith(Sink.seq)
-        .futureValue
-      response.length must be(1)
+      sendEmailJobsOf(request.email).map(_.`type`) must be(List(BackgroundJobType.SendEmail))
     }
 
     "fail when the user doesn't exist" in withRepositories() { repositories =>
@@ -223,10 +199,7 @@ class UsersRepositorySpec extends RepositorySpec with BeforeAndAfterAll with Rep
       val newPassword = "test"
       repositories.users.resetPassword(request.id, newPassword, EmailMessage.resetPassword(request.name)).futureValue
 
-      val response = repositories.backgroundJobs.streamPendingJobs.futureValue
-        .runWith(Sink.seq)
-        .futureValue
-      response.length must be(1)
+      sendEmailJobsOf(request.email).map(_.`type`) must be(List(BackgroundJobType.SendEmail))
     }
 
     "fail when the user doesn't exist" in withRepositories() { repositories =>
@@ -239,4 +212,13 @@ class UsersRepositorySpec extends RepositorySpec with BeforeAndAfterAll with Rep
       )
     }
   }
+
+  // No repository API reads background jobs back, so inspect the stored rows for the given recipient directly.
+  private def sendEmailJobsOf(email: Email)(using repositories: RepositoryComponents): List[BackgroundJobData] =
+    repositories.database.withConnection { implicit conn =>
+      anorm
+        .SQL("SELECT * FROM background_jobs WHERE payload->>'email' = {email}")
+        .on("email" -> email.string)
+        .as(backgroundJobParser.*)
+    }
 }
