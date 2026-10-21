@@ -80,8 +80,8 @@ class ReceiptRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "return None when the receipt belongs to another user" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createReceipt(userA.id).futureValue
 
       repositories.receipts.find(created.id, userB.id).futureValue must be(None)
@@ -90,8 +90,8 @@ class ReceiptRepositorySpec extends RepositorySpec with RepositoryUtils {
 
   "all" should {
     "return only the requesting user's receipts" in withRepositories() { implicit repositories =>
-      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       createReceipt(userA.id).futureValue
       createReceipt(userA.id).futureValue
       createReceipt(userB.id).futureValue

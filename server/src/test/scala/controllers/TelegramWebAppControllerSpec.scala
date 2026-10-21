@@ -21,6 +21,7 @@ import org.scalatestplus.mockito.MockitoSugar
 import play.api.libs.json.Json
 import play.api.test.Helpers.*
 import play.api.test.{FakeRequest, Helpers}
+import utils.RandomData.randomTelegramUserId
 
 import java.time.{Instant, LocalDate}
 import java.util.UUID
@@ -236,7 +237,7 @@ class TelegramWebAppControllerSpec extends AnyWordSpec with Matchers with ScalaF
 
     "return OK with prefilled form when init_data is correctly signed and account is linked" in {
       val userId = UUID.randomUUID()
-      val telegramUserId = 54321L
+      val telegramUserId = randomTelegramUserId()
       val receiptId = UUID.randomUUID()
       val initData = signedInitData("test", telegramUserId)
       val botUser = BotUser(UUID.randomUUID(), userId, telegramUserId, Instant.now())
@@ -268,7 +269,7 @@ class TelegramWebAppControllerSpec extends AnyWordSpec with Matchers with ScalaF
     }
 
     "return Unauthorized when init_data is correctly signed but account is not linked" in {
-      val telegramUserId = 99999L
+      val telegramUserId = randomTelegramUserId()
       val receiptId = UUID.randomUUID()
       val initData = signedInitData("test", telegramUserId)
       val telegramRepo = mock[TelegramRepository]
@@ -314,7 +315,7 @@ class TelegramWebAppControllerSpec extends AnyWordSpec with Matchers with ScalaF
 
     "return OK in prod mode via X-Telegram-Init-Data header" in {
       val userId = UUID.randomUUID()
-      val telegramUserId = 77777L
+      val telegramUserId = randomTelegramUserId()
       val expenseId = UUID.randomUUID()
       val initData = signedInitData("test", telegramUserId)
       val botUser = BotUser(UUID.randomUUID(), userId, telegramUserId, java.time.Instant.now())

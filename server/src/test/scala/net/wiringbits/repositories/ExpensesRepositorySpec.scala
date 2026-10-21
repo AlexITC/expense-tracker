@@ -67,8 +67,8 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "not return another user's expenses" in withRepositories() { implicit repositories =>
-      val userA = createUser(net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       createExpense(userA.id).futureValue
       createExpense(userB.id).futureValue
 
@@ -110,8 +110,8 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "not return another user's splits" in withRepositories() { implicit repositories =>
-      val userA = createUser(net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val catA = createCategory(userA.id).futureValue
       val expIdA = UUID.randomUUID()
       repositories.expenses
@@ -152,8 +152,8 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "return None when expense belongs to another user" in withRepositories() { implicit repositories =>
-      val userA = createUser(net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createExpense(userA.id).futureValue
       repositories.expenses.find(created.id, userB.id).futureValue must be(None)
     }
@@ -235,8 +235,8 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "fail when expense does not belong to user" in withRepositories() { implicit repositories =>
-      val userA = createUser(net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createExpense(userA.id).futureValue
 
       val ex = intercept[RuntimeException] {
@@ -284,8 +284,8 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "fail when expense does not belong to user" in withRepositories() { implicit repositories =>
-      val userA = createUser(net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
-      val userB = createUser(net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
       val created = createExpense(userA.id).futureValue
 
       val ex = intercept[RuntimeException] {

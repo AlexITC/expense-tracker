@@ -24,6 +24,7 @@ import org.scalatestplus.mockito.MockitoSugar
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
 import utils.LoginUtils
+import utils.RandomData.randomString
 
 import java.time.{Instant, LocalDate}
 import java.util.UUID
@@ -50,6 +51,9 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
   private val sampleBytes: Array[Byte] = "fake-receipt-content-1".getBytes("UTF-8")
   private val sampleBytes2: Array[Byte] = "fake-receipt-content-2".getBytes("UTF-8")
   private val sampleDate = LocalDate.of(2024, 1, 15)
+
+  /** textract_cache is keyed globally by sha256, so tests asserting on cache hits/misses need content of their own. */
+  private def randomReceiptBytes(): Array[Byte] = randomString("fake-receipt-").getBytes("UTF-8")
 
   /** Drives a receipt document through the full async Textract lifecycle. MockTextractClient uses inProgressPolls=2, so
     * 3 poll calls clear IN_PROGRESS and reach SUCCEEDED.
@@ -88,7 +92,7 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
     "upload starts job; in-progress polls re-enqueue; succeeded assembles cache; parser runs to Parsed" in withApiClient {
       implicit client =>
         createVerifyLoginUser(tokenGenerator).futureValue
-        val receiptId = client.uploadReceipt(sampleBytes, "receipt", "test.jpg").futureValue.id
+        val receiptId = client.uploadReceipt(randomReceiptBytes(), "receipt", "test.jpg").futureValue.id
         val documentId = client.getReceipt(receiptId).futureValue.documentId
 
         client.getReceipt(receiptId).futureValue.documentStatus must be(ApiDocumentStatus.Ingested)
@@ -125,7 +129,7 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
     "cache hit before start: pre-existing cache skips new Textract job, ParseReceipt runs directly" in withApiClient {
       implicit client =>
         createVerifyLoginUser(tokenGenerator).futureValue
-        val receiptId = client.uploadReceipt(sampleBytes, "receipt", "test.jpg").futureValue.id
+        val receiptId = client.uploadReceipt(randomReceiptBytes(), "receipt", "test.jpg").futureValue.id
         val documentId = client.getReceipt(receiptId).futureValue.documentId
         val docRepo = app.injector.instanceOf[DocumentsRepository]
         val sha256 = docRepo.findById(documentId).futureValue.get.sha256
@@ -152,7 +156,7 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
 
     "job FAILED → document marked Unsupported, nothing cached" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val receiptId = client.uploadReceipt(sampleBytes, "receipt", "fail.jpg").futureValue.id
+      val receiptId = client.uploadReceipt(randomReceiptBytes(), "receipt", "fail.jpg").futureValue.id
       val documentId = client.getReceipt(receiptId).futureValue.documentId
 
       app.injector.instanceOf[ProcessDocumentAction].apply(documentId).futureValue

@@ -1,7 +1,8 @@
 package net.wiringbits.actions.documents
 
-import com.dimafeng.testcontainers.{ForAllTestContainer, GenericContainer, MultipleContainers, PostgreSQLContainer}
+import com.dimafeng.testcontainers.{ForAllTestContainer, GenericContainer}
 import net.wiringbits.config.{AWSConfig, S3Config}
+import net.wiringbits.core.SharedPostgres
 import net.wiringbits.models.{AWSAccessKeyId, AWSSecretAccessKey}
 import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
@@ -12,9 +13,7 @@ import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 import org.testcontainers.containers.wait.strategy.Wait
-import org.testcontainers.utility.DockerImageName
-import play.api.db.evolutions.Evolutions
-import play.api.db.{Database, Databases}
+import play.api.db.Database
 import software.amazon.awssdk.auth.credentials.{AwsBasicCredentials, StaticCredentialsProvider}
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.s3.S3Client
@@ -22,7 +21,6 @@ import software.amazon.awssdk.services.s3.model.{CreateBucketRequest, DeleteObje
 import utils.Executors
 
 import java.net.URI
-import java.sql.DriverManager
 import java.time.{Clock, Instant}
 import java.util.UUID
 import scala.concurrent.ExecutionContext
@@ -35,33 +33,16 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
 
   private val testBucket = "test-documents-integration"
   private val s3MockPort = 9090
-  private val postgresImage = DockerImageName.parse("postgres:13")
-
-  private val postgres = PostgreSQLContainer.Def(dockerImageName = postgresImage).createContainer()
-  private val s3mock = GenericContainer(
+  override val container: GenericContainer = GenericContainer(
     dockerImage = "adobe/s3mock:latest",
     exposedPorts = Seq(s3MockPort),
     waitStrategy = Wait.forHttp("/").forPort(s3MockPort)
   )
 
-  override val container: MultipleContainers = MultipleContainers(postgres, s3mock)
-
-  private lazy val db: Database = {
-    val conn = DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password)
-    conn.createStatement().execute("CREATE EXTENSION CITEXT;")
-    conn.close()
-    val d = Databases(
-      driver = "org.postgresql.Driver",
-      url = postgres.jdbcUrl,
-      name = "default",
-      config = Map("username" -> postgres.username, "password" -> postgres.password)
-    )
-    Evolutions.applyEvolutions(d)
-    d
-  }
+  private def db: Database = SharedPostgres.database
 
   private lazy val endpoint: URI =
-    URI.create(s"http://${s3mock.host}:${s3mock.mappedPort(s3MockPort)}")
+    URI.create(s"http://${container.host}:${container.mappedPort(s3MockPort)}")
 
   private lazy val syncClient: S3Client = {
     val creds = AwsBasicCredentials.create("test", "test")
@@ -89,21 +70,11 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
   private lazy val documentsRepo: DocumentsRepository =
     new DocumentsRepository(db)(using Executors.databaseEC)
 
-  override def beforeStop(): Unit = {
-    db.shutdown()
-    super.beforeStop()
-  }
-
-  private def cleanAll(): Unit = {
+  // The s3mock bucket belongs to this suite only; DB rows are isolated through a fresh random user per test.
+  private def cleanBucket(): Unit = {
     val listed = syncClient.listObjectsV2(ListObjectsV2Request.builder().bucket(testBucket).build())
     listed.contents().forEach { obj =>
       syncClient.deleteObject(DeleteObjectRequest.builder().bucket(testBucket).key(obj.key()).build())
-    }
-    db.withConnection { conn =>
-      val stmt = conn.createStatement()
-      stmt.execute("DELETE FROM background_jobs")
-      stmt.execute("DELETE FROM document")
-      stmt.execute("DELETE FROM users")
     }
   }
 
@@ -150,7 +121,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
 
   "upload" should {
     "PUT object at exact key data/<userId>/<date>/<sha256> and create document row synchronously" in {
-      cleanAll()
+      cleanBucket()
       val userId = makeUser()
       val bytes = "receipt-bytes".getBytes("UTF-8")
       val action = new UploadDocumentAction(documentsRepo, storage)(using ec, Clock.systemUTC())
@@ -167,7 +138,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
     }
 
     "reject duplicate upload (same user, same bytes) without issuing a second S3 put" in {
-      cleanAll()
+      cleanBucket()
       val userId = makeUser()
       val bytes = "dup-bytes".getBytes("UTF-8")
       val action = new UploadDocumentAction(documentsRepo, storage)(using ec, Clock.systemUTC())
@@ -180,7 +151,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
     }
 
     "fail cleanly when S3 put fails — no document row is created" in {
-      cleanAll()
+      cleanBucket()
       val userId = makeUser()
       val bytes = "fail-bytes".getBytes("UTF-8")
       val badConfig = AWSConfig(
@@ -189,7 +160,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
         region = Region.US_EAST_1,
         s3 = S3Config(
           bucket = "nonexistent-bucket",
-          endpointOverride = Some(s"http://${s3mock.host}:${s3mock.mappedPort(s3MockPort)}")
+          endpointOverride = Some(s"http://${container.host}:${container.mappedPort(s3MockPort)}")
         )
       )
       val brokenStorage = new S3BlobStorage(badConfig)
@@ -202,7 +173,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
 
   "delete document" should {
     "remove the S3 object and the document row" in {
-      cleanAll()
+      cleanBucket()
       val userId = makeUser()
       val bytes = "delete-me".getBytes("UTF-8")
       val upload = new UploadDocumentAction(documentsRepo, storage)(using ec, Clock.systemUTC())
@@ -219,7 +190,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
     }
 
     "succeed even when S3 object is already missing (idempotent)" in {
-      cleanAll()
+      cleanBucket()
       val userId = makeUser()
       val doc = makeDocument(userId, sha256 = "orphansha", storageKey = s"data/$userId/2024-01-01/orphan")
 
@@ -232,7 +203,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
 
   "multi-user isolation" should {
     "namespace objects by user_id in the storage key" in {
-      cleanAll()
+      cleanBucket()
       val user1 = makeUser()
       val user2 = makeUser()
       val action = new UploadDocumentAction(documentsRepo, storage)(using ec, Clock.systemUTC())

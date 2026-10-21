@@ -19,7 +19,7 @@ import scala.concurrent.duration.*
 class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
 
   "setStatusToFailed" should {
-    "work" in withRepositories() { implicit repositories =>
+    "work" in withEmptyJobQueue { implicit repositories =>
       val createRequest = createBackgroundJobData()
 
       val failReason = "test"
@@ -35,7 +35,7 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
       item.executeAt must be(executeAt)
     }
 
-    "fail if the job doesn't exist" in withRepositories() { repositories =>
+    "fail if the job doesn't exist" in withEmptyJobQueue { repositories =>
       intercept[RuntimeException] {
         repositories.backgroundJobs
           .setStatusToFailed(UUID.randomUUID(), executeAt = Instant.now(), failReason = "test")
@@ -45,7 +45,7 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
   }
 
   "setStatusToSuccess" should {
-    "work" in withRepositories() { implicit repositories =>
+    "work" in withEmptyJobQueue { implicit repositories =>
       val createRequest = createBackgroundJobData()
 
       repositories.backgroundJobs.setStatusToSuccess(createRequest.id).futureValue
@@ -54,7 +54,7 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
       result.isEmpty must be(true)
     }
 
-    "fail if the job doesn't exist" in withRepositories() { repositories =>
+    "fail if the job doesn't exist" in withEmptyJobQueue { repositories =>
       intercept[RuntimeException] {
         repositories.backgroundJobs.setStatusToSuccess(UUID.randomUUID()).futureValue
       }
@@ -65,7 +65,7 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
     val jobType = BackgroundJobType.SendEmail
     val timeout = 5.minutes
 
-    "claim a ready pending job, marking it running until now + timeout" in withRepositories() { implicit repositories =>
+    "claim a ready pending job, marking it running until now + timeout" in withEmptyJobQueue { implicit repositories =>
       val createRequest = createBackgroundJobData(backgroundJobType = jobType)
 
       val before = Instant.now()
@@ -81,7 +81,7 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
       deadline.isAfter(after.plusMillis(timeout.toMillis)) must be(false)
     }
 
-    "claim a failed job whose execute_at has passed" in withRepositories() { implicit repositories =>
+    "claim a failed job whose execute_at has passed" in withEmptyJobQueue { implicit repositories =>
       val createRequest = createBackgroundJobData(backgroundJobType = jobType)
       repositories.backgroundJobs
         .setStatusToFailed(createRequest.id, executeAt = Instant.now(), failReason = "test")
@@ -94,7 +94,7 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
       result.headOption.value.errorCount must be(1)
     }
 
-    "not claim a job whose execute_at is in the future" in withRepositories() { implicit repositories =>
+    "not claim a job whose execute_at is in the future" in withEmptyJobQueue { implicit repositories =>
       val _ = createBackgroundJobData(
         backgroundJobType = jobType,
         executeAt = Instant.now().plus(1, ChronoUnit.HOURS)
@@ -105,7 +105,7 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
       result must be(empty)
     }
 
-    "not claim a successful job" in withRepositories() { implicit repositories =>
+    "not claim a successful job" in withEmptyJobQueue { implicit repositories =>
       val _ = createBackgroundJobData(backgroundJobType = jobType, status = BackgroundJobStatus.Success)
 
       val result = repositories.backgroundJobs.claimJobs(jobType, timeout, limit = 10).futureValue
@@ -113,7 +113,7 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
       result must be(empty)
     }
 
-    "not claim a failed job that reached the error limit" in withRepositories() { implicit repositories =>
+    "not claim a failed job that reached the error limit" in withEmptyJobQueue { implicit repositories =>
       val exhausted = createBackgroundJobData(backgroundJobType = jobType)
       for (_ <- 1 to 10) {
         repositories.backgroundJobs
@@ -127,7 +127,7 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
       result must be(empty)
     }
 
-    "only claim jobs of the given type" in withRepositories() { implicit repositories =>
+    "only claim jobs of the given type" in withEmptyJobQueue { implicit repositories =>
       val expected = createBackgroundJobData(backgroundJobType = jobType)
       val _ = createBackgroundJobData(backgroundJobType = BackgroundJobType.ProcessDocument)
 
@@ -136,7 +136,7 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
       result.map(_.id) must be(List(expected.id))
     }
 
-    "claim at most limit jobs, oldest execute_at first" in withRepositories() { implicit repositories =>
+    "claim at most limit jobs, oldest execute_at first" in withEmptyJobQueue { implicit repositories =>
       val now = Instant.now()
       val third = createBackgroundJobData(backgroundJobType = jobType, executeAt = now.minus(1, ChronoUnit.MINUTES))
       val first = createBackgroundJobData(backgroundJobType = jobType, executeAt = now.minus(3, ChronoUnit.MINUTES))
@@ -149,7 +149,7 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
       rest.map(_.id) must be(List(third.id))
     }
 
-    "not claim a running job before its deadline" in withRepositories() { implicit repositories =>
+    "not claim a running job before its deadline" in withEmptyJobQueue { implicit repositories =>
       val _ = createBackgroundJobData(backgroundJobType = jobType)
       repositories.backgroundJobs.claimJobs(jobType, timeout, limit = 10).futureValue.size must be(1)
 
@@ -158,7 +158,7 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
       result must be(empty)
     }
 
-    "reclaim a running job past its deadline, counting it as an error" in withRepositories() { implicit repositories =>
+    "reclaim a running job past its deadline, counting it as an error" in withEmptyJobQueue { implicit repositories =>
       val createRequest = createBackgroundJobData(backgroundJobType = jobType)
       repositories.backgroundJobs.claimJobs(jobType, timeout, limit = 10).futureValue.size must be(1)
 
@@ -173,7 +173,7 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
       item.deadline.value.isAfter(laterClock.instant()) must be(true)
     }
 
-    "not reclaim an expired running job that reached the error limit" in withRepositories() { implicit repositories =>
+    "not reclaim an expired running job that reached the error limit" in withEmptyJobQueue { implicit repositories =>
       val createRequest = createBackgroundJobData(backgroundJobType = jobType)
       val step = Duration.ofMillis(timeout.toMillis).plusMinutes(1)
       def claimAt(n: Long) = {
@@ -191,7 +191,7 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
       claimAt(11) must be(empty)
     }
 
-    "skip jobs locked by a concurrent claim" in withRepositories() { implicit repositories =>
+    "skip jobs locked by a concurrent claim" in withEmptyJobQueue { implicit repositories =>
       val now = Instant.now()
       val jobs = (1 to 4).toList.map { i =>
         createBackgroundJobData(backgroundJobType = jobType, executeAt = now.minus(10L - i, ChronoUnit.MINUTES))
@@ -209,7 +209,7 @@ class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
       otherIds.toSet must be(jobs.drop(2).map(_.id).toSet)
     }
 
-    "give disjoint jobs to concurrent claims" in withRepositories() { implicit repositories =>
+    "give disjoint jobs to concurrent claims" in withEmptyJobQueue { implicit repositories =>
       val jobs = (1 to 20).toList.map(_ => createBackgroundJobData(backgroundJobType = jobType))
 
       val claims = (1 to 4).map(_ => repositories.backgroundJobs.claimJobs(jobType, timeout, limit = 5))
