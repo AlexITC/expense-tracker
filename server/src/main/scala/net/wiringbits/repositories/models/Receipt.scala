@@ -20,10 +20,10 @@ case class Receipt(
     ignoredAt: Option[Instant],
     manuallyEdited: Boolean,
     parserVersion: Option[String],
+    status: DocumentStatus,
     createdAt: Instant,
     updatedAt: Instant,
-    documentFilename: String,
-    documentStatus: DocumentStatus
+    documentFilename: String
 )
 
 object Receipt {
@@ -32,6 +32,7 @@ object Receipt {
       userId: UUID,
       documentId: UUID,
       manuallyEdited: Boolean,
+      status: DocumentStatus,
       createdAt: Instant,
       updatedAt: Instant
   )

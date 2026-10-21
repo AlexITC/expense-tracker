@@ -19,9 +19,13 @@ case class BankStatementView(
     createdAt: Instant,
     updatedAt: Instant,
     documentFilename: String,
-    documentStatus: DocumentStatus,
     totalRows: Int,
     processedRows: Int,
     extractionInfo: Option[ExtractionInfo],
     aiSuggestions: Option[AiSuggestions]
-)
+) {
+
+  // A bank_statement row only exists once a draft is confirmed (statement-at-confirm), and a confirmed statement is
+  // fully parsed, so this is the invariant rather than a guessed default.
+  def documentStatus: DocumentStatus = DocumentStatus.Parsed
+}

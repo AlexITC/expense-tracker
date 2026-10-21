@@ -3,7 +3,7 @@ package net.wiringbits.actions.bankstatements
 import com.github.f4b6a3.uuid.UuidCreator
 import io.scalaland.chimney.dsl.*
 import net.wiringbits.api.models.bankstatements.{BankStatementDraft, ExtractionInfo}
-import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.{BackgroundJobData, BankStatement, BankStatementRow, Document}
 import net.wiringbits.repositories.{BankStatementDraftRepository, BankStatementRepository}
@@ -45,7 +45,6 @@ class ConfirmBankStatementDraftAction @Inject() (
         storageKey = draft.storageKey,
         kind = DocumentKind.BankStatementPdf,
         filename = draft.filename,
-        status = DocumentStatus.Parsed,
         createdAt = now,
         updatedAt = now
       )

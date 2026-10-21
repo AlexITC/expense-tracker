@@ -30,8 +30,6 @@ object GetDocument {
       sha256: String,
       kind: String,
       filename: String,
-      status: DocumentStatus,
-      parserVersion: Option[String],
       statementRows: Option[List[StatementRowData]],
       createdAt: Instant
   )

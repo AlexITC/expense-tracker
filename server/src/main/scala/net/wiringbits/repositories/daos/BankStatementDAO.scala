@@ -3,7 +3,6 @@ package net.wiringbits.repositories.daos
 import anorm.*
 import anorm.SqlParser.*
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, ExtractionInfo}
-import net.wiringbits.models.documents.DocumentStatus
 import net.wiringbits.repositories.models.{BankStatement, BankStatementView}
 
 import play.api.libs.json.Json
@@ -60,13 +59,12 @@ object BankStatementDAO {
       get[Instant]("created_at") ~
       get[Instant]("updated_at") ~
       str("filename") ~
-      get[DocumentStatus]("status") ~
       get[Int]("total_rows") ~
       get[Int]("processed_rows") ~
       get[Option[ExtractionInfo]]("extraction_info") ~
       get[Option[AiSuggestions]]("ai_suggestions")).map {
       case id ~ documentId ~ userId ~ bankName ~ productType ~ currency ~ accountLast4 ~
-          periodStart ~ periodEnd ~ createdAt ~ updatedAt ~ filename ~ status ~ totalRows ~ processedRows ~
+          periodStart ~ periodEnd ~ createdAt ~ updatedAt ~ filename ~ totalRows ~ processedRows ~
           extractionInfo ~ aiSuggestions =>
         BankStatementView(
           id,
@@ -81,7 +79,6 @@ object BankStatementDAO {
           createdAt,
           updatedAt,
           filename,
-          status,
           totalRows,
           processedRows,
           extractionInfo,
@@ -119,7 +116,7 @@ object BankStatementDAO {
     SQL"""
       SELECT bs.id, bs.document_id, bs.user_id, bs.bank_name, bs.product_type, bs.currency,
              bs.account_last4, bs.period_start, bs.period_end, bs.created_at, bs.updated_at,
-             bs.extraction_info, bs.ai_suggestions, d.filename, d.status,
+             bs.extraction_info, bs.ai_suggestions, d.filename,
              COALESCE(rc.total_rows, 0) AS total_rows,
              COALESCE(rc.processed_rows, 0) AS processed_rows
       FROM bank_statement bs
@@ -140,7 +137,7 @@ object BankStatementDAO {
     SQL"""
       SELECT bs.id, bs.document_id, bs.user_id, bs.bank_name, bs.product_type, bs.currency,
              bs.account_last4, bs.period_start, bs.period_end, bs.created_at, bs.updated_at,
-             bs.extraction_info, bs.ai_suggestions, d.filename, d.status,
+             bs.extraction_info, bs.ai_suggestions, d.filename,
              COALESCE(rc.total_rows, 0) AS total_rows,
              COALESCE(rc.processed_rows, 0) AS processed_rows
       FROM bank_statement bs

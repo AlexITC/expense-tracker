@@ -1,6 +1,7 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.core.RepositorySpec
+import net.wiringbits.models.documents.DocumentStatus
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
@@ -14,6 +15,44 @@ class ReceiptRepositorySpec extends RepositorySpec with RepositoryUtils {
     "work" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       createReceipt(user.id).futureValue
+    }
+
+    "store the receipt with the Ingested status" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val created = createReceipt(user.id).futureValue
+
+      repositories.receipts.find(created.id, user.id).futureValue.value.status must be(DocumentStatus.Ingested)
+    }
+  }
+
+  "updateStatus" should {
+    "change the receipt status" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val created = createReceipt(user.id).futureValue
+
+      repositories.receipts.updateStatus(created.id, user.id, DocumentStatus.Parsed).futureValue
+      repositories.receipts.find(created.id, user.id).futureValue.value.status must be(DocumentStatus.Parsed)
+    }
+
+    "fail when the receipt belongs to another user" in withRepositories() { implicit repositories =>
+      val userA = createUser(email = net.wiringbits.common.models.Email.trusted("a@test.com")).futureValue
+      val userB = createUser(email = net.wiringbits.common.models.Email.trusted("b@test.com")).futureValue
+      val created = createReceipt(userA.id).futureValue
+
+      val ex = intercept[RuntimeException] {
+        repositories.receipts.updateStatus(created.id, userB.id, DocumentStatus.Parsed).futureValue
+      }
+      ex.getMessage must include("Receipt not found")
+      repositories.receipts.find(created.id, userA.id).futureValue.value.status must be(DocumentStatus.Ingested)
+    }
+
+    "fail when the receipt does not exist" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+
+      val ex = intercept[RuntimeException] {
+        repositories.receipts.updateStatus(UUID.randomUUID(), user.id, DocumentStatus.Parsed).futureValue
+      }
+      ex.getMessage must include("Receipt not found")
     }
   }
 
