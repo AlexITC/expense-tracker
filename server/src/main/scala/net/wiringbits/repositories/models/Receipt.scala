@@ -23,8 +23,7 @@ case class Receipt(
     status: DocumentStatus,
     createdAt: Instant,
     updatedAt: Instant,
-    documentFilename: String,
-    documentStatus: DocumentStatus
+    documentFilename: String
 )
 
 object Receipt {

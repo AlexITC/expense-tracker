@@ -41,7 +41,12 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
   ): Document =
     Document(docId, userId, sha256, "key", kind, "receipt.jpg", status, None, Instant.now(), Instant.now())
 
-  private def stubReceipt(receiptId: UUID, userId: UUID, docId: UUID): Receipt =
+  private def stubReceipt(
+      receiptId: UUID,
+      userId: UUID,
+      docId: UUID,
+      status: DocumentStatus = DocumentStatus.Ingested
+  ): Receipt =
     Receipt(
       receiptId,
       userId,
@@ -57,11 +62,10 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
       None,
       manuallyEdited = false,
       None,
-      DocumentStatus.Ingested,
+      status,
       Instant.now(),
       Instant.now(),
-      "receipt.jpg",
-      DocumentStatus.Ingested
+      "receipt.jpg"
     )
 
   private def stubTextractCache(sha256: String): TextractCache =
@@ -115,7 +119,7 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
       when(receiptRepo.findByDocumentId(docId)).thenReturn(Future.successful(Some(receipt)))
       when(receiptRepo.updateParsed(any(), any(), any(), any(), any(), any(), any()))
         .thenReturn(Future.unit)
-      when(docRepo.updateStatus(any(), any(), any())).thenReturn(Future.unit)
+      when(receiptRepo.updateStatus(any(), any(), any())).thenReturn(Future.unit)
       when(telegramReceiptRepo.findByReceiptId(receiptId)).thenReturn(Future.successful(Some(tr)))
       when(telegramApi.sendMessageWithWebAppButton(anyLong(), anyString(), anyString(), anyString()))
         .thenReturn(Future.successful(123L))
@@ -124,6 +128,7 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
         docId
       ).futureValue
 
+      verify(receiptRepo).updateStatus(receiptId, userId, DocumentStatus.Parsed)
       verify(telegramApi).sendMessageWithWebAppButton(
         chatId,
         "Receipt parsed.",
@@ -154,13 +159,14 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
       when(receiptRepo.findByDocumentId(docId)).thenReturn(Future.successful(Some(receipt)))
       when(receiptRepo.updateParsed(any(), any(), any(), any(), any(), any(), any()))
         .thenReturn(Future.unit)
-      when(docRepo.updateStatus(any(), any(), any())).thenReturn(Future.unit)
+      when(receiptRepo.updateStatus(any(), any(), any())).thenReturn(Future.unit)
       when(telegramReceiptRepo.findByReceiptId(receiptId)).thenReturn(Future.successful(None))
 
       newAction(docRepo, receiptRepo, merchantRepo, ruleRepo, cacheRepo, telegramReceiptRepo, telegramApi)(
         docId
       ).futureValue
 
+      verify(receiptRepo).updateStatus(receiptId, userId, DocumentStatus.Parsed)
       verify(telegramApi, never()).sendMessageWithWebAppButton(anyLong(), anyString(), anyString(), anyString())
     }
 
@@ -185,7 +191,7 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
       when(docRepo.findById(docId)).thenReturn(Future.successful(Some(doc)))
       when(cacheRepo.find(doc.sha256, TextractApiType.AnalyzeExpense))
         .thenReturn(Future.successful(Some(stubTextractCache(doc.sha256))))
-      when(docRepo.updateStatus(any(), any(), any())).thenReturn(Future.unit)
+      when(receiptRepo.updateStatus(any(), any(), any())).thenReturn(Future.unit)
       when(receiptRepo.findByDocumentId(docId)).thenReturn(Future.successful(Some(receipt)))
       when(telegramReceiptRepo.findByReceiptId(receiptId)).thenReturn(Future.successful(Some(tr)))
       when(telegramApi.sendMessage(anyLong(), anyString())).thenReturn(Future.unit)
@@ -194,6 +200,7 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
         docId
       ).futureValue
 
+      verify(receiptRepo).updateStatus(receiptId, userId, DocumentStatus.Unsupported)
       verify(telegramApi).sendMessage(chatId, "Could not parse the receipt: unsupported document format.")
     }
 
@@ -218,7 +225,7 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
       when(docRepo.findById(docId)).thenReturn(Future.successful(Some(doc)))
       when(cacheRepo.find(doc.sha256, TextractApiType.AnalyzeExpense))
         .thenReturn(Future.successful(None))
-      when(docRepo.updateStatus(any(), any(), any())).thenReturn(Future.unit)
+      when(receiptRepo.updateStatus(any(), any(), any())).thenReturn(Future.unit)
       when(receiptRepo.findByDocumentId(docId)).thenReturn(Future.successful(Some(receipt)))
       when(telegramReceiptRepo.findByReceiptId(receiptId)).thenReturn(Future.successful(Some(tr)))
       when(telegramApi.sendMessage(anyLong(), anyString())).thenReturn(Future.unit)
@@ -227,6 +234,7 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
         docId
       ).futureValue
 
+      verify(receiptRepo).updateStatus(receiptId, userId, DocumentStatus.Unsupported)
       verify(telegramApi).sendMessage(chatId, "Could not parse the receipt: analysis data not found.")
     }
 
@@ -249,7 +257,7 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
       when(docRepo.findById(docId)).thenReturn(Future.successful(Some(doc)))
       when(cacheRepo.find(doc.sha256, TextractApiType.AnalyzeExpense))
         .thenReturn(Future.successful(Some(stubTextractCache(doc.sha256))))
-      when(docRepo.updateStatus(any(), any(), any())).thenReturn(Future.unit)
+      when(receiptRepo.updateStatus(any(), any(), any())).thenReturn(Future.unit)
       when(receiptRepo.findByDocumentId(docId)).thenReturn(Future.successful(Some(receipt)))
       when(telegramReceiptRepo.findByReceiptId(receiptId)).thenReturn(Future.successful(None))
 
@@ -257,6 +265,7 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
         docId
       ).futureValue
 
+      verify(receiptRepo).updateStatus(receiptId, userId, DocumentStatus.Unsupported)
       verify(telegramApi, never()).sendMessage(anyLong(), anyString())
     }
 
@@ -297,7 +306,7 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
       when(receiptRepo.setMerchantId(any(), any())).thenReturn(Future.unit)
       when(ruleRepo.existsByUserPatternMerchant(any(), anyString(), any(), any())).thenReturn(Future.successful(false))
       when(ruleRepo.create(any(), any(), anyString(), any(), any())).thenReturn(Future.successful(UUID.randomUUID()))
-      when(docRepo.updateStatus(any(), any(), any())).thenReturn(Future.unit)
+      when(receiptRepo.updateStatus(any(), any(), any())).thenReturn(Future.unit)
       when(telegramReceiptRepo.findByReceiptId(receiptId)).thenReturn(Future.successful(Some(tr)))
       when(telegramApi.sendMessageWithWebAppButton(anyLong(), anyString(), anyString(), anyString()))
         .thenReturn(Future.successful(123L))
@@ -306,12 +315,65 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
         docId
       ).futureValue
 
+      verify(receiptRepo).updateStatus(receiptId, userId, DocumentStatus.Parsed)
       verify(telegramApi).sendMessageWithWebAppButton(
         chatId,
         "Receipt from Starbucks parsed.",
         s"${webAppConfig.host}/api/telegram/webapp?receipt=$receiptId",
         "Create Expense"
       )
+    }
+
+    "skip a receipt that is already Parsed" in {
+      val docId = UUID.randomUUID()
+      val receiptId = UUID.randomUUID()
+      val userId = UUID.randomUUID()
+
+      val docRepo = mock[DocumentsRepository]
+      val receiptRepo = mock[ReceiptRepository]
+      val merchantRepo = mock[MerchantsRepository]
+      val ruleRepo = mock[ImportRuleRepository]
+      val cacheRepo = mock[TextractCacheRepository]
+      val telegramReceiptRepo = mock[TelegramReceiptRepository]
+      val telegramApi = mock[TelegramApi]
+
+      val doc = stubDocument(docId, userId)
+      val receipt = stubReceipt(receiptId, userId, docId, DocumentStatus.Parsed)
+
+      when(docRepo.findById(docId)).thenReturn(Future.successful(Some(doc)))
+      when(receiptRepo.findByDocumentId(docId)).thenReturn(Future.successful(Some(receipt)))
+
+      newAction(docRepo, receiptRepo, merchantRepo, ruleRepo, cacheRepo, telegramReceiptRepo, telegramApi)(
+        docId
+      ).futureValue
+
+      verify(receiptRepo, never()).updateParsed(any(), any(), any(), any(), any(), any(), any())
+      verify(receiptRepo, never()).updateStatus(any(), any(), any())
+      verify(cacheRepo, never()).find(any(), any())
+    }
+
+    "fail when the document has no receipt" in {
+      val docId = UUID.randomUUID()
+      val userId = UUID.randomUUID()
+
+      val docRepo = mock[DocumentsRepository]
+      val receiptRepo = mock[ReceiptRepository]
+      val merchantRepo = mock[MerchantsRepository]
+      val ruleRepo = mock[ImportRuleRepository]
+      val cacheRepo = mock[TextractCacheRepository]
+      val telegramReceiptRepo = mock[TelegramReceiptRepository]
+      val telegramApi = mock[TelegramApi]
+
+      when(docRepo.findById(docId)).thenReturn(Future.successful(Some(stubDocument(docId, userId))))
+      when(receiptRepo.findByDocumentId(docId)).thenReturn(Future.successful(None))
+
+      val error =
+        newAction(docRepo, receiptRepo, merchantRepo, ruleRepo, cacheRepo, telegramReceiptRepo, telegramApi)(
+          docId
+        ).failed.futureValue
+
+      error.getMessage must be(s"Receipt not found for document $docId")
+      verify(receiptRepo, never()).updateStatus(any(), any(), any())
     }
   }
 }
