@@ -77,6 +77,22 @@ jobs:
           key: compiled-code-cache-${{ hashFiles('**/build.sbt') }}
           restore-keys: compiled-code-cache-
 
+      # Cache resolved dependencies ourselves. setup-everything-scala's
+      # coursier/cache-action does not persist them in this setup (its save tars the
+      # workspace, not ~/.cache/coursier), so every run re-downloaded all POMs/JARs and
+      # the first sbt step paid full dependency resolution. Keyed on the build
+      # definition (what actually changes resolution), with a prefix fallback.
+      - name: Cache sbt dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.cache/sbt
+            ~/.sbt
+            ~/.ivy2/cache
+          key: sbt-deps-${{ hashFiles('**/*.sbt', 'project/**') }}
+          restore-keys: sbt-deps-
+
       # Classify the diff so a PR only runs the side it touches. Shared code
       # (lib/common, lib/api) and the build definition affect both sides, so they
       # fall into `shared` which forces everything to run.
