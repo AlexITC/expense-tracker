@@ -57,6 +57,7 @@ class UploadReceiptAction @Inject() (
             userId = userId,
             documentId = documentId,
             manuallyEdited = false,
+            status = DocumentStatus.Ingested,
             createdAt = now,
             updatedAt = now
           )

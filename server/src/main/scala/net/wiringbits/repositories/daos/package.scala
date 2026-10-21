@@ -243,12 +243,13 @@ package object daos {
       get[Option[Instant]]("ignored_at") ~
       get[Boolean]("manually_edited") ~
       get[Option[String]]("parser_version") ~
+      get[DocumentStatus]("receipt_status") ~
       get[Instant]("created_at") ~
       get[Instant]("updated_at") ~
       str("filename") ~
-      get[DocumentStatus]("status")).map {
+      get[DocumentStatus]("document_status")).map {
       case id ~ userId ~ documentId ~ amount ~ date ~ time ~ merchantName ~ taxId ~ merchantId ~ expenseId ~ refundId ~
-          ignoredAt ~ manuallyEdited ~ parserVersion ~ createdAt ~ updatedAt ~ filename ~ status =>
+          ignoredAt ~ manuallyEdited ~ parserVersion ~ status ~ createdAt ~ updatedAt ~ filename ~ documentStatus =>
         Receipt(
           id,
           userId,
@@ -264,10 +265,11 @@ package object daos {
           ignoredAt,
           manuallyEdited,
           parserVersion,
+          status,
           createdAt,
           updatedAt,
           filename,
-          status
+          documentStatus
         )
     }
 

@@ -57,6 +57,7 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
       None,
       manuallyEdited = false,
       None,
+      DocumentStatus.Ingested,
       Instant.now(),
       Instant.now(),
       "receipt.jpg",

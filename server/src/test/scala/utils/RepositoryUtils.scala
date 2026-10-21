@@ -346,6 +346,7 @@ trait RepositoryUtils {
       userId = userId,
       documentId = docId,
       manuallyEdited = false,
+      status = DocumentStatus.Ingested,
       createdAt = now,
       updatedAt = now
     )

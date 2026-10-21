@@ -36,6 +36,7 @@ class BugFixSpec extends RepositorySpec with RepositoryUtils {
             userId = user.id,
             documentId = doc.id,
             manuallyEdited = false,
+            status = DocumentStatus.Ingested,
             createdAt = now,
             updatedAt = now
           )
