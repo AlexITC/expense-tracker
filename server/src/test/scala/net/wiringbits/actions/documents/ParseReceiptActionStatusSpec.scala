@@ -29,7 +29,9 @@ class ParseReceiptActionStatusSpec extends RepositorySpec with RepositoryUtils {
       repositories.textractCache,
       repositories.telegramReceipt,
       telegramApi,
-      WebAppConfig("https://app.example.com")
+      WebAppConfig("https://app.example.com"),
+      mockDocumentClassifier,
+      documentTelegramNotifier
     )(using executionContext, Clock.systemUTC())
 
   "apply" should {

@@ -22,7 +22,8 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
 
   private val modelId = "test-jev-model"
 
-  private val jevConfig = JevConfig(JevApiKey("test"), "https://example.invalid", modelId, JevConfig.Mock)
+  private val jevConfig =
+    JevConfig(JevApiKey("test"), "https://example.invalid", modelId, JevConfig.Mock, BigDecimal("0.85"))
 
   // Answers each choose call with the criteria key `respond` picks from (state, questionName, criteria).
   private class StubJevClient(respond: (String, String, Map[String, String]) => String) extends JevClient {

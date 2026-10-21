@@ -5,7 +5,7 @@ import anorm.SqlParser.*
 import anorm.postgresql.*
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, ExtractionInfo}
 import net.wiringbits.common.models.{Email, Name}
-import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.models.documents.{DocumentClass, DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.*
 import play.api.libs.json.{JsValue, Json}
@@ -206,6 +206,8 @@ package object daos {
     DocumentStatus.withNameInsensitiveOption
   )
 
+  implicit val documentClassColumn: Column[DocumentClass] = enumColumn(DocumentClass.withNameInsensitiveOption)
+
   implicit val documentKindColumn: Column[DocumentKind] =
     Column.columnToString.mapResult { s =>
       DocumentKind
@@ -222,7 +224,11 @@ package object daos {
       "kind",
       "filename",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "ai_classification",
+      "ai_classification_confidence",
+      "ai_injection_suspected",
+      "ai_injection_confidence"
     )
   }
 

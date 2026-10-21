@@ -15,6 +15,7 @@ class JevConfigSpec extends AnyWordSpec with Matchers {
            |apiKey = "super-secret-jev-key"
            |baseUrl = "https://jev.example.com"
            |model = "jev-test"
+           |minConfidence = 0.85
            |""".stripMargin
       )
     )
@@ -25,6 +26,13 @@ class JevConfigSpec extends AnyWordSpec with Matchers {
       result.apiKey.string must be("super-secret-jev-key")
       result.baseUrl must be("https://jev.example.com")
       result.model must be("jev-test")
+      result.minConfidence must be(BigDecimal("0.85"))
+    }
+
+    "parse an overridden minConfidence" in {
+      // An env override (JEV_MIN_CONFIDENCE) arrives as a string.
+      val result = JevConfig(Configuration("minConfidence" -> "0.6").withFallback(config("real")))
+      result.minConfidence must be(BigDecimal("0.6"))
     }
 
     "parse the mock mode" in {
@@ -48,6 +56,7 @@ class JevConfigSpec extends AnyWordSpec with Matchers {
       result must include("https://jev.example.com")
       result must include("jev-test")
       result must include("Real")
+      result must include("0.85")
     }
   }
 }

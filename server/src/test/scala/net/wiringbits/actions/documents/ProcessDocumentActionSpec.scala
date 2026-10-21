@@ -17,7 +17,10 @@ class ProcessDocumentActionSpec extends RepositorySpec with RepositoryUtils {
       repositories.textractCache,
       repositories.textractJobs,
       repositories.backgroundJobs,
-      new FailingTextractClient
+      new FailingTextractClient,
+      noOpBlobStorage,
+      mockDocumentClassifier,
+      documentTelegramNotifier
     )(using executionContext, Clock.systemUTC())
 
   "apply" should {

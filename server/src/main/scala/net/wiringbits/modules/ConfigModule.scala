@@ -95,9 +95,15 @@ class ConfigModule extends AbstractModule {
   @Singleton
   def jevConfig(global: Configuration): JevConfig = {
     val config = JevConfig(global.get[Configuration]("jev"))
-    logger.info(s"Config loaded: jev.mode=${config.mode}, baseUrl=${config.baseUrl}, model=${config.model}")
+    logger.info(
+      s"Config loaded: jev.mode=${config.mode}, baseUrl=${config.baseUrl}, model=${config.model}, " +
+        s"minConfidence=${config.minConfidence}"
+    )
     if (config.mode == JevConfig.Mock)
-      logger.warn("jev.mode is mock: statement suggestions are placeholder picks, set JEV_MODE=real for real ones")
+      logger.warn(
+        "jev.mode is mock: statement suggestions are placeholder picks and document classification is skipped " +
+          "(wrong-type uploads are not rejected), set JEV_MODE=real for real ones"
+      )
     config
   }
 

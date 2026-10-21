@@ -1,6 +1,6 @@
 package net.wiringbits.repositories.models
 
-import net.wiringbits.models.documents.DocumentKind
+import net.wiringbits.models.documents.{DocumentClass, DocumentClassification, DocumentKind}
 
 import java.time.Instant
 import java.util.UUID
@@ -13,8 +13,22 @@ case class Document(
     kind: DocumentKind,
     filename: String,
     createdAt: Instant,
-    updatedAt: Instant
-)
+    updatedAt: Instant,
+    aiClassification: Option[DocumentClass],
+    aiClassificationConfidence: Option[BigDecimal],
+    aiInjectionSuspected: Option[Boolean],
+    aiInjectionConfidence: Option[BigDecimal]
+) {
+
+  /** The stored AI classification, when the document was classified (all four columns are set together). */
+  def classification: Option[DocumentClassification] =
+    DocumentClassification.fromColumns(
+      aiClassification,
+      aiClassificationConfidence,
+      aiInjectionSuspected,
+      aiInjectionConfidence
+    )
+}
 
 object Document {
   case class Create(

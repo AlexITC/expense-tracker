@@ -133,4 +133,103 @@ class DocumentParserSpec extends AnyWordSpec {
       parsed(res).transaction_date mustBe Some("2026-09-14")
     }
   }
+
+  "reconstructText" should {
+    "emit labeled summary fields, then line items, in document order" in {
+      // Synthetic AnalyzeExpense response split across two ExpenseDocuments, as the async API returns it.
+      val response = Json.parse(
+        """{
+          |  "ExpenseDocuments": [
+          |    {
+          |      "SummaryFields": [
+          |        {
+          |          "Type": { "Text": "VENDOR_NAME", "Confidence": 99.0 },
+          |          "ValueDetection": { "Text": "EXAMPLE STORE", "Confidence": 98.0 }
+          |        },
+          |        {
+          |          "Type": { "Text": "TOTAL", "Confidence": 99.0 },
+          |          "LabelDetection": { "Text": "TOTAL" },
+          |          "ValueDetection": { "Text": "3.50", "Confidence": 97.0 }
+          |        }
+          |      ],
+          |      "LineItemGroups": [
+          |        {
+          |          "LineItemGroupIndex": 1,
+          |          "LineItems": [
+          |            {
+          |              "LineItemExpenseFields": [
+          |                {
+          |                  "Type": { "Text": "ITEM", "Confidence": 95.0 },
+          |                  "ValueDetection": { "Text": "BREAD", "Confidence": 95.0 }
+          |                },
+          |                {
+          |                  "Type": { "Text": "PRICE", "Confidence": 95.0 },
+          |                  "LabelDetection": { "Text": "EUR" },
+          |                  "ValueDetection": { "Text": "1.50", "Confidence": 95.0 }
+          |                }
+          |              ]
+          |            },
+          |            {
+          |              "LineItemExpenseFields": [
+          |                {
+          |                  "Type": { "Text": "ITEM", "Confidence": 95.0 },
+          |                  "ValueDetection": { "Text": "MILK", "Confidence": 95.0 }
+          |                }
+          |              ]
+          |            }
+          |          ]
+          |        }
+          |      ]
+          |    },
+          |    {
+          |      "SummaryFields": [
+          |        {
+          |          "Type": { "Text": "INVOICE_RECEIPT_DATE", "Confidence": 90.0 },
+          |          "LabelDetection": { "Text": "Fecha" },
+          |          "ValueDetection": { "Text": "01/02/2026", "Confidence": 90.0 }
+          |        }
+          |      ],
+          |      "LineItemGroups": []
+          |    }
+          |  ]
+          |}""".stripMargin
+      )
+
+      DocumentParser.reconstructText(response) mustBe
+        List("EXAMPLE STORE", "TOTAL: 3.50", "Fecha: 01/02/2026", "BREAD", "EUR: 1.50", "MILK").mkString("\n")
+    }
+
+    "skip fields without a value" in {
+      val response = Json.parse(
+        """{
+          |  "ExpenseDocuments": [
+          |    {
+          |      "SummaryFields": [
+          |        {
+          |          "Type": { "Text": "OTHER", "Confidence": 50.0 },
+          |          "LabelDetection": { "Text": "Mesa" }
+          |        },
+          |        {
+          |          "Type": { "Text": "TOTAL", "Confidence": 99.0 },
+          |          "ValueDetection": { "Text": " 9.99 ", "Confidence": 97.0 }
+          |        }
+          |      ]
+          |    }
+          |  ]
+          |}""".stripMargin
+      )
+
+      DocumentParser.reconstructText(response) mustBe "9.99"
+    }
+
+    "give empty text for a response without expense documents" in {
+      val response = Json.parse(
+        """{
+          |  "ExpenseDocuments": []
+          |}""".stripMargin
+      )
+
+      DocumentParser.reconstructText(response) mustBe ""
+    }
+  }
 }

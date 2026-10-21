@@ -23,7 +23,8 @@ class RealJevClientSpec extends AnyWordSpec with MockitoSugar with ScalaFutures 
   override implicit val patienceConfig: PatienceConfig = PatienceConfig(timeout = Span(10, Seconds))
 
   private val actorSystem = ActorSystem("RealJevClientSpec")
-  private val config = JevConfig(JevApiKey("secret-key"), "https://jev.test", "jev-latest", JevConfig.Real)
+  private val config =
+    JevConfig(JevApiKey("secret-key"), "https://jev.test", "jev-latest", JevConfig.Real, BigDecimal("0.85"))
   private val criteria = Map("a" -> "Groceries", "b" -> "Transport")
 
   override def afterAll(): Unit = {

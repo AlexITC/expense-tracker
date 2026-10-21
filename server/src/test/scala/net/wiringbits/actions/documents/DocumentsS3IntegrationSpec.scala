@@ -68,7 +68,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
   }
 
   private lazy val documentsRepo: DocumentsRepository =
-    new DocumentsRepository(db)(using Executors.databaseEC)
+    new DocumentsRepository(db)(using Executors.databaseEC, java.time.Clock.systemUTC())
 
   // The s3mock bucket belongs to this suite only; DB rows are isolated through a fresh random user per test.
   private def cleanBucket(): Unit = {

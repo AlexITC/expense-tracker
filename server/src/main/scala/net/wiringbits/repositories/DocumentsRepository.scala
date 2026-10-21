@@ -1,16 +1,18 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.executors.DatabaseExecutionContext
+import net.wiringbits.models.documents.DocumentClassification
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.daos.{BackgroundJobDAO, DocumentDAO}
 import net.wiringbits.repositories.models.{BackgroundJobData, Document}
 import play.api.db.Database
 
+import java.time.Clock
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.Future
 
-class DocumentsRepository @Inject() (database: Database)(implicit ec: DatabaseExecutionContext) {
+class DocumentsRepository @Inject() (database: Database)(implicit ec: DatabaseExecutionContext, clock: Clock) {
 
   def create(document: Document.Create, job: BackgroundJobData.Create): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
@@ -40,6 +42,12 @@ class DocumentsRepository @Inject() (database: Database)(implicit ec: DatabaseEx
   def findBySha256(userId: UUID, sha256: String): Future[Option[Document]] = Future {
     database.withConnection { implicit conn =>
       DocumentDAO.findBySha256(userId, sha256)
+    }
+  }
+
+  def updateClassification(id: UUID, userId: UUID, classification: DocumentClassification): Future[Unit] = Future {
+    database.withTransaction { implicit conn =>
+      DocumentDAO.updateClassification(id, userId, classification, clock.instant())
     }
   }
 

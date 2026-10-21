@@ -1,6 +1,7 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.core.RepositorySpec
+import net.wiringbits.models.documents.{DocumentClass, DocumentClassification}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.{BackgroundJobData, Document, TextractCache}
 import org.scalatest.OptionValues.*
@@ -58,6 +59,50 @@ class DocumentsRepositorySpec extends RepositorySpec with RepositoryUtils {
       createDocument(user1.id, sha256 = "shared").futureValue
 
       repositories.documents.findBySha256(user2.id, "shared").futureValue must be(empty)
+    }
+  }
+
+  "updateClassification" should {
+    "leave a new document unclassified" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val doc = createDocument(user.id).futureValue
+
+      val found = repositories.documents.find(doc.id, user.id).futureValue.value
+      found.aiClassification must be(None)
+      found.aiClassificationConfidence must be(None)
+      found.aiInjectionSuspected must be(None)
+      found.aiInjectionConfidence must be(None)
+    }
+
+    "store all the classification fields" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val doc = createDocument(user.id).futureValue
+      val classification = DocumentClassification(
+        documentClass = DocumentClass.PurchaseTicket,
+        confidence = BigDecimal("0.97"),
+        injectionSuspected = true,
+        injectionConfidence = BigDecimal("0.81")
+      )
+
+      repositories.documents.updateClassification(doc.id, user.id, classification).futureValue
+
+      val found = repositories.documents.find(doc.id, user.id).futureValue.value
+      found.aiClassification must be(Some(DocumentClass.PurchaseTicket))
+      found.aiClassificationConfidence must be(Some(BigDecimal("0.97")))
+      found.aiInjectionSuspected must be(Some(true))
+      found.aiInjectionConfidence must be(Some(BigDecimal("0.81")))
+      found.classification must be(Some(classification))
+    }
+
+    "fail when the document belongs to another user" in withRepositories() { implicit repositories =>
+      val user1 = createUser().futureValue
+      val user2 = createUser().futureValue
+      val doc = createDocument(user1.id).futureValue
+      val classification = DocumentClassification(DocumentClass.Invoice, BigDecimal("0.9"), false, BigDecimal("0.1"))
+
+      val error = repositories.documents.updateClassification(doc.id, user2.id, classification).expectError
+      error must include("Document not found")
+      repositories.documents.find(doc.id, user1.id).futureValue.value.aiClassification must be(None)
     }
   }
 

@@ -3,9 +3,19 @@ package net.wiringbits.config
 import net.wiringbits.models.JevApiKey
 import play.api.Configuration
 
-/** JEV (Typesafe AI) config, used for the bank-statement category/merchant suggestions. */
-case class JevConfig(apiKey: JevApiKey, baseUrl: String, model: String, mode: JevConfig.Mode) {
-  override def toString: String = s"JevConfig(mode = $mode, baseUrl = $baseUrl, model = $model)"
+/** JEV (Typesafe AI) config, used for the bank-statement category/merchant suggestions and the document classifier.
+  *
+  * `minConfidence` is the lowest document-type confidence the classifier acts on (see `DocumentClassifier`).
+  */
+case class JevConfig(
+    apiKey: JevApiKey,
+    baseUrl: String,
+    model: String,
+    mode: JevConfig.Mode,
+    minConfidence: BigDecimal
+) {
+  override def toString: String =
+    s"JevConfig(mode = $mode, baseUrl = $baseUrl, model = $model, minConfidence = $minConfidence)"
 }
 
 object JevConfig {
@@ -23,7 +33,8 @@ object JevConfig {
       apiKey = config.get[JevApiKey]("apiKey"),
       baseUrl = config.get[String]("baseUrl"),
       model = config.get[String]("model"),
-      mode = mode
+      mode = mode,
+      minConfidence = BigDecimal(config.get[String]("minConfidence"))
     )
   }
 }
