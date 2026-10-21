@@ -43,7 +43,7 @@ class ProcessDocumentAction @Inject() (
   private def process(doc: net.wiringbits.repositories.models.Document): Future[Unit] = {
     logger.info(s"Processing document ${doc.id} (sha256=${doc.sha256}, kind=${doc.kind})")
     doc.kind match {
-      // Bank statements are imported via the AI draft flow (already Parsed on confirm), so they never reach here.
+      // Bank statement documents are created as Ingested at upload and imported via the AI draft flow; they must never go to Textract.
       case DocumentKind.BankStatementPdf =>
         logger.info(s"Skipping Textract for bank statement ${doc.id}; statements are imported via the AI draft flow")
         Future.unit
