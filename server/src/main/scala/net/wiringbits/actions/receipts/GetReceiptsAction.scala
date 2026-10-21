@@ -16,7 +16,7 @@ class GetReceiptsAction @Inject() (receiptRepository: ReceiptRepository)(implici
         GetReceipts.Response.Receipt(
           id = r.id,
           documentFilename = r.documentFilename,
-          documentStatus = ApiStatus.fromEntryName(r.documentStatus.entryName),
+          documentStatus = ApiStatus.fromEntryName(r.status.entryName),
           amount = r.amount,
           date = r.date,
           merchantName = r.merchantName,

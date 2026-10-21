@@ -4,8 +4,7 @@ import com.dimafeng.testcontainers.{ForAllTestContainer, GenericContainer}
 import net.wiringbits.config.{AWSConfig, S3Config}
 import net.wiringbits.core.SharedPostgres
 import net.wiringbits.models.{AWSAccessKeyId, AWSSecretAccessKey}
-import net.wiringbits.api.models.documents.{DocumentStatus => ApiDocumentStatus}
-import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.*
 import net.wiringbits.repositories.models.{BackgroundJobData, Document}
@@ -69,7 +68,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
   }
 
   private lazy val documentsRepo: DocumentsRepository =
-    new DocumentsRepository(db)(using Executors.databaseEC, Clock.systemUTC())
+    new DocumentsRepository(db)(using Executors.databaseEC)
 
   // The s3mock bucket belongs to this suite only; DB rows are isolated through a fresh random user per test.
   private def cleanBucket(): Unit = {
@@ -101,7 +100,6 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
       storageKey = storageKey,
       kind = DocumentKind.Receipt,
       filename = "test.pdf",
-      status = DocumentStatus.Ingested,
       createdAt = now,
       updatedAt = now
     )
@@ -129,7 +127,6 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
       val action = new UploadDocumentAction(documentsRepo, storage)(using ec, Clock.systemUTC())
 
       val resp = action(userId, bytes, "receipt", "r.pdf").futureValue
-      resp.status must be(ApiDocumentStatus.Ingested)
 
       val doc = documentsRepo.find(resp.id, userId).futureValue.get
       doc.storageKey must startWith(s"data/$userId/")

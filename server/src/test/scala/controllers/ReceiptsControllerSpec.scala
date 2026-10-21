@@ -75,9 +75,7 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
       merchantName: Option[String] = None
   ): Unit = {
     val receiptRepo = app.injector.instanceOf[ReceiptRepository]
-    val docRepo = app.injector.instanceOf[DocumentsRepository]
-    val receipt = receiptRepo.find(receiptId, userId).futureValue.get
-    docRepo.updateStatus(receipt.documentId, ServerDocumentStatus.Parsed, None).futureValue
+    receiptRepo.updateStatus(receiptId, userId, ServerDocumentStatus.Parsed).futureValue
     receiptRepo.updateParsed(receiptId, Some(amount), Some(sampleDate), None, merchantName, None, None).futureValue
   }
 
@@ -220,6 +218,23 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
 
       val receipts = client.getReceipts.futureValue
       receipts.data.length must be(2)
+    }
+
+    "list items report the receipt status as documentStatus" in withApiClient { implicit client =>
+      val loginResp = createVerifyLoginUser(tokenGenerator).futureValue
+      val receiptId = client.uploadReceipt(sampleBytes, "receipt", "test.jpg").futureValue.id
+      client.getReceipts.futureValue.data.find(_.id == receiptId).get.documentStatus must be(
+        ApiDocumentStatus.Ingested
+      )
+
+      app.injector
+        .instanceOf[ReceiptRepository]
+        .updateStatus(receiptId, loginResp.id, ServerDocumentStatus.ParseFailed)
+        .futureValue
+
+      client.getReceipts.futureValue.data.find(_.id == receiptId).get.documentStatus must be(
+        ApiDocumentStatus.ParseFailed
+      )
     }
 
     "duplicate sha256 returns the existing receipt id (not a new one)" in withApiClient { implicit client =>

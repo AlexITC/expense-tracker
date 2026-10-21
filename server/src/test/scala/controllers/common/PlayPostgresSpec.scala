@@ -4,7 +4,7 @@ import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.github.f4b6a3.uuid.UuidCreator
 import net.wiringbits.api.ApiClient
 import net.wiringbits.core.SharedPostgres
-import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.BankStatementRepository
 import net.wiringbits.repositories.models.{BackgroundJobData, BankStatement, BankStatementRow, Document}
@@ -67,7 +67,6 @@ trait PlayPostgresSpec extends PlayAPISpec with GuiceOneServerPerTest {
       storageKey = "key",
       kind = DocumentKind.BankStatementPdf,
       filename = "stmt.pdf",
-      status = DocumentStatus.Parsed,
       createdAt = now,
       updatedAt = now
     )

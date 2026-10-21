@@ -1,6 +1,6 @@
 package net.wiringbits.repositories.models
 
-import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.models.documents.DocumentKind
 
 import java.time.Instant
 import java.util.UUID
@@ -12,8 +12,6 @@ case class Document(
     storageKey: String,
     kind: DocumentKind,
     filename: String,
-    status: DocumentStatus,
-    parserVersion: Option[String],
     createdAt: Instant,
     updatedAt: Instant
 )
@@ -26,7 +24,6 @@ object Document {
       storageKey: String,
       kind: DocumentKind,
       filename: String,
-      status: DocumentStatus,
       createdAt: Instant,
       updatedAt: Instant
   )

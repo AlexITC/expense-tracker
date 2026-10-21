@@ -4,7 +4,7 @@ import anorm.*
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus, ExtractionInfo}
 import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
-import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.{
   BackgroundJobData,
@@ -77,7 +77,6 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         storageKey = "key",
         kind = DocumentKind.BankStatementPdf,
         filename = "stmt.pdf",
-        status = DocumentStatus.Parsed,
         createdAt = now,
         updatedAt = now
       )
