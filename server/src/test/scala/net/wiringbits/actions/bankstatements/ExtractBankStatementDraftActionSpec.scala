@@ -124,6 +124,7 @@ class ExtractBankStatementDraftActionSpec extends RepositorySpec with Repository
   ) =
     new ExtractBankStatementDraftAction(
       repositories.bankStatementDrafts,
+      repositories.documents,
       new InMemoryBlobStorage(Map(storageKey -> statementPdf)),
       service,
       new DocumentClassifier(jevClient, jevConfig)
@@ -141,8 +142,9 @@ class ExtractBankStatementDraftActionSpec extends RepositorySpec with Repository
         val found = repositories.bankStatementDrafts.findById(draft.id).futureValue.value
         found.status must be(BankStatementDraft.Status.Failed)
         found.error must be(Some("This looks like an invoice, not a bank statement."))
-        found.aiClassification must be(Some(DocumentClass.Invoice))
-        found.aiClassificationConfidence must be(Some(BigDecimal("1.0")))
+        val doc = repositories.documents.findById(draft.documentId).futureValue.value
+        doc.aiClassification must be(Some(DocumentClass.Invoice))
+        doc.aiClassificationConfidence must be(Some(BigDecimal("1.0")))
         verify(service, never()).extract(any(), any(), any(), any())
     }
 
@@ -157,7 +159,11 @@ class ExtractBankStatementDraftActionSpec extends RepositorySpec with Repository
         val found = repositories.bankStatementDrafts.findById(draft.id).futureValue.value
         found.status must be(BankStatementDraft.Status.Failed)
         found.error must be(Some("This looks like a purchase ticket, not a bank statement."))
-        found.aiClassification must be(Some(DocumentClass.PurchaseTicket))
+        repositories.documents
+          .findById(draft.documentId)
+          .futureValue
+          .value
+          .aiClassification must be(Some(DocumentClass.PurchaseTicket))
         verify(service, never()).extract(any(), any(), any(), any())
     }
 
@@ -172,7 +178,11 @@ class ExtractBankStatementDraftActionSpec extends RepositorySpec with Repository
         val found = repositories.bankStatementDrafts.findById(draft.id).futureValue.value
         found.status must be(BankStatementDraft.Status.Failed)
         found.error must be(Some("This doesn't look like a bank statement."))
-        found.aiClassification must be(Some(DocumentClass.Other))
+        repositories.documents
+          .findById(draft.documentId)
+          .futureValue
+          .value
+          .aiClassification must be(Some(DocumentClass.Other))
         verify(service, never()).extract(any(), any(), any(), any())
     }
 
@@ -186,7 +196,7 @@ class ExtractBankStatementDraftActionSpec extends RepositorySpec with Repository
       val found = repositories.bankStatementDrafts.findById(draft.id).futureValue.value
       found.status must be(BankStatementDraft.Status.Ready)
       found.payload must not be empty
-      found.classification must be(
+      repositories.documents.findById(draft.documentId).futureValue.value.classification must be(
         Some(DocumentClassification(DocumentClass.BankStatement, BigDecimal("0.97"), false, BigDecimal("0.99")))
       )
       verify(service, times(1)).extract(any(), any(), any(), any())
@@ -202,8 +212,9 @@ class ExtractBankStatementDraftActionSpec extends RepositorySpec with Repository
 
         val found = repositories.bankStatementDrafts.findById(draft.id).futureValue.value
         found.status must be(BankStatementDraft.Status.Ready)
-        found.aiClassification must be(Some(DocumentClass.Invoice))
-        found.aiClassificationConfidence must be(Some(BigDecimal("0.5")))
+        val doc = repositories.documents.findById(draft.documentId).futureValue.value
+        doc.aiClassification must be(Some(DocumentClass.Invoice))
+        doc.aiClassificationConfidence must be(Some(BigDecimal("0.5")))
         verify(service, times(1)).extract(any(), any(), any(), any())
     }
 
@@ -216,7 +227,7 @@ class ExtractBankStatementDraftActionSpec extends RepositorySpec with Repository
 
       val found = repositories.bankStatementDrafts.findById(draft.id).futureValue.value
       found.status must be(BankStatementDraft.Status.Ready)
-      found.classification must be(None)
+      repositories.documents.findById(draft.documentId).futureValue.value.classification must be(None)
       verify(service, times(1)).extract(any(), any(), any(), any())
     }
   }

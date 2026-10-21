@@ -1,7 +1,7 @@
 package net.wiringbits.repositories
 
-import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
-import net.wiringbits.models.documents.{DocumentClass, DocumentClassification, DocumentKind}
+import net.wiringbits.core.RepositorySpec
+import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.{BackgroundJobData, BankStatementDraft, Document}
 import org.scalatest.OptionValues.*
@@ -13,13 +13,6 @@ import java.time.Instant
 import java.util.UUID
 
 class BankStatementDraftRepositorySpec extends RepositorySpec with RepositoryUtils {
-
-  private val classification = DocumentClassification(
-    documentClass = DocumentClass.BankStatement,
-    confidence = BigDecimal("0.99"),
-    injectionSuspected = false,
-    injectionConfidence = BigDecimal("0.02")
-  )
 
   private def buildDraft(userId: UUID, documentId: UUID, sha256: String): BankStatementDraft.Create = {
     val now = Instant.now()
@@ -37,68 +30,6 @@ class BankStatementDraftRepositorySpec extends RepositorySpec with RepositoryUti
       createdAt = now,
       updatedAt = now
     )
-  }
-
-  /** Create a draft backed by a fresh document (document_id is NOT NULL since the upload-creates-document change). */
-  private def seedDraft(userId: UUID)(implicit repositories: RepositoryComponents): BankStatementDraft.Create = {
-    val now = Instant.now()
-    val document = Document.Create(
-      id = UUID.randomUUID(),
-      userId = userId,
-      sha256 = "sha-" + UUID.randomUUID().toString,
-      storageKey = "key",
-      kind = DocumentKind.BankStatementPdf,
-      filename = "stmt.pdf",
-      createdAt = now,
-      updatedAt = now
-    )
-    val draft = buildDraft(userId, document.id, document.sha256)
-    repositories.bankStatementDrafts
-      .create(BankStatementDraft.DocumentLink.New(document), draft, buildJob(draft.id))
-      .futureValue
-    draft
-  }
-
-  "updateClassification" should {
-    "leave a new draft unclassified" in withRepositories() { implicit repositories =>
-      val user = createUser().futureValue
-      val draft = seedDraft(user.id)
-
-      val found = repositories.bankStatementDrafts.findByIdForUser(draft.id, user.id).futureValue.value
-      found.aiClassification must be(None)
-      found.aiClassificationConfidence must be(None)
-      found.aiInjectionSuspected must be(None)
-      found.aiInjectionConfidence must be(None)
-    }
-
-    "store all the classification fields" in withRepositories() { implicit repositories =>
-      val user = createUser().futureValue
-      val draft = seedDraft(user.id)
-
-      repositories.bankStatementDrafts
-        .updateClassification(draft.id, user.id, classification, Instant.now())
-        .futureValue
-
-      val found = repositories.bankStatementDrafts.findByIdForUser(draft.id, user.id).futureValue.value
-      found.aiClassification must be(Some(DocumentClass.BankStatement))
-      found.aiClassificationConfidence must be(Some(BigDecimal("0.99")))
-      found.aiInjectionSuspected must be(Some(false))
-      found.aiInjectionConfidence must be(Some(BigDecimal("0.02")))
-      found.classification must be(Some(classification))
-    }
-
-    "fail when the draft belongs to another user" in withRepositories() { implicit repositories =>
-      val user1 = createUser().futureValue
-      val user2 = createUser().futureValue
-      val draft = seedDraft(user1.id)
-
-      val error = repositories.bankStatementDrafts
-        .updateClassification(draft.id, user2.id, classification, Instant.now())
-        .failed
-        .futureValue
-      error.getMessage must include("No draft to update")
-      repositories.bankStatementDrafts.findById(draft.id).futureValue.value.aiClassification must be(None)
-    }
   }
 
   "create" should {

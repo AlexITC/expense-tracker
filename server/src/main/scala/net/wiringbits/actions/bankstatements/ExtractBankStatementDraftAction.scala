@@ -2,7 +2,7 @@ package net.wiringbits.actions.bankstatements
 
 import net.wiringbits.api.models.bankstatements.BankStatementDraft as ApiDraft
 import net.wiringbits.models.documents.DocumentClass
-import net.wiringbits.repositories.BankStatementDraftRepository
+import net.wiringbits.repositories.{BankStatementDraftRepository, DocumentsRepository}
 import net.wiringbits.repositories.models.BankStatementDraft as DraftRecord
 import net.wiringbits.services.{
   AiStatementExtractor,
@@ -21,13 +21,14 @@ import scala.concurrent.{ExecutionContext, Future}
 
 /** Background job: read the draft's stored PDF, run the shared extraction ladder, and set the draft's payload
   * (status=ready). Before extracting, the PDF text goes through the AI document classifier: its answer is stored on the
-  * draft, and a document confidently classified as something other than a bank statement fails the draft without
-  * running the (slow, paid) extraction; an inconclusive classification never blocks it. A hard failure is recorded on
-  * the draft (status=failed) rather than propagated, so the job doesn't retry forever and the user sees why. Skips
-  * drafts that are no longer processing, so a duplicate dispatch doesn't re-run the (slow, paid) extraction.
+  * draft's document, and a document confidently classified as something other than a bank statement fails the draft
+  * without running the (slow, paid) extraction; an inconclusive classification never blocks it. A hard failure is
+  * recorded on the draft (status=failed) rather than propagated, so the job doesn't retry forever and the user sees
+  * why. Skips drafts that are no longer processing, so a duplicate dispatch doesn't re-run the (slow, paid) extraction.
   */
 class ExtractBankStatementDraftAction @Inject() (
     bankStatementDraftRepository: BankStatementDraftRepository,
+    documentsRepository: DocumentsRepository,
     blobStorage: BlobStorage,
     extractionService: StatementExtractionService,
     documentClassifier: DocumentClassifier
@@ -50,7 +51,7 @@ class ExtractBankStatementDraftAction @Inject() (
           text = PdfTextExtractor.extract(bytes).fold(err => throw new RuntimeException(err), identity)
           classification <- documentClassifier.classify(draft.userId, s"draft $draftId", text)
           _ <- classification.persistWith(
-            bankStatementDraftRepository.updateClassification(draftId, draft.userId, _, clock.instant())
+            documentsRepository.updateClassification(draft.documentId, draft.userId, _)
           )
           _ <- classification.rejection(Set(DocumentClass.BankStatement)) match {
             case Some(documentClass) => reject(draft, documentClass)

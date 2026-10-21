@@ -403,14 +403,14 @@ trait RepositoryUtils {
       userId: UUID,
       sha256: String = "draft-sha",
       filename: String = "statement.pdf",
-      storageKey: String = ""
+      storageKey: String = "key"
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[BankStatementDraft.Create] = {
     val now = Instant.now()
     val document = Document.Create(
       id = UUID.randomUUID(),
       userId = userId,
       sha256 = sha256,
-      storageKey = if (storageKey.isEmpty) "key" else storageKey,
+      storageKey = storageKey,
       kind = DocumentKind.BankStatementPdf,
       filename = filename,
       createdAt = now,

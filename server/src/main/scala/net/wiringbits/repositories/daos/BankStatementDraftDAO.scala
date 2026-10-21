@@ -2,7 +2,6 @@ package net.wiringbits.repositories.daos
 
 import anorm.*
 import anorm.SqlParser.*
-import net.wiringbits.models.documents.{DocumentClass, DocumentClassification}
 import net.wiringbits.repositories.models.BankStatementDraft
 
 import java.sql.Connection
@@ -22,13 +21,8 @@ object BankStatementDraftDAO {
       get[Option[String]]("error") ~
       get[Option[String]]("payload") ~
       get[Instant]("created_at") ~
-      get[Instant]("updated_at") ~
-      get[Option[DocumentClass]]("ai_classification") ~
-      get[Option[BigDecimal]]("ai_classification_confidence") ~
-      get[Option[Boolean]]("ai_injection_suspected") ~
-      get[Option[BigDecimal]]("ai_injection_confidence")).map {
-      case id ~ userId ~ documentId ~ sha256 ~ filename ~ storageKey ~ status ~ error ~ payload ~ createdAt ~ updatedAt ~
-          aiClassification ~ aiClassificationConfidence ~ aiInjectionSuspected ~ aiInjectionConfidence =>
+      get[Instant]("updated_at")).map {
+      case id ~ userId ~ documentId ~ sha256 ~ filename ~ storageKey ~ status ~ error ~ payload ~ createdAt ~ updatedAt =>
         BankStatementDraft(
           id,
           userId,
@@ -40,17 +34,12 @@ object BankStatementDraftDAO {
           error,
           payload,
           createdAt,
-          updatedAt,
-          aiClassification,
-          aiClassificationConfidence,
-          aiInjectionSuspected,
-          aiInjectionConfidence
+          updatedAt
         )
     }
 
   private val selectColumns =
-    "id, user_id, document_id, sha256, filename, storage_key, status, error, payload::TEXT AS payload, created_at, updated_at, " +
-      "ai_classification, ai_classification_confidence, ai_injection_suspected, ai_injection_confidence"
+    "id, user_id, document_id, sha256, filename, storage_key, status, error, payload::TEXT AS payload, created_at, updated_at"
 
   def listByUser(userId: UUID)(implicit conn: Connection): List[BankStatementDraft] =
     SQL(s"SELECT $selectColumns FROM bank_statement_draft WHERE user_id = {userId}::UUID ORDER BY created_at, id")
@@ -113,24 +102,6 @@ object BankStatementDraftDAO {
       UPDATE bank_statement_draft
       SET payload = $payload::JSONB,
           status = ${BankStatementDraft.Status.Ready},
-          updated_at = $updatedAt
-      WHERE id = ${id.toString}::UUID AND user_id = ${userId.toString}::UUID
-      """.executeUpdate()
-    if (updated == 0) throw new RuntimeException("No draft to update")
-  }
-
-  def updateClassification(
-      id: UUID,
-      userId: UUID,
-      classification: DocumentClassification,
-      updatedAt: Instant
-  )(implicit conn: Connection): Unit = {
-    val updated = SQL"""
-      UPDATE bank_statement_draft
-      SET ai_classification = ${classification.documentClass.entryName},
-          ai_classification_confidence = ${classification.confidence},
-          ai_injection_suspected = ${classification.injectionSuspected},
-          ai_injection_confidence = ${classification.injectionConfidence},
           updated_at = $updatedAt
       WHERE id = ${id.toString}::UUID AND user_id = ${userId.toString}::UUID
       """.executeUpdate()

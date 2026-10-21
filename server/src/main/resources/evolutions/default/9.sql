@@ -8,9 +8,3 @@ ALTER TABLE document
   ADD COLUMN ai_classification_confidence NUMERIC NULL,
   ADD COLUMN ai_injection_suspected BOOLEAN NULL,
   ADD COLUMN ai_injection_confidence NUMERIC NULL;
-
-ALTER TABLE bank_statement_draft
-  ADD COLUMN ai_classification TEXT NULL,
-  ADD COLUMN ai_classification_confidence NUMERIC NULL,
-  ADD COLUMN ai_injection_suspected BOOLEAN NULL,
-  ADD COLUMN ai_injection_confidence NUMERIC NULL;
