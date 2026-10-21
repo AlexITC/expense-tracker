@@ -17,7 +17,7 @@ object SharedPostgres {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private lazy val instance: (PostgreSQLContainer, Database) = {
-    val container = PostgreSQLContainer.Def(dockerImageName = DockerImageName.parse("postgres:13")).start()
+    val container = PostgreSQLContainer.Def(dockerImageName = DockerImageName.parse("postgres:18")).start()
     logger.info(s"Started shared Postgres container at ${container.jdbcUrl}")
 
     val conn = DriverManager.getConnection(container.jdbcUrl, container.username, container.password)
