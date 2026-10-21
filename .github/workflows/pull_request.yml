@@ -42,10 +42,19 @@ jobs:
       - name: checkout
         uses: actions/checkout@v2
 
+      # Install JDK 25 from GitHub's toolcache (not coursier). The Scala setup
+      # below then uses this system JVM, so coursier never fetches its JVM index
+      # (that fetch was flaky and failed the "Setup Scala" step before compile).
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
       - name: Setup Scala
         uses: japgolly/setup-everything-scala@v3.1
         with:
-          java-version: 'temurin:25'
+          java-version: 'system'
           node-version: '24'
 
       - name: Install yarn
