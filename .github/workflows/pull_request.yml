@@ -37,10 +37,14 @@ jobs:
 
     env:
       NODE_OPTIONS: --openssl-legacy-provider
+      # Set job-wide so the shared sbt server (sbt --client) boots with it: the server
+      # captures env at startup, so per-step `CI=true` would not reach an already-running
+      # server. CI enables fatal warnings (-Werror) and yarn's --pure-lockfile.
+      CI: "true"
 
     steps:
       - name: checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       # Install JDK 25 from GitHub's toolcache (not coursier). The Scala setup
       # below then uses this system JVM, so coursier never fetches its JVM index
@@ -61,7 +65,7 @@ jobs:
         run: npm install -g yarn
 
       - name: Cache compiled code
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             **/target/
@@ -69,14 +73,17 @@ jobs:
           key: compiled-code-cache-${{ hashFiles('**/build.sbt') }}
           restore-keys: compiled-code-cache-
 
+      # These steps reuse a single sbt server via the thin client (sbt --client),
+      # so the build is loaded once and the incremental compiler stays warm between
+      # steps, while each step stays separate for readable logs and failure reporting.
       - name: Check code format
-        run: sbt scalafmtCheckAll
+        run: sbt --client scalafmtCheckAll
 
       - name: Compile
-        run: CI=true sbt Test/compile
+        run: sbt --client Test/compile
 
       - name: Run tests
-        run: CI=true sbt test
+        run: sbt --client test
 
       - name: Test summary
         if: always() # Always run, even if previous steps failed
@@ -84,11 +91,15 @@ jobs:
         with:
           paths: "**/target/test-reports/*.xml"
 
-      - name: Test dev-web
-        run: ./scripts/test-dev-web.sh
-
       - name: Prepare web build
-        run: sbt web/build
+        run: sbt --client web/build
 
       - name: Prepare server build
-        run: sbt server/dist
+        run: sbt --client server/dist
+
+      # dev-web is a blocking webpack-dev-server watch that the script tears down by
+      # killing its sbt JVM, so it runs as its own standalone sbt (`--no-server`, set in
+      # the script) rather than the shared thin-client server. Runs last so its
+      # web/target writes don't race the shared server's build steps.
+      - name: Test dev-web
+        run: ./scripts/test-dev-web.sh
