@@ -1,8 +1,17 @@
 -- !Ups
 
--- The document (kind bank_statement_pdf) behind a draft import. The document is created at upload as Ingested and
--- outlives the draft: discarding a draft keeps the document, so a re-upload of the same file reuses it.
-ALTER TABLE bank_statement_draft ADD COLUMN document_id UUID NOT NULL;
-ALTER TABLE bank_statement_draft
-  ADD CONSTRAINT bank_statement_draft_document_fk FOREIGN KEY (document_id) REFERENCES document(id) ON DELETE CASCADE;
-CREATE INDEX bank_statement_draft_document_id_index ON bank_statement_draft USING BTREE (document_id);
+-- A receipt's processing status moves from the document onto the receipt itself: the document table only describes
+-- the stored file, while pipeline state belongs to the entity being processed.
+-- The column starts nullable so existing receipts can be backfilled from their document before NOT NULL is enforced.
+-- Values are stored as the DocumentStatus case-object names ('Ingested', 'Parsed', ...).
+ALTER TABLE receipt ADD COLUMN status TEXT;
+
+UPDATE receipt r SET status = d.status FROM document d WHERE r.document_id = d.id;
+
+ALTER TABLE receipt ALTER COLUMN status SET NOT NULL;
+
+-- Processing state now lives on the per-type table (receipt.status, receipt.parser_version), so the document table
+-- only describes the stored file.
+ALTER TABLE document DROP COLUMN status;
+
+ALTER TABLE document DROP COLUMN parser_version;

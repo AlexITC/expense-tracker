@@ -4,7 +4,7 @@ import anorm.*
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus, ExtractionInfo}
 import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
-import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.daos.DocumentDAO
 import net.wiringbits.repositories.models.{
@@ -79,7 +79,6 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         storageKey = "key",
         kind = DocumentKind.BankStatementPdf,
         filename = "stmt.pdf",
-        status = DocumentStatus.Ingested,
         createdAt = now,
         updatedAt = now
       )
@@ -106,7 +105,6 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
 
       val documents = repositories.documents.all(user.id).futureValue
       documents.map(_.id) must be(List(stmt.documentId))
-      documents.head.status must be(DocumentStatus.Parsed)
     }
 
     "reject a document owned by another user without touching it" in withRepositories() { implicit repositories =>
@@ -120,7 +118,6 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         storageKey = "key",
         kind = DocumentKind.BankStatementPdf,
         filename = "stmt.pdf",
-        status = DocumentStatus.Ingested,
         createdAt = now,
         updatedAt = now
       )
@@ -142,7 +139,6 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
           .futureValue
       )
       ex.getMessage must include("Document not found")
-      repositories.documents.all(owner.id).futureValue.map(_.status) must be(List(DocumentStatus.Ingested))
       repositories.bankStatements.all(other.id).futureValue must be(empty)
     }
 

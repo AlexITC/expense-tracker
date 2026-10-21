@@ -2,8 +2,7 @@ package net.wiringbits.repositories
 
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, ExtractionInfo}
 import net.wiringbits.executors.DatabaseExecutionContext
-import net.wiringbits.models.documents.DocumentStatus
-import net.wiringbits.repositories.daos.{BackgroundJobDAO, BankStatementDAO, BankStatementRowDAO, DocumentDAO}
+import net.wiringbits.repositories.daos.{BackgroundJobDAO, BankStatementDAO, BankStatementRowDAO}
 import net.wiringbits.repositories.models.{
   BackgroundJobData,
   BankStatement,
@@ -32,7 +31,6 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
       job: BackgroundJobData.Create
   ): Future[UUID] = Future {
     database.withTransaction { implicit conn =>
-      DocumentDAO.updateStatusForUser(stmt.documentId, stmt.userId, DocumentStatus.Parsed, updatedAt = stmt.updatedAt)
       BankStatementDAO.create(stmt, metadata, extractionInfo)
       BankStatementRowDAO.createAll(rows)
       BackgroundJobDAO.create(job)

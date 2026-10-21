@@ -2,7 +2,7 @@ package net.wiringbits.actions.bankstatements
 
 import com.github.f4b6a3.uuid.UuidCreator
 import net.wiringbits.api.models.bankstatements.BankStatementDraft as ApiDraft
-import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.{BackgroundJobData, Document, BankStatementDraft as DraftRecord}
 import net.wiringbits.repositories.{BankStatementDraftRepository, BankStatementRepository, DocumentsRepository}
@@ -94,7 +94,6 @@ class CreateBankStatementDraftAction @Inject() (
           storageKey = storageKey,
           kind = DocumentKind.BankStatementPdf,
           filename = filename,
-          status = DocumentStatus.Ingested,
           createdAt = now,
           updatedAt = now
         )

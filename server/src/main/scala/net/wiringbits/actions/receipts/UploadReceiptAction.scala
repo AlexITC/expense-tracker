@@ -48,7 +48,6 @@ class UploadReceiptAction @Inject() (
             storageKey = storageKey,
             kind = kind,
             filename = filename,
-            status = DocumentStatus.Ingested,
             createdAt = now,
             updatedAt = now
           )
@@ -57,6 +56,7 @@ class UploadReceiptAction @Inject() (
             userId = userId,
             documentId = documentId,
             manuallyEdited = false,
+            status = DocumentStatus.Ingested,
             createdAt = now,
             updatedAt = now
           )

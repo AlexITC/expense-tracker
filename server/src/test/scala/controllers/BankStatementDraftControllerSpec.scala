@@ -6,10 +6,11 @@ import com.github.f4b6a3.uuid.UuidCreator
 import controllers.common.PlayPostgresSpec
 import net.wiringbits.api.models.bankstatements.{BankStatementDraft, ExtractionInfo}
 import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
+import net.wiringbits.api.models.documents.DocumentStatus
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
 import net.wiringbits.common.models.Captcha
-import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.BackgroundJobType
 import net.wiringbits.repositories.daos.{BankStatementDraftDAO, DocumentDAO}
 import net.wiringbits.repositories.models.{BankStatementDraft => DraftRecord, Document}
@@ -92,7 +93,6 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       storageKey = "key",
       kind = DocumentKind.BankStatementPdf,
       filename = "stmt.pdf",
-      status = DocumentStatus.Ingested,
       createdAt = now,
       updatedAt = now
     )
@@ -175,7 +175,6 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       val documents = storedDocuments(userId)
       documents must have size 1
       documents.head.kind must be(DocumentKind.BankStatementPdf)
-      documents.head.status must be(DocumentStatus.Ingested)
       storedDraftDocumentId(data.id, userId) must be(documents.head.id)
     }
 
@@ -217,7 +216,6 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
         storageKey = "key",
         kind = DocumentKind.Receipt,
         filename = "receipt.pdf",
-        status = DocumentStatus.Parsed,
         createdAt = now,
         updatedAt = now
       )
@@ -230,7 +228,6 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       val documents = storedDocuments(userId)
       documents.map(_.id) must be(List(receipt.id))
       documents.head.kind must be(DocumentKind.Receipt)
-      documents.head.status must be(DocumentStatus.Parsed)
     }
   }
 
@@ -259,7 +256,7 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       val stmtId = client.confirmBankStatementDraft(id).futureValue.bankStatementId
       val documents = storedDocuments(userId)
       documents.map(_.id) must be(List(documentId))
-      documents.head.status must be(DocumentStatus.Parsed)
+      client.getBankStatement(stmtId).futureValue.documentStatus must be(DocumentStatus.Parsed)
       val stmtDocumentId = app.injector.instanceOf[Database].withConnection { implicit conn =>
         SQL"SELECT document_id FROM bank_statement WHERE id = ${stmtId.toString}::UUID"
           .as(SqlParser.get[UUID]("document_id").single)
@@ -278,7 +275,17 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       client.confirmBankStatementDraft(uploaded.id).futureValue
       val documents = storedDocuments(userId)
       documents.map(_.id) must be(List(documentId))
-      documents.head.status must be(DocumentStatus.Parsed)
+    }
+
+    "report the confirmed statement as Parsed" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val id = seedReadyDraft(userId, reconcilingPayload)
+
+      val stmtId = client.confirmBankStatementDraft(id).futureValue.bankStatementId
+      client.getBankStatement(stmtId).futureValue.documentStatus must be(DocumentStatus.Parsed)
+      client.getBankStatements.futureValue.data.map(s => s.id -> s.documentStatus) must be(
+        List(stmtId -> DocumentStatus.Parsed)
+      )
     }
 
     "reject a draft that does not reconcile" in withApiClient { implicit client =>

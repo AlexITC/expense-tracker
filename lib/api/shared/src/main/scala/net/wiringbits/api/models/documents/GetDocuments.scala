@@ -17,8 +17,6 @@ object GetDocuments {
         sha256: String,
         kind: String,
         filename: String,
-        status: DocumentStatus,
-        parserVersion: Option[String],
         createdAt: Instant
     )
 

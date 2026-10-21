@@ -22,7 +22,7 @@ trait RepositorySpec extends AnyWordSpec with PostgresSpec {
     val categories = new CategoriesRepository(db)(using Executors.databaseEC, clock)
     val merchants = new MerchantsRepository(db)(using Executors.databaseEC, clock)
     val expenses = new ExpensesRepository(db)(using Executors.databaseEC, clock)
-    val documents = new DocumentsRepository(db)(using Executors.databaseEC, clock)
+    val documents = new DocumentsRepository(db)(using Executors.databaseEC)
     val textractCache = new TextractCacheRepository(db)(using Executors.databaseEC)
     val bankStatements = new BankStatementRepository(db)(using Executors.databaseEC)
     val bankStatementDrafts = new BankStatementDraftRepository(db)(using Executors.databaseEC)

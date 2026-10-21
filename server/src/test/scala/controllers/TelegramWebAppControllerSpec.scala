@@ -84,10 +84,10 @@ class TelegramWebAppControllerSpec extends AnyWordSpec with Matchers with ScalaF
       ignoredAt = None,
       manuallyEdited = false,
       parserVersion = None,
+      status = DocumentStatus.Parsed,
       createdAt = Instant.now(),
       updatedAt = Instant.now(),
-      documentFilename = "receipt.jpg",
-      documentStatus = DocumentStatus.Parsed
+      documentFilename = "receipt.jpg"
     )
 
   private def stubExpense(id: UUID, userId: UUID): Expense =

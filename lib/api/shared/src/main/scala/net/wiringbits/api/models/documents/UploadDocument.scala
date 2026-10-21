@@ -7,7 +7,7 @@ import sttp.tapir.generic.auto.*
 import java.util.UUID
 
 object UploadDocument {
-  case class Response(id: UUID, status: DocumentStatus)
+  case class Response(id: UUID)
 
   implicit val responseFormat: Format[Response] = Json.format[Response]
   implicit val responseSchema: Schema[Response] =

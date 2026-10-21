@@ -1,7 +1,7 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.core.RepositorySpec
-import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.{BackgroundJobData, BankStatementDraft, Document}
 import org.scalatest.OptionValues.*
@@ -43,7 +43,6 @@ class BankStatementDraftRepositorySpec extends RepositorySpec with RepositoryUti
         storageKey = "key",
         kind = DocumentKind.BankStatementPdf,
         filename = "stmt.pdf",
-        status = DocumentStatus.Ingested,
         createdAt = now,
         updatedAt = now
       )
@@ -60,7 +59,6 @@ class BankStatementDraftRepositorySpec extends RepositorySpec with RepositoryUti
 
       val stored = repositories.documents.findById(document.id).futureValue.value
       stored.kind must be(DocumentKind.BankStatementPdf)
-      stored.status must be(DocumentStatus.Ingested)
     }
 
     "link the draft to an existing document without inserting another" in withRepositories() { implicit repositories =>
