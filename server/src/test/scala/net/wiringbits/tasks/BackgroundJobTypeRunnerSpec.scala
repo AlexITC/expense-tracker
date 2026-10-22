@@ -23,7 +23,11 @@ import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.*
 import scala.concurrent.{Future, Promise}
 
-class BackgroundJobTypeRunnerSpec extends RepositorySpec with RepositoryUtils with IsolatedPostgresSpec with BeforeAndAfterAll {
+class BackgroundJobTypeRunnerSpec
+    extends RepositorySpec
+    with RepositoryUtils
+    with IsolatedPostgresSpec
+    with BeforeAndAfterAll {
 
   private implicit lazy val system: ActorSystem = ActorSystem("BackgroundJobTypeRunnerSpec")
 

@@ -11,9 +11,9 @@ import java.sql.DriverManager
 
 /** Runs the suite against a Postgres container private to it, instead of the shared one in [[PostgresSpec]].
   *
-  * Suites that must control the global, un-user-scoped `background_jobs` queue (via `withEmptyJobQueue`, which
-  * deletes every row) would race any concurrent suite enqueuing a job once tests run in parallel, so they mix this
-  * in to get their own database.
+  * Suites that must control the global, un-user-scoped `background_jobs` queue (via `withEmptyJobQueue`, which deletes
+  * every row) would race any concurrent suite enqueuing a job once tests run in parallel, so they mix this in to get
+  * their own database.
   */
 trait IsolatedPostgresSpec extends PostgresSpec with TestContainerForAll { self: Suite =>
 
@@ -25,7 +25,11 @@ trait IsolatedPostgresSpec extends PostgresSpec with TestContainerForAll { self:
   override def afterContainersStart(containers: Containers): Unit = {
     super.afterContainersStart(containers)
     val conn =
-      DriverManager.getConnection(containers.jdbcUrl, containers.container.getUsername, containers.container.getPassword)
+      DriverManager.getConnection(
+        containers.jdbcUrl,
+        containers.container.getUsername,
+        containers.container.getPassword
+      )
     try conn.createStatement().execute("CREATE EXTENSION IF NOT EXISTS CITEXT;")
     finally conn.close()
 
