@@ -9,9 +9,11 @@ import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, Ba
 import net.wiringbits.repositories.BankStatementRepository
 import net.wiringbits.repositories.daos.DocumentDAO
 import net.wiringbits.repositories.models.{BackgroundJobData, BankStatement, BankStatementRow, Document}
+import net.wiringbits.services.{BcryptPasswordHasher, PasswordHasher}
 import org.scalatest.time.SpanSugar.convertIntToGrainOfTime
 import org.scalatestplus.play.guice.GuiceOneServerPerSuite
 import play.api.db.Database
+import play.api.inject.bind
 import play.api.inject.guice.GuiceApplicationBuilder
 import play.api.{Application, Configuration, Environment, Mode}
 import sttp.client3.HttpClientFutureBackend
@@ -43,6 +45,8 @@ trait PlayPostgresSpec extends PlayAPISpec with GuiceOneServerPerSuite {
   def guiceApplicationBuilder(container: PostgreSQLContainer): GuiceApplicationBuilder =
     GuiceApplicationBuilder(loadConfiguration = env => loadConfigForContainer(env, container))
       .in(Mode.Test)
+      // Use the real bcrypt hasher with the cheapest cost so password hashing/verification doesn't dominate test time.
+      .overrides(bind[PasswordHasher].toInstance(new BcryptPasswordHasher(logRounds = 4)))
 
   override def fakeApplication(): Application =
     guiceApplicationBuilder(SharedPostgres.container).build()
