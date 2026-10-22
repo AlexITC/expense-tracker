@@ -1,7 +1,7 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.common.models.Email
-import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
+import net.wiringbits.core.{IsolatedPostgresSpec, RepositoryComponents, RepositorySpec}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.daos.{BackgroundJobDAO, backgroundJobParser}
 import net.wiringbits.repositories.models.BackgroundJobData
@@ -16,7 +16,7 @@ import java.util.UUID
 import scala.concurrent.Future
 import scala.concurrent.duration.*
 
-class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils {
+class BackgroundJobsRepositorySpec extends RepositorySpec with RepositoryUtils with IsolatedPostgresSpec {
 
   "setStatusToFailed" should {
     "work" in withEmptyJobQueue { implicit repositories =>

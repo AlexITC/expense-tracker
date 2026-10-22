@@ -348,7 +348,10 @@ lazy val server = (project in file("server"))
   .settings(
     name := "wiringbits-server",
     fork := true,
-    Test / fork := true, // allows for graceful shutdown of containers once the tests have finished running
+    // EXPERIMENT (on top of the ApiRouter ActorSystem fix): run suites in parallel in one JVM sharing the
+    // one Postgres container, scaled to cores (Tags.CPU). background_jobs-queue specs use IsolatedPostgresSpec.
+    Test / fork := false,
+    Test / parallelExecution := true,
     libraryDependencies ++= Seq(
       "org.playframework.anorm" %% "anorm" % anorm,
       "org.playframework.anorm" %% "anorm-postgres" % anorm,
