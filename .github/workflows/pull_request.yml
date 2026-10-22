@@ -59,11 +59,22 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      - name: Setup Scala
-        uses: japgolly/setup-everything-scala@66271398bae67fdae2a022678030c5ec4d3de9dc # v3.1
+      # Replaces japgolly/setup-everything-scala with its sub-actions, minus coursier/cache-action
+      # (which never persisted here and burned ~29s every run in "Post Setup Scala" — we cache deps
+      # ourselves). jvm: system reuses the JDK above so coursier never fetches its flaky JVM index.
+      - name: Setup sbt (coursier)
+        uses: coursier/setup-action@039f736548afa5411c1382f40a5bd9c2d30e0383 # v1
         with:
-          java-version: 'system'
+          jvm: system
+          apps: sbt sbtn
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
           node-version: '24'
+
+      - name: Setup Scala.js (jsdom test env)
+        uses: japgolly/setup-scalajs@f530918424acb5cca3d46ccd8f6d6a35f5654fd3 # v1
 
       - name: Install yarn
         run: npm install -g yarn
