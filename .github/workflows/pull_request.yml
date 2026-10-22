@@ -166,8 +166,10 @@ jobs:
         if: steps.scope.outputs.all != 'true' && steps.scope.outputs.web == 'true'
         run: sbt --client web/test
 
+      # Only render the report when something failed: on green runs it adds ~30s for a
+      # summary nobody reads. failure() runs this step iff an earlier step (the tests) failed.
       - name: Test summary
-        if: always() # Always run, even if previous steps failed
+        if: failure()
         uses: test-summary/action@37b508cfee6d4d080eedd00b5bb240a6a784a6a5 # v2.6
         with:
           paths: "**/target/test-reports/*.xml"
