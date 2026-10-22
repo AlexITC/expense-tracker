@@ -7,7 +7,7 @@
 // Driven by a plain prompt — no GitHub issue required. The reviewers and the
 // commit check are the same ones review.sc uses, so a rule is enforced the same
 // way whether code is being reviewed or freshly implemented.
-//> using scala 3.9.0
+//> using scala 3.10.0
 //> using dep "org.virtuslab::orca:0.2.0"
 //> using jvm 21
 //> using file orca-checks.scala

@@ -6,7 +6,7 @@
 // the job of a normal edit+review cycle, not of this gate).
 //
 //   scala-cli run review.sc -- "review this branch"
-//> using scala 3.9.0
+//> using scala 3.10.0
 //> using dep "org.virtuslab::orca:0.2.0"
 //> using jvm 21
 //> using file orca-checks.scala
