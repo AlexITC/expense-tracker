@@ -88,10 +88,11 @@ jobs:
           path: |
             ~/.cache/coursier
             ~/.cache/sbt
+            ~/.cache/scalablytyped
             ~/.sbt
             ~/.ivy2/cache
-          key: sbt-deps-${{ hashFiles('**/*.sbt', 'project/**') }}
-          restore-keys: sbt-deps-
+          key: sbt-deps-v2-${{ hashFiles('**/*.sbt', 'project/**') }}
+          restore-keys: sbt-deps-v2-
 
       # Classify the diff so a PR only runs the side it touches. Shared code
       # (lib/common, lib/api) and the build definition affect both sides, so they
