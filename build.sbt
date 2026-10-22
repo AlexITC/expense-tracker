@@ -348,7 +348,12 @@ lazy val server = (project in file("server"))
   .settings(
     name := "wiringbits-server",
     fork := true,
-    Test / fork := true, // allows for graceful shutdown of containers once the tests have finished running
+    // EXPERIMENT: run suites in parallel inside a single JVM sharing the one Postgres container.
+    // fork := false keeps it in-process; parallelExecution lets ScalaTest run suites concurrently,
+    // capped at Tags.CPU (= runner core count) automatically. The background_jobs-queue specs use
+    // IsolatedPostgresSpec so their global DELETE never races a concurrent suite.
+    Test / fork := false,
+    Test / parallelExecution := true,
     libraryDependencies ++= Seq(
       "org.playframework.anorm" %% "anorm" % anorm,
       "org.playframework.anorm" %% "anorm-postgres" % anorm,
