@@ -34,7 +34,11 @@ trait PlayPostgresSpec extends PlayAPISpec with GuiceOneServerPerSuite {
     val map = Map(
       "db.default.username" -> container.username,
       "db.default.password" -> container.password,
-      "db.default.url" -> container.jdbcUrl
+      "db.default.url" -> container.jdbcUrl,
+      // The scalatestplus-play test server doesn't pick up play.server.terminationTimeout from
+      // application.conf, so Play leaves Coordinated Shutdown's service-requests-done phase at ~Int.MAX
+      // (~25 days). A stalled per-suite app shutdown then hangs for minutes. Bound it here.
+      "play.server.terminationTimeout" -> "10 seconds"
     )
 
     Configuration.from(map).withFallback(Configuration.load(env))
