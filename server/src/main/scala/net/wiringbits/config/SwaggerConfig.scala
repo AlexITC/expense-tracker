@@ -23,3 +23,5 @@ object SwaggerConfig {
     SwaggerConfig(basePath, Info(version, contact, title, description))
   }
 }
+
+// CI path-scope measurement (server) - throwaway PR
