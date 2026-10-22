@@ -79,19 +79,17 @@ jobs:
       - name: Install yarn
         run: npm install -g yarn
 
-      # Restore the compiled sbt output (**/target/ + the ScalablyTyped facades under
-      # ~/.ivy2/local) so zinc skips recompiling unchanged sources. Keyed per commit;
-      # the prefix restore-key means every build restores the most recent main snapshot.
-      # Only main saves (see "Save compiled code") - PRs branch from main, so main's
-      # output is the right base and PRs needn't upload their own. (A hashFiles key is
-      # avoided on purpose: **/build.sbt also matches generated files under target/, so
-      # it is not stable between the restore and save steps.)
+      # Restore the compiled sbt output (**/target/) so zinc skips recompiling unchanged
+      # sources. Keyed per commit; the prefix restore-key means every build restores the
+      # most recent main snapshot. Only main saves (see "Save compiled code") - PRs branch
+      # from main, so main's output is the right base and PRs needn't upload their own.
+      # (A hashFiles key is avoided on purpose: **/build.sbt also matches generated files
+      # under target/, so it is not stable between the restore and save steps.)
+      # The ScalablyTyped facades (~/.ivy2/local) are cached separately - see below.
       - name: Restore compiled code
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            **/target/
-            /home/runner/.ivy2/local
+          path: '**/target/'
           key: compiled-code-cache-${{ github.sha }}
           restore-keys: compiled-code-cache-
 
@@ -106,11 +104,28 @@ jobs:
           path: |
             ~/.cache/coursier
             ~/.cache/sbt
-            ~/.cache/scalablytyped
             ~/.sbt
             ~/.ivy2/cache
-          key: sbt-deps-v2-${{ hashFiles('**/*.sbt', 'project/**') }}
-          restore-keys: sbt-deps-v2-
+          # v3: dropped the ScalablyTyped dirs (now their own cache below). Because the
+          # cache version is derived from the paths, this can't restore a v2 entry, so
+          # dependencies re-resolve once on the cutover and the v3 cache is saved after.
+          key: sbt-deps-v3-${{ hashFiles('**/*.sbt', 'project/**') }}
+          restore-keys: sbt-deps-v3-
+
+      # ScalablyTyped artifacts: the .d.ts->Scala parse cache (~/.cache/scalablytyped) and
+      # the generated facade libraries it publishes (~/.ivy2/local). These are driven by the
+      # JS dependencies, so key them on the yarn lockfile (+ the ST plugin version) rather
+      # than the Scala build or the commit. Stable key, so normal PRs exact-hit and skip the
+      # save; a PR that bumps JS deps regenerates and caches them for its own re-runs. The
+      # parse cache is content-addressed on its inputs, so it self-heals if the key lags.
+      - name: Cache ScalablyTyped
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/scalablytyped
+            ~/.ivy2/local
+          key: scalablytyped-${{ hashFiles('**/yarn.lock', 'project/plugins.sbt') }}
+          restore-keys: scalablytyped-
 
       # Classify the diff so a PR only runs the side it touches. Shared code
       # (lib/common, lib/api) and the build definition affect both sides, so they
@@ -205,7 +220,5 @@ jobs:
         if: always() && github.ref == 'refs/heads/main'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            **/target/
-            /home/runner/.ivy2/local
+          path: '**/target/'
           key: compiled-code-cache-${{ github.sha }}
