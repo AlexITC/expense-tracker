@@ -63,7 +63,7 @@ jobs:
       # (which never persisted here and burned ~29s every run in "Post Setup Scala" — we cache deps
       # ourselves). jvm: system reuses the JDK above so coursier never fetches its flaky JVM index.
       - name: Setup sbt (coursier)
-        uses: coursier/setup-action@039f736548afa5411c1382f40a5bd9c2d30e0383 # v1
+        uses: coursier/setup-action@648df969f41ef15fda2baba8b37f9fa3d16390a3 # v3.0.4
         with:
           jvm: system
           apps: sbt sbtn
