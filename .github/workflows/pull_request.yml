@@ -79,13 +79,20 @@ jobs:
       - name: Install yarn
         run: npm install -g yarn
 
-      - name: Cache compiled code
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Restore the compiled sbt output (**/target/ + the ScalablyTyped facades under
+      # ~/.ivy2/local) so zinc skips recompiling unchanged sources. Keyed per commit;
+      # the prefix restore-key means every build restores the most recent main snapshot.
+      # Only main saves (see "Save compiled code") - PRs branch from main, so main's
+      # output is the right base and PRs needn't upload their own. (A hashFiles key is
+      # avoided on purpose: **/build.sbt also matches generated files under target/, so
+      # it is not stable between the restore and save steps.)
+      - name: Restore compiled code
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             **/target/
             /home/runner/.ivy2/local
-          key: compiled-code-cache-${{ hashFiles('**/build.sbt') }}
+          key: compiled-code-cache-${{ github.sha }}
           restore-keys: compiled-code-cache-
 
       # Cache resolved dependencies ourselves. setup-everything-scala's
@@ -189,3 +196,16 @@ jobs:
       - name: Test dev-web
         if: steps.scope.outputs.web == 'true'
         run: ./scripts/test-dev-web.sh
+
+      # Persist the compiled output only on pushes to main, under a per-commit key, so
+      # the cache always tracks latest main. PRs restore it but never save: no redundant
+      # upload (~40s) and no eviction pressure on the dependency cache. always() so the
+      # output is saved even if a later test step fails.
+      - name: Save compiled code
+        if: always() && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            **/target/
+            /home/runner/.ivy2/local
+          key: compiled-code-cache-${{ github.sha }}
