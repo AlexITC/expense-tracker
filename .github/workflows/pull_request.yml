@@ -79,16 +79,20 @@ jobs:
       - name: Install yarn
         run: npm install -g yarn
 
-      # Restore the compiled-code cache on every build. Saving is handled by a
-      # separate step at the end of the job (see "Save compiled code"), gated so
-      # only PRs persist it for now - this is step 1 of the main-vs-PR experiment.
+      # Restore the compiled sbt output (**/target/ + the ScalablyTyped facades under
+      # ~/.ivy2/local) so zinc skips recompiling unchanged sources. Keyed per commit;
+      # the prefix restore-key means every build restores the most recent main snapshot.
+      # Only main saves (see "Save compiled code") - PRs branch from main, so main's
+      # output is the right base and PRs needn't upload their own. (A hashFiles key is
+      # avoided on purpose: **/build.sbt also matches generated files under target/, so
+      # it is not stable between the restore and save steps.)
       - name: Restore compiled code
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             **/target/
             /home/runner/.ivy2/local
-          key: compiled-code-cache-${{ hashFiles('**/build.sbt') }}
+          key: compiled-code-cache-${{ github.sha }}
           restore-keys: compiled-code-cache-
 
       # Cache resolved dependencies ourselves. setup-everything-scala's
@@ -193,14 +197,15 @@ jobs:
         if: steps.scope.outputs.web == 'true'
         run: ./scripts/test-dev-web.sh
 
-      # Step 1 of the compiled-code cache experiment: persist **/target/ only on PRs
-      # (never on push to main). always() so the compiled output is saved even if a
-      # later build/test step fails. Step 2 will move this save to main-only.
+      # Persist the compiled output only on pushes to main, under a per-commit key, so
+      # the cache always tracks latest main. PRs restore it but never save: no redundant
+      # upload (~40s) and no eviction pressure on the dependency cache. always() so the
+      # output is saved even if a later test step fails.
       - name: Save compiled code
-        if: always() && github.event_name == 'pull_request'
+        if: always() && github.ref == 'refs/heads/main'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             **/target/
             /home/runner/.ivy2/local
-          key: compiled-code-cache-${{ hashFiles('**/build.sbt') }}
+          key: compiled-code-cache-${{ github.sha }}
