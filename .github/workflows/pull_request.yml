@@ -35,9 +35,11 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    # Hard cap so a hung step (e.g. a stuck server shutdown) can't run for hours. The full job
-    # normally finishes in ~11 min; 20 leaves headroom while still failing fast on a hang.
-    timeout-minutes: 10
+    # Hard cap so a hung step (e.g. a stuck server shutdown) can't run for hours. A warm build
+    # finishes in ~3-4 min, but a cold one (cache eviction or a key rotation re-resolving deps
+    # and regenerating ScalablyTyped facades) can approach ~12-14 min; 15 absorbs that while
+    # still failing fast on a real hang.
+    timeout-minutes: 15
 
     env:
       NODE_OPTIONS: --openssl-legacy-provider
