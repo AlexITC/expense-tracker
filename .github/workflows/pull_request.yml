@@ -37,7 +37,7 @@ jobs:
 
     # Hard cap so a hung step (e.g. a stuck server shutdown) can't run for hours. The full job
     # normally finishes in ~11 min; 20 leaves headroom while still failing fast on a hang.
-    timeout-minutes: 20
+    timeout-minutes: 10
 
     env:
       NODE_OPTIONS: --openssl-legacy-provider
