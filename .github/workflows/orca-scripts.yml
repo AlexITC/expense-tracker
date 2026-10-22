@@ -42,5 +42,5 @@ jobs:
       # compiling them together would clash on the top-level flow entry point.
       - name: Compile Orca flows
         run: |
-          scala-cli compile claude/review.sc
-          scala-cli compile claude/implement.sc
+          scala-cli --server=false compile claude/review.sc
+          scala-cli --server=false compile claude/implement.sc
