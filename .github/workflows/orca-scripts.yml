@@ -41,6 +41,8 @@ jobs:
       # Compiled one at a time: each script is its own scala-cli program, so
       # compiling them together would clash on the top-level flow entry point.
       - name: Compile Orca flows
+        # scala-cli's Bloop build server hangs on GitHub runners; --server=false compiles
+        # without it. See https://github.com/VirtusLab/scala-cli/issues/3054
         run: |
-          scala-cli --server=false compile claude/review.sc
-          scala-cli --server=false compile claude/implement.sc
+          scala-cli compile --server=false claude/review.sc
+          scala-cli compile --server=false claude/implement.sc
