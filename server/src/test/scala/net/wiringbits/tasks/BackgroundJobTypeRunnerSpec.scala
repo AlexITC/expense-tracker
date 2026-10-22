@@ -1,7 +1,7 @@
 package net.wiringbits.tasks
 
 import net.wiringbits.config.BackgroundJobsExecutorConfig.TypeSettings
-import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
+import net.wiringbits.core.{IsolatedPostgresSpec, RepositoryComponents, RepositorySpec}
 import net.wiringbits.models.jobs.{BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.BackgroundJobsRepository
 import net.wiringbits.repositories.daos.backgroundJobParser
@@ -23,7 +23,11 @@ import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.*
 import scala.concurrent.{Future, Promise}
 
-class BackgroundJobTypeRunnerSpec extends RepositorySpec with RepositoryUtils with BeforeAndAfterAll {
+class BackgroundJobTypeRunnerSpec
+    extends RepositorySpec
+    with RepositoryUtils
+    with IsolatedPostgresSpec
+    with BeforeAndAfterAll {
 
   private implicit lazy val system: ActorSystem = ActorSystem("BackgroundJobTypeRunnerSpec")
 
