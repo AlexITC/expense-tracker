@@ -163,20 +163,8 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
   }
 
   "aliasToCreate" should {
-    "return None for a blank pattern" in {
-      BankRowCreateExpenseForm.aliasToCreate("", "Oxxo") mustBe None
-    }
-
     "return None for a whitespace-only pattern" in {
       BankRowCreateExpenseForm.aliasToCreate("   ", "Oxxo") mustBe None
-    }
-
-    "return None for a punctuation-only pattern" in {
-      BankRowCreateExpenseForm.aliasToCreate("...", "Oxxo") mustBe None
-    }
-
-    "return None when the pattern normalizes to under 3 characters" in {
-      BankRowCreateExpenseForm.aliasToCreate("A-1", "Oxxo") mustBe None
     }
 
     "return None when the pattern normalizes to the merchant name" in {

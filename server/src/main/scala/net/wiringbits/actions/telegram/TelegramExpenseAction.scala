@@ -1,6 +1,7 @@
 package net.wiringbits.actions.telegram
 
 import com.github.f4b6a3.uuid.UuidCreator
+import io.scalaland.chimney.dsl.*
 import net.wiringbits.api.models.merchants.ImportRuleAction
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.repositories.models.{Category, Expense, ExpenseCategorySplit, Merchant}
@@ -40,7 +41,7 @@ class TelegramExpenseAction @Inject() (
             case None =>
               importRuleRepository.all(userId).zip(merchantsRepository.all(userId)).flatMap { case (rules, merchants) =>
                 val matchRules = ImportRuleMatcher.effectiveRules(
-                  rules.map(r => ImportRuleMatcher.Rule(r.id, r.action, r.pattern, r.merchantId)),
+                  rules.map(_.transformInto[ImportRuleMatcher.Rule]),
                   merchants.map(m => m.id -> m.name)
                 )
                 ImportRuleMatcher.findRowWinner(matchRules, normalizedName) match {

@@ -1,5 +1,6 @@
 package net.wiringbits.actions.documents
 
+import io.scalaland.chimney.dsl.*
 import net.wiringbits.apis.{TelegramApi, TextractApiType}
 import net.wiringbits.api.models.merchants.ImportRuleAction
 import net.wiringbits.api.utils.ImportRuleMatcher
@@ -85,7 +86,7 @@ class ParseReceiptAction @Inject() (
                       case (rules, merchants) =>
                         val matchingRule = ImportRuleMatcher.findReceiptWinner(
                           ImportRuleMatcher.effectiveRules(
-                            rules.map(r => ImportRuleMatcher.Rule(r.id, r.action, r.pattern, r.merchantId)),
+                            rules.map(_.transformInto[ImportRuleMatcher.Rule]),
                             merchants.map(m => m.id -> m.name)
                           ),
                           name

@@ -104,19 +104,18 @@ class ImportRuleMatcherSpec extends AnyWordSpec with Matchers {
       RowRuleVerdict.verdict(rules, "OXXO STORE 123") must be(RowRuleVerdict.SetMerchant(Some(oxxo._1)))
     }
 
-    "prefer the longer merchant name over a shorter merchant name or explicit alias" in {
+    "prefer the longer merchant name over a shorter merchant name" in {
       val cafe = merchant("Cafe")
       val dindurra = merchant("Cafe Dindurra")
-      val other = UUID.randomUUID()
-      val alias = setMerchantRule(UUID.randomUUID(), "CAFE", other)
+      val rules = ImportRuleMatcher.effectiveRules(Nil, List(cafe, dindurra))
+      RowRuleVerdict.verdict(rules, "CAFE DINDURRA MADRID") must be(RowRuleVerdict.SetMerchant(Some(dindurra._1)))
+    }
 
-      val withoutAlias = ImportRuleMatcher.effectiveRules(Nil, List(cafe, dindurra))
-      RowRuleVerdict.verdict(withoutAlias, "CAFE DINDURRA MADRID") must be(
-        RowRuleVerdict.SetMerchant(Some(dindurra._1))
-      )
-
-      val withAlias = ImportRuleMatcher.effectiveRules(List(alias), List(dindurra))
-      RowRuleVerdict.verdict(withAlias, "CAFE DINDURRA MADRID") must be(RowRuleVerdict.SetMerchant(Some(dindurra._1)))
+    "prefer the longer merchant name over a shorter explicit alias" in {
+      val dindurra = merchant("Cafe Dindurra")
+      val alias = setMerchantRule(UUID.randomUUID(), "CAFE", UUID.randomUUID())
+      val rules = ImportRuleMatcher.effectiveRules(List(alias), List(dindurra))
+      RowRuleVerdict.verdict(rules, "CAFE DINDURRA MADRID") must be(RowRuleVerdict.SetMerchant(Some(dindurra._1)))
     }
 
     "let an explicit ignore rule win over a matching merchant name" in {
