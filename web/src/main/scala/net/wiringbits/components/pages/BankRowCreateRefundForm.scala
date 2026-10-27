@@ -36,7 +36,10 @@ object BankRowCreateRefundForm {
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
     val matchedMerchant = RowRuleVerdict
-      .ruleMerchantId(props.ruleList, props.row.description)
+      .ruleMerchantId(
+        ImportRuleMatcher.effectiveRules(props.ruleList, props.merchants.map(m => m.id -> m.name)),
+        props.row.description
+      )
       .flatMap(mid => props.merchants.find(_.id == mid))
 
     val initMerchantName = matchedMerchant.map(_.name).getOrElse("")

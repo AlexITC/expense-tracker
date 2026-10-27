@@ -4,7 +4,8 @@ import monix.execution.Scheduler
 import monix.reactive.subjects.Var
 import net.wiringbits.api.models.bankstatements.GetAllRows
 import net.wiringbits.api.models.categories.GetCategories
-import net.wiringbits.api.models.merchants.GetMerchants
+import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction}
+import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.common.models.Email
 import net.wiringbits.core.I18nLang
 import net.wiringbits.models.AuthState
@@ -110,6 +111,26 @@ class BulkMerchantSetupPageSpec extends AnyWordSpec with BeforeAndAfterEach {
       ): ReactElement,
       container
     )
+
+  "findUnmatchedGroups" should {
+    val otherRow = sampleRows.head.copy(id = UUID.randomUUID(), description = "UNKNOWN SHOP 42")
+
+    "list descriptions not covered by any rule or merchant name" in {
+      val result = BulkMerchantSetupPage.findUnmatchedGroups(sampleRows :+ otherRow, Nil, Nil)
+      result.map(_._1) mustBe List("CARNICERIA EL RISCU (GIJON)", "UNKNOWN SHOP 42")
+    }
+
+    "exclude descriptions that contain an existing merchant name" in {
+      val result = BulkMerchantSetupPage.findUnmatchedGroups(sampleRows :+ otherRow, Nil, sampleMerchants)
+      result.map(_._1) mustBe List("UNKNOWN SHOP 42")
+    }
+
+    "exclude descriptions matched by an ignore rule" in {
+      val ignore = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "unknown shop", None)
+      val result = BulkMerchantSetupPage.findUnmatchedGroups(sampleRows :+ otherRow, List(ignore), Nil)
+      result.map(_._1) mustBe List("CARNICERIA EL RISCU (GIJON)")
+    }
+  }
 
   "DescriptionRow.merchantOptionLabel" should {
     "return name from a Merchant instance" in {

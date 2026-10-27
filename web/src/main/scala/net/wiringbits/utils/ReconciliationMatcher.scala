@@ -21,9 +21,10 @@ object ReconciliationMatcher {
       rows: List[GetBankStatement.StatementRowData],
       rules: List[ImportRuleMatcher.Rule],
       merchants: List[GetMerchants.Response.Merchant]
-  ): List[(GetBankStatement.StatementRowData, CreateExpenseFromRow.Request)] =
+  ): List[(GetBankStatement.StatementRowData, CreateExpenseFromRow.Request)] = {
+    val effective = ImportRuleMatcher.effectiveRules(rules, merchants.map(m => m.id -> m.name))
     rows.flatMap { row =>
-      val merchantId = RowRuleVerdict.ruleMerchantId(rules, row.description)
+      val merchantId = RowRuleVerdict.ruleMerchantId(effective, row.description)
       val catIdOpt = merchantId.flatMap(mid => merchants.find(_.id == mid).flatMap(_.categoryId))
       catIdOpt.map { catId =>
         val req = CreateExpenseFromRow.Request(
@@ -38,18 +39,21 @@ object ReconciliationMatcher {
         row -> req
       }
     }
+  }
 
   def reconcile(
       rows: List[GetBankStatement.StatementRowData],
       expenses: List[GetExpenses.Response.Expense],
-      rules: List[ImportRuleMatcher.Rule]
+      rules: List[ImportRuleMatcher.Rule],
+      merchants: List[GetMerchants.Response.Merchant]
   ): Map[UUID, ProposedAction] = {
+    val effective = ImportRuleMatcher.effectiveRules(rules, merchants.map(m => m.id -> m.name))
     val unlinkedExpenses = expenses.filter(_.rowIds.isEmpty)
 
     rows
       .filter(row => row.expenseId.isEmpty && row.ignoredAt.isEmpty)
       .map { row =>
-        val action = ImportRuleMatcher.findRowWinner(rules, row.description) match {
+        val action = ImportRuleMatcher.findRowWinner(effective, row.description) match {
           case Some(rule) if rule.action == ImportRuleAction.SetMerchant =>
             // rule.pattern is used as the merchant name proxy: merchantId is not available
             // here without a merchant lookup, so the pattern (which identifies the merchant)

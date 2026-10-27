@@ -13,12 +13,12 @@ import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Try
 
-/** Suggests a category and a merchant for each debit row of a statement that no import rule already handles. A row
-  * whose normalized description the user already filed under a category gets that category without a model call. Other
-  * rows are resolved one after another, each in up to two Bedrock calls: the model picks a category by name, then, when
-  * that category has merchants, picks one of them by name (or "none"). A name that does not match exactly one candidate
-  * is dropped (no guess); unparseable output fails the Future. No DB access — the caller loads the inputs and persists
-  * the result.
+/** Suggests a category and a merchant for each debit row of a statement that no import rule or merchant name already
+  * handles. A row whose normalized description the user already filed under a category gets that category without a
+  * model call. Other rows are resolved one after another, each in up to two Bedrock calls: the model picks a category
+  * by name, then, when that category has merchants, picks one of them by name (or "none"). A name that does not match
+  * exactly one candidate is dropped (no guess); unparseable output fails the Future. No DB access — the caller loads
+  * the inputs and persists the result.
   *
   * This was the prior suggestions engine. On the `eu.` cross-region inference profile it is throttled by the
   * non-adjustable 20 req/min "Cross-region model inference requests per minute for Amazon Nova Lite" quota
@@ -45,7 +45,7 @@ class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(impli
       history: Map[String, UUID]
   ): Future[AiSuggestions] = {
     logger.info(s"Resolving AI suggestions for user $userId, statement $statementId with model $modelId")
-    val selection = selectRowsToResolve(rows, rules)
+    val selection = selectRowsToResolve(rows, rules, merchants)
     logger.info(
       s"User $userId, statement $statementId: ${rows.size} rows, ${selection.creditsSkipped} credits skipped, " +
         s"${selection.ruleSkipped} skipped by rule, ${selection.toResolve.size} to resolve"
@@ -164,13 +164,15 @@ object StatementSuggestionsService {
 
   private[services] case class RowSelection(toResolve: List[BankStatementRow], creditsSkipped: Int, ruleSkipped: Int)
 
-  /** Debit rows that no import rule handles; credits and rule-matched rows get no suggestion. */
+  /** Debit rows that no import rule or merchant name handles; credits and rule-matched rows get no suggestion. */
   private[services] def selectRowsToResolve(
       rows: List[BankStatementRow],
-      rules: List[ImportRuleMatcher.Rule]
+      rules: List[ImportRuleMatcher.Rule],
+      merchants: List[Merchant]
   ): RowSelection = {
+    val effective = ImportRuleMatcher.effectiveRules(rules, merchants.map(m => m.id -> m.name))
     val debits = rows.filter(_.amount < 0)
-    val toResolve = debits.filter(r => RowRuleVerdict.verdict(rules, r.description) == RowRuleVerdict.NoRule)
+    val toResolve = debits.filter(r => RowRuleVerdict.verdict(effective, r.description) == RowRuleVerdict.NoRule)
     RowSelection(toResolve, rows.size - debits.size, debits.size - toResolve.size)
   }
 

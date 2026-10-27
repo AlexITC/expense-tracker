@@ -14,8 +14,10 @@ class UpdateImportRuleAction @Inject() (
 )(implicit ec: ExecutionContext) {
 
   def apply(ruleId: UUID, userId: UUID, request: UpdateImportRule.Request): Future[UpdateImportRule.Response] =
-    if (ImportRuleMatcher.normalize(request.pattern).length < 3)
-      Future.failed(new RuntimeException("Rule pattern must be at least 3 characters"))
+    if (ImportRuleMatcher.normalize(request.pattern).length < ImportRuleMatcher.MinPatternLength)
+      Future.failed(
+        new RuntimeException(s"Rule pattern must be at least ${ImportRuleMatcher.MinPatternLength} characters")
+      )
     else
       for {
         ruleOpt <- ruleRepository.find(ruleId, userId)

@@ -180,7 +180,7 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
 
     "leave the row without a category when the name is unknown" in {
       val shop = row("CORNER SHOP")
-      val cornerShop = merchant("Corner Shop", Some(groceries.id))
+      val cornerShop = merchant("Corner Shop Ltd", Some(groceries.id))
       val client = stub("Restaurants")
 
       resolve(client, List(shop), List(cornerShop), categories).rows must be(
@@ -201,7 +201,7 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
 
     "offer only the predicted category's merchant names in the merchant prompt" in {
       val shop = row("CORNER SHOP")
-      val cornerShop = merchant("Corner Shop", Some(groceries.id))
+      val cornerShop = merchant("Corner Shop Ltd", Some(groceries.id))
       val uber = merchant("Uber", Some(transport.id))
       val uncategorized = merchant("Mystery", None)
       val client = stub("Groceries", Some("none"))
@@ -219,16 +219,16 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
 
     "set the chosen merchant" in {
       val shop = row("CORNER SHOP")
-      val cornerShop = merchant("Corner Shop", Some(groceries.id))
+      val cornerShop = merchant("Corner Shop Ltd", Some(groceries.id))
 
-      resolve(stub("Groceries", Some("corner shop")), List(shop), List(cornerShop), categories).rows must be(
+      resolve(stub("Groceries", Some("corner shop ltd")), List(shop), List(cornerShop), categories).rows must be(
         List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), Some(cornerShop.id)))
       )
     }
 
     "keep the predicted category when the merchant answer is none" in {
       val shop = row("CORNER SHOP")
-      val cornerShop = merchant("Corner Shop", Some(groceries.id))
+      val cornerShop = merchant("Corner Shop Ltd", Some(groceries.id))
 
       resolve(stub("Groceries", Some("None")), List(shop), List(cornerShop), categories).rows must be(
         List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None))
@@ -237,7 +237,7 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
 
     "leave the merchant out when the name is not one of the offered merchants" in {
       val shop = row("CORNER SHOP")
-      val cornerShop = merchant("Corner Shop", Some(groceries.id))
+      val cornerShop = merchant("Corner Shop Ltd", Some(groceries.id))
       val uber = merchant("Uber", Some(transport.id))
 
       resolve(stub("Groceries", Some("Uber")), List(shop), List(cornerShop, uber), categories).rows must be(
@@ -247,10 +247,10 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
 
     "leave the merchant out when the name matches several merchants" in {
       val shop = row("CORNER SHOP")
-      val first = merchant("Corner Shop", Some(groceries.id))
-      val second = merchant("Corner Shop", Some(groceries.id))
+      val first = merchant("Corner Shop Ltd", Some(groceries.id))
+      val second = merchant("Corner Shop Ltd", Some(groceries.id))
 
-      resolve(stub("Groceries", Some("Corner Shop")), List(shop), List(first, second), categories).rows must be(
+      resolve(stub("Groceries", Some("Corner Shop Ltd")), List(shop), List(first, second), categories).rows must be(
         List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None))
       )
     }
@@ -259,7 +259,7 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       val bus = row("METRO TICKET")
       val client = stub("Transport")
 
-      val result = resolve(client, List(bus), List(merchant("Corner Shop", Some(groceries.id))), categories)
+      val result = resolve(client, List(bus), List(merchant("Corner Shop Ltd", Some(groceries.id))), categories)
 
       result.rows must be(List(AiSuggestions.RowSuggestion(bus.id, Some(transport.id), None)))
       client.prompts must have size 1
@@ -290,7 +290,7 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       })
 
       val error =
-        run(client, List(shop), List(merchant("Corner Shop", Some(groceries.id))), categories).failed.futureValue
+        run(client, List(shop), List(merchant("Corner Shop Ltd", Some(groceries.id))), categories).failed.futureValue
 
       error mustBe a[RuntimeException]
       error.getMessage must include("not json")
@@ -308,7 +308,7 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
     "use the history category without calling Bedrock" in {
       val shop = row("CORNER SHOP 42")
       val client = new StubBedrockClient(PartialFunction.empty)
-      val merchants = List(merchant("Corner Shop", Some(groceries.id)))
+      val merchants = List(merchant("Corner Shop Ltd", Some(groceries.id)))
 
       resolve(client, List(shop), merchants, categories, history = Map("cornershop42" -> groceries.id)).rows must be(
         List(AiSuggestions.RowSuggestion(shop.id, Some(groceries.id), None))
@@ -362,6 +362,19 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       error mustBe a[RuntimeException]
       error.getMessage must include(userId.toString)
       client.prompts must be(empty)
+    }
+  }
+
+  "selectRowsToResolve" should {
+    "skip by rule a debit row whose description contains a merchant name" in {
+      val named = row("OXXO STORE 123")
+      val pending = row("CORNER SHOP 42")
+
+      StatementSuggestionsService.selectRowsToResolve(
+        List(named, pending),
+        Nil,
+        List(merchant("Oxxo", None))
+      ) must be(StatementSuggestionsService.RowSelection(List(pending), creditsSkipped = 0, ruleSkipped = 1))
     }
   }
 

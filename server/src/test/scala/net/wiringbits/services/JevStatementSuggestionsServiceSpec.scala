@@ -200,7 +200,7 @@ class JevStatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with 
     }
 
     "offer the predicted category's merchants keyed by id plus none" in {
-      val shop = merchant("Corner Shop", Some(groceries.id))
+      val shop = merchant("Corner Shop Ltd", Some(groceries.id))
       val market = merchant("Market", Some(groceries.id))
       val metro = merchant("Metro", Some(transport.id))
       val client = stub(groceries, Some(JevClient.NoMerchant))
@@ -210,11 +210,11 @@ class JevStatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with 
       client.merchantCalls.map(_.criteria.keySet) must be(
         List(Set(shop.id.toString, market.id.toString, JevClient.NoMerchant))
       )
-      client.merchantCalls.head.criteria(shop.id.toString) must be("Corner Shop")
+      client.merchantCalls.head.criteria(shop.id.toString) must be("Corner Shop Ltd")
     }
 
     "set the chosen merchant" in {
-      val shop = merchant("Corner Shop", Some(groceries.id))
+      val shop = merchant("Corner Shop Ltd", Some(groceries.id))
       val other = merchant("Other", Some(groceries.id))
       val pending = row("CORNER SHOP")
       val client = stub(groceries, Some(shop.id.toString))
@@ -225,7 +225,7 @@ class JevStatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with 
     }
 
     "give no merchant when JEV answers a key that is not an offered merchant" in {
-      val shop = merchant("Corner Shop", Some(groceries.id))
+      val shop = merchant("Corner Shop Ltd", Some(groceries.id))
       val pending = row("CORNER SHOP")
       val client = stub(groceries, Some(UUID.randomUUID().toString))
 
@@ -245,7 +245,7 @@ class JevStatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with 
     }
 
     "ask the merchant once per distinct description and merge it with history hits in row order" in {
-      val shop = merchant("Corner Shop", Some(groceries.id))
+      val shop = merchant("Corner Shop Ltd", Some(groceries.id))
       val first = row("CORNER SHOP 42")
       val known = row("METRO TICKET")
       val second = row("corner-shop #42")
@@ -272,7 +272,7 @@ class JevStatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with 
     }
 
     "keep the predicted category with no merchant when JEV answers none" in {
-      val shop = merchant("Corner Shop", Some(groceries.id))
+      val shop = merchant("Corner Shop Ltd", Some(groceries.id))
       val pending = row("CORNER SHOP")
       val client = stub(groceries, Some(JevClient.NoMerchant))
 
@@ -285,7 +285,7 @@ class JevStatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with 
       val pending = row("METRO TICKET")
       val client = stub(transport)
 
-      val result = resolve(client, List(pending), List(merchant("Corner Shop", Some(groceries.id))), categories)
+      val result = resolve(client, List(pending), List(merchant("Corner Shop Ltd", Some(groceries.id))), categories)
 
       result.rows must be(List(AiSuggestions.RowSuggestion(pending.id, Some(transport.id), None)))
       client.merchantCalls must be(empty)

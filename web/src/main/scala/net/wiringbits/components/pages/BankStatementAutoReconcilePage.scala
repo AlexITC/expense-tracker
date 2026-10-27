@@ -79,7 +79,7 @@ object ReconcileContent {
     // Compute reconciliation once at mount. Rules load asynchronously below;
     // rows without a matching rule fall to CreateNew.
     val initial = Hooks.useMemo(
-      () => ReconciliationMatcher.reconcile(props.stmt.statementRows, props.expenses.data, Nil),
+      () => ReconciliationMatcher.reconcile(props.stmt.statementRows, props.expenses.data, Nil, Nil),
       ""
     )
     val (rowActions, setRowActions) = Hooks.useState(initial)
