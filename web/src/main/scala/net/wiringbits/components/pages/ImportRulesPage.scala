@@ -4,7 +4,7 @@ import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
-import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
+import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{
   CreateImportRule,
   CreateMerchant,
@@ -181,23 +181,12 @@ object ImportRuleList {
         categoryInput: String,
         categoryIdOpt: Option[UUID]
     ): Future[UUID] =
-      categoryIdOpt match {
-        case Some(id) => Future.successful(id)
-        case None =>
-          val name = categoryInput.trim
-          localCategories.find(_.name.equalsIgnoreCase(name)) match {
-            case Some(existing) => Future.successful(existing.id)
-            case None =>
-              props.ctx.api.client
-                .createCategory(CreateCategory.Request(name = name))
-                .map { resp =>
-                  setLocalCategories(cur =>
-                    cur :+ GetCategories.Response.Category(resp.id, resp.name, java.time.Instant.now())
-                  )
-                  resp.id
-                }
-          }
-      }
+      DescriptionRow
+        .resolveOrCreateCategory(props.ctx.api.client, localCategories, categoryIdOpt, categoryInput)
+        .map { case (id, newCategoryOpt) =>
+          newCategoryOpt.foreach(c => setLocalCategories(cur => cur :+ c))
+          id
+        }
 
     def handleCreate(): Unit =
       newAction match {

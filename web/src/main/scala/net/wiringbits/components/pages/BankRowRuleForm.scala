@@ -4,7 +4,7 @@ import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.GetBankStatement
-import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
+import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{CreateImportRule, CreateMerchant, GetMerchants, ImportRuleAction}
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -51,19 +51,10 @@ object BankRowRuleForm {
     val (saving, setSaving) = Hooks.useState(false)
     val (error, setError) = Hooks.useState("")
 
-    // Picked id, else an existing category by case-insensitive name, else a newly created one.
     def resolveCategoryId(catName: String): Future[UUID] =
-      categoryIdOpt match {
-        case Some(id) => Future.successful(id)
-        case None =>
-          props.categories.find(_.name.equalsIgnoreCase(catName)) match {
-            case Some(existing) => Future.successful(existing.id)
-            case None =>
-              props.ctx.api.client
-                .createCategory(CreateCategory.Request(name = catName))
-                .map(_.id)
-          }
-      }
+      DescriptionRow
+        .resolveOrCreateCategory(props.ctx.api.client, props.categories, categoryIdOpt, catName)
+        .map(_._1)
 
     def handleSave(): Unit = {
       val trimmedPattern = pattern.trim

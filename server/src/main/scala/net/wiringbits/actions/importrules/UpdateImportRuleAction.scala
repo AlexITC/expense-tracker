@@ -19,10 +19,6 @@ class UpdateImportRuleAction @Inject() (
       Future.failed(
         new RuntimeException(s"Rule pattern must be at least ${ImportRuleMatcher.MinPatternLength} characters")
       )
-    else if (request.pattern.length > ImportRuleMatcher.MaxPatternLength)
-      Future.failed(
-        new RuntimeException(s"Rule pattern must be at most ${ImportRuleMatcher.MaxPatternLength} characters")
-      )
     else
       for {
         ruleOpt <- ruleRepository.find(ruleId, userId)

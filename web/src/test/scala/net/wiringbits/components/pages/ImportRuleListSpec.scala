@@ -4,6 +4,7 @@ import monix.execution.Scheduler
 import monix.reactive.subjects.Var
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{GetImportRules, GetMerchants, ImportRuleAction}
+import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.common.models.Email
 import net.wiringbits.core.I18nLang
 import net.wiringbits.models.AuthState
@@ -113,6 +114,15 @@ class ImportRuleListSpec extends AnyWordSpec with BeforeAndAfterEach {
       )
     )
   )
+
+  "fromApi" should {
+    "copy id, action, pattern, merchant and category" in {
+      val r = categoryRule("uber", "Transport")
+      ImportRuleMatcher.Rule.fromApi(r) must be(
+        ImportRuleMatcher.Rule(r.id, ImportRuleAction.SetCategory, "uber", None, r.categoryId)
+      )
+    }
+  }
 
   "filterRules" should {
     "return all rules when query is empty" in {

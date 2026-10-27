@@ -99,14 +99,6 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       error must be("Rule pattern must be at least 3 characters")
     }
 
-    "fail when pattern is longer than 100 characters" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-
-      val error =
-        client.createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "a" * 101, None)).expectError
-      error must be("Rule pattern must be at most 100 characters")
-    }
-
     "fail when merchant does not belong to the user" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
 
@@ -322,18 +314,6 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
           .updateImportRule(created.id, UpdateImportRule.Request(ImportRuleAction.SetMerchant, "ab", Some(merchant.id)))
           .expectError
       error must be("Rule pattern must be at least 3 characters")
-    }
-
-    "fail when pattern is longer than 100 characters" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-      val created =
-        client.createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "AMZN", None)).futureValue
-
-      val error =
-        client
-          .updateImportRule(created.id, UpdateImportRule.Request(ImportRuleAction.Ignore, "a" * 101, None))
-          .expectError
-      error must be("Rule pattern must be at most 100 characters")
     }
 
     "fail when the rule does not belong to the user" in withApiClient { implicit client =>

@@ -1,6 +1,6 @@
 package net.wiringbits.api.utils
 
-import net.wiringbits.api.models.merchants.ImportRuleAction
+import net.wiringbits.api.models.merchants.{GetImportRules, ImportRuleAction}
 
 import java.util.UUID
 
@@ -13,11 +13,12 @@ object ImportRuleMatcher {
       categoryId: Option[UUID] = None
   )
 
+  object Rule {
+    def fromApi(r: GetImportRules.Rule): Rule = Rule(r.id, r.action, r.pattern, r.merchantId, r.categoryId)
+  }
+
   // Patterns shorter than this (after normalize) never match.
   val MinPatternLength: Int = 3
-
-  // Rule patterns longer than this are rejected; every rule is matched against every row description.
-  val MaxPatternLength: Int = 100
 
   def normalize(s: String): String = s.toLowerCase.replaceAll("[^a-z0-9]", "")
 

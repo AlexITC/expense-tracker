@@ -298,7 +298,7 @@ object BankStatementReviewPage {
             props.ctx.api.client.getImportRules.onComplete {
               case Success(resp) =>
                 setRuleList(
-                  resp.data.map(r => ImportRuleMatcher.Rule(r.id, r.action, r.pattern, r.merchantId, r.categoryId))
+                  resp.data.map(ImportRuleMatcher.Rule.fromApi)
                 )
               case Failure(_) => ()
             }

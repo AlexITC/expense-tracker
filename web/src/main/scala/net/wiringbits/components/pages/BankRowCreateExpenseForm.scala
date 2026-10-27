@@ -3,7 +3,7 @@ package net.wiringbits.components.pages
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, CreateExpenseFromRow, GetBankStatement}
-import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
+import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{CreateImportRule, CreateMerchant, GetMerchants, ImportRuleAction}
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
@@ -265,13 +265,9 @@ object BankRowCreateExpenseForm {
             resolvedCategoryId <- categoryName match {
               case "" => Future.successful[Option[UUID]](None)
               case _ =>
-                categoryIdOpt match {
-                  case Some(id) => Future.successful(Some(id))
-                  case None =>
-                    props.ctx.api.client
-                      .createCategory(CreateCategory.Request(name = categoryName))
-                      .map(r => Some(r.id))
-                }
+                DescriptionRow
+                  .resolveOrCreateCategory(props.ctx.api.client, props.categories, categoryIdOpt, categoryName)
+                  .map { case (id, _) => Some(id) }
             }
 
             resolvedMerchantId <- merchantName match {
