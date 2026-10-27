@@ -3,6 +3,7 @@ package net.wiringbits.actions.merchants
 import com.github.f4b6a3.uuid.UuidCreator
 import io.scalaland.chimney.dsl.*
 import net.wiringbits.api.models.merchants.CreateMerchant
+import net.wiringbits.config.MerchantsConfig
 import net.wiringbits.repositories.{CategoriesRepository, MerchantsRepository}
 import net.wiringbits.repositories.models.Merchant
 import net.wiringbits.validations.ValidateMerchantNameIsAvailable
@@ -15,7 +16,8 @@ import scala.concurrent.{ExecutionContext, Future}
 
 class CreateMerchantAction @Inject() (
     merchantsRepository: MerchantsRepository,
-    categoriesRepository: CategoriesRepository
+    categoriesRepository: CategoriesRepository,
+    merchantsConfig: MerchantsConfig
 )(implicit ec: ExecutionContext, clock: Clock) {
 
   def apply(userId: UUID, request: CreateMerchant.Request): Future[CreateMerchant.Response] = {
@@ -50,7 +52,8 @@ class CreateMerchantAction @Inject() (
       for {
         count <- merchantsRepository.count(userId)
         _ <-
-          if (count >= 200) Future.failed(new RuntimeException("Maximum number of merchants (200) reached"))
+          if (count >= merchantsConfig.maxPerUser)
+            Future.failed(new RuntimeException(s"Maximum number of merchants (${merchantsConfig.maxPerUser}) reached"))
           else Future.unit
         _ <- ValidateMerchantNameIsAvailable(merchantsRepository, userId, request.name)
         _ <- request.categoryId match {
