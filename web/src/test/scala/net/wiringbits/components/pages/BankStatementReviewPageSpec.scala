@@ -270,6 +270,24 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
       info.categoryName mustBe Some("Groceries")
     }
 
+    "resolve a row matched only by a merchant name to that merchant and its category" in {
+      val m = UUID.randomUUID()
+      val c = UUID.randomUUID()
+      val merchants = List(merchant(m, "Supermarket", Some(c)))
+      val info = rowInfo(
+        ImportRuleMatcher.effectiveRules(Nil, merchants.map(mm => mm.id -> mm.name)),
+        merchants,
+        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
+        None,
+        sampleRow("POS SUPERMARKET 0042")
+      )
+      info.verdict mustBe RowRuleVerdict.SetMerchant(Some(m))
+      info.resolved mustBe Some(BankStatementReviewPage.ResolvedImport(Some(m), c, categoryFromAi = false))
+      info.isReady mustBe true
+      info.merchantName mustBe Some("Supermarket")
+      info.categoryName mustBe Some("Groceries")
+    }
+
     "take the category name from an AI suggestion" in {
       val c = UUID.randomUUID()
       val row = sampleRow("UNKNOWN SHOP")

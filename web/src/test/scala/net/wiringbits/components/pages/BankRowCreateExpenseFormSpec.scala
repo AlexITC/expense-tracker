@@ -49,6 +49,9 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
   private val oxxoRule =
     ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant, "OXXO", Some(oxxo.id))
 
+  // A description that matches no merchant name, so only the AI suggestion can prefill the form.
+  private val unmatchedRow = row.copy(description = "POS 4411 UNKNOWN")
+
   private def suggestion(merchantId: Option[UUID], categoryId: Option[UUID]) =
     AiSuggestions.RowSuggestion(rowId = row.id, categoryId = categoryId, merchantId = merchantId)
 
@@ -56,6 +59,12 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
     "prefer a SetMerchant rule match over the AI suggestion" in {
       val ai = suggestion(Some(cafe.id), Some(dining.id))
       BankRowCreateExpenseForm.initialSelection(row, List(oxxoRule), merchants, categories, Some(ai)) mustBe
+        (Some(oxxo), Some(groceries.id))
+    }
+
+    "prefer a merchant-name match without an explicit rule over the AI suggestion" in {
+      val ai = suggestion(Some(cafe.id), Some(dining.id))
+      BankRowCreateExpenseForm.initialSelection(row, Nil, merchants, categories, Some(ai)) mustBe
         (Some(oxxo), Some(groceries.id))
     }
 
@@ -76,30 +85,30 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
 
     "use the suggested merchant and category when no rule matches" in {
       val ai = suggestion(Some(cafe.id), Some(dining.id))
-      BankRowCreateExpenseForm.initialSelection(row, Nil, merchants, categories, Some(ai)) mustBe
+      BankRowCreateExpenseForm.initialSelection(unmatchedRow, Nil, merchants, categories, Some(ai)) mustBe
         (Some(cafe), Some(dining.id))
     }
 
     "use a category-only suggestion" in {
       val ai = suggestion(None, Some(dining.id))
-      BankRowCreateExpenseForm.initialSelection(row, Nil, merchants, categories, Some(ai)) mustBe
+      BankRowCreateExpenseForm.initialSelection(unmatchedRow, Nil, merchants, categories, Some(ai)) mustBe
         (None, Some(dining.id))
     }
 
     "drop a suggested merchant id that is not a known merchant" in {
       val ai = suggestion(Some(UUID.randomUUID()), Some(dining.id))
-      BankRowCreateExpenseForm.initialSelection(row, Nil, merchants, categories, Some(ai)) mustBe
+      BankRowCreateExpenseForm.initialSelection(unmatchedRow, Nil, merchants, categories, Some(ai)) mustBe
         (None, Some(dining.id))
     }
 
     "drop a suggested category id that is not a known category" in {
       val ai = suggestion(Some(cafe.id), Some(UUID.randomUUID()))
-      BankRowCreateExpenseForm.initialSelection(row, Nil, merchants, categories, Some(ai)) mustBe
+      BankRowCreateExpenseForm.initialSelection(unmatchedRow, Nil, merchants, categories, Some(ai)) mustBe
         (Some(cafe), None)
     }
 
     "return nothing when there is no rule match and no suggestion" in {
-      BankRowCreateExpenseForm.initialSelection(row, Nil, merchants, categories, None) mustBe (None, None)
+      BankRowCreateExpenseForm.initialSelection(unmatchedRow, Nil, merchants, categories, None) mustBe (None, None)
     }
   }
 

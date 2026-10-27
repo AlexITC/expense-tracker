@@ -35,8 +35,9 @@ object BankRowCreateExpenseForm {
       onNewEntities: (Option[ImportRuleMatcher.Rule], Option[GetMerchants.Response.Merchant]) => Unit
   )
 
-  /** Initial (merchant, categoryId) for the form: a SetMerchant rule winner first, then the AI suggestion. Suggested
-    * ids that are not among the user's merchants/categories are dropped.
+  /** Initial (merchant, categoryId) for the form: a SetMerchant rule winner first (explicit rules plus merchant names,
+    * see `ImportRuleMatcher.effectiveRules`), then the AI suggestion. Suggested ids that are not among the user's
+    * merchants/categories are dropped.
     */
   def initialSelection(
       row: GetBankStatement.StatementRowData,
@@ -46,7 +47,7 @@ object BankRowCreateExpenseForm {
       aiSuggestion: Option[AiSuggestions.RowSuggestion]
   ): (Option[GetMerchants.Response.Merchant], Option[UUID]) = {
     val ruleMerchant = RowRuleVerdict
-      .ruleMerchantId(ruleList, row.description)
+      .ruleMerchantId(ImportRuleMatcher.effectiveRules(ruleList, merchants.map(m => m.id -> m.name)), row.description)
       .flatMap(mid => merchants.find(_.id == mid))
 
     ruleMerchant match {

@@ -86,10 +86,12 @@ object BankStatementReviewPage {
     */
   final case class ResolvedImport(merchantId: Option[UUID], categoryId: UUID, categoryFromAi: Boolean)
 
-  /** Resolve what importing a row would create. Merchant: a SetMerchant rule's merchant, else the AI-suggested
-    * merchant. Category: that rule-merchant's default category, else the AI-suggested category. An Ignore rule takes
-    * precedence over any suggestion, so such rows resolve to None (they are ignored, not imported). None also means
-    * "nothing to import yet" — no rule and no usable suggestion. AI suggestions are only consulted once Done.
+  /** Resolve what importing a row would create. `ruleList` must already be the effective rules
+    * (`ImportRuleMatcher.effectiveRules`), so a merchant-name match counts as a SetMerchant rule. Merchant: a
+    * SetMerchant rule's merchant, else the AI-suggested merchant. Category: that rule-merchant's default category, else
+    * the AI-suggested category. An Ignore rule takes precedence over any suggestion, so such rows resolve to None (they
+    * are ignored, not imported). None also means "nothing to import yet" — no rule and no usable suggestion. AI
+    * suggestions are only consulted once Done.
     */
   def resolveImport(
       ruleList: List[ImportRuleMatcher.Rule],
@@ -135,6 +137,7 @@ object BankStatementReviewPage {
       linkedCategory: LinkedCategory
   )
 
+  /** `ruleList` must already be the effective rules (`ImportRuleMatcher.effectiveRules`). */
   def rowInfo(
       ruleList: List[ImportRuleMatcher.Rule],
       merchants: List[GetMerchants.Response.Merchant],
@@ -335,9 +338,15 @@ object BankStatementReviewPage {
 
     // Rule matching is the expensive part of rendering a row, so it only re-runs when its inputs change.
     val aiSuggestions = statement.flatMap(_.aiSuggestions)
+    // Explicit rules plus one virtual rule per merchant name; `ruleList` itself stays explicit-only.
+    val effectiveRuleList: List[ImportRuleMatcher.Rule] = Hooks.useMemo(
+      () => ImportRuleMatcher.effectiveRules(ruleList, merchantList.map(m => m.id -> m.name)),
+      List(ruleList, merchantList)
+    )
     val rowInfoById: Map[UUID, RowInfo] = Hooks.useMemo(
-      () => statementRows.map(r => r.id -> rowInfo(ruleList, merchantList, categoryList, aiSuggestions, r)).toMap,
-      List(statementRows, ruleList, merchantList, aiSuggestions, categoryList)
+      () =>
+        statementRows.map(r => r.id -> rowInfo(effectiveRuleList, merchantList, categoryList, aiSuggestions, r)).toMap,
+      List(statementRows, effectiveRuleList, merchantList, aiSuggestions, categoryList)
     )
     def isReadyToProcess(row: GetBankStatement.StatementRowData): Boolean = rowInfoById.get(row.id).exists(_.isReady)
 
