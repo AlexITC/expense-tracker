@@ -506,7 +506,8 @@ object ReceiptList {
             case Some(m) => setResolvedMerchantIds(cur => cur.updated(r.id, Some(m.id)))
             case None =>
               r.merchantName.foreach { name =>
-                val resolvedId = ImportRuleMatcher.findReceiptWinner(effectiveRuleList, name).flatMap(_.merchantId)
+                val resolvedId =
+                  ImportRuleMatcher.findReceiptWinner(effectiveRuleList, name).flatMap(_.action.merchantIdOpt)
                 setResolvedMerchantIds(cur => cur.updated(r.id, resolvedId))
               }
           }
@@ -1104,7 +1105,7 @@ object ReceiptList {
                           r.merchantName.foreach { name =>
                             ImportRuleMatcher
                               .findReceiptWinner(effectiveRuleList, name)
-                              .flatMap(_.merchantId)
+                              .flatMap(_.action.merchantIdOpt)
                               .foreach { id =>
                                 setConfirmMerchantId(id.toString)
                                 props.merchants.data.find(_.id == id).foreach(m => setConfirmMerchantInput(m.name))

@@ -1,6 +1,6 @@
 package net.wiringbits.actions.importrules
 
-import net.wiringbits.api.models.merchants.{GetImportRules, ImportRuleAction}
+import net.wiringbits.api.models.merchants.GetImportRules
 import net.wiringbits.repositories.ImportRuleRepository
 
 import java.util.UUID
@@ -18,9 +18,7 @@ class GetImportRulesAction @Inject() (
           id = r.id,
           action = r.action,
           pattern = r.pattern,
-          merchantId = r.merchantId,
           merchantName = r.merchantName,
-          categoryId = r.categoryId,
           categoryName = r.categoryName,
           autoCreated = r.autoCreated,
           createdAt = r.createdAt,

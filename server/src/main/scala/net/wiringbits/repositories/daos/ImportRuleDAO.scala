@@ -27,11 +27,9 @@ object ImportRuleDAO {
         ImportRule(
           id,
           userId,
-          ImportRuleAction.fromEntryName(action),
+          ImportRuleAction.fromColumns(action, merchantId, categoryId),
           pattern,
-          merchantId,
           merchantName,
-          categoryId,
           categoryName,
           autoCreated,
           createdAt,
@@ -47,8 +45,8 @@ object ImportRuleDAO {
         ${rule.userId.toString}::UUID,
         ${rule.action.entryName},
         ${rule.pattern},
-        ${rule.merchantId.map(_.toString)}::UUID,
-        ${rule.categoryId.map(_.toString)}::UUID,
+        ${rule.action.merchantIdOpt.map(_.toString)}::UUID,
+        ${rule.action.categoryIdOpt.map(_.toString)}::UUID,
         ${rule.autoCreated},
         ${rule.createdAt},
         ${rule.updatedAt}
@@ -155,16 +153,14 @@ object ImportRuleDAO {
       userId: UUID,
       action: ImportRuleAction,
       pattern: String,
-      merchantId: Option[UUID],
-      categoryId: Option[UUID],
       updatedAt: Instant
   )(implicit conn: Connection): Unit = {
     val updated = SQL"""
       UPDATE merchant_rule
       SET action = ${action.entryName},
           pattern = $pattern,
-          merchant_id = ${merchantId.map(_.toString)}::UUID,
-          category_id = ${categoryId.map(_.toString)}::UUID,
+          merchant_id = ${action.merchantIdOpt.map(_.toString)}::UUID,
+          category_id = ${action.categoryIdOpt.map(_.toString)}::UUID,
           auto_created = FALSE,
           updated_at = $updatedAt
       WHERE id = ${id.toString}::UUID

@@ -1,7 +1,7 @@
 package net.wiringbits.actions.bankstatements
 
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus}
-import net.wiringbits.api.models.merchants.ImportRuleAction
+import net.wiringbits.api.models.merchants.{ImportRuleAction, ImportRuleActionKind}
 import net.wiringbits.apis.{JevChoice, JevClient}
 import net.wiringbits.config.JevConfig
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
@@ -94,7 +94,7 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
     val transport = createCategory(user.id, "Transport").futureValue
     val superMart = createMerchant(user.id, "SuperMart", categoryId = Some(groceries.id)).futureValue
     val uber = createMerchant(user.id, "Uber", categoryId = Some(transport.id)).futureValue
-    createImportRule(user.id, pattern = "netflix", action = ImportRuleAction.Ignore).futureValue
+    createImportRule(user.id, pattern = "netflix", action = ImportRuleActionKind.Ignore).futureValue
 
     val doc = createDocument(user.id, kind = DocumentKind.BankStatementPdf).futureValue
     val now = Instant.now()

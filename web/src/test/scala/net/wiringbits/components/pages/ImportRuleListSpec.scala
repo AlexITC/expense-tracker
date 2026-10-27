@@ -56,11 +56,11 @@ class ImportRuleListSpec extends AnyWordSpec with BeforeAndAfterEach {
   ): GetImportRules.Rule =
     GetImportRules.Rule(
       id = UUID.randomUUID(),
-      action = if (merchantName.isDefined) ImportRuleAction.SetMerchant else ImportRuleAction.Ignore,
+      action = merchantName.fold[ImportRuleAction](ImportRuleAction.Ignore)(_ =>
+        ImportRuleAction.SetMerchant(UUID.randomUUID())
+      ),
       pattern = pattern,
-      merchantId = merchantName.map(_ => UUID.randomUUID()),
       merchantName = merchantName,
-      categoryId = None,
       categoryName = None,
       autoCreated = autoCreated,
       createdAt = Instant.EPOCH,
@@ -69,8 +69,7 @@ class ImportRuleListSpec extends AnyWordSpec with BeforeAndAfterEach {
 
   private def categoryRule(pattern: String, categoryName: String): GetImportRules.Rule =
     rule(pattern).copy(
-      action = ImportRuleAction.SetCategory,
-      categoryId = Some(UUID.randomUUID()),
+      action = ImportRuleAction.SetCategory(UUID.randomUUID()),
       categoryName = Some(categoryName)
     )
 
@@ -119,7 +118,7 @@ class ImportRuleListSpec extends AnyWordSpec with BeforeAndAfterEach {
     "copy id, action, pattern, merchant and category" in {
       val r = categoryRule("uber", "Transport")
       ImportRuleMatcher.Rule.fromApi(r) must be(
-        ImportRuleMatcher.Rule(r.id, ImportRuleAction.SetCategory, "uber", None, r.categoryId)
+        ImportRuleMatcher.Rule(r.id, r.action, "uber")
       )
     }
   }

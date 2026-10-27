@@ -188,7 +188,7 @@ object MerchantList {
             if (createRuleEnabled && newRulePattern.trim.nonEmpty)
               props.ctx.api.client
                 .createImportRule(
-                  CreateImportRule.Request(ImportRuleAction.SetMerchant, newRulePattern.trim, Some(resp.id))
+                  CreateImportRule.Request(ImportRuleAction.SetMerchant(resp.id), newRulePattern.trim)
                 )
                 .onComplete {
                   case Success(_) => props.onRefresh()

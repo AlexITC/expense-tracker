@@ -5,7 +5,13 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.GetBankStatement
 import net.wiringbits.api.models.categories.GetCategories
-import net.wiringbits.api.models.merchants.{CreateImportRule, CreateMerchant, GetMerchants, ImportRuleAction}
+import net.wiringbits.api.models.merchants.{
+  CreateImportRule,
+  CreateMerchant,
+  GetMerchants,
+  ImportRuleAction,
+  ImportRuleActionKind
+}
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
@@ -42,7 +48,7 @@ object BankRowRuleForm {
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
-    val (action, setAction) = Hooks.useState(ImportRuleAction.SetMerchant: ImportRuleAction)
+    val (action, setAction) = Hooks.useState(ImportRuleActionKind.SetMerchant: ImportRuleActionKind)
     val (pattern, setPattern) = Hooks.useState(props.row.description)
     val (merchantInput, setMerchantInput) = Hooks.useState("")
     val (merchantIdOpt, setMerchantIdOpt) = Hooks.useState[Option[UUID]](None)
@@ -62,19 +68,19 @@ object BankRowRuleForm {
         setError("Pattern is required")
       } else {
         action match {
-          case ImportRuleAction.Ignore =>
+          case ImportRuleActionKind.Ignore =>
             setSaving(true)
             props.ctx.api.client
-              .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, trimmedPattern, None))
+              .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, trimmedPattern))
               .onComplete {
                 case Success(resp) =>
-                  props.onSuccess(ImportRuleMatcher.Rule(resp.id, ImportRuleAction.Ignore, trimmedPattern, None), None)
+                  props.onSuccess(ImportRuleMatcher.Rule(resp.id, ImportRuleAction.Ignore, trimmedPattern), None)
                 case Failure(ex) =>
                   setError(ex.getMessage)
                   setSaving(false)
               }
 
-          case ImportRuleAction.SetMerchant =>
+          case ImportRuleActionKind.SetMerchant =>
             val merchantName = merchantInput.trim
             if (merchantName.isEmpty) {
               setError("Merchant is required")
@@ -116,11 +122,11 @@ object BankRowRuleForm {
                 .flatMap { case (mid, newMerchantOpt) =>
                   props.ctx.api.client
                     .createImportRule(
-                      CreateImportRule.Request(ImportRuleAction.SetMerchant, trimmedPattern, Some(mid))
+                      CreateImportRule.Request(ImportRuleAction.SetMerchant(mid), trimmedPattern)
                     )
                     .map(resp =>
                       (
-                        ImportRuleMatcher.Rule(resp.id, ImportRuleAction.SetMerchant, trimmedPattern, Some(mid)),
+                        ImportRuleMatcher.Rule(resp.id, ImportRuleAction.SetMerchant(mid), trimmedPattern),
                         newMerchantOpt
                       )
                     )
@@ -131,7 +137,7 @@ object BankRowRuleForm {
                 }
             }
 
-          case ImportRuleAction.SetCategory =>
+          case ImportRuleActionKind.SetCategory =>
             val catName = categoryInput.trim
             if (catName.isEmpty) {
               setError("Category is required")
@@ -141,11 +147,9 @@ object BankRowRuleForm {
                 .flatMap { cid =>
                   props.ctx.api.client
                     .createImportRule(
-                      CreateImportRule.Request(ImportRuleAction.SetCategory, trimmedPattern, None, Some(cid))
+                      CreateImportRule.Request(ImportRuleAction.SetCategory(cid), trimmedPattern)
                     )
-                    .map(resp =>
-                      ImportRuleMatcher.Rule(resp.id, ImportRuleAction.SetCategory, trimmedPattern, None, Some(cid))
-                    )
+                    .map(resp => ImportRuleMatcher.Rule(resp.id, ImportRuleAction.SetCategory(cid), trimmedPattern))
                 }
                 .onComplete {
                   case Success(rule) => props.onSuccess(rule, None)
@@ -198,15 +202,15 @@ object BankRowRuleForm {
       if (rsn != "reset") setCategoryIdOpt(None)
     }
 
-    val actionItems = Seq(ImportRuleAction.SetMerchant, ImportRuleAction.SetCategory, ImportRuleAction.Ignore).map {
-      a =>
+    val actionItems =
+      Seq(ImportRuleActionKind.SetMerchant, ImportRuleActionKind.SetCategory, ImportRuleActionKind.Ignore).map { a =>
         val label = a match {
-          case ImportRuleAction.SetMerchant => "Set merchant"
-          case ImportRuleAction.Ignore => "Ignore"
-          case ImportRuleAction.SetCategory => "Set category"
+          case ImportRuleActionKind.SetMerchant => "Set merchant"
+          case ImportRuleActionKind.Ignore => "Ignore"
+          case ImportRuleActionKind.SetCategory => "Set category"
         }
         mui.MenuItem.normal()(label).value(a.entryName).withKey(a.entryName).build
-    }
+      }
 
     form(onSubmit := { e =>
       e.preventDefault()
@@ -224,7 +228,9 @@ object BankRowRuleForm {
           .size("small")
           .value(action.entryName)
           .disabled(saving)
-          .onChange(e => setAction(ImportRuleAction.fromEntryName(e.target.asInstanceOf[dom.HTMLInputElement].value)))
+          .onChange(e =>
+            setAction(ImportRuleActionKind.fromEntryName(e.target.asInstanceOf[dom.HTMLInputElement].value))
+          )
           .sx(new CSSPropertiesUtils { minWidth = "160px"; alignSelf = "flex-start" })(actionItems*),
         mui.TextField
           .outlined()
@@ -234,14 +240,14 @@ object BankRowRuleForm {
           .disabled(saving)
           .onChange(e => setPattern(e.target.asInstanceOf[dom.HTMLInputElement].value)),
         action match {
-          case ImportRuleAction.SetMerchant =>
+          case ImportRuleActionKind.SetMerchant =>
             Fragment(
               (mui.Autocomplete.withProps(acProps).withKey("m"): ReactElement),
               (mui.Autocomplete.withProps(catAcProps).withKey("c"): ReactElement)
             )
-          case ImportRuleAction.SetCategory =>
+          case ImportRuleActionKind.SetCategory =>
             (mui.Autocomplete.withProps(catAcProps).withKey("c"): ReactElement)
-          case ImportRuleAction.Ignore => Fragment()
+          case ImportRuleActionKind.Ignore => Fragment()
         },
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
           (mui.Button

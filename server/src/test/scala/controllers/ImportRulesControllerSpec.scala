@@ -48,10 +48,10 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
 
       client
-        .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(merchant.id)))
+        .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "AMZN"))
         .futureValue
       client
-        .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "amazon prime", Some(merchant.id)))
+        .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "amazon prime"))
         .futureValue
 
       val response = client.getImportRules.futureValue
@@ -62,7 +62,7 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       createVerifyLoginUser(tokenGenerator).futureValue
       val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
       client
-        .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(merchant.id)))
+        .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "AMZN"))
         .futureValue
 
       val client2 = buildClient()
@@ -80,7 +80,7 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
       val response =
         client
-          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(merchant.id)))
+          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "AMZN"))
           .futureValue
       response.id must not be null
 
@@ -94,7 +94,7 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
       val error =
         client
-          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "ab", Some(merchant.id)))
+          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "ab"))
           .expectError
       error must be("Rule pattern must be at least 3 characters")
     }
@@ -104,29 +104,21 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
       val error =
         client
-          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(UUID.randomUUID())))
+          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(UUID.randomUUID()), "AMZN"))
           .expectError
       error must be("Merchant not found")
-    }
-
-    "fail when merchantId is missing for set_merchant action" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-
-      val error =
-        client.createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", None)).expectError
-      error must be("set_merchant rules require a merchant")
     }
 
     "fail when a rule with the same pattern and merchant already exists" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
       client
-        .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(merchant.id)))
+        .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "AMZN"))
         .futureValue
 
       val error =
         client
-          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(merchant.id)))
+          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "AMZN"))
           .expectError
       error must be("A rule with that pattern and merchant already exists")
     }
@@ -136,8 +128,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val m1 = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
       val m2 = client.createMerchant(CreateMerchant.Request("Walmart", None, None, None)).futureValue
 
-      client.createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(m1.id))).futureValue
-      client.createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(m2.id))).futureValue
+      client.createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(m1.id), "AMZN")).futureValue
+      client.createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(m2.id), "AMZN")).futureValue
 
       val rules = client.getImportRules.futureValue
       rules.data must have size 2
@@ -149,33 +141,21 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       createVerifyLoginUser(tokenGenerator).futureValue
 
       val response =
-        client.createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "AMZN", None)).futureValue
+        client.createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "AMZN")).futureValue
       response.id must not be null
 
       val rules = client.getImportRules.futureValue
       val rule = rules.data.find(_.pattern == "AMZN")
       rule must not be empty
       rule.get.action must be(ImportRuleAction.Ignore)
-      rule.get.merchantId must be(None)
-    }
-
-    "fail when merchantId is provided for ignore action" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
-
-      val error =
-        client
-          .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "AMZN", Some(merchant.id)))
-          .expectError
-      error must be("Ignore rules must not have a merchant")
     }
 
     "fail when duplicate ignore rule with same pattern" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      client.createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "AMZN", None)).futureValue
+      client.createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "AMZN")).futureValue
 
       val error =
-        client.createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "AMZN", None)).expectError
+        client.createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "AMZN")).expectError
       error must be("An ignore rule with that pattern already exists")
     }
   }
@@ -188,25 +168,15 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val response =
         client
           .createImportRule(
-            CreateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", None, Some(category.id))
+            CreateImportRule.Request(ImportRuleAction.SetCategory(category.id), "CAFETERIA")
           )
           .futureValue
 
       val rules = client.getImportRules.futureValue
       val rule = rules.data.find(_.id == response.id)
       rule must not be empty
-      rule.get.action must be(ImportRuleAction.SetCategory)
-      rule.get.merchantId must be(None)
-      rule.get.categoryId must be(Some(category.id))
+      rule.get.action must be(ImportRuleAction.SetCategory(category.id))
       rule.get.categoryName must be(Some("Restaurants"))
-    }
-
-    "fail when categoryId is missing" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-
-      val error =
-        client.createImportRule(CreateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", None)).expectError
-      error must be("set_category rules require a category")
     }
 
     "fail when the category does not exist" in withApiClient { implicit client =>
@@ -215,7 +185,7 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val error =
         client
           .createImportRule(
-            CreateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", None, Some(UUID.randomUUID()))
+            CreateImportRule.Request(ImportRuleAction.SetCategory(UUID.randomUUID()), "CAFETERIA")
           )
           .expectError
       error must be("Category not found")
@@ -230,37 +200,23 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val error =
         client2
           .createImportRule(
-            CreateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", None, Some(category.id))
+            CreateImportRule.Request(ImportRuleAction.SetCategory(category.id), "CAFETERIA")
           )
           .expectError
       error must be("Category not found")
-    }
-
-    "fail when merchantId is provided" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-      val category = client.createCategory(CreateCategory.Request("Restaurants")).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
-
-      val error =
-        client
-          .createImportRule(
-            CreateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", Some(merchant.id), Some(category.id))
-          )
-          .expectError
-      error must be("set_category rules must not have a merchant")
     }
 
     "fail when a rule with the same pattern and category already exists" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val category = client.createCategory(CreateCategory.Request("Restaurants")).futureValue
       client
-        .createImportRule(CreateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", None, Some(category.id)))
+        .createImportRule(CreateImportRule.Request(ImportRuleAction.SetCategory(category.id), "CAFETERIA"))
         .futureValue
 
       val error =
         client
           .createImportRule(
-            CreateImportRule.Request(ImportRuleAction.SetCategory, "cafeteria", None, Some(category.id))
+            CreateImportRule.Request(ImportRuleAction.SetCategory(category.id), "cafeteria")
           )
           .expectError
       error must be("A rule with that pattern and category already exists")
@@ -273,13 +229,13 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
       val created =
         client
-          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(merchant.id)))
+          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "AMZN"))
           .futureValue
 
       client
         .updateImportRule(
           created.id,
-          UpdateImportRule.Request(ImportRuleAction.SetMerchant, "amazon prime", Some(merchant.id))
+          UpdateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "amazon prime")
         )
         .futureValue
 
@@ -293,11 +249,11 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
       val created =
         client
-          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(merchant.id)))
+          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "AMZN"))
           .futureValue
 
       client
-        .updateImportRule(created.id, UpdateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(merchant.id)))
+        .updateImportRule(created.id, UpdateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "AMZN"))
         .futureValue
     }
 
@@ -306,12 +262,12 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
       val created =
         client
-          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(merchant.id)))
+          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "AMZN"))
           .futureValue
 
       val error =
         client
-          .updateImportRule(created.id, UpdateImportRule.Request(ImportRuleAction.SetMerchant, "ab", Some(merchant.id)))
+          .updateImportRule(created.id, UpdateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "ab"))
           .expectError
       error must be("Rule pattern must be at least 3 characters")
     }
@@ -321,7 +277,7 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
       val created =
         client
-          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(merchant.id)))
+          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "AMZN"))
           .futureValue
 
       val client2 = buildClient()
@@ -330,7 +286,7 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
         client2
           .updateImportRule(
             created.id,
-            UpdateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(UUID.randomUUID()))
+            UpdateImportRule.Request(ImportRuleAction.SetMerchant(UUID.randomUUID()), "AMZN")
           )
           .expectError
       error must be("Import rule not found")
@@ -341,14 +297,14 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
       val created =
         client
-          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(merchant.id)))
+          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "AMZN"))
           .futureValue
 
       val error =
         client
           .updateImportRule(
             created.id,
-            UpdateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(UUID.randomUUID()))
+            UpdateImportRule.Request(ImportRuleAction.SetMerchant(UUID.randomUUID()), "AMZN")
           )
           .expectError
       error must be("Merchant not found")
@@ -358,18 +314,18 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       createVerifyLoginUser(tokenGenerator).futureValue
       val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
       client
-        .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "walmart", Some(merchant.id)))
+        .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "walmart"))
         .futureValue
       val other =
         client
-          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(merchant.id)))
+          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "AMZN"))
           .futureValue
 
       val error =
         client
           .updateImportRule(
             other.id,
-            UpdateImportRule.Request(ImportRuleAction.SetMerchant, "walmart", Some(merchant.id))
+            UpdateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "walmart")
           )
           .expectError
       error must be("A rule with that pattern and merchant already exists")
@@ -383,19 +339,19 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val c2 = client.createCategory(CreateCategory.Request("Coffee")).futureValue
       val created =
         client
-          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", None, Some(c1.id)))
+          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetCategory(c1.id), "CAFETERIA"))
           .futureValue
 
       client
         .updateImportRule(
           created.id,
-          UpdateImportRule.Request(ImportRuleAction.SetCategory, "CAFE CENTRAL", None, Some(c2.id))
+          UpdateImportRule.Request(ImportRuleAction.SetCategory(c2.id), "CAFE CENTRAL")
         )
         .futureValue
 
       val rule = client.getImportRules.futureValue.data.find(_.id == created.id).get
       rule.pattern must be("CAFE CENTRAL")
-      rule.categoryId must be(Some(c2.id))
+      rule.action must be(ImportRuleAction.SetCategory(c2.id))
       rule.categoryName must be(Some("Coffee"))
     }
 
@@ -405,68 +361,35 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val created =
         client
           .createImportRule(
-            CreateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", None, Some(category.id))
+            CreateImportRule.Request(ImportRuleAction.SetCategory(category.id), "CAFETERIA")
           )
           .futureValue
 
       client
         .updateImportRule(
           created.id,
-          UpdateImportRule.Request(ImportRuleAction.Ignore, "CAFETERIA", None, Some(category.id))
+          UpdateImportRule.Request(ImportRuleAction.Ignore, "CAFETERIA")
         )
         .futureValue
 
       val rule = client.getImportRules.futureValue.data.find(_.id == created.id).get
       rule.action must be(ImportRuleAction.Ignore)
-      rule.categoryId must be(None)
-    }
-
-    "fail when categoryId is missing" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-      val created =
-        client.createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "CAFETERIA", None)).futureValue
-
-      val error =
-        client
-          .updateImportRule(created.id, UpdateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", None))
-          .expectError
-      error must be("set_category rules require a category")
+      rule.action.categoryIdOpt must be(None)
     }
 
     "fail when the category does not belong to the user" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val created =
-        client.createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "CAFETERIA", None)).futureValue
+        client.createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "CAFETERIA")).futureValue
 
       val error =
         client
           .updateImportRule(
             created.id,
-            UpdateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", None, Some(UUID.randomUUID()))
+            UpdateImportRule.Request(ImportRuleAction.SetCategory(UUID.randomUUID()), "CAFETERIA")
           )
           .expectError
       error must be("Category not found")
-    }
-
-    "fail when merchantId is provided" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-      val category = client.createCategory(CreateCategory.Request("Restaurants")).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
-      val created =
-        client
-          .createImportRule(
-            CreateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", None, Some(category.id))
-          )
-          .futureValue
-
-      val error =
-        client
-          .updateImportRule(
-            created.id,
-            UpdateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", Some(merchant.id), Some(category.id))
-          )
-          .expectError
-      error must be("set_category rules must not have a merchant")
     }
 
     "allow updating a set_category rule to its own values" in withApiClient { implicit client =>
@@ -475,14 +398,14 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val created =
         client
           .createImportRule(
-            CreateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", None, Some(category.id))
+            CreateImportRule.Request(ImportRuleAction.SetCategory(category.id), "CAFETERIA")
           )
           .futureValue
 
       client
         .updateImportRule(
           created.id,
-          UpdateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", None, Some(category.id))
+          UpdateImportRule.Request(ImportRuleAction.SetCategory(category.id), "CAFETERIA")
         )
         .futureValue
     }
@@ -492,13 +415,13 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val category = client.createCategory(CreateCategory.Request("Restaurants")).futureValue
       client
         .createImportRule(
-          CreateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", None, Some(category.id))
+          CreateImportRule.Request(ImportRuleAction.SetCategory(category.id), "CAFETERIA")
         )
         .futureValue
       val other =
         client
           .createImportRule(
-            CreateImportRule.Request(ImportRuleAction.SetCategory, "CAFE CENTRAL", None, Some(category.id))
+            CreateImportRule.Request(ImportRuleAction.SetCategory(category.id), "CAFE CENTRAL")
           )
           .futureValue
 
@@ -506,7 +429,7 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
         client
           .updateImportRule(
             other.id,
-            UpdateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", None, Some(category.id))
+            UpdateImportRule.Request(ImportRuleAction.SetCategory(category.id), "CAFETERIA")
           )
           .expectError
       error must be("A rule with that pattern and category already exists")
@@ -519,7 +442,7 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
       val created =
         client
-          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(merchant.id)))
+          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "AMZN"))
           .futureValue
 
       client.deleteImportRule(created.id).futureValue
@@ -534,7 +457,7 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val created =
         client
           .createImportRule(
-            CreateImportRule.Request(ImportRuleAction.SetCategory, "CAFETERIA", None, Some(category.id))
+            CreateImportRule.Request(ImportRuleAction.SetCategory(category.id), "CAFETERIA")
           )
           .futureValue
 
@@ -548,7 +471,7 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
       val created =
         client
-          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, "AMZN", Some(merchant.id)))
+          .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(merchant.id), "AMZN"))
           .futureValue
 
       val client2 = buildClient()

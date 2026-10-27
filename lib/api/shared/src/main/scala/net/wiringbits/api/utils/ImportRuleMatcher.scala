@@ -1,6 +1,6 @@
 package net.wiringbits.api.utils
 
-import net.wiringbits.api.models.merchants.{GetImportRules, ImportRuleAction}
+import net.wiringbits.api.models.merchants.{GetImportRules, ImportRuleAction, ImportRuleActionKind}
 
 import java.util.UUID
 
@@ -8,13 +8,11 @@ object ImportRuleMatcher {
   case class Rule(
       id: UUID,
       action: ImportRuleAction,
-      pattern: String,
-      merchantId: Option[UUID],
-      categoryId: Option[UUID] = None
+      pattern: String
   )
 
   object Rule {
-    def fromApi(r: GetImportRules.Rule): Rule = Rule(r.id, r.action, r.pattern, r.merchantId, r.categoryId)
+    def fromApi(r: GetImportRules.Rule): Rule = Rule(r.id, r.action, r.pattern)
   }
 
   // Patterns shorter than this (after normalize) never match.
@@ -29,10 +27,10 @@ object ImportRuleMatcher {
     */
   def effectiveRules(explicit: List[Rule], merchants: List[(UUID, String)]): List[Rule] = {
     val explicitPatterns =
-      explicit.filter(_.action == ImportRuleAction.SetMerchant).map(r => normalize(r.pattern)).toSet
+      explicit.collect { case r if r.action.kind == ImportRuleActionKind.SetMerchant => normalize(r.pattern) }.toSet
     val virtual = merchants.collect {
       case (merchantId, name) if !explicitPatterns.contains(normalize(name)) =>
-        Rule(merchantId, ImportRuleAction.SetMerchant, name, Some(merchantId))
+        Rule(merchantId, ImportRuleAction.SetMerchant(merchantId), name)
     }
     explicit ++ virtual
   }
@@ -51,13 +49,14 @@ object ImportRuleMatcher {
   // For rows: ignore wins over set_merchant, and set_merchant wins over set_category, regardless of pattern length.
   def findRowWinner(rules: List[Rule], description: String): Option[Rule] = {
     val matched = findMatches(rules, description)
-    val ignoreWinner = findWinner(matched.filter(_.action == ImportRuleAction.Ignore))
-    val merchantWinner = findWinner(matched.filter(_.action == ImportRuleAction.SetMerchant))
-    val categoryWinner = findWinner(matched.filter(_.action == ImportRuleAction.SetCategory))
+    def byKind(kind: ImportRuleActionKind): List[Rule] = matched.filter(_.action.kind == kind)
+    val ignoreWinner = findWinner(byKind(ImportRuleActionKind.Ignore))
+    val merchantWinner = findWinner(byKind(ImportRuleActionKind.SetMerchant))
+    val categoryWinner = findWinner(byKind(ImportRuleActionKind.SetCategory))
     ignoreWinner.orElse(merchantWinner).orElse(categoryWinner)
   }
 
   // For receipts: only set_merchant rules apply.
   def findReceiptWinner(rules: List[Rule], merchantName: String): Option[Rule] =
-    findWinner(findMatches(rules.filter(_.action == ImportRuleAction.SetMerchant), merchantName))
+    findWinner(findMatches(rules.filter(_.action.kind == ImportRuleActionKind.SetMerchant), merchantName))
 }

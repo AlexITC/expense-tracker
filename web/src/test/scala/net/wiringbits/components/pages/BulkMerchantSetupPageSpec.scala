@@ -126,7 +126,7 @@ class BulkMerchantSetupPageSpec extends AnyWordSpec with BeforeAndAfterEach {
     }
 
     "exclude descriptions matched by an ignore rule" in {
-      val ignore = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "unknown shop", None)
+      val ignore = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "unknown shop")
       val result = BulkMerchantSetupPage.findUnmatchedGroups(sampleRows :+ otherRow, List(ignore), Nil)
       result.map(_._1) mustBe List("CARNICERIA EL RISCU (GIJON)")
     }

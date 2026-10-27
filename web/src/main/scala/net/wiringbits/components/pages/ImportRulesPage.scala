@@ -11,6 +11,7 @@ import net.wiringbits.api.models.merchants.{
   GetImportRules,
   GetMerchants,
   ImportRuleAction,
+  ImportRuleActionKind,
   UpdateImportRule
 }
 import net.wiringbits.models.User
@@ -115,7 +116,7 @@ object ImportRuleList {
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
-    val (newAction, setNewAction) = Hooks.useState(ImportRuleAction.SetMerchant: ImportRuleAction)
+    val (newAction, setNewAction) = Hooks.useState(ImportRuleActionKind.SetMerchant: ImportRuleActionKind)
     val (newPattern, setNewPattern) = Hooks.useState("")
     val (newMerchantInput, setNewMerchantInput) = Hooks.useState("")
     val (newMerchantIdOpt, setNewMerchantIdOpt) = Hooks.useState[Option[UUID]](None)
@@ -123,7 +124,7 @@ object ImportRuleList {
     val (newCategoryIdOpt, setNewCategoryIdOpt) = Hooks.useState[Option[UUID]](None)
     val (error, setError) = Hooks.useState("")
     val (editingId, setEditingId) = Hooks.useState[Option[UUID]](None)
-    val (editAction, setEditAction) = Hooks.useState(ImportRuleAction.SetMerchant: ImportRuleAction)
+    val (editAction, setEditAction) = Hooks.useState(ImportRuleActionKind.SetMerchant: ImportRuleActionKind)
     val (editPattern, setEditPattern) = Hooks.useState("")
     val (editMerchantInput, setEditMerchantInput) = Hooks.useState("")
     val (editMerchantIdOpt, setEditMerchantIdOpt) = Hooks.useState[Option[UUID]](None)
@@ -190,23 +191,23 @@ object ImportRuleList {
 
     def handleCreate(): Unit =
       newAction match {
-        case ImportRuleAction.Ignore =>
+        case ImportRuleActionKind.Ignore =>
           props.ctx.api.client
-            .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, newPattern, None))
+            .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, newPattern))
             .onComplete {
               case Success(_) =>
                 setNewPattern(""); setNewMerchantInput(""); setNewMerchantIdOpt(None); setError(""); props.onRefresh()
               case Failure(ex) => setError(ex.getMessage)
             }
 
-        case ImportRuleAction.SetMerchant =>
+        case ImportRuleActionKind.SetMerchant =>
           val name = newMerchantInput.trim
           if (name.isEmpty) setError("Enter a merchant name")
           else
             resolveOrCreateMerchant(name, newMerchantIdOpt)
               .flatMap { mid =>
                 props.ctx.api.client
-                  .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant, newPattern, Some(mid)))
+                  .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(mid), newPattern))
               }
               .onComplete {
                 case Success(_) =>
@@ -214,14 +215,14 @@ object ImportRuleList {
                 case Failure(ex) => setError(ex.getMessage)
               }
 
-        case ImportRuleAction.SetCategory =>
+        case ImportRuleActionKind.SetCategory =>
           val name = newCategoryInput.trim
           if (name.isEmpty) setError("Enter a category name")
           else
             resolveOrCreateCategory(name, newCategoryIdOpt)
               .flatMap { cid =>
                 props.ctx.api.client
-                  .createImportRule(CreateImportRule.Request(ImportRuleAction.SetCategory, newPattern, None, Some(cid)))
+                  .createImportRule(CreateImportRule.Request(ImportRuleAction.SetCategory(cid), newPattern))
               }
               .onComplete {
                 case Success(_) =>
@@ -240,9 +241,9 @@ object ImportRuleList {
 
     def handleUpdate(ruleId: UUID): Unit =
       editAction match {
-        case ImportRuleAction.Ignore =>
+        case ImportRuleActionKind.Ignore =>
           props.ctx.api.client
-            .updateImportRule(ruleId, UpdateImportRule.Request(ImportRuleAction.Ignore, editPattern, None))
+            .updateImportRule(ruleId, UpdateImportRule.Request(ImportRuleAction.Ignore, editPattern))
             .onComplete {
               case Success(_) =>
                 setEditingId(None); setEditPattern(""); setEditMerchantInput(""); setEditMerchantIdOpt(None)
@@ -250,7 +251,7 @@ object ImportRuleList {
               case Failure(ex) => setError(ex.getMessage)
             }
 
-        case ImportRuleAction.SetMerchant =>
+        case ImportRuleActionKind.SetMerchant =>
           val name = editMerchantInput.trim
           if (name.isEmpty) setError("Enter a merchant name")
           else
@@ -259,7 +260,7 @@ object ImportRuleList {
                 props.ctx.api.client
                   .updateImportRule(
                     ruleId,
-                    UpdateImportRule.Request(ImportRuleAction.SetMerchant, editPattern, Some(mid))
+                    UpdateImportRule.Request(ImportRuleAction.SetMerchant(mid), editPattern)
                   )
               }
               .onComplete {
@@ -269,7 +270,7 @@ object ImportRuleList {
                 case Failure(ex) => setError(ex.getMessage)
               }
 
-        case ImportRuleAction.SetCategory =>
+        case ImportRuleActionKind.SetCategory =>
           val name = editCategoryInput.trim
           if (name.isEmpty) setError("Enter a category name")
           else
@@ -278,7 +279,7 @@ object ImportRuleList {
                 props.ctx.api.client
                   .updateImportRule(
                     ruleId,
-                    UpdateImportRule.Request(ImportRuleAction.SetCategory, editPattern, None, Some(cid))
+                    UpdateImportRule.Request(ImportRuleAction.SetCategory(cid), editPattern)
                   )
               }
               .onComplete {
@@ -289,22 +290,23 @@ object ImportRuleList {
               }
       }
 
-    def actionSelector(current: ImportRuleAction, onChange: ImportRuleAction => Unit): ReactElement = {
-      val items = Seq(ImportRuleAction.SetMerchant, ImportRuleAction.SetCategory, ImportRuleAction.Ignore).map { a =>
-        val label = a match {
-          case ImportRuleAction.SetMerchant => "Set merchant"
-          case ImportRuleAction.Ignore => "Ignore"
-          case ImportRuleAction.SetCategory => "Set category"
+    def actionSelector(current: ImportRuleActionKind, onChange: ImportRuleActionKind => Unit): ReactElement = {
+      val items = Seq(ImportRuleActionKind.SetMerchant, ImportRuleActionKind.SetCategory, ImportRuleActionKind.Ignore)
+        .map { a =>
+          val label = a match {
+            case ImportRuleActionKind.SetMerchant => "Set merchant"
+            case ImportRuleActionKind.Ignore => "Ignore"
+            case ImportRuleActionKind.SetCategory => "Set category"
+          }
+          mui.MenuItem.normal()(label).value(a.entryName).withKey(a.entryName).build
         }
-        mui.MenuItem.normal()(label).value(a.entryName).withKey(a.entryName).build
-      }
       mui.TextField
         .outlined()
         .select(true)
         .label("Action")
         .value(current.entryName)
         .size("small")
-        .onChange(e => onChange(ImportRuleAction.fromEntryName(e.target.asInstanceOf[dom.HTMLInputElement].value)))
+        .onChange(e => onChange(ImportRuleActionKind.fromEntryName(e.target.asInstanceOf[dom.HTMLInputElement].value)))
         .sx(new CSSPropertiesUtils { minWidth = "140px" })(items*)
     }
 
@@ -385,11 +387,11 @@ object ImportRuleList {
           .size("small")
           .onChange(e => setNewPattern(e.target.asInstanceOf[dom.HTMLInputElement].value)),
         newAction match {
-          case ImportRuleAction.SetMerchant =>
+          case ImportRuleActionKind.SetMerchant =>
             merchantAutocomplete(newMerchantInput, setNewMerchantInput, setNewMerchantIdOpt)
-          case ImportRuleAction.SetCategory =>
+          case ImportRuleActionKind.SetCategory =>
             categoryAutocomplete(newCategoryInput, setNewCategoryInput, setNewCategoryIdOpt)
-          case ImportRuleAction.Ignore => Fragment()
+          case ImportRuleActionKind.Ignore => Fragment()
         },
         mui.Button
           .normal()("Add rule")
@@ -448,11 +450,11 @@ object ImportRuleList {
               .onChange(e => setEditPattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
               .onKeyDown(e => if (e.key == "Enter") handleUpdate(r.id)),
             editAction match {
-              case ImportRuleAction.SetMerchant =>
+              case ImportRuleActionKind.SetMerchant =>
                 merchantAutocomplete(editMerchantInput, setEditMerchantInput, setEditMerchantIdOpt)
-              case ImportRuleAction.SetCategory =>
+              case ImportRuleActionKind.SetCategory =>
                 categoryAutocomplete(editCategoryInput, setEditCategoryInput, setEditCategoryIdOpt)
-              case ImportRuleAction.Ignore => Fragment()
+              case ImportRuleActionKind.Ignore => Fragment()
             },
             mui.Button
               .normal()("Save")
@@ -468,8 +470,8 @@ object ImportRuleList {
         else {
           val actionLabel = r.action match {
             case ImportRuleAction.Ignore => "Ignore"
-            case ImportRuleAction.SetMerchant => s"→ ${r.merchantName.getOrElse("?")}"
-            case ImportRuleAction.SetCategory => s"→ ${r.categoryName.getOrElse("?")}"
+            case ImportRuleAction.SetMerchant(_) => s"→ ${r.merchantName.getOrElse("?")}"
+            case ImportRuleAction.SetCategory(_) => s"→ ${r.categoryName.getOrElse("?")}"
           }
           mui.Box.sx(new CSSPropertiesUtils {
             display = "flex"
@@ -508,12 +510,12 @@ object ImportRuleList {
                 .sx(new CSSPropertiesUtils { color = "var(--lc-text-2)" })
                 .onClick { _ =>
                   setEditingId(Some(r.id))
-                  setEditAction(r.action)
+                  setEditAction(r.action.kind)
                   setEditPattern(r.pattern)
                   setEditMerchantInput(r.merchantName.getOrElse(""))
-                  setEditMerchantIdOpt(r.merchantId)
+                  setEditMerchantIdOpt(r.action.merchantIdOpt)
                   setEditCategoryInput(r.categoryName.getOrElse(""))
-                  setEditCategoryIdOpt(r.categoryId)
+                  setEditCategoryIdOpt(r.action.categoryIdOpt)
                 },
               mui.Button
                 .normal()("Delete")

@@ -113,7 +113,7 @@ object BankStatementReviewPage {
     verdict match {
       case RowRuleVerdict.Ignore => None
       case RowRuleVerdict.SetCategory(categoryId) =>
-        categoryId.map(c => ResolvedImport(merchantId = None, categoryId = c, categoryFromAi = false))
+        Some(ResolvedImport(merchantId = None, categoryId = categoryId, categoryFromAi = false))
       case _ =>
         val ruleMerchantId = RowRuleVerdict.merchantId(verdict)
         val ruleCategoryId = ruleMerchantId.flatMap(mid => merchants.find(_.id == mid).flatMap(_.categoryId))

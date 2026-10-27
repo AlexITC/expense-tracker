@@ -2,7 +2,7 @@ package net.wiringbits.components.pages
 
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus, GetBankStatement}
 import net.wiringbits.api.models.categories.GetCategories
-import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction}
+import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction, ImportRuleActionKind}
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
@@ -121,8 +121,14 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
     def merchant(id: UUID, categoryId: Option[UUID]): GetMerchants.Response.Merchant =
       GetMerchants.Response.Merchant(id, "Merchant", None, categoryId, None, reviewed = true, Instant.EPOCH)
 
-    def rule(action: ImportRuleAction, pattern: String, merchantId: Option[UUID]): ImportRuleMatcher.Rule =
-      ImportRuleMatcher.Rule(UUID.randomUUID(), action, pattern, merchantId)
+    def rule(action: ImportRuleActionKind, pattern: String, merchantId: Option[UUID]): ImportRuleMatcher.Rule = {
+      val a = action match {
+        case ImportRuleActionKind.SetMerchant => ImportRuleAction.SetMerchant(merchantId.getOrElse(UUID.randomUUID()))
+        case ImportRuleActionKind.SetCategory => ImportRuleAction.SetCategory(UUID.randomUUID())
+        case ImportRuleActionKind.Ignore => ImportRuleAction.Ignore
+      }
+      ImportRuleMatcher.Rule(UUID.randomUUID(), a, pattern)
+    }
 
     def done(rows: AiSuggestions.RowSuggestion*): Option[AiSuggestions] =
       Some(AiSuggestions(AiSuggestionsStatus.Done, "eu.amazon.nova-lite-v1:0", rows.toList))
@@ -132,7 +138,7 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
       val m = UUID.randomUUID()
       val c = UUID.randomUUID()
       BankStatementReviewPage.resolveImport(
-        List(rule(ImportRuleAction.SetMerchant, "SUPERMARKET", Some(m))),
+        List(rule(ImportRuleActionKind.SetMerchant, "SUPERMARKET", Some(m))),
         List(merchant(m, Some(c))),
         aiSuggestions = None,
         row
@@ -167,7 +173,7 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
       val m = UUID.randomUUID()
       val c = UUID.randomUUID()
       BankStatementReviewPage.resolveImport(
-        List(rule(ImportRuleAction.SetMerchant, "SUPERMARKET", Some(m))),
+        List(rule(ImportRuleActionKind.SetMerchant, "SUPERMARKET", Some(m))),
         List(merchant(m, None)),
         done(AiSuggestions.RowSuggestion(row.id, Some(c), None)),
         row
@@ -178,7 +184,7 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
       val row = sampleRow("SUPERMARKET")
       val c = UUID.randomUUID()
       BankStatementReviewPage.resolveImport(
-        List(rule(ImportRuleAction.Ignore, "SUPERMARKET", None)),
+        List(rule(ImportRuleActionKind.Ignore, "SUPERMARKET", None)),
         Nil,
         done(AiSuggestions.RowSuggestion(row.id, Some(c), None)),
         row
@@ -189,7 +195,7 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
       val row = sampleRow("SUPERMARKET")
       val c = UUID.randomUUID()
       val setCategory =
-        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory, "SUPERMARKET", None, Some(c))
+        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory(c), "SUPERMARKET")
       BankStatementReviewPage.resolveImport(
         List(setCategory),
         Nil,
@@ -205,13 +211,11 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
       val setCategory =
         ImportRuleMatcher.Rule(
           UUID.randomUUID(),
-          ImportRuleAction.SetCategory,
-          "SUPERMARKET 0042",
-          None,
-          Some(UUID.randomUUID())
+          ImportRuleAction.SetCategory(UUID.randomUUID()),
+          "SUPERMARKET 0042"
         )
       BankStatementReviewPage.resolveImport(
-        List(rule(ImportRuleAction.SetMerchant, "SUPERMARKET", Some(m)), setCategory),
+        List(rule(ImportRuleActionKind.SetMerchant, "SUPERMARKET", Some(m)), setCategory),
         List(merchant(m, Some(merchantCategory))),
         aiSuggestions = None,
         row
@@ -235,7 +239,7 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
     import BankStatementReviewPage.{PrimaryAction, primaryActionFor}
     val negative = sampleRow()
     val positive = sampleRow().copy(amount = BigDecimal("45.00"))
-    val setMerchant = RowRuleVerdict.SetMerchant(Some(UUID.randomUUID()))
+    val setMerchant = RowRuleVerdict.SetMerchant(UUID.randomUUID())
 
     "review a ready negative row with a SetMerchant verdict as an expense" in {
       primaryActionFor(negative, isReady = true, setMerchant) mustBe PrimaryAction.ReviewExpense
@@ -276,11 +280,17 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
     def merchant(id: UUID, name: String, categoryId: Option[UUID]): GetMerchants.Response.Merchant =
       GetMerchants.Response.Merchant(id, name, None, categoryId, None, reviewed = true, Instant.EPOCH)
 
-    def rule(action: ImportRuleAction, pattern: String, merchantId: Option[UUID]): ImportRuleMatcher.Rule =
-      ImportRuleMatcher.Rule(UUID.randomUUID(), action, pattern, merchantId)
+    def rule(action: ImportRuleActionKind, pattern: String, merchantId: Option[UUID]): ImportRuleMatcher.Rule = {
+      val a = action match {
+        case ImportRuleActionKind.SetMerchant => ImportRuleAction.SetMerchant(merchantId.getOrElse(UUID.randomUUID()))
+        case ImportRuleActionKind.SetCategory => ImportRuleAction.SetCategory(UUID.randomUUID())
+        case ImportRuleActionKind.Ignore => ImportRuleAction.Ignore
+      }
+      ImportRuleMatcher.Rule(UUID.randomUUID(), a, pattern)
+    }
 
     "mark an unprocessed negative row with an Ignore rule as ready, with nothing to import" in {
-      val info = rowInfo(List(rule(ImportRuleAction.Ignore, "SUPERMARKET", None)), Nil, Nil, None, sampleRow())
+      val info = rowInfo(List(rule(ImportRuleActionKind.Ignore, "SUPERMARKET", None)), Nil, Nil, None, sampleRow())
       info.verdict mustBe RowRuleVerdict.Ignore
       info.resolved mustBe None
       info.isReady mustBe true
@@ -290,13 +300,13 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
       val m = UUID.randomUUID()
       val c = UUID.randomUUID()
       val info = rowInfo(
-        List(rule(ImportRuleAction.SetMerchant, "SUPERMARKET", Some(m))),
+        List(rule(ImportRuleActionKind.SetMerchant, "SUPERMARKET", Some(m))),
         List(merchant(m, "Walmart", Some(c))),
         List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
         None,
         sampleRow()
       )
-      info.verdict mustBe RowRuleVerdict.SetMerchant(Some(m))
+      info.verdict mustBe RowRuleVerdict.SetMerchant(m)
       info.resolved mustBe Some(BankStatementReviewPage.ResolvedImport(Some(m), c, categoryFromAi = false))
       info.isReady mustBe true
       info.merchantName mustBe Some("Walmart")
@@ -314,7 +324,7 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
         None,
         sampleRow("POS SUPERMARKET 0042")
       )
-      info.verdict mustBe RowRuleVerdict.SetMerchant(Some(m))
+      info.verdict mustBe RowRuleVerdict.SetMerchant(m)
       info.resolved mustBe Some(BankStatementReviewPage.ResolvedImport(Some(m), c, categoryFromAi = false))
       info.isReady mustBe true
       info.merchantName mustBe Some("Supermarket")
@@ -332,13 +342,13 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
         )
       )
       val info = rowInfo(
-        List(ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory, "SUPERMARKET", None, Some(c))),
+        List(ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory(c), "SUPERMARKET")),
         Nil,
         List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
         ai,
         row
       )
-      info.verdict mustBe RowRuleVerdict.SetCategory(Some(c))
+      info.verdict mustBe RowRuleVerdict.SetCategory(c)
       info.resolved mustBe Some(BankStatementReviewPage.ResolvedImport(None, c, categoryFromAi = false))
       info.isReady mustBe true
       info.merchantName mustBe None
@@ -381,7 +391,7 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
     }
 
     "not mark an already linked or a positive row ready" in {
-      val rules = List(rule(ImportRuleAction.Ignore, "SUPERMARKET", None))
+      val rules = List(rule(ImportRuleActionKind.Ignore, "SUPERMARKET", None))
       rowInfo(rules, Nil, Nil, None, sampleRow().copy(expenseId = Some(UUID.randomUUID()))).isReady mustBe false
       rowInfo(rules, Nil, Nil, None, sampleRow().copy(amount = BigDecimal("10.00"))).isReady mustBe false
     }

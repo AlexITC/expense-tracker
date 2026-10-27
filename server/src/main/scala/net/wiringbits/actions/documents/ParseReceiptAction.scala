@@ -93,7 +93,7 @@ class ParseReceiptAction @Inject() (
                         )
                         matchingRule match {
                           case Some(rule) =>
-                            rule.merchantId match {
+                            rule.action.merchantIdOpt match {
                               case Some(mid) => receiptRepository.setMerchantId(receipt.id, mid)
                               case None => Future.unit
                             }
@@ -108,9 +108,8 @@ class ParseReceiptAction @Inject() (
                                     ruleRepository
                                       .create(
                                         doc.userId,
-                                        ImportRuleAction.SetMerchant,
+                                        ImportRuleAction.SetMerchant(merchantId),
                                         name,
-                                        Some(merchantId),
                                         autoCreated = true
                                       )
                                       .map(_ => ())
