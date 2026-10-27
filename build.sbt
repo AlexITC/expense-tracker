@@ -4,6 +4,13 @@ import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 ThisBuild / scalaVersion := "3.8.3"
 ThisBuild / organization := "net.wiringbits"
 
+// scalajs-bundler and ScalablyTyped plugin keys that sbt's lintUnused reports as unused even
+// though those plugins' own tasks read them. Exclude them so the false positives stop showing
+// on every build.
+Global / excludeLintKeys += webpackExtraArgs
+Global / excludeLintKeys += webpackDevServerPort
+Global / excludeLintKeys += stMinimize
+
 val pekkoVersion = "1.6.0"
 
 ThisBuild / dependencyOverrides ++= Seq(
