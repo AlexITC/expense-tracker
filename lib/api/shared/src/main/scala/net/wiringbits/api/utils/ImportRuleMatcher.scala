@@ -56,7 +56,9 @@ object ImportRuleMatcher {
     ignoreWinner.orElse(merchantWinner).orElse(categoryWinner)
   }
 
-  // For receipts: only set_merchant rules apply.
+  // For receipts: only set_merchant rules apply. set_category is intentionally row-only — a receipt is a
+  // merchant-centric document whose category follows its resolved merchant, so a description-pattern category
+  // rule has no role here. Revisit if receipts ever need standalone categorization.
   def findReceiptWinner(rules: List[Rule], merchantName: String): Option[Rule] =
     findWinner(findMatches(rules.filter(_.action.kind == ImportRuleActionKind.SetMerchant), merchantName))
 }
