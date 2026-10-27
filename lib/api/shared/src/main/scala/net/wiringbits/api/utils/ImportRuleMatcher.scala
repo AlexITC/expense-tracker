@@ -7,6 +7,9 @@ import java.util.UUID
 object ImportRuleMatcher {
   case class Rule(id: UUID, action: ImportRuleAction, pattern: String, merchantId: Option[UUID])
 
+  // Patterns shorter than this (after normalize) never match.
+  val MinPatternLength: Int = 3
+
   def normalize(s: String): String = s.toLowerCase.replaceAll("[^a-z0-9]", "")
 
   /** The explicit rules plus one virtual SetMerchant rule per merchant, using the merchant name as the pattern.
@@ -28,7 +31,7 @@ object ImportRuleMatcher {
     normalize(text).contains(normalize(rule.pattern))
 
   def findMatches(rules: List[Rule], text: String): List[Rule] =
-    rules.filter(r => normalize(r.pattern).length >= 3 && matches(r, text))
+    rules.filter(r => normalize(r.pattern).length >= MinPatternLength && matches(r, text))
 
   // Longest normalized pattern wins. Tiebreak: most recently created (UUIDv7 lexicographic order = chronological).
   def findWinner(matchedRules: List[Rule]): Option[Rule] =

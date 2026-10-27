@@ -133,4 +133,58 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
       BankRowCreateExpenseForm.isPristine(row, None, row.description, None, "Gro") mustBe false
     }
   }
+
+  "ruleHint" should {
+    "return CoveredByRule when an explicit rule matches, even if the name also matches" in {
+      val aliasRule =
+        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant, "OXXO STORE", Some(oxxo.id))
+      BankRowCreateExpenseForm.ruleHint(row, List(aliasRule), "Oxxo") mustBe
+        BankRowCreateExpenseForm.RuleHint.CoveredByRule("OXXO STORE")
+    }
+
+    "return CoveredByRule when an explicit Ignore rule matches" in {
+      val ignoreRule = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "OXXO STORE", None)
+      BankRowCreateExpenseForm.ruleHint(row, List(ignoreRule), "Oxxo") mustBe
+        BankRowCreateExpenseForm.RuleHint.CoveredByRule("OXXO STORE")
+    }
+
+    "return MatchesByName when only the merchant name matches" in {
+      BankRowCreateExpenseForm.ruleHint(row, Nil, "Oxxo") mustBe BankRowCreateExpenseForm.RuleHint.MatchesByName
+    }
+
+    "return NeedsAlias when the name does not occur in the description" in {
+      BankRowCreateExpenseForm.ruleHint(row, Nil, "Seven Eleven") mustBe
+        BankRowCreateExpenseForm.RuleHint.NeedsAlias
+    }
+
+    "return NeedsAlias when the name normalizes to under 3 characters" in {
+      BankRowCreateExpenseForm.ruleHint(row, Nil, "O.X") mustBe BankRowCreateExpenseForm.RuleHint.NeedsAlias
+    }
+  }
+
+  "aliasToCreate" should {
+    "return None for a blank pattern" in {
+      BankRowCreateExpenseForm.aliasToCreate("", "Oxxo") mustBe None
+    }
+
+    "return None for a whitespace-only pattern" in {
+      BankRowCreateExpenseForm.aliasToCreate("   ", "Oxxo") mustBe None
+    }
+
+    "return None for a punctuation-only pattern" in {
+      BankRowCreateExpenseForm.aliasToCreate("...", "Oxxo") mustBe None
+    }
+
+    "return None when the pattern normalizes to under 3 characters" in {
+      BankRowCreateExpenseForm.aliasToCreate("A-1", "Oxxo") mustBe None
+    }
+
+    "return None when the pattern normalizes to the merchant name" in {
+      BankRowCreateExpenseForm.aliasToCreate("O.X.X.O", "Oxxo") mustBe None
+    }
+
+    "return the trimmed pattern otherwise" in {
+      BankRowCreateExpenseForm.aliasToCreate("  OXXO STORE  ", "Oxxo") mustBe Some("OXXO STORE")
+    }
+  }
 }

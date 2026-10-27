@@ -74,6 +74,39 @@ object BankRowCreateExpenseForm {
   ): Boolean =
     merchantIdOpt.isEmpty && merchantInput == row.description && categoryIdOpt.isEmpty && categoryInput.isEmpty
 
+  enum RuleHint {
+    case CoveredByRule(pattern: String)
+    case MatchesByName
+    case NeedsAlias
+  }
+
+  /** How future rows like this one would be matched: by an explicit rule, by the merchant name itself (an implicit
+    * rule), or not at all, in which case the form offers to create an alias rule.
+    */
+  def ruleHint(
+      row: GetBankStatement.StatementRowData,
+      explicitRules: List[ImportRuleMatcher.Rule],
+      merchantName: String
+  ): RuleHint =
+    ImportRuleMatcher.findRowWinner(explicitRules, row.description) match {
+      case Some(rule) => RuleHint.CoveredByRule(rule.pattern)
+      case None =>
+        val nameRules = ImportRuleMatcher.effectiveRules(Nil, List(new UUID(0L, 0L) -> merchantName))
+        if (ImportRuleMatcher.findMatches(nameRules, row.description).nonEmpty) RuleHint.MatchesByName
+        else RuleHint.NeedsAlias
+    }
+
+  /** The alias pattern worth storing: blank means no rule, an alias too short to ever match is useless, and an alias
+    * equal to the merchant name (once normalized) is redundant because merchant names already match implicitly.
+    */
+  def aliasToCreate(pattern: String, merchantName: String): Option[String] = {
+    val trimmed = pattern.trim
+    val normalized = ImportRuleMatcher.normalize(trimmed)
+    Option.when(
+      normalized.length >= ImportRuleMatcher.MinPatternLength && normalized != ImportRuleMatcher.normalize(merchantName)
+    )(trimmed)
+  }
+
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
@@ -97,10 +130,15 @@ object BankRowCreateExpenseForm {
     val (categoryIdOpt, setCategoryIdOpt) = Hooks.useState[Option[UUID]](initCategoryIdOpt)
     val (categoryOpen, setCategoryOpen) = Hooks.useState(false)
 
-    val (useDescAsPattern, setUseDescAsPattern) = Hooks.useState(true)
+    val (rulePattern, setRulePattern) = Hooks.useState(props.row.description)
     val (receiptId, setReceiptId) = Hooks.useState[Option[UUID]](None)
     val (receipts, setReceipts) = Hooks.useState[List[GetReceipts.Response.Receipt]](Nil)
     val (error, setError) = Hooks.useState("")
+    // Set once the expense exists but its alias rule failed: the form stays open only to show that error.
+    val (savedExpenseId, setSavedExpenseId) = Hooks.useState[Option[UUID]](None)
+
+    val merchantName = merchantInput.trim
+    val hint = ruleHint(props.row, props.ruleList, merchantName)
 
     // A suggestion can arrive (via polling) after the form was opened blank; apply it only while the
     // merchant/category fields are still untouched so user edits are never overwritten.
@@ -181,11 +219,9 @@ object BankRowCreateExpenseForm {
         case (_, None) => setError("Invalid date")
         case (Some(amt), Some(dt)) =>
           setError("")
-          val merchantName = merchantInput.trim
           val categoryName = categoryInput.trim
-          val pattern = if (useDescAsPattern) props.row.description else merchantName
 
-          val fResult: Future[Unit] = for {
+          val fExpense: Future[(UUID, Option[UUID])] = for {
             resolvedCategoryId <- categoryName match {
               case "" => Future.successful[Option[UUID]](None)
               case _ =>
@@ -198,12 +234,11 @@ object BankRowCreateExpenseForm {
                 }
             }
 
-            merchantResult <- merchantName match {
-              case "" => Future.successful[Option[(UUID, Option[GetMerchants.Response.Merchant])]](None)
+            resolvedMerchantId <- merchantName match {
+              case "" => Future.successful[Option[UUID]](None)
               case _ =>
                 merchantIdOpt match {
-                  case Some(id) =>
-                    Future.successful(Some((id, None: Option[GetMerchants.Response.Merchant])))
+                  case Some(id) => Future.successful(Some(id))
                   case None =>
                     props.ctx.api.client
                       .createMerchant(
@@ -224,26 +259,13 @@ object BankRowCreateExpenseForm {
                           reviewed = false,
                           createdAt = Instant.now()
                         )
-                        Some((r.id, Some(m)))
+                        props.onNewEntities(None, Some(m))
+                        // A retry after a later failure must reuse this merchant instead of creating another one.
+                        setMerchantIdOpt(Some(r.id))
+                        Some(r.id)
                       }
                 }
             }
-
-            resolvedMerchantId = merchantResult.map(_._1)
-
-            ruleIdOpt <-
-              if (resolvedMerchantId.isDefined && pattern.nonEmpty)
-                props.ctx.api.client
-                  .createImportRule(
-                    CreateImportRule.Request(
-                      action = ImportRuleAction.SetMerchant,
-                      pattern = pattern,
-                      merchantId = resolvedMerchantId
-                    )
-                  )
-                  .map(r => Option(r.id))
-                  .recover { case _ => None }
-              else Future.successful[Option[UUID]](None)
 
             splits = resolvedCategoryId
               .map(catId => List(CreateExpenseFromRow.Split(catId, amt)))
@@ -258,24 +280,35 @@ object BankRowCreateExpenseForm {
               receiptId = receiptId
             )
             resp <- props.ctx.api.client.createExpenseFromRow(props.stmtId, props.row.id, req)
-          } yield {
-            val newRule = for {
-              mid <- resolvedMerchantId
-              rid <- ruleIdOpt
-            } yield ImportRuleMatcher.Rule(
-              id = rid,
-              action = ImportRuleAction.SetMerchant,
-              pattern = pattern,
-              merchantId = Some(mid)
-            )
-            val newMerchant = merchantResult.flatMap(_._2)
-            props.onNewEntities(newRule, newMerchant)
-            props.onSuccess(resp.expenseId)
-          }
+          } yield (resp.expenseId, resolvedMerchantId)
 
-          fResult.onComplete {
-            case Success(_) => ()
+          fExpense.onComplete {
             case Failure(ex) => setError(ex.getMessage)
+            case Success((expenseId, resolvedMerchantId)) =>
+              val aliasOpt = if (hint == RuleHint.NeedsAlias) aliasToCreate(rulePattern, merchantName) else None
+              (resolvedMerchantId, aliasOpt) match {
+                case (Some(mid), Some(alias)) =>
+                  props.ctx.api.client
+                    .createImportRule(
+                      CreateImportRule.Request(
+                        action = ImportRuleAction.SetMerchant,
+                        pattern = alias,
+                        merchantId = Some(mid)
+                      )
+                    )
+                    .onComplete {
+                      case Success(r) =>
+                        props.onNewEntities(
+                          Some(ImportRuleMatcher.Rule(r.id, ImportRuleAction.SetMerchant, alias, Some(mid))),
+                          None
+                        )
+                        props.onSuccess(expenseId)
+                      case Failure(ex) =>
+                        setSavedExpenseId(Some(expenseId))
+                        setError(s"Expense created, but the rule could not be created: ${ex.getMessage}")
+                    }
+                case _ => props.onSuccess(expenseId)
+              }
           }
       }
 
@@ -320,10 +353,11 @@ object BankRowCreateExpenseForm {
       fontSize = "0.8em"; color = "var(--lc-link)"; fontWeight = "bold"
     }
     val anyOpen = merchantOpen || categoryOpen
+    val hintStyling = new CSSPropertiesUtils { fontSize = "13px"; color = "var(--lc-text-2)" }
 
     form(onSubmit := { e =>
       e.preventDefault()
-      handleSubmit()
+      if (savedExpenseId.isEmpty) handleSubmit()
     })(
       Fragment(
         if (anyOpen)
@@ -424,20 +458,24 @@ object BankRowCreateExpenseForm {
               ): ReactElement)
             else Fragment()
           ),
-          (mui.Box
-            .sx(new CSSPropertiesUtils {
-              display = "flex"; alignItems = "center"; cursor = "pointer"; gap = "4px"
-            })
-            .onClick(_ => setUseDescAsPattern(!useDescAsPattern))(
-              (mui.Checkbox
-                .checked(useDescAsPattern)
-                .size("small")
-                .onChange((_, checked) => setUseDescAsPattern(checked))
-                .build: ReactElement),
-              mui
-                .Typography("Use original description as rule pattern")
-                .sx(new CSSPropertiesUtils { fontSize = "13px" })
-            ): ReactElement),
+          if (merchantName.isEmpty) Fragment()
+          else
+            hint match {
+              case RuleHint.CoveredByRule(pattern) =>
+                mui.Typography(s"Covered by rule: $pattern").sx(hintStyling)
+              case RuleHint.MatchesByName =>
+                mui
+                  .Typography(s"Future rows matching \"$merchantName\" are matched automatically")
+                  .sx(hintStyling)
+              case RuleHint.NeedsAlias =>
+                mui.TextField
+                  .outlined()
+                  .label("Rule pattern")
+                  .size("small")
+                  .value(rulePattern)
+                  .helperText("Future rows containing this text get this merchant. Leave blank for no rule.")
+                  .onChange(e => setRulePattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
+            },
           if (rankedReceipts.nonEmpty)
             mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "6px" })(
               mui.Typography("Attach receipt (optional):").sx(receiptSuggestStyling),
@@ -464,15 +502,22 @@ object BankRowCreateExpenseForm {
               )
             )
           else Fragment(),
-          mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
-            mui.Button
-              .normal()("Save")
-              .variant("contained")
-              .size("small")
-              .`type`("submit")
-              .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
-            mui.Button.normal()("Cancel").size("small").onClick(_ => props.onCancel())
-          )
+          savedExpenseId match {
+            case Some(expenseId) =>
+              mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
+                mui.Button.normal()("Close").size("small").onClick(_ => props.onSuccess(expenseId))
+              )
+            case None =>
+              mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
+                mui.Button
+                  .normal()("Save")
+                  .variant("contained")
+                  .size("small")
+                  .`type`("submit")
+                  .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
+                mui.Button.normal()("Cancel").size("small").onClick(_ => props.onCancel())
+              )
+          }
         )
       )
     )
