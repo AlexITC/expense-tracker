@@ -273,9 +273,10 @@ trait RepositoryUtils {
       userId: UUID,
       pattern: String = "test-pattern",
       action: ImportRuleAction = ImportRuleAction.Ignore,
-      merchantId: Option[UUID] = None
+      merchantId: Option[UUID] = None,
+      categoryId: Option[UUID] = None
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[UUID] = {
-    repository.importRules.create(userId, action, pattern, merchantId)
+    repository.importRules.create(userId, action, pattern, merchantId, categoryId)
   }
 
   /** Insert a bank statement (+ optional rows) directly via the DAOs. Lives here, not on the repository, because only

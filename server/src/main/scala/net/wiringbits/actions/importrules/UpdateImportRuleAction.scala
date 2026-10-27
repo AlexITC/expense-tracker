@@ -54,6 +54,6 @@ class UpdateImportRuleAction @Inject() (
                 else Future.unit
             } yield ()
         }
-        _ <- ruleRepository.update(ruleId, userId, request.action, request.pattern, request.merchantId)
+        _ <- ruleRepository.update(ruleId, userId, request.action, request.pattern, request.merchantId, None)
       } yield UpdateImportRule.Response()
 }
