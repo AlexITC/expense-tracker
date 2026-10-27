@@ -1,6 +1,7 @@
 package net.wiringbits.actions.telegram
 
 import net.wiringbits.api.models.merchants.ImportRuleAction
+import net.wiringbits.config.MerchantsConfig
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import net.wiringbits.services.TelegramMessageParser.ParsedMessage
 import org.scalatest.OptionValues.*
@@ -13,12 +14,13 @@ import scala.concurrent.Future
 
 class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
 
-  private def newAction(using repositories: RepositoryComponents): TelegramExpenseAction =
+  private def newAction(maxPerUser: Int = 400)(using repositories: RepositoryComponents): TelegramExpenseAction =
     new TelegramExpenseAction(
       repositories.merchants,
       repositories.categories,
       repositories.expenses,
-      repositories.importRules
+      repositories.importRules,
+      MerchantsConfig(maxPerUser)
     )(using executionContext, Clock.systemUTC())
 
   "apply" should {
@@ -31,7 +33,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
         val merchant = createMerchant(user.id, name = "Walmart", categoryId = Some(category.id)).futureValue
 
         val msg = ParsedMessage(BigDecimal("25.00"), "Walmart", None, None)
-        val result = newAction.apply(user.id, msg).futureValue
+        val result = newAction().apply(user.id, msg).futureValue
 
         result mustBe a[Right[?, ?]]
         val expense = repositories.expenses.all(user.id).futureValue.headOption.value
@@ -49,7 +51,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
         createMerchant(user.id, name = "Starbucks").futureValue
 
         val msg = ParsedMessage(BigDecimal("5.50"), "Starbucks", Some("Food"), None)
-        val result = newAction.apply(user.id, msg).futureValue
+        val result = newAction().apply(user.id, msg).futureValue
 
         result mustBe a[Right[?, ?]]
         val splits = repositories.expenses.allSplits(user.id).futureValue
@@ -64,7 +66,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
         createMerchant(user.id, name = "Netflix").futureValue
 
         val msg = ParsedMessage(BigDecimal("12.99"), "Netflix", Some("Entertainment"), None)
-        val result = newAction.apply(user.id, msg).futureValue
+        val result = newAction().apply(user.id, msg).futureValue
 
         result mustBe a[Right[?, ?]]
         val categories = repositories.categories.all(user.id).futureValue
@@ -87,7 +89,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
 
       // "AMZN.COM" normalizes to "amzncom" which contains the pattern "amzn"
       val msg = ParsedMessage(BigDecimal("30.00"), "AMZN.COM", None, None)
-      val result = newAction.apply(user.id, msg).futureValue
+      val result = newAction().apply(user.id, msg).futureValue
 
       result mustBe a[Right[?, ?]]
       val expense = repositories.expenses.all(user.id).futureValue.headOption.value
@@ -102,7 +104,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
         val user = createUser().futureValue
 
         val msg = ParsedMessage(BigDecimal("10.00"), "Unknown Shop", None, None)
-        val result = newAction.apply(user.id, msg).futureValue
+        val result = newAction().apply(user.id, msg).futureValue
 
         result mustBe a[Left[?, ?]]
         result.left.getOrElse("") must include("Unknown Shop")
@@ -114,7 +116,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
         val user = createUser().futureValue
 
         val msg = ParsedMessage(BigDecimal("8.00"), "New Shop", Some("Misc"), None)
-        val result = newAction.apply(user.id, msg).futureValue
+        val result = newAction().apply(user.id, msg).futureValue
 
         result mustBe a[Right[?, ?]]
         val merchants = repositories.merchants.all(user.id).futureValue
@@ -127,6 +129,19 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
         splits must not be empty
     }
 
+    "return Left when the configured merchant limit is reached and a new merchant would be created" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        createMerchant(user.id, name = "Shop A").futureValue
+        createMerchant(user.id, name = "Shop B").futureValue
+
+        val msg = ParsedMessage(BigDecimal("8.00"), "New Shop", Some("Misc"), None)
+        val result = newAction(maxPerUser = 2).apply(user.id, msg).futureValue
+
+        result must be(Left("Maximum number of merchants (2) reached"))
+        repositories.merchants.count(user.id).futureValue must be(2L)
+    }
+
     // Ignore rule: return Left without creating any expense
     "return Left when an Ignore import rule matches, even when a category is provided" in withRepositories() {
       implicit repositories =>
@@ -134,7 +149,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
         createImportRule(user.id, pattern = "amzn", action = ImportRuleAction.Ignore).futureValue
 
         val msg = ParsedMessage(BigDecimal("10.00"), "AMZN.COM", Some("Shopping"), None)
-        val result = newAction.apply(user.id, msg).futureValue
+        val result = newAction().apply(user.id, msg).futureValue
 
         result mustBe a[Left[?, ?]]
         repositories.expenses.all(user.id).futureValue mustBe empty
@@ -147,7 +162,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
       Future.traverse((1 to 500).toList)(_ => createExpense(user.id, date = today)).futureValue
 
       val msg = ParsedMessage(BigDecimal("5.00"), "Any Shop", None, None)
-      val result = newAction.apply(user.id, msg).futureValue
+      val result = newAction().apply(user.id, msg).futureValue
 
       result mustBe a[Left[?, ?]]
       result.left.getOrElse("") must include("500")
@@ -161,7 +176,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
         val merchant = createMerchant(user.id, name = "Petrol", categoryId = None).futureValue
 
         val msg = ParsedMessage(BigDecimal("40.00"), "Petrol", None, None)
-        val result = newAction.apply(user.id, msg).futureValue
+        val result = newAction().apply(user.id, msg).futureValue
 
         result mustBe a[Right[?, ?]]
         val expense = repositories.expenses.all(user.id).futureValue.headOption.value

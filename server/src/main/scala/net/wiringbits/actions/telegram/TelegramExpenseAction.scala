@@ -4,6 +4,7 @@ import com.github.f4b6a3.uuid.UuidCreator
 import io.scalaland.chimney.dsl.*
 import net.wiringbits.api.models.merchants.ImportRuleAction
 import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.config.MerchantsConfig
 import net.wiringbits.repositories.models.{Category, Expense, ExpenseCategorySplit, Merchant}
 import net.wiringbits.repositories.{CategoriesRepository, ExpensesRepository, ImportRuleRepository, MerchantsRepository}
 import net.wiringbits.services.TelegramMessageParser.ParsedMessage
@@ -18,7 +19,8 @@ class TelegramExpenseAction @Inject() (
     merchantsRepository: MerchantsRepository,
     categoriesRepository: CategoriesRepository,
     expensesRepository: ExpensesRepository,
-    importRuleRepository: ImportRuleRepository
+    importRuleRepository: ImportRuleRepository,
+    merchantsConfig: MerchantsConfig
 )(implicit ec: ExecutionContext, clock: Clock) {
 
   private val logger = LoggerFactory.getLogger(this.getClass)
@@ -76,8 +78,9 @@ class TelegramExpenseAction @Inject() (
                         Future.successful(Left("Category name must be 25 characters or less"))
                       else
                         merchantsRepository.count(userId).flatMap { merchantCount =>
-                          if (merchantCount >= 200)
-                            Future.successful(Left("Maximum number of merchants (200) reached"))
+                          if (merchantCount >= merchantsConfig.maxPerUser)
+                            Future
+                              .successful(Left(s"Maximum number of merchants (${merchantsConfig.maxPerUser}) reached"))
                           else
                             for {
                               catId <- findOrCreateCategory(userId, catName)
