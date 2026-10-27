@@ -103,6 +103,15 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       result must be(empty)
     }
 
+    "build a request from a merchant name when there are no explicit rules" in {
+      val row = makeRow()
+      val result = ReconciliationMatcher.qualifyingCreateRequests(List(row), Nil, List(merchant))
+      result must have size 1
+      val (_, req) = result.head
+      req.merchantId must be(Some(merchantId))
+      req.splits must be(List(CreateExpenseFromRow.Split(categoryId, row.amount.abs)))
+    }
+
     "exclude a row when no rule matches the description" in {
       val row = makeRow(description = "UNRECOGNIZED VENDOR XYZ 99999")
       val result = ReconciliationMatcher.qualifyingCreateRequests(List(row), List(matchingRule), List(merchant))
@@ -115,14 +124,14 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
     "produce AutoLink when exactly one expense matches all three criteria" in {
       val row = makeRow()
       val expense = makeExpense()
-      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule))
+      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule), Nil)
       result(row.id) must be(ReconciliationMatcher.AutoLink(expense.id))
     }
 
     "produce CreateNew when no expense matches" in {
       val row = makeRow()
       val expense = makeExpense(amount = BigDecimal("999.00"))
-      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule))
+      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule), Nil)
       result(row.id) must be(ReconciliationMatcher.CreateNew)
     }
 
@@ -130,7 +139,7 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       val row = makeRow()
       val expense1 = makeExpense()
       val expense2 = makeExpense()
-      val result = ReconciliationMatcher.reconcile(List(row), List(expense1, expense2), List(matchingRule))
+      val result = ReconciliationMatcher.reconcile(List(row), List(expense1, expense2), List(matchingRule), Nil)
       result(row.id) match {
         case ReconciliationMatcher.NeedsReview(ids) =>
           ids must contain theSameElementsAs List(expense1.id, expense2.id)
@@ -141,69 +150,76 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
     "accept date difference of exactly +3 days" in {
       val row = makeRow(date = baseDate)
       val expense = makeExpense(date = baseDate.plusDays(3))
-      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule))
+      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule), Nil)
       result(row.id) must be(ReconciliationMatcher.AutoLink(expense.id))
     }
 
     "accept date difference of exactly -3 days" in {
       val row = makeRow(date = baseDate)
       val expense = makeExpense(date = baseDate.minusDays(3))
-      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule))
+      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule), Nil)
       result(row.id) must be(ReconciliationMatcher.AutoLink(expense.id))
     }
 
     "reject date difference of exactly +4 days" in {
       val row = makeRow(date = baseDate)
       val expense = makeExpense(date = baseDate.plusDays(4))
-      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule))
+      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule), Nil)
       result(row.id) must be(ReconciliationMatcher.CreateNew)
     }
 
     "reject date difference of exactly -4 days" in {
       val row = makeRow(date = baseDate)
       val expense = makeExpense(date = baseDate.minusDays(4))
-      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule))
+      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule), Nil)
       result(row.id) must be(ReconciliationMatcher.CreateNew)
     }
 
     "produce CreateNew when row description matches no rule" in {
       val row = makeRow(description = "UNRECOGNIZED VENDOR XYZ 99999")
       val expense = makeExpense()
-      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule))
+      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule), Nil)
       result(row.id) must be(ReconciliationMatcher.CreateNew)
     }
 
     "skip rows that already have an expenseId" in {
       val row = makeRow().copy(expenseId = Some(UUID.randomUUID()))
-      val result = ReconciliationMatcher.reconcile(List(row), List(makeExpense()), List(matchingRule))
+      val result = ReconciliationMatcher.reconcile(List(row), List(makeExpense()), List(matchingRule), Nil)
       result.keys must not contain row.id
     }
 
     "skip rows that are ignored" in {
       val row = makeRow().copy(ignoredAt = Some(Instant.now()))
-      val result = ReconciliationMatcher.reconcile(List(row), List(makeExpense()), List(matchingRule))
+      val result = ReconciliationMatcher.reconcile(List(row), List(makeExpense()), List(matchingRule), Nil)
       result.keys must not contain row.id
     }
 
     "exclude expenses that already have rowIds from matching" in {
       val row = makeRow()
       val expense = makeExpense(rowIds = List(UUID.randomUUID()))
-      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule))
+      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule), Nil)
       result(row.id) must be(ReconciliationMatcher.CreateNew)
     }
 
     "produce CreateNew when merchant name does not match the rule pattern" in {
       val row = makeRow()
       val expense = makeExpense(mName = Some("Walmart"))
-      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule))
+      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule), Nil)
       result(row.id) must be(ReconciliationMatcher.CreateNew)
     }
 
     "produce CreateNew when expense has no merchant name" in {
       val row = makeRow()
       val expense = makeExpense(mName = None)
-      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule))
+      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule), Nil)
       result(row.id) must be(ReconciliationMatcher.CreateNew)
+    }
+
+    "produce AutoLink from a merchant name when there are no explicit rules" in {
+      val row = makeRow()
+      val expense = makeExpense()
+      val result = ReconciliationMatcher.reconcile(List(row), List(expense), Nil, List(merchant))
+      result(row.id) must be(ReconciliationMatcher.AutoLink(expense.id))
     }
 
     "produce CreateNew when the winning rule action is Ignore" in {
@@ -215,7 +231,7 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       )
       val row = makeRow()
       val expense = makeExpense()
-      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(ignoreRule))
+      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(ignoreRule), Nil)
       result(row.id) must be(ReconciliationMatcher.CreateNew)
     }
   }

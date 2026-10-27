@@ -170,6 +170,11 @@ object ReceiptList {
     val (batchConfirmResults, setBatchConfirmResults) = Hooks.useState[List[(String, Either[String, Unit])]](Nil)
 
     val (ruleList, setRuleList) = Hooks.useState[List[ImportRuleMatcher.Rule]](Nil)
+    // Explicit rules plus one virtual rule per merchant name; `ruleList` itself stays explicit-only.
+    val effectiveRuleList: List[ImportRuleMatcher.Rule] = Hooks.useMemo(
+      () => ImportRuleMatcher.effectiveRules(ruleList, props.merchants.data.map(m => m.id -> m.name)),
+      List(ruleList, props.merchants.data)
+    )
     val (showIgnored, setShowIgnored) = Hooks.useState(false)
     val (receiptFilter, setReceiptFilter) = Hooks.useState(FilterNeedsConfirm)
     val (receiptPage, setReceiptPage) = Hooks.useState(0)
@@ -499,7 +504,7 @@ object ReceiptList {
             case Some(m) => setResolvedMerchantIds(cur => cur.updated(r.id, Some(m.id)))
             case None =>
               r.merchantName.foreach { name =>
-                val resolvedId = ImportRuleMatcher.findReceiptWinner(ruleList, name).flatMap(_.merchantId)
+                val resolvedId = ImportRuleMatcher.findReceiptWinner(effectiveRuleList, name).flatMap(_.merchantId)
                 setResolvedMerchantIds(cur => cur.updated(r.id, resolvedId))
               }
           }
@@ -1096,7 +1101,7 @@ object ReceiptList {
                         case None =>
                           r.merchantName.foreach { name =>
                             ImportRuleMatcher
-                              .findReceiptWinner(ruleList, name)
+                              .findReceiptWinner(effectiveRuleList, name)
                               .flatMap(_.merchantId)
                               .foreach { id =>
                                 setConfirmMerchantId(id.toString)

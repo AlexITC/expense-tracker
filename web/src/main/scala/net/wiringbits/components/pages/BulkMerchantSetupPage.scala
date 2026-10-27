@@ -30,6 +30,23 @@ object BulkMerchantSetupPage {
 
   private val PageSize = 25
 
+  // Rows covered by an explicit rule or by an existing merchant name are not unmatched.
+  private[pages] def findUnmatchedGroups(
+      rows: List[GetAllRows.RowData],
+      rules: List[ImportRuleMatcher.Rule],
+      merchants: List[GetMerchants.Response.Merchant]
+  ): List[(String, List[GetAllRows.RowData])] = {
+    val effective = ImportRuleMatcher.effectiveRules(rules, merchants.map(m => m.id -> m.name))
+    rows
+      .filter(r => r.amount < 0 && r.expenseId.isEmpty && r.ignoredAt.isEmpty)
+      .filterNot(r => ImportRuleMatcher.findRowWinner(effective, r.description).isDefined)
+      .groupBy(_.description)
+      .view
+      .mapValues(_.sortBy(_.date))
+      .toList
+      .sortBy(-_._2.size)
+  }
+
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
     val history = useHistory()
@@ -92,14 +109,7 @@ object BulkMerchantSetupPage {
     )
 
     val unmatchedGroups: List[(String, List[GetAllRows.RowData])] =
-      allRows
-        .filter(r => r.amount < 0 && r.expenseId.isEmpty && r.ignoredAt.isEmpty)
-        .filterNot(r => ImportRuleMatcher.findRowWinner(ruleList, r.description).isDefined)
-        .groupBy(_.description)
-        .view
-        .mapValues(_.sortBy(_.date))
-        .toList
-        .sortBy(-_._2.size)
+      findUnmatchedGroups(allRows, ruleList, merchants)
 
     val totalPages = math.max(1, math.ceil(unmatchedGroups.size.toDouble / PageSize).toInt)
     val safePage = math.min(page, math.max(0, totalPages - 1))
