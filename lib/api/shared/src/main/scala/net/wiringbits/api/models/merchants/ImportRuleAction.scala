@@ -8,8 +8,9 @@ sealed abstract class ImportRuleAction(val entryName: String)
 object ImportRuleAction {
   case object SetMerchant extends ImportRuleAction("set_merchant")
   case object Ignore extends ImportRuleAction("ignore")
+  case object SetCategory extends ImportRuleAction("set_category")
 
-  val values: Seq[ImportRuleAction] = Seq(SetMerchant, Ignore)
+  val values: Seq[ImportRuleAction] = Seq(SetMerchant, Ignore, SetCategory)
 
   def fromEntryName(name: String): ImportRuleAction =
     values

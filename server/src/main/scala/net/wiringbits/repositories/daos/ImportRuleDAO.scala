@@ -126,6 +126,30 @@ object ImportRuleDAO {
     }
   }
 
+  def existsByUserPatternCategory(userId: UUID, pattern: String, categoryId: UUID, excludeId: Option[UUID] = None)(
+      implicit conn: Connection
+  ): Boolean = {
+    excludeId match {
+      case None =>
+        SQL"""
+          SELECT COUNT(*) FROM merchant_rule
+          WHERE user_id = ${userId.toString}::UUID
+            AND pattern = $pattern::CITEXT
+            AND category_id = ${categoryId.toString}::UUID
+            AND action = 'set_category'
+          """.as(scalar[Long].single) > 0
+      case Some(excl) =>
+        SQL"""
+          SELECT COUNT(*) FROM merchant_rule
+          WHERE user_id = ${userId.toString}::UUID
+            AND pattern = $pattern::CITEXT
+            AND category_id = ${categoryId.toString}::UUID
+            AND action = 'set_category'
+            AND id != ${excl.toString}::UUID
+          """.as(scalar[Long].single) > 0
+    }
+  }
+
   def update(
       id: UUID,
       userId: UUID,

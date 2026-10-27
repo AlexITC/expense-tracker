@@ -227,7 +227,9 @@ object ReceiptList {
         }
         props.ctx.api.client.getImportRules.onComplete {
           case Success(resp) =>
-            setRuleList(resp.data.map(r => ImportRuleMatcher.Rule(r.id, r.action, r.pattern, r.merchantId)))
+            setRuleList(
+              resp.data.map(r => ImportRuleMatcher.Rule(r.id, r.action, r.pattern, r.merchantId, r.categoryId))
+            )
           case Failure(_) => ()
         }
         ()

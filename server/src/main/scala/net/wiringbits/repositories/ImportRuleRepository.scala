@@ -73,6 +73,17 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
     }
   }
 
+  def existsByUserPatternCategory(
+      userId: UUID,
+      pattern: String,
+      categoryId: UUID,
+      excludeId: Option[UUID] = None
+  ): Future[Boolean] = Future {
+    database.withConnection { implicit conn =>
+      ImportRuleDAO.existsByUserPatternCategory(userId, pattern, categoryId, excludeId)
+    }
+  }
+
   def update(
       id: UUID,
       userId: UUID,

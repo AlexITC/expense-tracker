@@ -176,6 +176,9 @@ object ImportRuleList {
                   setNewPattern(""); setNewMerchantInput(""); setNewMerchantIdOpt(None); setError(""); props.onRefresh()
                 case Failure(ex) => setError(ex.getMessage)
               }
+
+        case ImportRuleAction.SetCategory =>
+          setError("Set category rules are not available here yet")
       }
 
     def handleDelete(ruleId: UUID): Unit =
@@ -216,6 +219,9 @@ object ImportRuleList {
                   setError(""); props.onRefresh()
                 case Failure(ex) => setError(ex.getMessage)
               }
+
+        case ImportRuleAction.SetCategory =>
+          setError("Set category rules are not available here yet")
       }
 
     def actionSelector(current: ImportRuleAction, onChange: ImportRuleAction => Unit): ReactElement = {
@@ -223,6 +229,7 @@ object ImportRuleList {
         val label = a match {
           case ImportRuleAction.SetMerchant => "Set merchant"
           case ImportRuleAction.Ignore => "Ignore"
+          case ImportRuleAction.SetCategory => "Set category"
         }
         mui.MenuItem.normal()(label).value(a.entryName).withKey(a.entryName).build
       }
@@ -362,6 +369,7 @@ object ImportRuleList {
           val actionLabel = r.action match {
             case ImportRuleAction.Ignore => "Ignore"
             case ImportRuleAction.SetMerchant => s"→ ${r.merchantName.getOrElse("?")}"
+            case ImportRuleAction.SetCategory => s"→ ${r.categoryName.getOrElse("?")}"
           }
           mui.Box.sx(new CSSPropertiesUtils {
             display = "flex"

@@ -5,10 +5,19 @@ import net.wiringbits.api.models.merchants.ImportRuleAction
 import java.util.UUID
 
 object ImportRuleMatcher {
-  case class Rule(id: UUID, action: ImportRuleAction, pattern: String, merchantId: Option[UUID])
+  case class Rule(
+      id: UUID,
+      action: ImportRuleAction,
+      pattern: String,
+      merchantId: Option[UUID],
+      categoryId: Option[UUID] = None
+  )
 
   // Patterns shorter than this (after normalize) never match.
   val MinPatternLength: Int = 3
+
+  // Rule patterns longer than this are rejected; every rule is matched against every row description.
+  val MaxPatternLength: Int = 100
 
   def normalize(s: String): String = s.toLowerCase.replaceAll("[^a-z0-9]", "")
 
@@ -38,12 +47,13 @@ object ImportRuleMatcher {
     if (matchedRules.isEmpty) None
     else Some(matchedRules.maxBy(r => (normalize(r.pattern).length, r.id.toString)))
 
-  // For rows: ignore wins over set_merchant when both match.
+  // For rows: ignore wins over set_merchant, and set_merchant wins over set_category, regardless of pattern length.
   def findRowWinner(rules: List[Rule], description: String): Option[Rule] = {
     val matched = findMatches(rules, description)
     val ignoreWinner = findWinner(matched.filter(_.action == ImportRuleAction.Ignore))
     val merchantWinner = findWinner(matched.filter(_.action == ImportRuleAction.SetMerchant))
-    ignoreWinner.orElse(merchantWinner)
+    val categoryWinner = findWinner(matched.filter(_.action == ImportRuleAction.SetCategory))
+    ignoreWinner.orElse(merchantWinner).orElse(categoryWinner)
   }
 
   // For receipts: only set_merchant rules apply.

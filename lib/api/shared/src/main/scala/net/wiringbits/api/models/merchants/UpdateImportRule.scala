@@ -7,7 +7,12 @@ import sttp.tapir.generic.auto.*
 import java.util.UUID
 
 object UpdateImportRule {
-  case class Request(action: ImportRuleAction, pattern: String, merchantId: Option[UUID])
+  case class Request(
+      action: ImportRuleAction,
+      pattern: String,
+      merchantId: Option[UUID],
+      categoryId: Option[UUID] = None
+  )
   case class Response()
 
   implicit val requestFormat: Format[Request] = Json.format[Request]

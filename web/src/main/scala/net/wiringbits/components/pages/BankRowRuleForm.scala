@@ -134,6 +134,9 @@ object BankRowRuleForm {
                   case Failure(ex) => setError(ex.getMessage); setSaving(false)
                 }
             }
+
+          case ImportRuleAction.SetCategory =>
+            setError("Set category rules are not available here yet")
         }
       }
     }
@@ -184,6 +187,7 @@ object BankRowRuleForm {
       val label = a match {
         case ImportRuleAction.SetMerchant => "Set merchant"
         case ImportRuleAction.Ignore => "Ignore"
+        case ImportRuleAction.SetCategory => "Set category"
       }
       mui.MenuItem.normal()(label).value(a.entryName).withKey(a.entryName).build
     }

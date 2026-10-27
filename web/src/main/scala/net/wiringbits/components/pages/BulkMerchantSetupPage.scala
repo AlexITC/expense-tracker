@@ -95,7 +95,9 @@ object BulkMerchantSetupPage {
         } yield (rowsResp, rulesResp, merchantsResp, catsResp)).onComplete {
           case Success((rowsResp, rulesResp, merchantsResp, catsResp)) =>
             setAllRows(rowsResp.data)
-            setRuleList(rulesResp.data.map(r => ImportRuleMatcher.Rule(r.id, r.action, r.pattern, r.merchantId)))
+            setRuleList(
+              rulesResp.data.map(r => ImportRuleMatcher.Rule(r.id, r.action, r.pattern, r.merchantId, r.categoryId))
+            )
             setMerchants(merchantsResp.data)
             setCategories(catsResp.data)
             setLoading(false)

@@ -15,6 +15,8 @@ object GetImportRules {
       pattern: String,
       merchantId: Option[UUID],
       merchantName: Option[String],
+      categoryId: Option[UUID],
+      categoryName: Option[String],
       autoCreated: Boolean,
       createdAt: Instant,
       updatedAt: Instant

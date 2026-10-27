@@ -376,6 +376,24 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
         List(merchant("Oxxo", None))
       ) must be(StatementSuggestionsService.RowSelection(List(pending), creditsSkipped = 0, ruleSkipped = 1))
     }
+
+    "skip by rule a debit row matched only by a set_category rule" in {
+      val categorized = row("CAFETERIA CENTRAL")
+      val pending = row("CORNER SHOP 42")
+      val rule = ImportRuleMatcher.Rule(
+        UUID.randomUUID(),
+        ImportRuleAction.SetCategory,
+        "cafeteria",
+        None,
+        Some(UUID.randomUUID())
+      )
+
+      StatementSuggestionsService.selectRowsToResolve(
+        List(categorized, pending),
+        List(rule),
+        Nil
+      ) must be(StatementSuggestionsService.RowSelection(List(pending), creditsSkipped = 0, ruleSkipped = 1))
+    }
   }
 
   "matchByName" should {

@@ -57,6 +57,8 @@ class ImportRuleListSpec extends AnyWordSpec with BeforeAndAfterEach {
       pattern = pattern,
       merchantId = merchantName.map(_ => UUID.randomUUID()),
       merchantName = merchantName,
+      categoryId = None,
+      categoryName = None,
       autoCreated = autoCreated,
       createdAt = Instant.EPOCH,
       updatedAt = Instant.EPOCH

@@ -12,6 +12,8 @@ class ImportRuleMatcherSpec extends AnyWordSpec with Matchers {
     ImportRuleMatcher.Rule(id, ImportRuleAction.SetMerchant, pattern, Some(merchantId))
   private def ignoreRule(id: UUID, pattern: String) =
     ImportRuleMatcher.Rule(id, ImportRuleAction.Ignore, pattern, None)
+  private def setCategoryRule(id: UUID, pattern: String, categoryId: UUID) =
+    ImportRuleMatcher.Rule(id, ImportRuleAction.SetCategory, pattern, None, Some(categoryId))
   private val mid = UUID.randomUUID()
 
   "ImportRuleMatcher.normalize" should {
@@ -76,12 +78,41 @@ class ImportRuleMatcherSpec extends AnyWordSpec with Matchers {
       val merchant = setMerchantRule(UUID.randomUUID(), "amzn", mid)
       ImportRuleMatcher.findRowWinner(List(merchant), "AMZN charge") must be(Some(merchant))
     }
+
+    "prefer set_merchant over a longer set_category pattern" in {
+      val merchant = setMerchantRule(UUID.randomUUID(), "CAFE", mid)
+      val category = setCategoryRule(UUID.randomUUID(), "CAFETERIA", UUID.randomUUID())
+      ImportRuleMatcher.findRowWinner(List(category, merchant), "CAFETERIA CENTRAL") must be(Some(merchant))
+    }
+
+    "return the set_category rule when it is the only match" in {
+      val category = setCategoryRule(UUID.randomUUID(), "cafeteria", UUID.randomUUID())
+      ImportRuleMatcher.findRowWinner(List(category), "CAFETERIA CENTRAL") must be(Some(category))
+    }
+
+    "prefer the longer pattern between two set_category rules" in {
+      val short = setCategoryRule(UUID.randomUUID(), "cafe", UUID.randomUUID())
+      val long = setCategoryRule(UUID.randomUUID(), "cafeteria", UUID.randomUUID())
+      ImportRuleMatcher.findRowWinner(List(long, short), "CAFETERIA CENTRAL") must be(Some(long))
+    }
+
+    "prefer ignore over set_merchant and set_category" in {
+      val merchant = setMerchantRule(UUID.randomUUID(), "cafeteria central", mid)
+      val category = setCategoryRule(UUID.randomUUID(), "cafeteria central", UUID.randomUUID())
+      val ignore = ignoreRule(UUID.randomUUID(), "cafe")
+      ImportRuleMatcher.findRowWinner(List(merchant, category, ignore), "CAFETERIA CENTRAL") must be(Some(ignore))
+    }
   }
 
   "ImportRuleMatcher.findReceiptWinner" should {
     "only apply set_merchant rules" in {
       val ignore = ignoreRule(UUID.randomUUID(), "amzn")
       ImportRuleMatcher.findReceiptWinner(List(ignore), "AMZN charge") must be(None)
+    }
+
+    "never apply set_category rules" in {
+      val category = setCategoryRule(UUID.randomUUID(), "amzn", UUID.randomUUID())
+      ImportRuleMatcher.findReceiptWinner(List(category), "AMZN receipt") must be(None)
     }
 
     "return set_merchant rule for matching receipt" in {
