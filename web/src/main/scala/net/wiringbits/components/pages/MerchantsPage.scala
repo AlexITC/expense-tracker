@@ -5,6 +5,7 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
+import net.wiringbits.api.models.environmentconfig.GetEnvironmentConfig
 import net.wiringbits.api.models.merchants.{
   CreateImportRule,
   CreateMerchant,
@@ -38,17 +39,23 @@ object MerchantsPage {
     val (timesRefreshing, forceRefresh) = GenericHooks.useForceRefresh
 
     mui.Box.sx(new CSSPropertiesUtils { padding = "24px"; maxWidth = "900px" })(
-      AsyncComponent[GetMerchants.Response](
-        fetch = () => props.ctx.api.client.getMerchants,
-        render = merchants =>
-          AsyncComponent[GetCategories.Response](
-            fetch = () => props.ctx.api.client.getCategories,
-            render = categories => MerchantList(props.ctx, merchants, categories, () => forceRefresh()),
+      AsyncComponent[GetEnvironmentConfig.Response](
+        fetch = () => props.ctx.api.client.getEnvironmentConfig,
+        render = envConfig =>
+          AsyncComponent[GetMerchants.Response](
+            fetch = () => props.ctx.api.client.getMerchants,
+            render = merchants =>
+              AsyncComponent[GetCategories.Response](
+                fetch = () => props.ctx.api.client.getCategories,
+                render = categories =>
+                  MerchantList(props.ctx, merchants, categories, () => forceRefresh(), envConfig.maxMerchants),
+                progressIndicator = () => Loader(props.ctx),
+                watchedObjects = List(timesRefreshing)
+              ),
             progressIndicator = () => Loader(props.ctx),
             watchedObjects = List(timesRefreshing)
           ),
-        progressIndicator = () => Loader(props.ctx),
-        watchedObjects = List(timesRefreshing)
+        progressIndicator = () => Loader(props.ctx)
       )
     )
   }
@@ -59,16 +66,22 @@ object MerchantList {
       ctx: AppContext,
       response: GetMerchants.Response,
       categories: GetCategories.Response,
-      onRefresh: () => Unit
+      onRefresh: () => Unit,
+      maxMerchants: Int
   ): KeyAddingStage =
-    component(Props(ctx, response, categories, onRefresh))
+    component(Props(ctx, response, categories, onRefresh, maxMerchants))
 
   case class Props(
       ctx: AppContext,
       response: GetMerchants.Response,
       categories: GetCategories.Response,
-      onRefresh: () => Unit
+      onRefresh: () => Unit,
+      maxMerchants: Int
   )
+
+  def usageLabel(count: Int, max: Int): String = s"$count / $max merchants"
+
+  def isAtLimit(count: Int, maxMerchants: Int): Boolean = count >= maxMerchants
 
   private val cardStyle = new CSSPropertiesUtils {
     border = "1px solid var(--lc-border)"
@@ -224,9 +237,12 @@ object MerchantList {
           .onChange(e => setNewRulePattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
       else Fragment()
 
+    val merchantCount = props.response.data.size
+    val atLimit = isAtLimit(merchantCount, props.maxMerchants)
+
     val createForm = form(onSubmit := { e =>
       e.preventDefault()
-      handleCreate()
+      if (!atLimit) handleCreate()
     })(
       mui.Box.sx(new CSSPropertiesUtils {
         border = "1px solid var(--lc-brand)"
@@ -262,6 +278,7 @@ object MerchantList {
             .normal()("Add")
             .variant("contained")
             .`type`("submit")
+            .disabled(atLimit)
             .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)"; borderRadius = "8px" })
         ),
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; gap = "12px" })(
@@ -274,7 +291,10 @@ object MerchantList {
               setCreateRuleEnabled(!createRuleEnabled)
             },
           rulePatternField
-        )
+        ),
+        mui
+          .Typography(usageLabel(merchantCount, props.maxMerchants))
+          .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" })
       )
     )
 
@@ -495,6 +515,13 @@ object MerchantList {
 
     Fragment(
       createForm,
+      if (atLimit)
+        mui
+          .Typography(
+            s"Maximum number of merchants (${props.maxMerchants}) reached. Delete a merchant to add a new one."
+          )
+          .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px"; marginBottom = "8px" })
+      else Fragment(),
       if (error.nonEmpty)
         mui
           .Typography(error)
