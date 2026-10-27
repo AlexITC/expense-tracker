@@ -99,8 +99,8 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
     val doc = createDocument(user.id, kind = DocumentKind.BankStatementPdf).futureValue
     val now = Instant.now()
     val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
-    val groceryRow = buildRow(stmt.id, 0, "SUPERMART 123", BigDecimal("-45.10"))
-    val taxiRow = buildRow(stmt.id, 1, "UBER TRIP", BigDecimal("-12.00"))
+    val groceryRow = buildRow(stmt.id, 0, "GROCERY STORE 123", BigDecimal("-45.10"))
+    val taxiRow = buildRow(stmt.id, 1, "RIDE SHARE TRIP", BigDecimal("-12.00"))
     val ruleRow = buildRow(stmt.id, 2, "NETFLIX.COM", BigDecimal("-15.99"))
     val creditRow = buildRow(stmt.id, 3, "PAYROLL", BigDecimal("1000.00"))
     createStatement(stmt, sampleStatementMetadata, List(groceryRow, taxiRow, ruleRow, creditRow)).futureValue
@@ -116,10 +116,10 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
       val s = seed()
       val client = new StubJevClient((state, question, criteria) =>
         (state, question) match {
-          case ("SUPERMART 123", "category") => categoryKey(criteria, "Groceries")
-          case ("SUPERMART 123", "merchant") => s.superMartId.toString
-          case ("UBER TRIP", "category") => categoryKey(criteria, "Transport")
-          case ("UBER TRIP", "merchant") => s.uberId.toString
+          case ("GROCERY STORE 123", "category") => categoryKey(criteria, "Groceries")
+          case ("GROCERY STORE 123", "merchant") => s.superMartId.toString
+          case ("RIDE SHARE TRIP", "category") => categoryKey(criteria, "Transport")
+          case ("RIDE SHARE TRIP", "merchant") => s.uberId.toString
           case _ => fail(s"Unexpected question $question for '$state'")
         }
       )
@@ -145,7 +145,7 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
         val doc = createDocument(s.userId, sha256 = "earlier", kind = DocumentKind.BankStatementPdf).futureValue
         val now = Instant.now()
         val earlierStmt = BankStatement.Create(UUID.randomUUID(), doc.id, s.userId, now, now)
-        val earlierRow = buildRow(earlierStmt.id, 0, "SUPERMART 123", BigDecimal("-30.00"))
+        val earlierRow = buildRow(earlierStmt.id, 0, "GROCERY STORE 123", BigDecimal("-30.00"))
         createStatement(earlierStmt, sampleStatementMetadata, List(earlierRow)).futureValue
         val expense = Expense.Create(
           id = UUID.randomUUID(),
@@ -164,9 +164,9 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
 
         val client = new StubJevClient((state, question, criteria) =>
           (state, question) match {
-            case ("SUPERMART 123", _) => fail(s"History row sent to JEV: $question for '$state'")
-            case ("UBER TRIP", "category") => categoryKey(criteria, "Transport")
-            case ("UBER TRIP", "merchant") => s.uberId.toString
+            case ("GROCERY STORE 123", _) => fail(s"History row sent to JEV: $question for '$state'")
+            case ("RIDE SHARE TRIP", "category") => categoryKey(criteria, "Transport")
+            case ("RIDE SHARE TRIP", "merchant") => s.uberId.toString
             case _ => fail(s"Unexpected question $question for '$state'")
           }
         )
