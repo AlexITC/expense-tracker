@@ -27,6 +27,28 @@ Flag a `String` (or bare `Int` code) used to represent a fixed, known set of
 values — a status, kind, type, mode — where a Scala `enum`/sealed trait should
 model it. Not: genuinely free-form text (names, descriptions, external ids).
 
+## Each variant carries its own data — no tag plus parallel options
+Once a variant implies specific data, attach that data to the variant (a
+parameterized Scala 3 `enum` case, e.g. `case SetMerchant(merchantId: UUID)`)
+instead of pairing a bare tag with sibling `Option`/nullable fields that are
+only valid for some variants. The giveaway is validation that reads like "if the
+tag is X then field Y must be present (or absent)" — `SetMerchant` with no
+merchant, `Ignore` with a category. Flag a type that holds a fixed variant tag
+beside such conditionally-valid optional fields, and model it so the illegal
+combinations cannot be constructed; the write path to flat storage columns then
+becomes a total mapping and those validations and their tests disappear. Not: an
+`Option` that is genuinely optional across every variant, or a lone optional
+field with no variant tag governing it.
+
+## Dispatch on a variant with an exhaustive match, not equality
+Flag `== SomeVariant`, `filter(_.x == SomeVariant)`, `collect`, or `contains`
+used to **select behavior, or select which items a variant applies to**, when
+branching on an `enum`/sealed type — a `match` turns a newly added variant into
+a compile error instead of a silently skipped case. Not: a single local boolean
+guard where only one variant is genuinely of interest and a new variant should
+not change it (e.g. `if (rule.action == Ignore) skip`); this targets
+dispatch/selection, not every equality check.
+
 ## Log user-scoped operations with the user id
 Flag a `logger.*` statement describing an operation on a specific user's data
 that omits the user id when a `userId` is in scope (or trivially derivable, e.g.
