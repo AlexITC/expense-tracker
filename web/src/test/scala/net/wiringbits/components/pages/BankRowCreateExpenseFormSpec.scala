@@ -83,6 +83,35 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
         (Some(cafe), Some(dining.id))
     }
 
+    "use a SetCategory rule's category with no merchant, ignoring the AI suggestion" in {
+      val setCategory =
+        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory, "POS 4411", None, Some(groceries.id))
+      val ai = suggestion(Some(cafe.id), Some(dining.id))
+      BankRowCreateExpenseForm.initialSelection(unmatchedRow, List(setCategory), merchants, categories, Some(ai)) mustBe
+        (None, Some(groceries.id))
+    }
+
+    "drop a SetCategory rule's unknown category without falling back to the AI suggestion" in {
+      val staleRule =
+        ImportRuleMatcher.Rule(
+          UUID.randomUUID(),
+          ImportRuleAction.SetCategory,
+          "POS 4411",
+          None,
+          Some(UUID.randomUUID())
+        )
+      val ai = suggestion(Some(cafe.id), Some(dining.id))
+      BankRowCreateExpenseForm.initialSelection(unmatchedRow, List(staleRule), merchants, categories, Some(ai)) mustBe
+        (None, None)
+    }
+
+    "prefer a merchant-name match over a SetCategory rule" in {
+      val setCategory =
+        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory, "OXXO STORE", None, Some(dining.id))
+      BankRowCreateExpenseForm.initialSelection(row, List(setCategory), merchants, categories, None) mustBe
+        (Some(oxxo), Some(groceries.id))
+    }
+
     "use the suggested merchant and category when no rule matches" in {
       val ai = suggestion(Some(cafe.id), Some(dining.id))
       BankRowCreateExpenseForm.initialSelection(unmatchedRow, Nil, merchants, categories, Some(ai)) mustBe
@@ -109,6 +138,24 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
 
     "return nothing when there is no rule match and no suggestion" in {
       BankRowCreateExpenseForm.initialSelection(unmatchedRow, Nil, merchants, categories, None) mustBe (None, None)
+    }
+  }
+
+  "initialMerchantInput" should {
+    "start blank for a row a SetCategory rule handles" in {
+      val setCategory =
+        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory, "POS 4411", None, Some(groceries.id))
+      BankRowCreateExpenseForm.initialMerchantInput(
+        unmatchedRow,
+        BankRowCreateExpenseForm.rowVerdict(unmatchedRow, List(setCategory), merchants)
+      ) mustBe ""
+    }
+
+    "start with the row description otherwise" in {
+      BankRowCreateExpenseForm.initialMerchantInput(
+        unmatchedRow,
+        BankRowCreateExpenseForm.rowVerdict(unmatchedRow, Nil, merchants)
+      ) mustBe unmatchedRow.description
     }
   }
 
@@ -173,6 +220,42 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
 
     "return the trimmed pattern otherwise" in {
       BankRowCreateExpenseForm.aliasToCreate("  OXXO STORE  ", "Oxxo") mustBe Some("OXXO STORE")
+    }
+  }
+
+  "categoryRuleToCreate" should {
+    val needsAlias = BankRowCreateExpenseForm.RuleHint.NeedsAlias
+
+    "return None when the user did not opt in" in {
+      BankRowCreateExpenseForm.categoryRuleToCreate(needsAlias, "", Some(groceries.id), false, "OXXO STORE") mustBe None
+    }
+
+    "return None when a merchant is set" in {
+      BankRowCreateExpenseForm.categoryRuleToCreate(needsAlias, "Oxxo", Some(groceries.id), true, "OXXO STORE") mustBe
+        None
+    }
+
+    "return None when no category is set" in {
+      BankRowCreateExpenseForm.categoryRuleToCreate(needsAlias, "", None, true, "OXXO STORE") mustBe None
+    }
+
+    "return None when an explicit rule already covers the row" in {
+      BankRowCreateExpenseForm.categoryRuleToCreate(
+        BankRowCreateExpenseForm.RuleHint.CoveredByRule("OXXO"),
+        "",
+        Some(groceries.id),
+        true,
+        "OXXO STORE"
+      ) mustBe None
+    }
+
+    "return None for a pattern too short to match" in {
+      BankRowCreateExpenseForm.categoryRuleToCreate(needsAlias, "", Some(groceries.id), true, " O.X ") mustBe None
+    }
+
+    "return the trimmed pattern otherwise" in {
+      BankRowCreateExpenseForm.categoryRuleToCreate(needsAlias, "", Some(groceries.id), true, "  OXXO STORE  ") mustBe
+        Some("OXXO STORE")
     }
   }
 }

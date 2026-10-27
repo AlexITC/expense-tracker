@@ -4,6 +4,7 @@ import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
+import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{
   CreateImportRule,
   CreateMerchant,
@@ -44,7 +45,13 @@ object ImportRulesPage {
         render = rules =>
           AsyncComponent[GetMerchants.Response](
             fetch = () => props.ctx.api.client.getMerchants,
-            render = merchants => ImportRuleList(props.ctx, rules, merchants, () => forceRefresh()),
+            render = merchants =>
+              AsyncComponent[GetCategories.Response](
+                fetch = () => props.ctx.api.client.getCategories,
+                render = categories => ImportRuleList(props.ctx, rules, merchants, categories, () => forceRefresh()),
+                progressIndicator = () => Loader(props.ctx),
+                watchedObjects = List(timesRefreshing)
+              ),
             progressIndicator = () => Loader(props.ctx),
             watchedObjects = List(timesRefreshing)
           ),
@@ -60,14 +67,16 @@ object ImportRuleList {
       ctx: AppContext,
       rules: GetImportRules.Response,
       merchants: GetMerchants.Response,
+      categories: GetCategories.Response,
       onRefresh: () => Unit
   ): KeyAddingStage =
-    component(Props(ctx, rules, merchants, onRefresh))
+    component(Props(ctx, rules, merchants, categories, onRefresh))
 
   case class Props(
       ctx: AppContext,
       rules: GetImportRules.Response,
       merchants: GetMerchants.Response,
+      categories: GetCategories.Response,
       onRefresh: () => Unit
   )
 
@@ -88,13 +97,19 @@ object ImportRuleList {
     else
       rules.filter { r =>
         r.pattern.toLowerCase.contains(q) ||
-        r.merchantName.exists(_.toLowerCase.contains(q))
+        r.merchantName.exists(_.toLowerCase.contains(q)) ||
+        r.categoryName.exists(_.toLowerCase.contains(q))
       }
   }
 
   private def renderMerchantTextField(params: AutocompleteRenderInputParams): ReactElement =
     (mui.TextField.outlined
       .withProps(MuiCompat.textFieldProps(params, "Merchant", size = Some("small")))
+      .withKey("tf"): ReactElement)
+
+  private def renderCategoryTextField(params: AutocompleteRenderInputParams): ReactElement =
+    (mui.TextField.outlined
+      .withProps(MuiCompat.textFieldProps(params, "Category", size = Some("small")))
       .withKey("tf"): ReactElement)
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
@@ -104,18 +119,29 @@ object ImportRuleList {
     val (newPattern, setNewPattern) = Hooks.useState("")
     val (newMerchantInput, setNewMerchantInput) = Hooks.useState("")
     val (newMerchantIdOpt, setNewMerchantIdOpt) = Hooks.useState[Option[UUID]](None)
+    val (newCategoryInput, setNewCategoryInput) = Hooks.useState("")
+    val (newCategoryIdOpt, setNewCategoryIdOpt) = Hooks.useState[Option[UUID]](None)
     val (error, setError) = Hooks.useState("")
     val (editingId, setEditingId) = Hooks.useState[Option[UUID]](None)
     val (editAction, setEditAction) = Hooks.useState(ImportRuleAction.SetMerchant: ImportRuleAction)
     val (editPattern, setEditPattern) = Hooks.useState("")
     val (editMerchantInput, setEditMerchantInput) = Hooks.useState("")
     val (editMerchantIdOpt, setEditMerchantIdOpt) = Hooks.useState[Option[UUID]](None)
+    val (editCategoryInput, setEditCategoryInput) = Hooks.useState("")
+    val (editCategoryIdOpt, setEditCategoryIdOpt) = Hooks.useState[Option[UUID]](None)
 
     val (localMerchants, setLocalMerchants) = Hooks.useState(props.merchants.data)
     val merchantsKey = props.merchants.data.map(_.id.toString).mkString(",")
     Hooks.useEffect(
       () => { setLocalMerchants(props.merchants.data); () },
       js.Array(merchantsKey)
+    )
+
+    val (localCategories, setLocalCategories) = Hooks.useState(props.categories.data)
+    val categoriesKey = props.categories.data.map(_.id.toString).mkString(",")
+    Hooks.useEffect(
+      () => { setLocalCategories(props.categories.data); () },
+      js.Array(categoriesKey)
     )
 
     // Filter + pagination state
@@ -151,6 +177,17 @@ object ImportRuleList {
           }
       }
 
+    def resolveOrCreateCategory(
+        categoryInput: String,
+        categoryIdOpt: Option[UUID]
+    ): Future[UUID] =
+      DescriptionRow
+        .resolveOrCreateCategory(props.ctx.api.client, localCategories, categoryIdOpt, categoryInput)
+        .map { case (id, newCategoryOpt) =>
+          newCategoryOpt.foreach(c => setLocalCategories(cur => cur :+ c))
+          id
+        }
+
     def handleCreate(): Unit =
       newAction match {
         case ImportRuleAction.Ignore =>
@@ -174,6 +211,21 @@ object ImportRuleList {
               .onComplete {
                 case Success(_) =>
                   setNewPattern(""); setNewMerchantInput(""); setNewMerchantIdOpt(None); setError(""); props.onRefresh()
+                case Failure(ex) => setError(ex.getMessage)
+              }
+
+        case ImportRuleAction.SetCategory =>
+          val name = newCategoryInput.trim
+          if (name.isEmpty) setError("Enter a category name")
+          else
+            resolveOrCreateCategory(name, newCategoryIdOpt)
+              .flatMap { cid =>
+                props.ctx.api.client
+                  .createImportRule(CreateImportRule.Request(ImportRuleAction.SetCategory, newPattern, None, Some(cid)))
+              }
+              .onComplete {
+                case Success(_) =>
+                  setNewPattern(""); setNewCategoryInput(""); setNewCategoryIdOpt(None); setError(""); props.onRefresh()
                 case Failure(ex) => setError(ex.getMessage)
               }
       }
@@ -216,13 +268,33 @@ object ImportRuleList {
                   setError(""); props.onRefresh()
                 case Failure(ex) => setError(ex.getMessage)
               }
+
+        case ImportRuleAction.SetCategory =>
+          val name = editCategoryInput.trim
+          if (name.isEmpty) setError("Enter a category name")
+          else
+            resolveOrCreateCategory(name, editCategoryIdOpt)
+              .flatMap { cid =>
+                props.ctx.api.client
+                  .updateImportRule(
+                    ruleId,
+                    UpdateImportRule.Request(ImportRuleAction.SetCategory, editPattern, None, Some(cid))
+                  )
+              }
+              .onComplete {
+                case Success(_) =>
+                  setEditingId(None); setEditPattern(""); setEditCategoryInput(""); setEditCategoryIdOpt(None)
+                  setError(""); props.onRefresh()
+                case Failure(ex) => setError(ex.getMessage)
+              }
       }
 
     def actionSelector(current: ImportRuleAction, onChange: ImportRuleAction => Unit): ReactElement = {
-      val items = Seq(ImportRuleAction.SetMerchant, ImportRuleAction.Ignore).map { a =>
+      val items = Seq(ImportRuleAction.SetMerchant, ImportRuleAction.SetCategory, ImportRuleAction.Ignore).map { a =>
         val label = a match {
           case ImportRuleAction.SetMerchant => "Set merchant"
           case ImportRuleAction.Ignore => "Ignore"
+          case ImportRuleAction.SetCategory => "Set category"
         }
         mui.MenuItem.normal()(label).value(a.entryName).withKey(a.entryName).build
       }
@@ -263,6 +335,33 @@ object ImportRuleList {
       (mui.Autocomplete.withProps(acProps).withKey("merchant-ac"): ReactElement)
     }
 
+    def categoryAutocomplete(
+        inputValue: String,
+        onInputChange: String => Unit,
+        onIdChange: Option[UUID] => Unit
+    ): ReactElement = {
+      val acProps = AutocompleteProps[GetCategories.Response.Category, Boolean, Boolean, Boolean, "div"](
+        options = localCategories.toJSArray,
+        renderInput = renderCategoryTextField
+      )
+      val acDyn = acProps.asInstanceOf[js.Dynamic]
+      acDyn.freeSolo = true
+      acDyn.size = "small"
+      acDyn.inputValue = inputValue
+      acDyn.getOptionLabel = (opt: js.Any) => DescriptionRow.categoryOptionLabel(opt)
+      acDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
+        (value: Any) match {
+          case c: GetCategories.Response.Category => onIdChange(Some(c.id)); onInputChange(c.name)
+          case _ => ()
+        }
+      acDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
+        val (text, rsn) = MuiCompat.autocompleteInputChange(value, reason)
+        onInputChange(text)
+        if (rsn != "reset") onIdChange(None)
+      }
+      (mui.Autocomplete.withProps(acProps).withKey("category-ac"): ReactElement)
+    }
+
     val createForm = form(onSubmit := { e =>
       e.preventDefault()
       handleCreate()
@@ -285,9 +384,13 @@ object ImportRuleList {
           .value(newPattern)
           .size("small")
           .onChange(e => setNewPattern(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-        if (newAction == ImportRuleAction.SetMerchant)
-          merchantAutocomplete(newMerchantInput, setNewMerchantInput, setNewMerchantIdOpt)
-        else Fragment(),
+        newAction match {
+          case ImportRuleAction.SetMerchant =>
+            merchantAutocomplete(newMerchantInput, setNewMerchantInput, setNewMerchantIdOpt)
+          case ImportRuleAction.SetCategory =>
+            categoryAutocomplete(newCategoryInput, setNewCategoryInput, setNewCategoryIdOpt)
+          case ImportRuleAction.Ignore => Fragment()
+        },
         mui.Button
           .normal()("Add rule")
           .variant("contained")
@@ -344,9 +447,13 @@ object ImportRuleList {
               .size("small")
               .onChange(e => setEditPattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
               .onKeyDown(e => if (e.key == "Enter") handleUpdate(r.id)),
-            if (editAction == ImportRuleAction.SetMerchant)
-              merchantAutocomplete(editMerchantInput, setEditMerchantInput, setEditMerchantIdOpt)
-            else Fragment(),
+            editAction match {
+              case ImportRuleAction.SetMerchant =>
+                merchantAutocomplete(editMerchantInput, setEditMerchantInput, setEditMerchantIdOpt)
+              case ImportRuleAction.SetCategory =>
+                categoryAutocomplete(editCategoryInput, setEditCategoryInput, setEditCategoryIdOpt)
+              case ImportRuleAction.Ignore => Fragment()
+            },
             mui.Button
               .normal()("Save")
               .size("small")
@@ -362,6 +469,7 @@ object ImportRuleList {
           val actionLabel = r.action match {
             case ImportRuleAction.Ignore => "Ignore"
             case ImportRuleAction.SetMerchant => s"→ ${r.merchantName.getOrElse("?")}"
+            case ImportRuleAction.SetCategory => s"→ ${r.categoryName.getOrElse("?")}"
           }
           mui.Box.sx(new CSSPropertiesUtils {
             display = "flex"
@@ -404,6 +512,8 @@ object ImportRuleList {
                   setEditPattern(r.pattern)
                   setEditMerchantInput(r.merchantName.getOrElse(""))
                   setEditMerchantIdOpt(r.merchantId)
+                  setEditCategoryInput(r.categoryName.getOrElse(""))
+                  setEditCategoryIdOpt(r.categoryId)
                 },
               mui.Button
                 .normal()("Delete")

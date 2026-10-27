@@ -22,6 +22,7 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
       action: ImportRuleAction,
       pattern: String,
       merchantId: Option[UUID],
+      categoryId: Option[UUID] = None,
       autoCreated: Boolean = false
   ): Future[UUID] = Future {
     database.withTransaction { implicit conn =>
@@ -32,6 +33,7 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
         action = action,
         pattern = pattern,
         merchantId = merchantId,
+        categoryId = categoryId,
         autoCreated = autoCreated,
         createdAt = now,
         updatedAt = now
@@ -71,15 +73,27 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
     }
   }
 
+  def existsByUserPatternCategory(
+      userId: UUID,
+      pattern: String,
+      categoryId: UUID,
+      excludeId: Option[UUID] = None
+  ): Future[Boolean] = Future {
+    database.withConnection { implicit conn =>
+      ImportRuleDAO.existsByUserPatternCategory(userId, pattern, categoryId, excludeId)
+    }
+  }
+
   def update(
       id: UUID,
       userId: UUID,
       action: ImportRuleAction,
       pattern: String,
-      merchantId: Option[UUID]
+      merchantId: Option[UUID],
+      categoryId: Option[UUID]
   ): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      ImportRuleDAO.update(id, userId, action, pattern, merchantId, clock.instant())
+      ImportRuleDAO.update(id, userId, action, pattern, merchantId, categoryId, clock.instant())
     }
   }
 

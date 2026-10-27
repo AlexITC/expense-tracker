@@ -3,6 +3,7 @@ package net.wiringbits.components.pages
 import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps, AutocompleteRenderInputParams}
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
+import net.wiringbits.api.ApiClient
 import net.wiringbits.api.models.bankstatements.GetAllRows
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
 import net.wiringbits.api.models.merchants.{CreateImportRule, CreateMerchant, GetMerchants, ImportRuleAction}
@@ -95,7 +96,9 @@ object BulkMerchantSetupPage {
         } yield (rowsResp, rulesResp, merchantsResp, catsResp)).onComplete {
           case Success((rowsResp, rulesResp, merchantsResp, catsResp)) =>
             setAllRows(rowsResp.data)
-            setRuleList(rulesResp.data.map(r => ImportRuleMatcher.Rule(r.id, r.action, r.pattern, r.merchantId)))
+            setRuleList(
+              rulesResp.data.map(ImportRuleMatcher.Rule.fromApi)
+            )
             setMerchants(merchantsResp.data)
             setCategories(catsResp.data)
             setLoading(false)
@@ -223,6 +226,29 @@ object DescriptionRow {
       case _ => ""
     }
 
+  // Picked id, else an existing category by case-insensitive name, else a newly created one (returned so the caller
+  // can add it to its list).
+  private[pages] def resolveOrCreateCategory(
+      client: ApiClient,
+      categories: List[GetCategories.Response.Category],
+      pickedId: Option[UUID],
+      name: String
+  )(implicit ec: ExecutionContext): Future[(UUID, Option[GetCategories.Response.Category])] =
+    pickedId match {
+      case Some(id) => Future.successful((id, None))
+      case None =>
+        val trimmed = name.trim
+        categories.find(_.name.equalsIgnoreCase(trimmed)) match {
+          case Some(existing) => Future.successful((existing.id, None))
+          case None =>
+            client
+              .createCategory(CreateCategory.Request(name = trimmed))
+              .map(r =>
+                (r.id, Some(GetCategories.Response.Category(id = r.id, name = r.name, createdAt = Instant.now())))
+              )
+        }
+    }
+
   private def renderTextField(label: String)(params: AutocompleteRenderInputParams): ReactElement =
     (mui.TextField.outlined
       .withProps(MuiCompat.textFieldProps(params, label, size = Some("small")))
@@ -251,19 +277,12 @@ object DescriptionRow {
         setRowError("")
 
         val fResult: Future[Unit] = for {
-          (resolvedCategoryId, newCategoryOpt) <- categoryIdOpt match {
-            case Some(id) => Future.successful((id, None: Option[GetCategories.Response.Category]))
-            case None =>
-              props.categories.find(_.name.equalsIgnoreCase(catName)) match {
-                case Some(existing) => Future.successful((existing.id, None: Option[GetCategories.Response.Category]))
-                case None =>
-                  props.ctx.api.client
-                    .createCategory(CreateCategory.Request(name = catName))
-                    .map(r =>
-                      (r.id, Some(GetCategories.Response.Category(id = r.id, name = r.name, createdAt = Instant.now())))
-                    )
-              }
-          }
+          (resolvedCategoryId, newCategoryOpt) <- resolveOrCreateCategory(
+            props.ctx.api.client,
+            props.categories,
+            categoryIdOpt,
+            catName
+          )
 
           merchantResult <- merchantIdOpt match {
             case Some(id) =>

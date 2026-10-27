@@ -2,7 +2,9 @@ package net.wiringbits.components.pages
 
 import monix.execution.Scheduler
 import monix.reactive.subjects.Var
+import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{GetImportRules, GetMerchants, ImportRuleAction}
+import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.common.models.Email
 import net.wiringbits.core.I18nLang
 import net.wiringbits.models.AuthState
@@ -13,6 +15,7 @@ import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 import slinky.core.facade.ReactElement
 import slinky.web.ReactDOM
+import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.BrowserRouter
 
 import java.time.Instant
 import java.util.UUID
@@ -57,9 +60,18 @@ class ImportRuleListSpec extends AnyWordSpec with BeforeAndAfterEach {
       pattern = pattern,
       merchantId = merchantName.map(_ => UUID.randomUUID()),
       merchantName = merchantName,
+      categoryId = None,
+      categoryName = None,
       autoCreated = autoCreated,
       createdAt = Instant.EPOCH,
       updatedAt = Instant.EPOCH
+    )
+
+  private def categoryRule(pattern: String, categoryName: String): GetImportRules.Rule =
+    rule(pattern).copy(
+      action = ImportRuleAction.SetCategory,
+      categoryId = Some(UUID.randomUUID()),
+      categoryName = Some(categoryName)
     )
 
   private val ruleA = rule("AMAZON")
@@ -71,8 +83,13 @@ class ImportRuleListSpec extends AnyWordSpec with BeforeAndAfterEach {
     data = List(
       rule("AMAZON PRIME", Some("Amazon")),
       rule("SPAM FILTER", autoCreated = true),
-      rule("NETFLIX", Some("Netflix"))
+      rule("NETFLIX", Some("Netflix")),
+      categoryRule("STARBUCKS", "Coffee")
     )
+  )
+
+  private val sampleCategoriesResponse = GetCategories.Response(
+    data = List(GetCategories.Response.Category(id = UUID.randomUUID(), name = "Coffee", createdAt = Instant.EPOCH))
   )
 
   private val sampleMerchantsResponse = GetMerchants.Response(
@@ -97,6 +114,15 @@ class ImportRuleListSpec extends AnyWordSpec with BeforeAndAfterEach {
       )
     )
   )
+
+  "fromApi" should {
+    "copy id, action, pattern, merchant and category" in {
+      val r = categoryRule("uber", "Transport")
+      ImportRuleMatcher.Rule.fromApi(r) must be(
+        ImportRuleMatcher.Rule(r.id, ImportRuleAction.SetCategory, "uber", None, r.categoryId)
+      )
+    }
+  }
 
   "filterRules" should {
     "return all rules when query is empty" in {
@@ -127,15 +153,42 @@ class ImportRuleListSpec extends AnyWordSpec with BeforeAndAfterEach {
     "treat whitespace-only query as empty and return all rules" in {
       ImportRuleList.filterRules(allRules, "   ") must be(allRules)
     }
+
+    "return only matching rules when query matches category name" in {
+      val ruleD = categoryRule("STARBUCKS", "Coffee Shops")
+      ImportRuleList.filterRules(allRules :+ ruleD, "coffee") must be(Seq(ruleD))
+    }
   }
 
   "ImportRuleList" should {
     "render without throwing (guards against withKey element-reuse crashes)" in {
       // Guards against withKey element-reuse crashes: each rule card uses .withKey(r.id.toString)
       noException should be thrownBy ReactDOM.render(
-        ImportRuleList(testCtx(), sampleRulesResponse, sampleMerchantsResponse, () => ()): ReactElement,
+        ImportRuleList(
+          testCtx(),
+          sampleRulesResponse,
+          sampleMerchantsResponse,
+          sampleCategoriesResponse,
+          () => ()
+        ): ReactElement,
         container
       )
+    }
+
+    "render the category name for a set_category rule" in {
+      ReactDOM.render(
+        BrowserRouter(basename = "")(
+          ImportRuleList(
+            testCtx(),
+            sampleRulesResponse,
+            sampleMerchantsResponse,
+            sampleCategoriesResponse,
+            () => ()
+          )
+        ): ReactElement,
+        container
+      )
+      container.textContent must include("→ Coffee")
     }
   }
 }

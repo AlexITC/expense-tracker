@@ -12,6 +12,8 @@ case class ImportRule(
     pattern: String,
     merchantId: Option[UUID],
     merchantName: Option[String],
+    categoryId: Option[UUID],
+    categoryName: Option[String],
     autoCreated: Boolean,
     createdAt: Instant,
     updatedAt: Instant
@@ -24,6 +26,7 @@ object ImportRule {
       action: ImportRuleAction,
       pattern: String,
       merchantId: Option[UUID],
+      categoryId: Option[UUID],
       autoCreated: Boolean,
       createdAt: Instant,
       updatedAt: Instant

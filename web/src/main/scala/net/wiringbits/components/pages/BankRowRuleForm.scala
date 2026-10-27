@@ -4,7 +4,7 @@ import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.GetBankStatement
-import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
+import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{CreateImportRule, CreateMerchant, GetMerchants, ImportRuleAction}
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -51,6 +51,11 @@ object BankRowRuleForm {
     val (saving, setSaving) = Hooks.useState(false)
     val (error, setError) = Hooks.useState("")
 
+    def resolveCategoryId(catName: String): Future[UUID] =
+      DescriptionRow
+        .resolveOrCreateCategory(props.ctx.api.client, props.categories, categoryIdOpt, catName)
+        .map(_._1)
+
     def handleSave(): Unit = {
       val trimmedPattern = pattern.trim
       if (trimmedPattern.isEmpty) {
@@ -76,18 +81,9 @@ object BankRowRuleForm {
             } else {
               setSaving(true)
               val catName = categoryInput.trim
-              val fCategoryIdOpt: Future[Option[UUID]] = categoryIdOpt match {
-                case some @ Some(_) => Future.successful(some)
-                case None if catName.isEmpty => Future.successful(None)
-                case None =>
-                  props.categories.find(_.name.equalsIgnoreCase(catName)) match {
-                    case Some(existing) => Future.successful(Some(existing.id))
-                    case None =>
-                      props.ctx.api.client
-                        .createCategory(CreateCategory.Request(name = catName))
-                        .map(r => Some(r.id))
-                  }
-              }
+              val fCategoryIdOpt: Future[Option[UUID]] =
+                if (categoryIdOpt.isEmpty && catName.isEmpty) Future.successful(None)
+                else resolveCategoryId(catName).map(Some(_))
               val fMerchantAndNew: Future[(UUID, Option[GetMerchants.Response.Merchant])] =
                 fCategoryIdOpt.flatMap { resolvedCatId =>
                   merchantIdOpt match {
@@ -131,6 +127,28 @@ object BankRowRuleForm {
                 }
                 .onComplete {
                   case Success((rule, newMerchantOpt)) => props.onSuccess(rule, newMerchantOpt)
+                  case Failure(ex) => setError(ex.getMessage); setSaving(false)
+                }
+            }
+
+          case ImportRuleAction.SetCategory =>
+            val catName = categoryInput.trim
+            if (catName.isEmpty) {
+              setError("Category is required")
+            } else {
+              setSaving(true)
+              resolveCategoryId(catName)
+                .flatMap { cid =>
+                  props.ctx.api.client
+                    .createImportRule(
+                      CreateImportRule.Request(ImportRuleAction.SetCategory, trimmedPattern, None, Some(cid))
+                    )
+                    .map(resp =>
+                      ImportRuleMatcher.Rule(resp.id, ImportRuleAction.SetCategory, trimmedPattern, None, Some(cid))
+                    )
+                }
+                .onComplete {
+                  case Success(rule) => props.onSuccess(rule, None)
                   case Failure(ex) => setError(ex.getMessage); setSaving(false)
                 }
             }
@@ -180,12 +198,14 @@ object BankRowRuleForm {
       if (rsn != "reset") setCategoryIdOpt(None)
     }
 
-    val actionItems = Seq(ImportRuleAction.SetMerchant, ImportRuleAction.Ignore).map { a =>
-      val label = a match {
-        case ImportRuleAction.SetMerchant => "Set merchant"
-        case ImportRuleAction.Ignore => "Ignore"
-      }
-      mui.MenuItem.normal()(label).value(a.entryName).withKey(a.entryName).build
+    val actionItems = Seq(ImportRuleAction.SetMerchant, ImportRuleAction.SetCategory, ImportRuleAction.Ignore).map {
+      a =>
+        val label = a match {
+          case ImportRuleAction.SetMerchant => "Set merchant"
+          case ImportRuleAction.Ignore => "Ignore"
+          case ImportRuleAction.SetCategory => "Set category"
+        }
+        mui.MenuItem.normal()(label).value(a.entryName).withKey(a.entryName).build
     }
 
     form(onSubmit := { e =>
@@ -213,12 +233,16 @@ object BankRowRuleForm {
           .value(pattern)
           .disabled(saving)
           .onChange(e => setPattern(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-        if (action == ImportRuleAction.SetMerchant)
-          Fragment(
-            (mui.Autocomplete.withProps(acProps).withKey("m"): ReactElement),
+        action match {
+          case ImportRuleAction.SetMerchant =>
+            Fragment(
+              (mui.Autocomplete.withProps(acProps).withKey("m"): ReactElement),
+              (mui.Autocomplete.withProps(catAcProps).withKey("c"): ReactElement)
+            )
+          case ImportRuleAction.SetCategory =>
             (mui.Autocomplete.withProps(catAcProps).withKey("c"): ReactElement)
-          )
-        else Fragment(),
+          case ImportRuleAction.Ignore => Fragment()
+        },
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
           (mui.Button
             .normal()(if (saving) "Saving…" else "Save rule")

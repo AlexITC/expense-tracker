@@ -12,6 +12,8 @@ class RowRuleVerdictSpec extends AnyWordSpec with Matchers {
     ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant, pattern, merchantId)
   private def ignoreRule(pattern: String) =
     ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, pattern, None)
+  private def setCategoryRule(pattern: String, categoryId: UUID) =
+    ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory, pattern, None, Some(categoryId))
 
   "verdict" should {
     "be NoRule when there are no rules" in {
@@ -44,6 +46,34 @@ class RowRuleVerdictSpec extends AnyWordSpec with Matchers {
       RowRuleVerdict.verdict(rules, "MERCADONA STORE") must be(RowRuleVerdict.Ignore)
     }
 
+    "be SetCategory with the category id when only a set_category rule matches" in {
+      val cid = UUID.randomUUID()
+      RowRuleVerdict.verdict(List(setCategoryRule("cafeteria", cid)), "CAFETERIA CENTRAL") must be(
+        RowRuleVerdict.SetCategory(Some(cid))
+      )
+    }
+
+    "prefer SetMerchant over a longer set_category pattern" in {
+      val mid = UUID.randomUUID()
+      val rules = List(setCategoryRule("CAFETERIA", UUID.randomUUID()), setMerchantRule("CAFE", Some(mid)))
+      RowRuleVerdict.verdict(rules, "CAFETERIA CENTRAL") must be(RowRuleVerdict.SetMerchant(Some(mid)))
+    }
+
+    "use the longer pattern between two set_category rules" in {
+      val cid = UUID.randomUUID()
+      val rules = List(setCategoryRule("cafe", UUID.randomUUID()), setCategoryRule("cafeteria", cid))
+      RowRuleVerdict.verdict(rules, "CAFETERIA CENTRAL") must be(RowRuleVerdict.SetCategory(Some(cid)))
+    }
+
+    "prefer Ignore over SetMerchant and SetCategory" in {
+      val rules = List(
+        setMerchantRule("cafeteria central", Some(UUID.randomUUID())),
+        setCategoryRule("cafeteria central", UUID.randomUUID()),
+        ignoreRule("cafe")
+      )
+      RowRuleVerdict.verdict(rules, "CAFETERIA CENTRAL") must be(RowRuleVerdict.Ignore)
+    }
+
     "skip patterns shorter than 3 normalized chars" in {
       val rules = List(ignoreRule("m-e"), setMerchantRule("..ab", Some(UUID.randomUUID())))
       RowRuleVerdict.verdict(rules, "ME AB STORE") must be(RowRuleVerdict.NoRule)
@@ -63,6 +93,33 @@ class RowRuleVerdictSpec extends AnyWordSpec with Matchers {
 
     "be None when no rule matches" in {
       RowRuleVerdict.ruleMerchantId(Nil, "MERCADONA STORE") must be(None)
+    }
+
+    "be None when a set_category rule wins" in {
+      RowRuleVerdict.ruleMerchantId(List(setCategoryRule("mercadona", UUID.randomUUID())), "MERCADONA STORE") must be(
+        None
+      )
+    }
+  }
+
+  "ruleCategoryId" should {
+    "return the category of a winning set_category rule" in {
+      val cid = UUID.randomUUID()
+      RowRuleVerdict.ruleCategoryId(List(setCategoryRule("mercadona", cid)), "MERCADONA STORE") must be(Some(cid))
+    }
+
+    "be None when a set_merchant rule wins" in {
+      val rules = List(setCategoryRule("mercadona store", UUID.randomUUID()), setMerchantRule("mercadona", None))
+      RowRuleVerdict.ruleCategoryId(rules, "MERCADONA STORE") must be(None)
+    }
+
+    "be None when an ignore rule wins" in {
+      val rules = List(setCategoryRule("mercadona", UUID.randomUUID()), ignoreRule("mercadona"))
+      RowRuleVerdict.ruleCategoryId(rules, "MERCADONA STORE") must be(None)
+    }
+
+    "be None when no rule matches" in {
+      RowRuleVerdict.ruleCategoryId(Nil, "MERCADONA STORE") must be(None)
     }
   }
 }
