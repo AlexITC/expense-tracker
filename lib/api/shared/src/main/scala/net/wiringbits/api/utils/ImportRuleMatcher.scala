@@ -9,6 +9,21 @@ object ImportRuleMatcher {
 
   def normalize(s: String): String = s.toLowerCase.replaceAll("[^a-z0-9]", "")
 
+  /** The explicit rules plus one virtual SetMerchant rule per merchant, using the merchant name as the pattern.
+    *
+    * Virtual rules are computed, never stored; their id is the merchant id. A merchant whose normalized name equals the
+    * pattern of an explicit SetMerchant rule is skipped, so the explicit rule decides.
+    */
+  def effectiveRules(explicit: List[Rule], merchants: List[(UUID, String)]): List[Rule] = {
+    val explicitPatterns =
+      explicit.filter(_.action == ImportRuleAction.SetMerchant).map(r => normalize(r.pattern)).toSet
+    val virtual = merchants.collect {
+      case (merchantId, name) if !explicitPatterns.contains(normalize(name)) =>
+        Rule(merchantId, ImportRuleAction.SetMerchant, name, Some(merchantId))
+    }
+    explicit ++ virtual
+  }
+
   def matches(rule: Rule, text: String): Boolean =
     normalize(text).contains(normalize(rule.pattern))
 
