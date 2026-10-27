@@ -82,16 +82,18 @@ object BankStatementReviewPage {
     pollAttemptsExhausted || !ai.exists(_.status == AiSuggestionsStatus.Pending)
 
   /** A row's resolved import target: the merchant to link (if any), the category the expense will get, and whether that
-    * category came from an AI suggestion (true) rather than a matched rule's merchant (false).
+    * category came from an AI suggestion (true) rather than a matched rule (false): a SetMerchant rule's merchant
+    * default category, or a SetCategory rule's category.
     */
   final case class ResolvedImport(merchantId: Option[UUID], categoryId: UUID, categoryFromAi: Boolean)
 
   /** Resolve what importing a row would create. `ruleList` must already be the effective rules
     * (`ImportRuleMatcher.effectiveRules`), so a merchant-name match counts as a SetMerchant rule. Merchant: a
     * SetMerchant rule's merchant, else the AI-suggested merchant. Category: that rule-merchant's default category, else
-    * the AI-suggested category. An Ignore rule takes precedence over any suggestion, so such rows resolve to None (they
-    * are ignored, not imported). None also means "nothing to import yet" — no rule and no usable suggestion. AI
-    * suggestions are only consulted once Done.
+    * the AI-suggested category. A SetCategory rule resolves to its category with no merchant, and AI is not consulted
+    * for such rows. An Ignore rule takes precedence over any suggestion, so such rows resolve to None (they are
+    * ignored, not imported). None also means "nothing to import yet" — no rule and no usable suggestion. AI suggestions
+    * are only consulted once Done.
     */
   def resolveImport(
       ruleList: List[ImportRuleMatcher.Rule],
@@ -108,20 +110,20 @@ object BankStatementReviewPage {
       aiSuggestions: Option[AiSuggestions],
       row: GetBankStatement.StatementRowData
   ): Option[ResolvedImport] =
-    if (verdict == RowRuleVerdict.Ignore) None
-    else {
-      val ruleMerchantId = verdict match {
-        case RowRuleVerdict.SetMerchant(merchantId) => merchantId
-        case _ => None
-      }
-      val ruleCategoryId = ruleMerchantId.flatMap(mid => merchants.find(_.id == mid).flatMap(_.categoryId))
-      val ai = aiSuggestions
-        .filter(_.status == AiSuggestionsStatus.Done)
-        .flatMap(_.rows.find(_.rowId == row.id))
-      val merchantId = ruleMerchantId.orElse(ai.flatMap(_.merchantId))
-      ruleCategoryId
-        .map(c => ResolvedImport(merchantId, c, categoryFromAi = false))
-        .orElse(ai.flatMap(_.categoryId).map(c => ResolvedImport(merchantId, c, categoryFromAi = true)))
+    verdict match {
+      case RowRuleVerdict.Ignore => None
+      case RowRuleVerdict.SetCategory(categoryId) =>
+        categoryId.map(c => ResolvedImport(merchantId = None, categoryId = c, categoryFromAi = false))
+      case _ =>
+        val ruleMerchantId = RowRuleVerdict.merchantId(verdict)
+        val ruleCategoryId = ruleMerchantId.flatMap(mid => merchants.find(_.id == mid).flatMap(_.categoryId))
+        val ai = aiSuggestions
+          .filter(_.status == AiSuggestionsStatus.Done)
+          .flatMap(_.rows.find(_.rowId == row.id))
+        val merchantId = ruleMerchantId.orElse(ai.flatMap(_.merchantId))
+        ruleCategoryId
+          .map(c => ResolvedImport(merchantId, c, categoryFromAi = false))
+          .orElse(ai.flatMap(_.categoryId).map(c => ResolvedImport(merchantId, c, categoryFromAi = true)))
     }
 
   /** Everything a table row derives from the rules, merchants, categories and AI suggestions, computed once per row so

@@ -185,6 +185,39 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
       ) mustBe None
     }
 
+    "resolve a SetCategory rule to its category with no merchant, ignoring the AI suggestion" in {
+      val row = sampleRow("SUPERMARKET")
+      val c = UUID.randomUUID()
+      val setCategory =
+        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory, "SUPERMARKET", None, Some(c))
+      BankStatementReviewPage.resolveImport(
+        List(setCategory),
+        Nil,
+        done(AiSuggestions.RowSuggestion(row.id, Some(UUID.randomUUID()), Some(UUID.randomUUID()))),
+        row
+      ) mustBe Some(BankStatementReviewPage.ResolvedImport(None, c, categoryFromAi = false))
+    }
+
+    "prefer a SetMerchant rule over a longer SetCategory rule on the same row" in {
+      val row = sampleRow("SUPERMARKET 0042")
+      val m = UUID.randomUUID()
+      val merchantCategory = UUID.randomUUID()
+      val setCategory =
+        ImportRuleMatcher.Rule(
+          UUID.randomUUID(),
+          ImportRuleAction.SetCategory,
+          "SUPERMARKET 0042",
+          None,
+          Some(UUID.randomUUID())
+        )
+      BankStatementReviewPage.resolveImport(
+        List(rule(ImportRuleAction.SetMerchant, "SUPERMARKET", Some(m)), setCategory),
+        List(merchant(m, Some(merchantCategory))),
+        aiSuggestions = None,
+        row
+      ) mustBe Some(BankStatementReviewPage.ResolvedImport(Some(m), merchantCategory, categoryFromAi = false))
+    }
+
     "ignore AI suggestions that are still Pending" in {
       val row = sampleRow("UNKNOWN SHOP")
       val c = UUID.randomUUID()
@@ -285,6 +318,30 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
       info.resolved mustBe Some(BankStatementReviewPage.ResolvedImport(Some(m), c, categoryFromAi = false))
       info.isReady mustBe true
       info.merchantName mustBe Some("Supermarket")
+      info.categoryName mustBe Some("Groceries")
+    }
+
+    "mark a row with a SetCategory rule as ready with the rule's category and no merchant, ignoring AI" in {
+      val c = UUID.randomUUID()
+      val row = sampleRow()
+      val ai = Some(
+        AiSuggestions(
+          AiSuggestionsStatus.Done,
+          "m",
+          List(AiSuggestions.RowSuggestion(row.id, Some(UUID.randomUUID()), Some(UUID.randomUUID())))
+        )
+      )
+      val info = rowInfo(
+        List(ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory, "SUPERMARKET", None, Some(c))),
+        Nil,
+        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
+        ai,
+        row
+      )
+      info.verdict mustBe RowRuleVerdict.SetCategory(Some(c))
+      info.resolved mustBe Some(BankStatementReviewPage.ResolvedImport(None, c, categoryFromAi = false))
+      info.isReady mustBe true
+      info.merchantName mustBe None
       info.categoryName mustBe Some("Groceries")
     }
 

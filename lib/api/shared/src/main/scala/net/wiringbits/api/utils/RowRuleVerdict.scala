@@ -25,17 +25,25 @@ object RowRuleVerdict {
         }
     }
 
-  /** The merchant a winning SetMerchant rule assigns to the row, if any. */
-  def ruleMerchantId(rules: List[ImportRuleMatcher.Rule], description: String): Option[UUID] =
-    verdict(rules, description) match {
+  /** The merchant a SetMerchant verdict assigns to the row, if any. */
+  def merchantId(verdict: Verdict): Option[UUID] =
+    verdict match {
       case SetMerchant(merchantId) => merchantId
       case _ => None
     }
 
-  /** The category a winning SetCategory rule assigns to the row, if any. */
-  def ruleCategoryId(rules: List[ImportRuleMatcher.Rule], description: String): Option[UUID] =
-    verdict(rules, description) match {
+  /** The category a SetCategory verdict assigns to the row, if any. */
+  def categoryId(verdict: Verdict): Option[UUID] =
+    verdict match {
       case SetCategory(categoryId) => categoryId
       case _ => None
     }
+
+  /** The merchant a winning SetMerchant rule assigns to the row, if any. */
+  def ruleMerchantId(rules: List[ImportRuleMatcher.Rule], description: String): Option[UUID] =
+    merchantId(verdict(rules, description))
+
+  /** The category a winning SetCategory rule assigns to the row, if any. */
+  def ruleCategoryId(rules: List[ImportRuleMatcher.Rule], description: String): Option[UUID] =
+    categoryId(verdict(rules, description))
 }
