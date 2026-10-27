@@ -81,37 +81,41 @@ class ParseReceiptAction @Inject() (
                 )
                 _ <- parsed.vendor_name match {
                   case Some(name) if name.nonEmpty =>
-                    ruleRepository.all(doc.userId).flatMap { rules =>
-                      val matchingRule = ImportRuleMatcher.findReceiptWinner(
-                        rules.map(r => ImportRuleMatcher.Rule(r.id, r.action, r.pattern, r.merchantId)),
-                        name
-                      )
-                      matchingRule match {
-                        case Some(rule) =>
-                          rule.merchantId match {
-                            case Some(mid) => receiptRepository.setMerchantId(receipt.id, mid)
-                            case None => Future.unit
-                          }
-                        case None =>
-                          merchantsRepository.createPendingIfAbsent(doc.userId, name).flatMap { merchantId =>
-                            for {
-                              _ <- receiptRepository.setMerchantId(receipt.id, merchantId)
-                              exists <- ruleRepository.existsByUserPatternMerchant(doc.userId, name, merchantId)
-                              _ <-
-                                if (exists) Future.unit
-                                else
-                                  ruleRepository
-                                    .create(
-                                      doc.userId,
-                                      ImportRuleAction.SetMerchant,
-                                      name,
-                                      Some(merchantId),
-                                      autoCreated = true
-                                    )
-                                    .map(_ => ())
-                            } yield ()
-                          }
-                      }
+                    ruleRepository.all(doc.userId).zip(merchantsRepository.all(doc.userId)).flatMap {
+                      case (rules, merchants) =>
+                        val matchingRule = ImportRuleMatcher.findReceiptWinner(
+                          ImportRuleMatcher.effectiveRules(
+                            rules.map(r => ImportRuleMatcher.Rule(r.id, r.action, r.pattern, r.merchantId)),
+                            merchants.map(m => m.id -> m.name)
+                          ),
+                          name
+                        )
+                        matchingRule match {
+                          case Some(rule) =>
+                            rule.merchantId match {
+                              case Some(mid) => receiptRepository.setMerchantId(receipt.id, mid)
+                              case None => Future.unit
+                            }
+                          case None =>
+                            merchantsRepository.createPendingIfAbsent(doc.userId, name).flatMap { merchantId =>
+                              for {
+                                _ <- receiptRepository.setMerchantId(receipt.id, merchantId)
+                                exists <- ruleRepository.existsByUserPatternMerchant(doc.userId, name, merchantId)
+                                _ <-
+                                  if (exists) Future.unit
+                                  else
+                                    ruleRepository
+                                      .create(
+                                        doc.userId,
+                                        ImportRuleAction.SetMerchant,
+                                        name,
+                                        Some(merchantId),
+                                        autoCreated = true
+                                      )
+                                      .map(_ => ())
+                              } yield ()
+                            }
+                        }
                     }
                   case _ => Future.unit
                 }

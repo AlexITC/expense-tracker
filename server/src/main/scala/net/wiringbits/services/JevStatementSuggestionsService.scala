@@ -10,11 +10,11 @@ import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 
-/** Suggests a category and a merchant for each debit row of a statement that no import rule already handles, using JEV
-  * choice questions keyed by id. A row whose normalized description the user already filed under a category gets that
-  * category without a JEV call. The other rows are grouped by normalized description and each distinct description is
-  * resolved once, one after another: JEV picks a category, then, when that category has merchants, one of them (or
-  * "none"). No DB access — the caller loads the inputs and persists the result.
+/** Suggests a category and a merchant for each debit row of a statement that no import rule or merchant name already
+  * handles, using JEV choice questions keyed by id. A row whose normalized description the user already filed under a
+  * category gets that category without a JEV call. The other rows are grouped by normalized description and each
+  * distinct description is resolved once, one after another: JEV picks a category, then, when that category has
+  * merchants, one of them (or "none"). No DB access — the caller loads the inputs and persists the result.
   */
 class JevStatementSuggestionsService @Inject() (jevClient: JevClient)(implicit ec: ExecutionContext) {
   import JevStatementSuggestionsService.*
@@ -38,7 +38,7 @@ class JevStatementSuggestionsService @Inject() (jevClient: JevClient)(implicit e
       history: Map[String, UUID]
   ): Future[AiSuggestions] = {
     logger.info(s"Resolving AI suggestions for userId=$userId, statement $statementId with model $modelId")
-    val selection = selectRowsToResolve(rows, rules)
+    val selection = selectRowsToResolve(rows, rules, merchants)
     logger.info(
       s"userId=$userId, statement $statementId: ${rows.size} rows, ${selection.creditsSkipped} credits skipped, " +
         s"${selection.ruleSkipped} skipped by rule, ${selection.toResolve.size} to resolve"
