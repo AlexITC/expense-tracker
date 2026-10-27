@@ -222,4 +222,40 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
       BankRowCreateExpenseForm.aliasToCreate("  OXXO STORE  ", "Oxxo") mustBe Some("OXXO STORE")
     }
   }
+
+  "categoryRuleToCreate" should {
+    val needsAlias = BankRowCreateExpenseForm.RuleHint.NeedsAlias
+
+    "return None when the user did not opt in" in {
+      BankRowCreateExpenseForm.categoryRuleToCreate(needsAlias, "", Some(groceries.id), false, "OXXO STORE") mustBe None
+    }
+
+    "return None when a merchant is set" in {
+      BankRowCreateExpenseForm.categoryRuleToCreate(needsAlias, "Oxxo", Some(groceries.id), true, "OXXO STORE") mustBe
+        None
+    }
+
+    "return None when no category is set" in {
+      BankRowCreateExpenseForm.categoryRuleToCreate(needsAlias, "", None, true, "OXXO STORE") mustBe None
+    }
+
+    "return None when an explicit rule already covers the row" in {
+      BankRowCreateExpenseForm.categoryRuleToCreate(
+        BankRowCreateExpenseForm.RuleHint.CoveredByRule("OXXO"),
+        "",
+        Some(groceries.id),
+        true,
+        "OXXO STORE"
+      ) mustBe None
+    }
+
+    "return None for a pattern too short to match" in {
+      BankRowCreateExpenseForm.categoryRuleToCreate(needsAlias, "", Some(groceries.id), true, " O.X ") mustBe None
+    }
+
+    "return the trimmed pattern otherwise" in {
+      BankRowCreateExpenseForm.categoryRuleToCreate(needsAlias, "", Some(groceries.id), true, "  OXXO STORE  ") mustBe
+        Some("OXXO STORE")
+    }
+  }
 }

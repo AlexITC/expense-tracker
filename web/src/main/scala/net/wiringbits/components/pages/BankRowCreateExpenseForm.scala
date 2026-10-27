@@ -11,7 +11,7 @@ import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
-import slinky.web.html.{form, onSubmit}
+import slinky.web.html.{form, label, onSubmit}
 
 import java.time.{Instant, LocalDate}
 import java.util.UUID
@@ -128,6 +128,20 @@ object BankRowCreateExpenseForm {
     )(trimmed)
   }
 
+  /** The SetCategory rule pattern to store after confirming a row with a category but no merchant: only when the user
+    * opted in and no explicit rule already covers the row, subject to the same length check as merchant aliases.
+    */
+  def categoryRuleToCreate(
+      hint: RuleHint,
+      merchantName: String,
+      categoryIdOpt: Option[UUID],
+      optIn: Boolean,
+      pattern: String
+  ): Option[String] =
+    if (optIn && merchantName.isEmpty && categoryIdOpt.isDefined && hint == RuleHint.NeedsAlias)
+      aliasToCreate(pattern, "")
+    else None
+
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
@@ -155,6 +169,7 @@ object BankRowCreateExpenseForm {
     val (categoryOpen, setCategoryOpen) = Hooks.useState(false)
 
     val (rulePattern, setRulePattern) = Hooks.useState(props.row.description)
+    val (categoryRuleOptIn, setCategoryRuleOptIn) = Hooks.useState(false)
     val (receiptId, setReceiptId) = Hooks.useState[Option[UUID]](None)
     val (receipts, setReceipts) = Hooks.useState[List[GetReceipts.Response.Receipt]](Nil)
     val (error, setError) = Hooks.useState("")
@@ -163,6 +178,7 @@ object BankRowCreateExpenseForm {
 
     val merchantName = merchantInput.trim
     val hint = ruleHint(props.row, props.ruleList, merchantName)
+    val showCategoryRuleOption = merchantName.isEmpty && categoryInput.trim.nonEmpty && hint == RuleHint.NeedsAlias
 
     // A suggestion can arrive (via polling) after the form was opened blank; apply it only while the
     // merchant/category fields are still untouched so user edits are never overwritten.
@@ -245,7 +261,7 @@ object BankRowCreateExpenseForm {
           setError("")
           val categoryName = categoryInput.trim
 
-          val fExpense: Future[(UUID, Option[UUID])] = for {
+          val fExpense: Future[(UUID, Option[UUID], Option[UUID])] = for {
             resolvedCategoryId <- categoryName match {
               case "" => Future.successful[Option[UUID]](None)
               case _ =>
@@ -304,26 +320,50 @@ object BankRowCreateExpenseForm {
               receiptId = receiptId
             )
             resp <- props.ctx.api.client.createExpenseFromRow(props.stmtId, props.row.id, req)
-          } yield (resp.expenseId, resolvedMerchantId)
+          } yield (resp.expenseId, resolvedMerchantId, resolvedCategoryId)
 
           fExpense.onComplete {
             case Failure(ex) => setError(ex.getMessage)
-            case Success((expenseId, resolvedMerchantId)) =>
+            case Success((expenseId, resolvedMerchantId, resolvedCategoryId)) =>
               val aliasOpt = if (hint == RuleHint.NeedsAlias) aliasToCreate(rulePattern, merchantName) else None
-              (resolvedMerchantId, aliasOpt) match {
-                case (Some(mid), Some(alias)) =>
-                  props.ctx.api.client
-                    .createImportRule(
-                      CreateImportRule.Request(
-                        action = ImportRuleAction.SetMerchant,
-                        pattern = alias,
-                        merchantId = Some(mid)
-                      )
+              val categoryRuleOpt =
+                categoryRuleToCreate(hint, merchantName, resolvedCategoryId, categoryRuleOptIn, rulePattern)
+              val ruleRequestOpt = (resolvedMerchantId, aliasOpt, resolvedCategoryId, categoryRuleOpt) match {
+                case (Some(mid), Some(alias), _, _) =>
+                  Some(
+                    CreateImportRule.Request(
+                      action = ImportRuleAction.SetMerchant,
+                      pattern = alias,
+                      merchantId = Some(mid)
                     )
+                  )
+                case (None, _, Some(catId), Some(pattern)) =>
+                  Some(
+                    CreateImportRule.Request(
+                      action = ImportRuleAction.SetCategory,
+                      pattern = pattern,
+                      merchantId = None,
+                      categoryId = Some(catId)
+                    )
+                  )
+                case _ => None
+              }
+              ruleRequestOpt match {
+                case Some(ruleRequest) =>
+                  props.ctx.api.client
+                    .createImportRule(ruleRequest)
                     .onComplete {
                       case Success(r) =>
                         props.onNewEntities(
-                          Some(ImportRuleMatcher.Rule(r.id, ImportRuleAction.SetMerchant, alias, Some(mid))),
+                          Some(
+                            ImportRuleMatcher.Rule(
+                              r.id,
+                              ruleRequest.action,
+                              ruleRequest.pattern,
+                              ruleRequest.merchantId,
+                              ruleRequest.categoryId
+                            )
+                          ),
                           None
                         )
                         props.onSuccess(expenseId)
@@ -331,7 +371,7 @@ object BankRowCreateExpenseForm {
                         setSavedExpenseId(Some(expenseId))
                         setError(s"Expense created, but the rule could not be created: ${ex.getMessage}")
                     }
-                case _ => props.onSuccess(expenseId)
+                case None => props.onSuccess(expenseId)
               }
           }
       }
@@ -500,6 +540,28 @@ object BankRowCreateExpenseForm {
                   .helperText("Future rows containing this text get this merchant. Leave blank for no rule.")
                   .onChange(e => setRulePattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
             },
+          if (showCategoryRuleOption)
+            mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "8px" })(
+              label(
+                mui.Box.sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; cursor = "pointer" })(
+                  mui.Checkbox
+                    .checked(categoryRuleOptIn)
+                    .size("small")
+                    .onChange((_, checked) => setCategoryRuleOptIn(checked)),
+                  mui.Typography(s"Also categorize similar rows as ${categoryInput.trim}").sx(hintStyling)
+                )
+              ),
+              if (categoryRuleOptIn)
+                mui.TextField
+                  .outlined()
+                  .label("Rule pattern")
+                  .size("small")
+                  .value(rulePattern)
+                  .helperText("Future rows containing this text get this category.")
+                  .onChange(e => setRulePattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
+              else Fragment()
+            )
+          else Fragment(),
           if (rankedReceipts.nonEmpty)
             mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "6px" })(
               mui.Typography("Attach receipt (optional):").sx(receiptSuggestStyling),
