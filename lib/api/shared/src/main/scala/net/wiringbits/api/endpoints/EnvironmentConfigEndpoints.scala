@@ -17,7 +17,7 @@ object EnvironmentConfigEndpoints {
       .out(
         jsonBody[GetEnvironmentConfig.Response]
           .description("Got the config values")
-          .example(GetEnvironmentConfig.Response("siteKey", Some("MyBot")))
+          .example(GetEnvironmentConfig.Response("siteKey", Some("MyBot"), 400))
       )
       .summary("Get the config values for the current environment")
       .description("These values are required by the frontend app to interact with the backend")

@@ -47,4 +47,10 @@ class MerchantsLimitControllerSpec extends PlayPostgresSpec with LoginUtils with
       client.getMerchants.futureValue.data.map(_.name) must contain theSameElementsAs List("First", "Second")
     }
   }
+
+  "GET /environment-config" should {
+    "expose the configured merchant limit" in withApiClient { client =>
+      client.getEnvironmentConfig.futureValue.maxMerchants must be(2)
+    }
+  }
 }

@@ -4,7 +4,7 @@ import play.api.libs.json.{Format, Json}
 import sttp.tapir.Schema
 
 object GetEnvironmentConfig {
-  case class Response(recaptchaSiteKey: String, telegramBotName: Option[String])
+  case class Response(recaptchaSiteKey: String, telegramBotName: Option[String], maxMerchants: Int)
 
   implicit val configResponseFormat: Format[Response] = Json.format[Response]
 
