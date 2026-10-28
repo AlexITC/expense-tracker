@@ -64,6 +64,37 @@ leaked up a layer. Not: validating a value's shape or content (length, format,
 range) that no constraint expresses; logic with a single writer / no concurrent
 writes.
 
+## Ownership and existence are enforced at the write, in the repository
+Multi-tenant / ownership integrity is a repository responsibility (see
+architecture, persistence), not an action's — it is how a cross-tenant or
+dangling reference is kept from ever being persisted. For a write:
+- the **target** row's existence/ownership comes from the DAO's
+  `UPDATE/DELETE … WHERE id = ? AND user_id = ?` (0 rows → "… not found"), not a
+  pre-`find`;
+- a **referenced** user-owned entity (a merchant's category, a rule's
+  merchant/category) has its ownership checked inside the repository method,
+  before the write and in the same transaction.
+
+Flag an action that pre-`find`s a row only to raise a not-found/ownership error,
+or that checks a referenced entity's ownership before calling the repository —
+both belong in the repository. Not: input/shape validation (length, format,
+range) and non-integrity business rules, which stay in the action; a pre-read
+whose row is actually used for its data; and the deliberate find-then-delete
+convention.
+
+## Comments explain intent, not the change
+A comment must tell a reader something the code can't — not narrate the diff for
+a reviewer. Flag a comment that either:
+- describes the change or history — "now", "moved to", "used to", "previously",
+  "no longer", "instead of"; or
+- restates another component's behavior, especially by name (e.g. "enforced in
+  `SomeRepository.create`") — it duplicates logic that lives elsewhere and goes
+  stale the moment that code moves.
+Those belong in the PR description, not the source. Not: a comment that documents
+non-obvious *why*/intent a reader genuinely needs; a warning about a surprising
+coupling or edge case; a `TODO`/`FIXME`; a scaladoc describing the member it is
+attached to.
+
 ## Log user-scoped operations with the user id
 Flag a `logger.*` statement describing an operation on a specific user's data
 that omits the user id when a `userId` is in scope (or trivially derivable, e.g.

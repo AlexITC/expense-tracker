@@ -19,11 +19,17 @@ Review changes in the repositories/DAO package. Flag:
   races), so the repository should let the write hit the constraint and
   `recover`/catch the `PSQLException`, **matched by the specific constraint or
   index name** — `ex.getMessage.contains("<name>_unique")` /
-  `getServerErrorMessage.getConstraint`, as `CreateMerchantAction` and
-  `UpdateMerchantAction` already do — returning the domain error the caller
+  `getServerErrorMessage.getConstraint` — returning the domain error the caller
   expects. Catching a `PSQLException`/`SQLException` **in the repository layer
   for this purpose is expected and not a finding**; a backing DB constraint must
   exist for the catch to guard anything.
+- A write that references another user-owned entity (a merchant's category, a
+  rule's merchant/category) that does not verify that entity's ownership here, in
+  the same transaction as the write — the check (via the referenced entity's DAO,
+  scoped to the same `user_id`) belongs in the repository so a cross-tenant
+  reference can't be persisted by any path, not in the action. The target row's
+  own existence/ownership comes from the write's `WHERE id = ? AND user_id = ?`
+  (0 rows → "… not found"), so it needs no pre-`find`.
 
 Not: single-call reads/writes under `withConnection`; queries over global /
 non-user-owned tables; matching a violation by bare SQLState (e.g. `23505`)

@@ -28,6 +28,18 @@ repository.
 Not: calls in the correct direction (controller → action → repository → dao),
 or any use of models.
 
+## Repositories enforce write-time tenant/ownership integrity
+
+Verifying that a write cannot persist cross-tenant or dangling data is a
+repository responsibility, not a layering violation — even though it reads as a
+touch of domain logic. A repository may check the target row's ownership (via the
+write's `WHERE id = ? AND user_id = ?`) and a referenced user-owned entity's
+ownership, in the same transaction, calling another entity's **DAO** to do so
+(downward, allowed — only sideways repository→repository calls are banned), and
+raise the domain error itself. Do not flag that as misplaced business logic, and
+do not flag an action for *omitting* such a check — it belongs below it. Input
+shape/format validation and non-integrity rules still belong in the action.
+
 ## External services live behind their own class
 
 A call to an external service — an AWS SDK (S3, Textract, Bedrock), an HTTP
