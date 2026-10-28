@@ -7,6 +7,7 @@ import org.scalatest.matchers.must.Matchers.*
 import utils.RepositoryUtils
 
 import java.util.UUID
+import scala.concurrent.Future
 
 class MerchantsRepositorySpec extends RepositorySpec with RepositoryUtils {
 
@@ -94,6 +95,59 @@ class MerchantsRepositorySpec extends RepositorySpec with RepositoryUtils {
     "return None when no merchant matches" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       repositories.merchants.findByName(user.id, "NonExistent").futureValue must be(None)
+    }
+  }
+
+  "createPendingIfAbsent" should {
+    "create a pending merchant when absent" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val id = repositories.merchants.createPendingIfAbsent(user.id, "Amazon").futureValue
+
+      val merchant = repositories.merchants.find(id, user.id).futureValue.value
+      merchant.name must be("Amazon")
+      merchant.reviewed must be(false)
+      repositories.merchants.all(user.id).futureValue.map(_.id) must be(List(id))
+    }
+
+    "return the existing id for a case-variant name without changing its reviewed flag" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val existing = createMerchant(user.id, name = "Amazon").futureValue
+
+        val id = repositories.merchants.createPendingIfAbsent(user.id, "AMAZON").futureValue
+        id must be(existing.id)
+        repositories.merchants.find(id, user.id).futureValue.value.reviewed must be(true)
+        repositories.merchants.all(user.id).futureValue.size must be(1)
+    }
+
+    "return the same id on sequential calls" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val first = repositories.merchants.createPendingIfAbsent(user.id, "Amazon").futureValue
+      val second = repositories.merchants.createPendingIfAbsent(user.id, "Amazon").futureValue
+
+      second must be(first)
+      repositories.merchants.all(user.id).futureValue.size must be(1)
+    }
+
+    "converge on one row under concurrent calls" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val ids = Future
+        .sequence((1 to 8).map(_ => repositories.merchants.createPendingIfAbsent(user.id, "Amazon")))
+        .futureValue
+
+      ids.distinct.size must be(1)
+      repositories.merchants.all(user.id).futureValue.map(_.id) must be(List(ids.head))
+    }
+
+    "create separate rows for different users" in withRepositories() { implicit repositories =>
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
+      val a = repositories.merchants.createPendingIfAbsent(userA.id, "Amazon").futureValue
+      val b = repositories.merchants.createPendingIfAbsent(userB.id, "Amazon").futureValue
+
+      a must not be b
+      repositories.merchants.all(userA.id).futureValue.map(_.id) must be(List(a))
+      repositories.merchants.all(userB.id).futureValue.map(_.id) must be(List(b))
     }
   }
 
