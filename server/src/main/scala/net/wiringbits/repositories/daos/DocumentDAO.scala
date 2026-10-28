@@ -27,6 +27,24 @@ object DocumentDAO {
         """.executeUpdate()
   }
 
+  def createIfAbsent(request: Document.Create)(implicit conn: Connection): Option[UUID] = {
+    SQL"""
+        INSERT INTO document (id, user_id, sha256, storage_key, kind, filename, created_at, updated_at)
+        VALUES (
+          ${request.id.toString}::UUID,
+          ${request.userId.toString}::UUID,
+          ${request.sha256},
+          ${request.storageKey},
+          ${request.kind.entryName},
+          ${request.filename},
+          ${request.createdAt},
+          ${request.updatedAt}
+        )
+        ON CONFLICT (user_id, sha256) DO NOTHING
+        RETURNING id
+        """.as(anorm.SqlParser.scalar[UUID].singleOpt)
+  }
+
   def all(userId: UUID)(implicit conn: Connection): List[Document] = {
     SQL"""
         SELECT id, user_id, sha256, storage_key, kind, filename, created_at, updated_at,

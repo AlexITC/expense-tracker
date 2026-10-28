@@ -23,6 +23,21 @@ object CategoryDAO {
         """.executeUpdate()
   }
 
+  def createIfAbsent(request: Category.Create)(implicit conn: Connection): Option[UUID] = {
+    SQL"""
+        INSERT INTO category (id, user_id, name, created_at, updated_at)
+        VALUES (
+          ${request.id.toString}::UUID,
+          ${request.userId.toString}::UUID,
+          ${request.name},
+          ${request.createdAt},
+          ${request.updatedAt}
+        )
+        ON CONFLICT (user_id, name) DO NOTHING
+        RETURNING id
+        """.as(SqlParser.scalar[UUID].singleOpt)
+  }
+
   def all(userId: UUID)(implicit conn: Connection): List[Category] = {
     SQL"""
         SELECT id, user_id, name, created_at, updated_at

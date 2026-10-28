@@ -37,26 +37,22 @@ class MerchantsRepository @Inject() (database: Database)(implicit
 
   def createPendingIfAbsent(userId: UUID, name: String): Future[UUID] = Future {
     database.withTransaction { implicit conn =>
-      MerchantDAO.findByName(userId, name) match {
-        case Some(existing) => existing.id
-        case None =>
-          val id = UuidCreator.getTimeOrderedEpoch()
-          val now = clock.instant()
-          MerchantDAO.create(
-            Merchant.Create(
-              id = id,
-              userId = userId,
-              name = name,
-              notes = None,
-              categoryId = None,
-              taxId = None,
-              reviewed = false,
-              createdAt = now,
-              updatedAt = now
-            )
-          )
-          id
-      }
+      val now = clock.instant()
+      val request = Merchant.Create(
+        id = UuidCreator.getTimeOrderedEpoch(),
+        userId = userId,
+        name = name,
+        notes = None,
+        categoryId = None,
+        taxId = None,
+        reviewed = false,
+        createdAt = now,
+        updatedAt = now
+      )
+      MerchantDAO
+        .createIfAbsent(request)
+        .orElse(MerchantDAO.findByName(userId, name).map(_.id))
+        .getOrElse(throw new RuntimeException("Merchant not found"))
     }
   }
 

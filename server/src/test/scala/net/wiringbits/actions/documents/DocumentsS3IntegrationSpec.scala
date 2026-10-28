@@ -23,7 +23,7 @@ import utils.Executors
 import java.net.URI
 import java.time.{Clock, Instant}
 import java.util.UUID
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration.DurationInt
 
 class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
@@ -119,6 +119,14 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
   private def countS3Objects(): Int =
     syncClient.listObjectsV2(ListObjectsV2Request.builder().bucket(testBucket).build()).contents().size()
 
+  private def processDocumentJobCount(documentId: UUID): Int =
+    db.withConnection { implicit conn =>
+      anorm
+        .SQL("SELECT COUNT(*) FROM background_jobs WHERE type = {type} AND payload ->> 'documentId' = {documentId}")
+        .on("type" -> BackgroundJobType.ProcessDocument.toString, "documentId" -> documentId.toString)
+        .as(anorm.SqlParser.scalar[Int].single)
+    }
+
   "upload" should {
     "PUT object at exact key data/<userId>/<date>/<sha256> and create document row synchronously" in {
       cleanBucket()
@@ -143,11 +151,40 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
       val bytes = "dup-bytes".getBytes("UTF-8")
       val action = new UploadDocumentAction(documentsRepo, storage)(using ec, Clock.systemUTC())
 
-      action(userId, bytes, "receipt", "a.pdf").futureValue
+      val first = action(userId, bytes, "receipt", "a.pdf").futureValue
       val objectsAfterFirst = countS3Objects()
 
-      action(userId, bytes, "receipt", "b.pdf").futureValue
+      val second = action(userId, bytes, "receipt", "b.pdf").futureValue
+      second.id must be(first.id)
       countS3Objects() must be(objectsAfterFirst)
+    }
+
+    "return the stored document's id when the pre-read is stale and create hits the conflict" in {
+      cleanBucket()
+      val userId = makeUser()
+      val bytes = "race-bytes".getBytes("UTF-8")
+      val action = new UploadDocumentAction(documentsRepo, storage)(using ec, Clock.systemUTC())
+      val first = action(userId, bytes, "receipt", "a.pdf").futureValue
+
+      // Simulates a concurrent upload: findBySha256 misses, so the action goes all the way to create
+      var attempted = List.empty[UUID]
+      val staleRepo = new DocumentsRepository(db)(using Executors.databaseEC, Clock.systemUTC()) {
+        override def findBySha256(userId: UUID, sha256: String): Future[Option[Document]] = Future.successful(None)
+        override def create(document: Document.Create, job: BackgroundJobData.Create): Future[UUID] = {
+          attempted = document.id :: attempted
+          super.create(document, job)
+        }
+      }
+      val racing = new UploadDocumentAction(staleRepo, storage)(using ec, Clock.systemUTC())
+
+      val second = racing(userId, bytes, "receipt", "b.pdf").futureValue
+
+      second.id must be(first.id)
+      attempted.size must be(1)
+      attempted.head must not be first.id
+      documentsRepo.all(userId).futureValue.map(_.id) must be(List(first.id))
+      processDocumentJobCount(first.id) must be(1)
+      processDocumentJobCount(attempted.head) must be(0)
     }
 
     "fail cleanly when S3 put fails — no document row is created" in {

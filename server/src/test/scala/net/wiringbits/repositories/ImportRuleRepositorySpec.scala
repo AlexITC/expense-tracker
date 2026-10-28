@@ -8,6 +8,7 @@ import org.scalatest.matchers.must.Matchers.*
 import utils.RepositoryUtils
 
 import java.util.UUID
+import scala.concurrent.Future
 
 class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
 
@@ -99,24 +100,71 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
   }
 
-  "existsByUserPatternMerchant" should {
-    "return true when a matching rule exists" in withRepositories() { implicit repositories =>
+  "createSetMerchantIfAbsent" should {
+    "create an auto-created set_merchant rule" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val merchant = createMerchant(user.id).futureValue
-      createImportRule(
+
+      repositories.importRules.createSetMerchantIfAbsent(user.id, merchant.id, "amazon").futureValue
+
+      val rules = repositories.importRules.all(user.id).futureValue
+      rules.size must be(1)
+      rules.head.action must be(ImportRuleAction.SetMerchant(merchant.id))
+      rules.head.pattern must be("amazon")
+      rules.head.autoCreated must be(true)
+    }
+
+    "leave a single rule when called again, including with a case-variant pattern" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val merchant = createMerchant(user.id).futureValue
+
+        repositories.importRules.createSetMerchantIfAbsent(user.id, merchant.id, "amazon").futureValue
+        repositories.importRules.createSetMerchantIfAbsent(user.id, merchant.id, "amazon").futureValue
+        repositories.importRules.createSetMerchantIfAbsent(user.id, merchant.id, "AMAZON").futureValue
+
+        repositories.importRules.all(user.id).futureValue.size must be(1)
+    }
+
+    "leave a single rule under concurrent calls" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val merchant = createMerchant(user.id).futureValue
+
+      Future
+        .sequence((1 to 8).map(_ => repositories.importRules.createSetMerchantIfAbsent(user.id, merchant.id, "amazon")))
+        .futureValue
+
+      repositories.importRules.all(user.id).futureValue.size must be(1)
+    }
+
+    "fail for another user's merchant and create no rule" in withRepositories() { implicit repositories =>
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
+      val merchant = createMerchant(userA.id).futureValue
+
+      val ex = intercept[RuntimeException] {
+        repositories.importRules.createSetMerchantIfAbsent(userB.id, merchant.id, "amazon").futureValue
+      }
+      ex.getCause.getMessage must be("Merchant not found")
+      repositories.importRules.all(userB.id).futureValue must be(empty)
+      repositories.importRules.all(userA.id).futureValue must be(empty)
+    }
+
+    "leave an existing manual rule untouched" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val merchant = createMerchant(user.id).futureValue
+      val id = createImportRule(
         user.id,
         pattern = "amazon",
         action = ImportRuleActionKind.SetMerchant,
         merchantId = Some(merchant.id)
       ).futureValue
 
-      repositories.importRules.existsByUserPatternMerchant(user.id, "amazon", merchant.id).futureValue must be(true)
-    }
+      repositories.importRules.createSetMerchantIfAbsent(user.id, merchant.id, "amazon").futureValue
 
-    "return false when no matching rule exists" in withRepositories() { implicit repositories =>
-      val user = createUser().futureValue
-      val merchant = createMerchant(user.id).futureValue
-      repositories.importRules.existsByUserPatternMerchant(user.id, "amazon", merchant.id).futureValue must be(false)
+      val rules = repositories.importRules.all(user.id).futureValue
+      rules.map(_.id) must be(List(id))
+      rules.head.autoCreated must be(false)
     }
   }
 

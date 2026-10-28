@@ -1,7 +1,7 @@
 package net.wiringbits.repositories
 
-import net.wiringbits.core.RepositorySpec
-import net.wiringbits.models.documents.{DocumentClass, DocumentClassification}
+import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
+import net.wiringbits.models.documents.{DocumentClass, DocumentClassification, DocumentKind}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.{BackgroundJobData, Document, TextractCache}
 import org.scalatest.OptionValues.*
@@ -12,6 +12,7 @@ import utils.{RandomData, RepositoryUtils}
 
 import java.time.Instant
 import java.util.UUID
+import scala.concurrent.Future
 
 class DocumentsRepositorySpec extends RepositorySpec with RepositoryUtils {
 
@@ -21,6 +22,46 @@ class DocumentsRepositorySpec extends RepositorySpec with RepositoryUtils {
       val doc = createDocument(user.id).futureValue
       val found = repositories.documents.find(doc.id, user.id).futureValue
       found must not be empty
+    }
+
+    "return the existing id without a second document or job when the sha256 is taken" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val sha = RandomData.randomString()
+        val first = createDocument(user.id, sha256 = sha).futureValue
+        val (doc, job) = newDocumentAndJob(user.id, sha)
+
+        repositories.documents.create(doc, job).futureValue must be(first.id)
+        documentCountOf(user.id, sha) must be(1)
+        jobCountOf(first.id) must be(1)
+        jobCountOf(doc.id) must be(0)
+    }
+
+    "store a single document and job under concurrent creates with the same sha256" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val sha = RandomData.randomString()
+        val requests = (1 to 8).map(_ => newDocumentAndJob(user.id, sha))
+
+        val ids =
+          Future.sequence(requests.map { case (doc, job) => repositories.documents.create(doc, job) }).futureValue
+        ids.distinct.size must be(1)
+        documentCountOf(user.id, sha) must be(1)
+        jobCountOf(ids.head) must be(1)
+    }
+
+    "store a separate document per user for the same sha256" in withRepositories() { implicit repositories =>
+      val user1 = createUser().futureValue
+      val user2 = createUser().futureValue
+      val sha = RandomData.randomString()
+      val first = createDocument(user1.id, sha256 = sha).futureValue
+      val (doc, job) = newDocumentAndJob(user2.id, sha)
+
+      repositories.documents.create(doc, job).futureValue must be(doc.id)
+      documentCountOf(user1.id, sha) must be(1)
+      documentCountOf(user2.id, sha) must be(1)
+      jobCountOf(first.id) must be(1)
+      jobCountOf(doc.id) must be(1)
     }
   }
 
@@ -171,4 +212,46 @@ class DocumentsRepositorySpec extends RepositorySpec with RepositoryUtils {
     def expectError: String =
       f.map(_ => "Success when failure expected").recover { case ex => ex.getMessage }.futureValue
   }
+
+  private def newDocumentAndJob(userId: UUID, sha256: String): (Document.Create, BackgroundJobData.Create) = {
+    val now = Instant.now()
+    val doc = Document.Create(
+      id = UUID.randomUUID(),
+      userId = userId,
+      sha256 = sha256,
+      storageKey = "",
+      kind = DocumentKind.Receipt,
+      filename = "test.pdf",
+      createdAt = now,
+      updatedAt = now
+    )
+    val job = BackgroundJobData.Create(
+      id = UUID.randomUUID(),
+      `type` = BackgroundJobType.ProcessDocument,
+      payload = BackgroundJobPayload.ProcessDocument(doc.id),
+      status = BackgroundJobStatus.Pending,
+      executeAt = now,
+      createdAt = now,
+      updatedAt = now
+    )
+    (doc, job)
+  }
+
+  private def documentCountOf(userId: UUID, sha256: String)(using repositories: RepositoryComponents): Int =
+    repositories.database.withConnection { implicit conn =>
+      anorm
+        .SQL("SELECT COUNT(*) FROM document WHERE user_id = {userId}::UUID AND sha256 = {sha256}")
+        .on("userId" -> userId.toString, "sha256" -> sha256)
+        .as(anorm.SqlParser.scalar[Int].single)
+    }
+
+  private def jobCountOf(documentId: UUID)(using repositories: RepositoryComponents): Int =
+    repositories.database.withConnection { implicit conn =>
+      anorm
+        .SQL(
+          "SELECT COUNT(*) FROM background_jobs WHERE type = {type} AND payload ->> 'documentId' = {documentId}"
+        )
+        .on("type" -> BackgroundJobType.ProcessDocument.toString, "documentId" -> documentId.toString)
+        .as(anorm.SqlParser.scalar[Int].single)
+    }
 }

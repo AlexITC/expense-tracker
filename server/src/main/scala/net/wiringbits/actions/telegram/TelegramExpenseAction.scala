@@ -5,7 +5,7 @@ import io.scalaland.chimney.dsl.*
 import net.wiringbits.api.models.merchants.ImportRuleAction
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.config.MerchantsConfig
-import net.wiringbits.repositories.models.{Category, Expense, ExpenseCategorySplit, Merchant}
+import net.wiringbits.repositories.models.{Expense, ExpenseCategorySplit, Merchant}
 import net.wiringbits.repositories.{CategoriesRepository, ExpensesRepository, ImportRuleRepository, MerchantsRepository}
 import net.wiringbits.services.TelegramMessageParser.ParsedMessage
 import org.slf4j.LoggerFactory
@@ -86,7 +86,7 @@ class TelegramExpenseAction @Inject() (
                               .successful(Left(s"Maximum number of merchants (${merchantsConfig.maxPerUser}) reached"))
                           else
                             for {
-                              catId <- findOrCreateCategory(userId, catName)
+                              catId <- categoriesRepository.getOrCreate(userId, catName).map(_.id)
                               now = clock.instant()
                               merchantId = UuidCreator.getTimeOrderedEpoch()
                               _ <- merchantsRepository.create(
@@ -114,7 +114,7 @@ class TelegramExpenseAction @Inject() (
                     case catOpt =>
                       for {
                         catIdOpt <- catOpt match {
-                          case Some(catName) => findOrCreateCategory(userId, catName).map(Some(_))
+                          case Some(catName) => categoriesRepository.getOrCreate(userId, catName).map(c => Some(c.id))
                           case None => Future.successful(merchant.categoryId)
                         }
                         expenseId <- buildExpense(userId, msg.amount, merchant.id, catIdOpt, date, msg.notes)
@@ -125,15 +125,6 @@ class TelegramExpenseAction @Inject() (
         } yield outcome
     }
   }
-
-  private def findOrCreateCategory(userId: UUID, name: String): Future[UUID] =
-    categoriesRepository.findByName(userId, name).flatMap {
-      case Some(cat) => Future.successful(cat.id)
-      case None =>
-        val now = clock.instant()
-        val catId = UuidCreator.getTimeOrderedEpoch()
-        categoriesRepository.create(Category.Create(catId, userId, name, now, now)).map(_ => catId)
-    }
 
   private def buildExpense(
       userId: UUID,
