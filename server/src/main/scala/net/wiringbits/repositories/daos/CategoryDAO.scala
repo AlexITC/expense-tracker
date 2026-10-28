@@ -10,8 +10,8 @@ object CategoryDAO {
 
   import anorm.*
 
-  def create(request: Category.Create)(implicit conn: Connection): Unit = {
-    val _ = SQL"""
+  def getOrCreate(request: Category.Create)(implicit conn: Connection): Category = {
+    val inserted = SQL"""
         INSERT INTO category (id, user_id, name, created_at, updated_at)
         VALUES (
           ${request.id.toString}::UUID,
@@ -20,7 +20,13 @@ object CategoryDAO {
           ${request.createdAt},
           ${request.updatedAt}
         )
-        """.executeUpdate()
+        ON CONFLICT (user_id, name) DO NOTHING
+        RETURNING id, user_id, name, created_at, updated_at
+        """.as(categoryParser.singleOpt)
+    inserted.getOrElse(
+      findByName(request.userId, request.name)
+        .getOrElse(throw new RuntimeException("Category not found after conflict"))
+    )
   }
 
   def all(userId: UUID)(implicit conn: Connection): List[Category] = {

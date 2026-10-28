@@ -91,14 +91,12 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
       case Some(name) => findOrCreateCategory(userId, name).map(Some(_))
     }
 
-  private def findOrCreateCategory(userId: UUID, name: String): Future[UUID] =
-    categoriesRepository.findByName(userId, name).flatMap {
-      case Some(cat) => Future.successful(cat.id)
-      case None =>
-        val now = clock.instant()
-        val catId = UuidCreator.getTimeOrderedEpoch()
-        categoriesRepository.create(Category.Create(catId, userId, name, now, now)).map(_ => catId)
-    }
+  private def findOrCreateCategory(userId: UUID, name: String): Future[UUID] = {
+    val now = clock.instant()
+    categoriesRepository
+      .getOrCreate(Category.Create(UuidCreator.getTimeOrderedEpoch(), userId, name, now, now))
+      .map(_.id)
+  }
 
   private def createExpense(
       userId: UUID,

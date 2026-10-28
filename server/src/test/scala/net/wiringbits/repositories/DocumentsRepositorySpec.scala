@@ -1,7 +1,7 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.core.RepositorySpec
-import net.wiringbits.models.documents.{DocumentClass, DocumentClassification}
+import net.wiringbits.models.documents.{DocumentClass, DocumentClassification, DocumentKind}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.{BackgroundJobData, Document, TextractCache}
 import org.scalatest.OptionValues.*
@@ -15,12 +15,43 @@ import java.util.UUID
 
 class DocumentsRepositorySpec extends RepositorySpec with RepositoryUtils {
 
-  "create" should {
+  "createIfAbsent" should {
     "create a document and background job atomically" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val doc = createDocument(user.id).futureValue
       val found = repositories.documents.find(doc.id, user.id).futureValue
       found must not be empty
+    }
+
+    "return the existing document id when the same (user, sha256) is stored again" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val first = createDocument(user.id, sha256 = "dup").futureValue
+
+        val now = Instant.now()
+        val document = Document.Create(
+          id = UUID.randomUUID(),
+          userId = user.id,
+          sha256 = "dup",
+          storageKey = s"data/${user.id}/2026-01-01/dup",
+          kind = DocumentKind.Receipt,
+          filename = "again.pdf",
+          createdAt = now,
+          updatedAt = now
+        )
+        val job = BackgroundJobData.Create(
+          id = UUID.randomUUID(),
+          `type` = BackgroundJobType.ProcessDocument,
+          payload = BackgroundJobPayload.ProcessDocument(document.id),
+          status = BackgroundJobStatus.Pending,
+          executeAt = now,
+          createdAt = now,
+          updatedAt = now
+        )
+
+        val storedId = repositories.documents.createIfAbsent(document, job).futureValue
+        storedId must be(first.id)
+        repositories.documents.all(user.id).futureValue.size must be(1)
     }
   }
 

@@ -61,16 +61,23 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
     }
   }
 
-  // Used by the auto-rule-creation sites (receipt confirm/parse, mark-duplicate) to skip creating a set_merchant
-  // rule that already exists — a get-or-create, not a reject. Left in place deliberately.
-  def existsByUserPatternMerchant(
-      userId: UUID,
-      pattern: String,
-      merchantId: UUID,
-      excludeId: Option[UUID] = None
-  ): Future[Boolean] = Future {
-    database.withConnection { implicit conn =>
-      ImportRuleDAO.existsByUserPatternMerchant(userId, pattern, merchantId, excludeId)
+  // A set_merchant rule learned automatically from a confirmed receipt or a duplicate-merchant merge. A matching
+  // rule already present is left as-is rather than rejected, so re-confirming the same merchant is a no-op.
+  def createSetMerchantIfAbsent(userId: UUID, merchantId: UUID, pattern: String): Future[Unit] = Future {
+    database.withTransaction { implicit conn =>
+      verifyReferencesOwned(ImportRuleAction.SetMerchant(merchantId), userId)
+      val now = clock.instant()
+      ImportRuleDAO.createSetMerchantIfAbsent(
+        ImportRule.Create(
+          id = UuidCreator.getTimeOrderedEpoch(),
+          userId = userId,
+          action = ImportRuleAction.SetMerchant(merchantId),
+          pattern = pattern,
+          autoCreated = true,
+          createdAt = now,
+          updatedAt = now
+        )
+      )
     }
   }
 

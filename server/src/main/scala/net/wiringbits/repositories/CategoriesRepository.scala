@@ -15,14 +15,11 @@ class CategoriesRepository @Inject() (database: Database)(implicit
     clock: Clock
 ) {
 
-  def create(request: Category.Create): Future[Unit] =
-    Future {
-      ConstraintViolations.translating("category_user_id_name_unique" -> "A category with that name already exists") {
-        database.withTransaction { implicit conn =>
-          CategoryDAO.create(request)
-        }
-      }
+  def getOrCreate(request: Category.Create): Future[Category] = Future {
+    database.withTransaction { implicit conn =>
+      CategoryDAO.getOrCreate(request)
     }
+  }
 
   def all(userId: UUID): Future[List[Category]] = Future {
     database.withConnection { implicit conn =>
@@ -33,12 +30,6 @@ class CategoriesRepository @Inject() (database: Database)(implicit
   def find(id: UUID, userId: UUID): Future[Option[Category]] = Future {
     database.withConnection { implicit conn =>
       CategoryDAO.find(id, userId)
-    }
-  }
-
-  def findByName(userId: UUID, name: String): Future[Option[Category]] = Future {
-    database.withConnection { implicit conn =>
-      CategoryDAO.findByName(userId, name)
     }
   }
 

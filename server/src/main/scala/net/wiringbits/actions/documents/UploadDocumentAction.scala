@@ -68,8 +68,8 @@ class UploadDocumentAction @Inject() (
                 logger.info(s"Putting S3 object at $storageKey (${bytes.length} bytes)")
                 blobStorage.put(storageKey, bytes)
               }
-            _ <- documentsRepository.create(document, job)
-          } yield UploadDocument.Response(documentId)
+            storedId <- documentsRepository.createIfAbsent(document, job)
+          } yield UploadDocument.Response(storedId)
       }
     } yield response
   }

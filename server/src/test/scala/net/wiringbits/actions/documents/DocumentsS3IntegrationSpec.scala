@@ -112,7 +112,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
       createdAt = now,
       updatedAt = now
     )
-    documentsRepo.create(create, job).futureValue
+    documentsRepo.createIfAbsent(create, job).futureValue
     create
   }
 
@@ -143,11 +143,13 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
       val bytes = "dup-bytes".getBytes("UTF-8")
       val action = new UploadDocumentAction(documentsRepo, storage)(using ec, Clock.systemUTC())
 
-      action(userId, bytes, "receipt", "a.pdf").futureValue
+      val first = action(userId, bytes, "receipt", "a.pdf").futureValue
       val objectsAfterFirst = countS3Objects()
 
-      action(userId, bytes, "receipt", "b.pdf").futureValue
+      val second = action(userId, bytes, "receipt", "b.pdf").futureValue
+      second.id must be(first.id)
       countS3Objects() must be(objectsAfterFirst)
+      documentsRepo.all(userId).futureValue.size must be(1)
     }
 
     "fail cleanly when S3 put fails — no document row is created" in {

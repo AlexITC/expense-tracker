@@ -27,6 +27,30 @@ object MerchantDAO {
         """.executeUpdate()
   }
 
+  def createIfAbsent(request: Merchant.Create)(implicit conn: Connection): UUID = {
+    val inserted = SQL"""
+        INSERT INTO merchant (id, user_id, name, notes, category_id, tax_id, reviewed, created_at, updated_at)
+        VALUES (
+          ${request.id.toString}::UUID,
+          ${request.userId.toString}::UUID,
+          ${request.name},
+          ${request.notes},
+          ${request.categoryId.map(_.toString)}::UUID,
+          ${request.taxId},
+          ${request.reviewed},
+          ${request.createdAt},
+          ${request.updatedAt}
+        )
+        ON CONFLICT (user_id, name) DO NOTHING
+        RETURNING id
+        """.as(anorm.SqlParser.scalar[UUID].singleOpt)
+    inserted.getOrElse(
+      findByName(request.userId, request.name)
+        .map(_.id)
+        .getOrElse(throw new RuntimeException("Merchant not found after conflict"))
+    )
+  }
+
   def count(userId: UUID)(implicit conn: Connection): Long = {
     SQL"""
         SELECT COUNT(*)

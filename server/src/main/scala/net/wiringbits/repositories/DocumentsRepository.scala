@@ -14,10 +14,20 @@ import scala.concurrent.Future
 
 class DocumentsRepository @Inject() (database: Database)(implicit ec: DatabaseExecutionContext, clock: Clock) {
 
-  def create(document: Document.Create, job: BackgroundJobData.Create): Future[Unit] = Future {
+  // Stores the document and enqueues its processing job, or, when the same file is already stored, returns the
+  // existing document's id and enqueues nothing. The id is what the caller echoes back to the uploader.
+  def createIfAbsent(document: Document.Create, job: BackgroundJobData.Create): Future[UUID] = Future {
     database.withTransaction { implicit conn =>
-      DocumentDAO.create(document)
-      BackgroundJobDAO.create(job)
+      DocumentDAO.createIfAbsent(document) match {
+        case Some(id) =>
+          BackgroundJobDAO.create(job)
+          id
+        case None =>
+          DocumentDAO
+            .findBySha256(document.userId, document.sha256)
+            .map(_.id)
+            .getOrElse(throw new RuntimeException("Document not found after conflict"))
+      }
     }
   }
 

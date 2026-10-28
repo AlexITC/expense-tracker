@@ -99,24 +99,36 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
   }
 
-  "existsByUserPatternMerchant" should {
-    "return true when a matching rule exists" in withRepositories() { implicit repositories =>
+  "createSetMerchantIfAbsent" should {
+    "create a set_merchant rule when none exists" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val merchant = createMerchant(user.id).futureValue
-      createImportRule(
-        user.id,
-        pattern = "amazon",
-        action = ImportRuleActionKind.SetMerchant,
-        merchantId = Some(merchant.id)
-      ).futureValue
 
-      repositories.importRules.existsByUserPatternMerchant(user.id, "amazon", merchant.id).futureValue must be(true)
+      repositories.importRules.createSetMerchantIfAbsent(user.id, merchant.id, "amazon").futureValue
+
+      val rules = repositories.importRules.all(user.id).futureValue
+      rules.find(_.pattern == "amazon").value.action must be(ImportRuleAction.SetMerchant(merchant.id))
     }
 
-    "return false when no matching rule exists" in withRepositories() { implicit repositories =>
+    "be a no-op when a matching rule already exists" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val merchant = createMerchant(user.id).futureValue
-      repositories.importRules.existsByUserPatternMerchant(user.id, "amazon", merchant.id).futureValue must be(false)
+
+      repositories.importRules.createSetMerchantIfAbsent(user.id, merchant.id, "amazon").futureValue
+      repositories.importRules.createSetMerchantIfAbsent(user.id, merchant.id, "amazon").futureValue
+
+      repositories.importRules.all(user.id).futureValue.count(_.pattern == "amazon") must be(1)
+    }
+
+    "fail when the merchant belongs to another user" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val other = createUser().futureValue
+      val merchant = createMerchant(other.id).futureValue
+
+      val ex = intercept[RuntimeException] {
+        repositories.importRules.createSetMerchantIfAbsent(user.id, merchant.id, "amazon").futureValue
+      }
+      ex.getMessage must include("Merchant not found")
     }
   }
 

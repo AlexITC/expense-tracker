@@ -16,25 +16,19 @@ class CreateCategoryAction @Inject() (categoriesRepository: CategoriesRepository
     clock: Clock
 ) {
 
-  def apply(userId: UUID, request: CreateCategory.Request): Future[CreateCategory.Response] = {
+  def apply(userId: UUID, request: CreateCategory.Request): Future[CreateCategory.Response] =
     for {
       _ <- validateFormat(request)
-      existing <- categoriesRepository.findByName(userId, request.name)
-      response <- existing match {
-        case Some(cat) => Future.successful(CreateCategory.Response(id = cat.id, name = cat.name))
-        case None =>
-          val now = clock.instant()
-          val create = request
-            .into[Category.Create]
-            .withFieldConst(_.id, UuidCreator.getTimeOrderedEpoch())
-            .withFieldConst(_.userId, userId)
-            .withFieldConst(_.createdAt, now)
-            .withFieldConst(_.updatedAt, now)
-            .transform
-          categoriesRepository.create(create).map(_ => create.transformInto[CreateCategory.Response])
-      }
-    } yield response
-  }
+      now = clock.instant()
+      create = request
+        .into[Category.Create]
+        .withFieldConst(_.id, UuidCreator.getTimeOrderedEpoch())
+        .withFieldConst(_.userId, userId)
+        .withFieldConst(_.createdAt, now)
+        .withFieldConst(_.updatedAt, now)
+        .transform
+      category <- categoriesRepository.getOrCreate(create)
+    } yield category.transformInto[CreateCategory.Response]
 
   private def validateFormat(request: CreateCategory.Request): Future[Unit] = {
     if (request.name.isBlank) Future.failed(new RuntimeException("The name is required"))

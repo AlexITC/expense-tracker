@@ -144,7 +144,7 @@ trait RepositoryUtils {
     )
 
     for {
-      _ <- repository.categories.create(createRequest)
+      _ <- repository.categories.getOrCreate(createRequest)
     } yield createRequest
   }
 
@@ -403,7 +403,7 @@ trait RepositoryUtils {
       updatedAt = now
     )
     for {
-      _ <- repository.documents.create(createRequest, job)
+      _ <- repository.documents.createIfAbsent(createRequest, job)
     } yield createRequest
   }
 

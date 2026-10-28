@@ -27,6 +27,26 @@ object DocumentDAO {
         """.executeUpdate()
   }
 
+  // Inserts the document unless its (user_id, sha256) already exists, returning the new id or None when the same
+  // file is already stored. document_user_sha256_unique is the arbiter, so concurrent uploads converge on one row.
+  def createIfAbsent(request: Document.Create)(implicit conn: Connection): Option[UUID] = {
+    SQL"""
+        INSERT INTO document (id, user_id, sha256, storage_key, kind, filename, created_at, updated_at)
+        VALUES (
+          ${request.id.toString}::UUID,
+          ${request.userId.toString}::UUID,
+          ${request.sha256},
+          ${request.storageKey},
+          ${request.kind.entryName},
+          ${request.filename},
+          ${request.createdAt},
+          ${request.updatedAt}
+        )
+        ON CONFLICT (user_id, sha256) DO NOTHING
+        RETURNING id
+        """.as(anorm.SqlParser.scalar[UUID].singleOpt)
+  }
+
   def all(userId: UUID)(implicit conn: Connection): List[Document] = {
     SQL"""
         SELECT id, user_id, sha256, storage_key, kind, filename, created_at, updated_at,

@@ -1,16 +1,18 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.core.RepositorySpec
+import net.wiringbits.repositories.models.Category
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
 import utils.RepositoryUtils
 
+import java.time.Instant
 import java.util.UUID
 
 class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
 
-  "create" should {
+  "getOrCreate" should {
     "work" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       createCategory(user.id).futureValue
@@ -23,15 +25,18 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
       ex.getCause.getMessage must include("category_user_id_fk")
     }
 
-    "fail when the same name exists for the same user (case-insensitive)" in withRepositories() {
+    "return the existing category when the same name exists for the same user (case-insensitive)" in withRepositories() {
       implicit repositories =>
         val user = createUser().futureValue
-        createCategory(user.id, name = "Groceries").futureValue
+        val first = createCategory(user.id, name = "Groceries").futureValue
 
-        val ex = intercept[RuntimeException] {
-          createCategory(user.id, name = "groceries").futureValue
-        }
-        ex.getCause.getMessage must include("A category with that name already exists")
+        val second = repositories.categories
+          .getOrCreate(Category.Create(UUID.randomUUID(), user.id, "groceries", Instant.now(), Instant.now()))
+          .futureValue
+
+        second.id must be(first.id)
+        second.name must be("Groceries")
+        repositories.categories.all(user.id).futureValue.map(_.name) must contain theSameElementsAs List("Groceries")
     }
 
     "allow the same name for different users" in withRepositories() { implicit repositories =>
@@ -73,21 +78,6 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
       val userB = createUser().futureValue
       val created = createCategory(userA.id).futureValue
       repositories.categories.find(created.id, userB.id).futureValue must be(None)
-    }
-  }
-
-  "findByName" should {
-    "find a category case-insensitively" in withRepositories() { implicit repositories =>
-      val user = createUser().futureValue
-      createCategory(user.id, name = "Groceries").futureValue
-
-      val found = repositories.categories.findByName(user.id, "GROCERIES").futureValue
-      found.value.name must be("Groceries")
-    }
-
-    "return None when no category matches" in withRepositories() { implicit repositories =>
-      val user = createUser().futureValue
-      repositories.categories.findByName(user.id, "NonExistent").futureValue must be(None)
     }
   }
 
