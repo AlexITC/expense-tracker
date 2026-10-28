@@ -1,15 +1,13 @@
 package net.wiringbits.models.jobs
 
-import enumeratum.EnumEntry.Uppercase
-import enumeratum.{Enum, EnumEntry}
+enum BackgroundJobStatus(val entryName: String) {
+  case Success extends BackgroundJobStatus("SUCCESS")
+  case Pending extends BackgroundJobStatus("PENDING")
+  case Failed extends BackgroundJobStatus("FAILED")
+  case Running extends BackgroundJobStatus("RUNNING")
+}
 
-sealed trait BackgroundJobStatus extends EnumEntry with Uppercase
-
-object BackgroundJobStatus extends Enum[BackgroundJobStatus] {
-  case object Success extends BackgroundJobStatus
-  case object Pending extends BackgroundJobStatus
-  case object Failed extends BackgroundJobStatus
-  case object Running extends BackgroundJobStatus
-
-  val values = findValues
+object BackgroundJobStatus {
+  def withNameInsensitiveOption(name: String): Option[BackgroundJobStatus] =
+    values.find(_.entryName.equalsIgnoreCase(name))
 }

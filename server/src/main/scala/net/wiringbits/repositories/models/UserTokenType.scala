@@ -1,13 +1,11 @@
 package net.wiringbits.repositories.models
 
-import enumeratum.EnumEntry.Uppercase
-import enumeratum.{Enum, EnumEntry}
+enum UserTokenType(val entryName: String) {
+  case EmailVerification extends UserTokenType("EMAILVERIFICATION")
+  case ResetPassword extends UserTokenType("RESETPASSWORD")
+}
 
-sealed trait UserTokenType extends EnumEntry with Uppercase
-
-object UserTokenType extends Enum[UserTokenType] {
-  case object EmailVerification extends UserTokenType
-  case object ResetPassword extends UserTokenType
-
-  val values = findValues
+object UserTokenType {
+  def withNameInsensitiveOption(name: String): Option[UserTokenType] =
+    values.find(_.entryName.equalsIgnoreCase(name))
 }
