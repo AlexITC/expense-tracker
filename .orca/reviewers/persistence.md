@@ -1,5 +1,5 @@
 ---
-description: Repository/DAO patterns — per-user queries scoped to the user, reusable queries in DAOs, transactions for multi-call operations
+description: Repository/DAO patterns — per-user queries scoped to the user, reusable queries in DAOs, transactions for multi-call operations, conflict handling via DB constraints
 files: server/src/main/scala/net/wiringbits/repositories
 ---
 
@@ -13,6 +13,19 @@ Review changes in the repositories/DAO package. Flag:
 - `withConnection` used where several DB calls run together (writing multiple
   records, or read-then-update). Multiple calls that must succeed or fail as a
   unit belong in one `withTransaction`.
+- A repository write that can violate a unique/exclusion constraint but does not
+  translate that violation — leaving it to surface as a generic 500. The
+  guarantee comes from the constraint, not an upstream check-then-write (which
+  races), so the repository should let the write hit the constraint and
+  `recover`/catch the `PSQLException`, **matched by the specific constraint or
+  index name** — `ex.getMessage.contains("<name>_unique")` /
+  `getServerErrorMessage.getConstraint`, as `CreateMerchantAction` and
+  `UpdateMerchantAction` already do — returning the domain error the caller
+  expects. Catching a `PSQLException`/`SQLException` **in the repository layer
+  for this purpose is expected and not a finding**; a backing DB constraint must
+  exist for the catch to guard anything.
 
 Not: single-call reads/writes under `withConnection`; queries over global /
-non-user-owned tables.
+non-user-owned tables; matching a violation by bare SQLState (e.g. `23505`)
+where a constraint name is available; catching broad `Throwable`/`Exception`, or
+swallowing a violation without surfacing an error.
