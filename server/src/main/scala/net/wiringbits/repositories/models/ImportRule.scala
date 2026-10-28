@@ -10,9 +10,7 @@ case class ImportRule(
     userId: UUID,
     action: ImportRuleAction,
     pattern: String,
-    merchantId: Option[UUID],
     merchantName: Option[String],
-    categoryId: Option[UUID],
     categoryName: Option[String],
     autoCreated: Boolean,
     createdAt: Instant,
@@ -25,8 +23,6 @@ object ImportRule {
       userId: UUID,
       action: ImportRuleAction,
       pattern: String,
-      merchantId: Option[UUID],
-      categoryId: Option[UUID],
       autoCreated: Boolean,
       createdAt: Instant,
       updatedAt: Instant

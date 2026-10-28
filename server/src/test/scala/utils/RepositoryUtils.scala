@@ -1,6 +1,6 @@
 package utils
 
-import net.wiringbits.api.models.merchants.ImportRuleAction
+import net.wiringbits.api.models.merchants.{ImportRuleAction, ImportRuleActionKind}
 import net.wiringbits.common.models.{Email, Name}
 import net.wiringbits.core.RepositoryComponents
 import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
@@ -272,11 +272,18 @@ trait RepositoryUtils {
   def createImportRule(
       userId: UUID,
       pattern: String = "test-pattern",
-      action: ImportRuleAction = ImportRuleAction.Ignore,
+      action: ImportRuleActionKind = ImportRuleActionKind.Ignore,
       merchantId: Option[UUID] = None,
       categoryId: Option[UUID] = None
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[UUID] = {
-    repository.importRules.create(userId, action, pattern, merchantId, categoryId)
+    val fullAction = action match {
+      case ImportRuleActionKind.SetMerchant =>
+        ImportRuleAction.SetMerchant(merchantId.getOrElse(throw new IllegalArgumentException("merchantId required")))
+      case ImportRuleActionKind.SetCategory =>
+        ImportRuleAction.SetCategory(categoryId.getOrElse(throw new IllegalArgumentException("categoryId required")))
+      case ImportRuleActionKind.Ignore => ImportRuleAction.Ignore
+    }
+    repository.importRules.create(userId, fullAction, pattern)
   }
 
   /** Insert a bank statement (+ optional rows) directly via the DAOs. Lives here, not on the repository, because only

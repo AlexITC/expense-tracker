@@ -77,7 +77,7 @@ class ConfirmReceiptAction @Inject() (
             case true => Future.unit
             case false =>
               ruleRepository
-                .create(userId, ImportRuleAction.SetMerchant, parsedName, Some(mId), autoCreated = true)
+                .create(userId, ImportRuleAction.SetMerchant(mId), parsedName, autoCreated = true)
                 .map(_ => ())
           }
         case _ => Future.unit

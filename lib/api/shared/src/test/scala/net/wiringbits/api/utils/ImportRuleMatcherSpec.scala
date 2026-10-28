@@ -9,11 +9,11 @@ import java.util.UUID
 class ImportRuleMatcherSpec extends AnyWordSpec with Matchers {
 
   private def setMerchantRule(id: UUID, pattern: String, merchantId: UUID) =
-    ImportRuleMatcher.Rule(id, ImportRuleAction.SetMerchant, pattern, Some(merchantId))
+    ImportRuleMatcher.Rule(id, ImportRuleAction.SetMerchant(merchantId), pattern)
   private def ignoreRule(id: UUID, pattern: String) =
-    ImportRuleMatcher.Rule(id, ImportRuleAction.Ignore, pattern, None)
+    ImportRuleMatcher.Rule(id, ImportRuleAction.Ignore, pattern)
   private def setCategoryRule(id: UUID, pattern: String, categoryId: UUID) =
-    ImportRuleMatcher.Rule(id, ImportRuleAction.SetCategory, pattern, None, Some(categoryId))
+    ImportRuleMatcher.Rule(id, ImportRuleAction.SetCategory(categoryId), pattern)
   private val mid = UUID.randomUUID()
 
   "ImportRuleMatcher.normalize" should {
@@ -132,21 +132,21 @@ class ImportRuleMatcherSpec extends AnyWordSpec with Matchers {
     "match a merchant name with no explicit rules" in {
       val oxxo = merchant("Oxxo")
       val rules = ImportRuleMatcher.effectiveRules(Nil, List(oxxo))
-      RowRuleVerdict.verdict(rules, "OXXO STORE 123") must be(RowRuleVerdict.SetMerchant(Some(oxxo._1)))
+      RowRuleVerdict.verdict(rules, "OXXO STORE 123") must be(RowRuleVerdict.SetMerchant(oxxo._1))
     }
 
     "prefer the longer merchant name over a shorter merchant name" in {
       val cafe = merchant("Cafe")
       val dindurra = merchant("Cafe Dindurra")
       val rules = ImportRuleMatcher.effectiveRules(Nil, List(cafe, dindurra))
-      RowRuleVerdict.verdict(rules, "CAFE DINDURRA MADRID") must be(RowRuleVerdict.SetMerchant(Some(dindurra._1)))
+      RowRuleVerdict.verdict(rules, "CAFE DINDURRA MADRID") must be(RowRuleVerdict.SetMerchant(dindurra._1))
     }
 
     "prefer the longer merchant name over a shorter explicit alias" in {
       val dindurra = merchant("Cafe Dindurra")
       val alias = setMerchantRule(UUID.randomUUID(), "CAFE", UUID.randomUUID())
       val rules = ImportRuleMatcher.effectiveRules(List(alias), List(dindurra))
-      RowRuleVerdict.verdict(rules, "CAFE DINDURRA MADRID") must be(RowRuleVerdict.SetMerchant(Some(dindurra._1)))
+      RowRuleVerdict.verdict(rules, "CAFE DINDURRA MADRID") must be(RowRuleVerdict.SetMerchant(dindurra._1))
     }
 
     "let an explicit ignore rule win over a matching merchant name" in {
@@ -164,11 +164,11 @@ class ImportRuleMatcherSpec extends AnyWordSpec with Matchers {
     "follow a merchant rename without any rule row" in {
       val id = UUID.randomUUID()
       val before = ImportRuleMatcher.effectiveRules(Nil, List(id -> "Old Bakery"))
-      RowRuleVerdict.verdict(before, "OLD BAKERY 42") must be(RowRuleVerdict.SetMerchant(Some(id)))
+      RowRuleVerdict.verdict(before, "OLD BAKERY 42") must be(RowRuleVerdict.SetMerchant(id))
 
       val after = ImportRuleMatcher.effectiveRules(Nil, List(id -> "Sunrise Bakery"))
       RowRuleVerdict.verdict(after, "OLD BAKERY 42") must be(RowRuleVerdict.NoRule)
-      RowRuleVerdict.verdict(after, "SUNRISE BAKERY 42") must be(RowRuleVerdict.SetMerchant(Some(id)))
+      RowRuleVerdict.verdict(after, "SUNRISE BAKERY 42") must be(RowRuleVerdict.SetMerchant(id))
     }
 
     "let an explicit set_merchant rule with the same normalized pattern decide" in {
@@ -177,7 +177,7 @@ class ImportRuleMatcherSpec extends AnyWordSpec with Matchers {
       // Smallest possible UUID: the explicit rule would lose a tiebreak, so only the de-duplication explains the result.
       val toOther = setMerchantRule(UUID.fromString("00000000-0000-4000-8000-000000000001"), "OXXO", other)
       val redirected = ImportRuleMatcher.effectiveRules(List(toOther), List(oxxo))
-      RowRuleVerdict.verdict(redirected, "OXXO STORE 123") must be(RowRuleVerdict.SetMerchant(Some(other)))
+      RowRuleVerdict.verdict(redirected, "OXXO STORE 123") must be(RowRuleVerdict.SetMerchant(other))
     }
 
     "skip the virtual rule when an explicit set_merchant rule has the same normalized pattern" in {
@@ -189,7 +189,9 @@ class ImportRuleMatcherSpec extends AnyWordSpec with Matchers {
     "resolve a receipt vendor to a merchant by name" in {
       val mercadona = merchant("Mercadona")
       val rules = ImportRuleMatcher.effectiveRules(Nil, List(merchant("Lidl"), mercadona))
-      ImportRuleMatcher.findReceiptWinner(rules, "MERCADONA, S.A.").flatMap(_.merchantId) must be(Some(mercadona._1))
+      ImportRuleMatcher.findReceiptWinner(rules, "MERCADONA, S.A.").flatMap(_.action.merchantIdOpt) must be(
+        Some(mercadona._1)
+      )
     }
   }
 }

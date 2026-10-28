@@ -1,6 +1,6 @@
 package net.wiringbits.actions.telegram
 
-import net.wiringbits.api.models.merchants.ImportRuleAction
+import net.wiringbits.api.models.merchants.{ImportRuleAction, ImportRuleActionKind}
 import net.wiringbits.config.MerchantsConfig
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import net.wiringbits.services.TelegramMessageParser.ParsedMessage
@@ -83,7 +83,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
       createImportRule(
         user.id,
         pattern = "amzn",
-        action = ImportRuleAction.SetMerchant,
+        action = ImportRuleActionKind.SetMerchant,
         merchantId = Some(merchant.id)
       ).futureValue
 
@@ -146,7 +146,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
     "return Left when an Ignore import rule matches, even when a category is provided" in withRepositories() {
       implicit repositories =>
         val user = createUser().futureValue
-        createImportRule(user.id, pattern = "amzn", action = ImportRuleAction.Ignore).futureValue
+        createImportRule(user.id, pattern = "amzn", action = ImportRuleActionKind.Ignore).futureValue
 
         val msg = ParsedMessage(BigDecimal("10.00"), "AMZN.COM", Some("Shopping"), None)
         val result = newAction().apply(user.id, msg).futureValue

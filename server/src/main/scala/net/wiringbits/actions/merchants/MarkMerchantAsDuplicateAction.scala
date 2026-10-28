@@ -32,9 +32,8 @@ class MarkMerchantAsDuplicateAction @Inject() (
           ruleRepository
             .create(
               userId,
-              ImportRuleAction.SetMerchant,
+              ImportRuleAction.SetMerchant(request.realMerchantId),
               pending.name,
-              Some(request.realMerchantId),
               autoCreated = true
             )
             .map(_ => ())

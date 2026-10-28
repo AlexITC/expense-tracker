@@ -27,9 +27,8 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
 
   private val matchingRule = ImportRuleMatcher.Rule(
     id = UUID.randomUUID(),
-    action = ImportRuleAction.SetMerchant,
-    pattern = "Amazon",
-    merchantId = Some(merchantId)
+    action = ImportRuleAction.SetMerchant(merchantId),
+    pattern = "Amazon"
   )
 
   private def makeRow(
@@ -81,7 +80,7 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       result must have size 1
       val (_, req) = result.head
       req.amount must be(row.amount.abs)
-      req.merchantId must be(matchingRule.merchantId)
+      req.merchantId must be(matchingRule.action.merchantIdOpt)
       req.splits must be(List(CreateExpenseFromRow.Split(categoryId, row.amount.abs)))
       req.notes must be(Some(row.description))
     }
@@ -226,8 +225,7 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       val ignoreRule = ImportRuleMatcher.Rule(
         id = UUID.randomUUID(),
         action = ImportRuleAction.Ignore,
-        pattern = "Amazon",
-        merchantId = None
+        pattern = "Amazon"
       )
       val row = makeRow()
       val expense = makeExpense()

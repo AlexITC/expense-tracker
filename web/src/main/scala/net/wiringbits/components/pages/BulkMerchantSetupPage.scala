@@ -320,9 +320,8 @@ object DescriptionRow {
 
           ruleResp <- props.ctx.api.client.createImportRule(
             CreateImportRule.Request(
-              action = ImportRuleAction.SetMerchant,
-              pattern = props.description,
-              merchantId = Some(resolvedMerchantId)
+              action = ImportRuleAction.SetMerchant(resolvedMerchantId),
+              pattern = props.description
             )
           )
 
@@ -331,9 +330,8 @@ object DescriptionRow {
               props.ctx.api.client
                 .createImportRule(
                   CreateImportRule.Request(
-                    action = ImportRuleAction.SetMerchant,
-                    pattern = merchantName,
-                    merchantId = Some(resolvedMerchantId)
+                    action = ImportRuleAction.SetMerchant(resolvedMerchantId),
+                    pattern = merchantName
                   )
                 )
                 .recover { case _ => ruleResp }
@@ -341,9 +339,8 @@ object DescriptionRow {
         } yield {
           val rule = ImportRuleMatcher.Rule(
             id = ruleResp.id,
-            action = ImportRuleAction.SetMerchant,
-            pattern = props.description,
-            merchantId = Some(resolvedMerchantId)
+            action = ImportRuleAction.SetMerchant(resolvedMerchantId),
+            pattern = props.description
           )
           props.onDone(rule, newMerchantOpt, newCategoryOpt)
         }
@@ -362,8 +359,7 @@ object DescriptionRow {
         .createImportRule(
           CreateImportRule.Request(
             action = ImportRuleAction.Ignore,
-            pattern = props.description,
-            merchantId = None
+            pattern = props.description
           )
         )
         .onComplete {
@@ -371,8 +367,7 @@ object DescriptionRow {
             val rule = ImportRuleMatcher.Rule(
               id = resp.id,
               action = ImportRuleAction.Ignore,
-              pattern = props.description,
-              merchantId = None
+              pattern = props.description
             )
             setSaving(false)
             props.onDone(rule, None, None)

@@ -2,7 +2,7 @@ package net.wiringbits.utils
 
 import net.wiringbits.api.models.bankstatements.{CreateExpenseFromRow, GetBankStatement}
 import net.wiringbits.api.models.expenses.GetExpenses
-import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction}
+import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleActionKind}
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 
 import java.util.UUID
@@ -54,7 +54,7 @@ object ReconciliationMatcher {
       .filter(row => row.expenseId.isEmpty && row.ignoredAt.isEmpty)
       .map { row =>
         val action = ImportRuleMatcher.findRowWinner(effective, row.description) match {
-          case Some(rule) if rule.action == ImportRuleAction.SetMerchant =>
+          case Some(rule) if rule.action.kind == ImportRuleActionKind.SetMerchant =>
             // rule.pattern is used as the merchant name proxy: merchantId is not available
             // here without a merchant lookup, so the pattern (which identifies the merchant)
             // is the best signal we have.

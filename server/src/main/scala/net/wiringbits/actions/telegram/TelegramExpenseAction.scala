@@ -47,13 +47,16 @@ class TelegramExpenseAction @Inject() (
                   merchants.map(m => m.id -> m.name)
                 )
                 ImportRuleMatcher.findRowWinner(matchRules, normalizedName) match {
-                  case Some(w) if w.action == ImportRuleAction.Ignore =>
-                    Future.successful(Left(s"Transaction skipped: matches an ignore rule for '$safeName'"))
-                  case Some(w) if w.action == ImportRuleAction.SetMerchant =>
-                    w.merchantId.fold(Future.successful(Right(Option.empty[Merchant])))(id =>
-                      merchantsRepository.find(id, userId).map(Right(_))
-                    )
-                  case _ => Future.successful(Right(Option.empty[Merchant]))
+                  case Some(w) =>
+                    w.action match {
+                      case ImportRuleAction.Ignore =>
+                        Future.successful(Left(s"Transaction skipped: matches an ignore rule for '$safeName'"))
+                      case ImportRuleAction.SetMerchant(id) =>
+                        merchantsRepository.find(id, userId).map(Right(_))
+                      case ImportRuleAction.SetCategory(_) =>
+                        Future.successful(Right(Option.empty[Merchant]))
+                    }
+                  case None => Future.successful(Right(Option.empty[Merchant]))
                 }
               }
           }

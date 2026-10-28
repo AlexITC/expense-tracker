@@ -372,7 +372,7 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
       when(merchantRepo.createPendingIfAbsent(any(), anyString())).thenReturn(Future.successful(merchantId))
       when(receiptRepo.setMerchantId(any(), any())).thenReturn(Future.unit)
       when(ruleRepo.existsByUserPatternMerchant(any(), anyString(), any(), any())).thenReturn(Future.successful(false))
-      when(ruleRepo.create(any(), any(), anyString(), any(), any(), any()))
+      when(ruleRepo.create(any(), any(), anyString(), any()))
         .thenReturn(Future.successful(UUID.randomUUID()))
       when(receiptRepo.updateStatus(any(), any(), any())).thenReturn(Future.unit)
       when(telegramReceiptRepo.findByReceiptId(receiptId)).thenReturn(Future.successful(Some(tr)))

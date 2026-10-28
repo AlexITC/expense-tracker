@@ -806,7 +806,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
         client.confirmReceipt(receiptId, req).futureValue
 
         val rules = client.getImportRules.futureValue.data
-        val rule = rules.find(r => r.pattern == "AMZN" && r.merchantId.contains(merchantId))
+        val rule = rules.find(r => r.pattern == "AMZN" && r.action.merchantIdOpt.contains(merchantId))
         rule must not be empty
         rule.get.autoCreated must be(true)
     }

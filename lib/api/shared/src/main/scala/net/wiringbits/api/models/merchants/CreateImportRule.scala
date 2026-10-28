@@ -9,9 +9,7 @@ import java.util.UUID
 object CreateImportRule {
   case class Request(
       action: ImportRuleAction,
-      pattern: String,
-      merchantId: Option[UUID],
-      categoryId: Option[UUID] = None
+      pattern: String
   )
   case class Response(id: UUID)
 

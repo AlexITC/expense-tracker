@@ -22,22 +22,16 @@ class CreateImportRuleAction @Inject() (
     else
       request.action match {
         case ImportRuleAction.Ignore =>
-          if (request.merchantId.isDefined)
-            Future.failed(new RuntimeException("Ignore rules must not have a merchant"))
-          else
-            for {
-              duplicate <- ruleRepository.existsByUserPatternIgnore(userId, request.pattern)
-              _ <-
-                if (duplicate)
-                  Future.failed(new RuntimeException("An ignore rule with that pattern already exists"))
-                else Future.unit
-              id <- ruleRepository.create(userId, ImportRuleAction.Ignore, request.pattern, None)
-            } yield CreateImportRule.Response(id)
+          for {
+            duplicate <- ruleRepository.existsByUserPatternIgnore(userId, request.pattern)
+            _ <-
+              if (duplicate)
+                Future.failed(new RuntimeException("An ignore rule with that pattern already exists"))
+              else Future.unit
+            id <- ruleRepository.create(userId, ImportRuleAction.Ignore, request.pattern)
+          } yield CreateImportRule.Response(id)
 
-        case ImportRuleAction.SetMerchant =>
-          val merchantId = request.merchantId.getOrElse(
-            throw new RuntimeException("set_merchant rules require a merchant")
-          )
+        case action @ ImportRuleAction.SetMerchant(merchantId) =>
           for {
             merchantOpt <- merchantsRepository.find(merchantId, userId)
             _ = if (merchantOpt.isEmpty) throw new RuntimeException("Merchant not found")
@@ -46,32 +40,19 @@ class CreateImportRuleAction @Inject() (
               if (duplicate)
                 Future.failed(new RuntimeException("A rule with that pattern and merchant already exists"))
               else Future.unit
-            id <- ruleRepository.create(userId, ImportRuleAction.SetMerchant, request.pattern, Some(merchantId))
+            id <- ruleRepository.create(userId, action, request.pattern)
           } yield CreateImportRule.Response(id)
 
-        case ImportRuleAction.SetCategory =>
-          if (request.merchantId.isDefined)
-            Future.failed(new RuntimeException("set_category rules must not have a merchant"))
-          else {
-            val categoryId = request.categoryId.getOrElse(
-              throw new RuntimeException("set_category rules require a category")
-            )
-            for {
-              categoryOpt <- categoriesRepository.find(categoryId, userId)
-              _ = if (categoryOpt.isEmpty) throw new RuntimeException("Category not found")
-              duplicate <- ruleRepository.existsByUserPatternCategory(userId, request.pattern, categoryId)
-              _ <-
-                if (duplicate)
-                  Future.failed(new RuntimeException("A rule with that pattern and category already exists"))
-                else Future.unit
-              id <- ruleRepository.create(
-                userId,
-                ImportRuleAction.SetCategory,
-                request.pattern,
-                None,
-                categoryId = Some(categoryId)
-              )
-            } yield CreateImportRule.Response(id)
-          }
+        case action @ ImportRuleAction.SetCategory(categoryId) =>
+          for {
+            categoryOpt <- categoriesRepository.find(categoryId, userId)
+            _ = if (categoryOpt.isEmpty) throw new RuntimeException("Category not found")
+            duplicate <- ruleRepository.existsByUserPatternCategory(userId, request.pattern, categoryId)
+            _ <-
+              if (duplicate)
+                Future.failed(new RuntimeException("A rule with that pattern and category already exists"))
+              else Future.unit
+            id <- ruleRepository.create(userId, action, request.pattern)
+          } yield CreateImportRule.Response(id)
       }
 }
