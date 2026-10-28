@@ -14,10 +14,19 @@ import scala.concurrent.Future
 
 class DocumentsRepository @Inject() (database: Database)(implicit ec: DatabaseExecutionContext, clock: Clock) {
 
-  def create(document: Document.Create, job: BackgroundJobData.Create): Future[Unit] = Future {
+  /** Stores the document and its processing job, or returns the existing document's id when (user, sha256) is taken. */
+  def create(document: Document.Create, job: BackgroundJobData.Create): Future[UUID] = Future {
     database.withTransaction { implicit conn =>
-      DocumentDAO.create(document)
-      BackgroundJobDAO.create(job)
+      DocumentDAO.createIfAbsent(document) match {
+        case Some(id) =>
+          BackgroundJobDAO.create(job)
+          id
+        case None =>
+          DocumentDAO
+            .findBySha256(document.userId, document.sha256)
+            .map(_.id)
+            .getOrElse(throw new RuntimeException("Document not found"))
+      }
     }
   }
 

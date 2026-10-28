@@ -28,6 +28,7 @@ class UploadDocumentAction @Inject() (
       .getOrElse(throw new RuntimeException(s"Unsupported document kind: $kindStr"))
     val sha256 = computeSha256(bytes)
     for {
+      // Advisory fast path to skip the S3 round-trip; not the dedup guarantee
       existingOpt <- documentsRepository.findBySha256(userId, sha256)
       response <- existingOpt match {
         case Some(existing) =>
@@ -68,8 +69,8 @@ class UploadDocumentAction @Inject() (
                 logger.info(s"Putting S3 object at $storageKey (${bytes.length} bytes)")
                 blobStorage.put(storageKey, bytes)
               }
-            _ <- documentsRepository.create(document, job)
-          } yield UploadDocument.Response(documentId)
+            storedId <- documentsRepository.create(document, job)
+          } yield UploadDocument.Response(storedId)
       }
     } yield response
   }
