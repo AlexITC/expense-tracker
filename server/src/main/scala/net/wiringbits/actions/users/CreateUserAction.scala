@@ -9,7 +9,7 @@ import net.wiringbits.repositories.UsersRepository
 import net.wiringbits.repositories.models.User
 import net.wiringbits.services.PasswordHasher
 import net.wiringbits.util.{EmailsHelper, TokenGenerator, TokensHelper}
-import net.wiringbits.validations.{ValidateCaptcha, ValidateEmailIsAvailable}
+import net.wiringbits.validations.ValidateCaptcha
 
 import java.time.Instant
 import java.util.UUID
@@ -63,7 +63,6 @@ class CreateUserAction @Inject() (
   private def validations(request: CreateUser.Request) = {
     for {
       _ <- ValidateCaptcha(reCaptchaApi, request.captcha)
-      _ <- ValidateEmailIsAvailable(usersRepository, request.email)
     } yield ()
   }
 }

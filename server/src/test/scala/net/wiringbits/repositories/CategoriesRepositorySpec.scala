@@ -31,7 +31,7 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
         val ex = intercept[RuntimeException] {
           createCategory(user.id, name = "groceries").futureValue
         }
-        ex.getCause.getMessage must include("category_user_id_name_unique")
+        ex.getCause.getMessage must include("A category with that name already exists")
     }
 
     "allow the same name for different users" in withRepositories() { implicit repositories =>
@@ -109,7 +109,7 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
         val ex = intercept[RuntimeException] {
           repositories.categories.update(other.id, user.id, "food").futureValue
         }
-        ex.getCause.getMessage must include("category_user_id_name_unique")
+        ex.getCause.getMessage must include("A category with that name already exists")
     }
 
     "fail when the category does not belong to the user" in withRepositories() { implicit repositories =>

@@ -15,11 +15,14 @@ class CategoriesRepository @Inject() (database: Database)(implicit
     clock: Clock
 ) {
 
-  def create(request: Category.Create): Future[Unit] = Future {
-    database.withTransaction { implicit conn =>
-      CategoryDAO.create(request)
+  def create(request: Category.Create): Future[Unit] =
+    Future {
+      ConstraintViolations.translating("category_user_id_name_unique" -> "A category with that name already exists") {
+        database.withTransaction { implicit conn =>
+          CategoryDAO.create(request)
+        }
+      }
     }
-  }
 
   def all(userId: UUID): Future[List[Category]] = Future {
     database.withConnection { implicit conn =>
@@ -39,11 +42,14 @@ class CategoriesRepository @Inject() (database: Database)(implicit
     }
   }
 
-  def update(id: UUID, userId: UUID, name: String): Future[Unit] = Future {
-    database.withTransaction { implicit conn =>
-      CategoryDAO.update(id, userId, name, clock.instant())
+  def update(id: UUID, userId: UUID, name: String): Future[Unit] =
+    Future {
+      ConstraintViolations.translating("category_user_id_name_unique" -> "A category with that name already exists") {
+        database.withTransaction { implicit conn =>
+          CategoryDAO.update(id, userId, name, clock.instant())
+        }
+      }
     }
-  }
 
   def delete(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>

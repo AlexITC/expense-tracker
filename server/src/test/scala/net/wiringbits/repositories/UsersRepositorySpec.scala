@@ -42,10 +42,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val ex = intercept[RuntimeException] {
         repositories.users.create(request.copy(id = UUID.randomUUID())).futureValue
       }
-      // TODO: This should be a better message
-      ex.getCause.getMessage must startWith(
-        """ERROR: duplicate key value violates unique constraint "users_email_unique""""
-      )
+      ex.getCause.getMessage must include("The email is not available")
     }
   }
 

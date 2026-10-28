@@ -4,10 +4,8 @@ import com.github.f4b6a3.uuid.UuidCreator
 import io.scalaland.chimney.dsl.*
 import net.wiringbits.api.models.merchants.CreateMerchant
 import net.wiringbits.config.MerchantsConfig
-import net.wiringbits.repositories.{CategoriesRepository, MerchantsRepository}
+import net.wiringbits.repositories.MerchantsRepository
 import net.wiringbits.repositories.models.Merchant
-import net.wiringbits.validations.ValidateMerchantNameIsAvailable
-import org.postgresql.util.PSQLException
 
 import java.time.Clock
 import java.util.UUID
@@ -16,7 +14,6 @@ import scala.concurrent.{ExecutionContext, Future}
 
 class CreateMerchantAction @Inject() (
     merchantsRepository: MerchantsRepository,
-    categoriesRepository: CategoriesRepository,
     merchantsConfig: MerchantsConfig
 )(implicit ec: ExecutionContext, clock: Clock) {
 
@@ -32,10 +29,7 @@ class CreateMerchantAction @Inject() (
         .withFieldConst(_.createdAt, now)
         .withFieldConst(_.updatedAt, now)
         .transform
-      _ <- merchantsRepository.create(create).recoverWith {
-        case ex: PSQLException if ex.getMessage.contains("merchant_tax_id_user_idx") =>
-          Future.failed(new RuntimeException("A merchant with that tax ID already exists"))
-      }
+      _ <- merchantsRepository.create(create)
     } yield create.transformInto[CreateMerchant.Response]
   }
 
@@ -49,21 +43,10 @@ class CreateMerchantAction @Inject() (
     else if (request.taxId.exists(_.length > 50))
       Future.failed(new RuntimeException("Tax ID must be 50 characters or less"))
     else
-      for {
-        count <- merchantsRepository.count(userId)
-        _ <-
-          if (count >= merchantsConfig.maxPerUser)
-            Future.failed(new RuntimeException(s"Maximum number of merchants (${merchantsConfig.maxPerUser}) reached"))
-          else Future.unit
-        _ <- ValidateMerchantNameIsAvailable(merchantsRepository, userId, request.name)
-        _ <- request.categoryId match {
-          case None => Future.unit
-          case Some(catId) =>
-            categoriesRepository.find(catId, userId).flatMap {
-              case None => Future.failed(new RuntimeException("Category not found"))
-              case Some(_) => Future.unit
-            }
-        }
-      } yield ()
+      merchantsRepository.count(userId).flatMap { count =>
+        if (count >= merchantsConfig.maxPerUser)
+          Future.failed(new RuntimeException(s"Maximum number of merchants (${merchantsConfig.maxPerUser}) reached"))
+        else Future.unit
+      }
   }
 }
