@@ -31,7 +31,7 @@ class SavingsRepositorySpec extends RepositorySpec with RepositoryUtils {
       val ex = intercept[RuntimeException] {
         createSavingsGoal(user.id, name = "vacation").futureValue
       }
-      ex.getCause.getMessage must include("savings_goal_user_id_name_unique")
+      ex.getCause.getMessage must include("A savings goal with that name already exists")
     }
   }
 

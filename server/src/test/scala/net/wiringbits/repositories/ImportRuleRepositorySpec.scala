@@ -99,29 +99,6 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
   }
 
-  "existsByUserPatternIgnore" should {
-    "return true when an ignore rule with the same pattern exists" in withRepositories() { implicit repositories =>
-      val user = createUser().futureValue
-      createImportRule(user.id, pattern = "groceries", action = ImportRuleActionKind.Ignore).futureValue
-
-      repositories.importRules.existsByUserPatternIgnore(user.id, "groceries").futureValue must be(true)
-    }
-
-    "return false when no matching ignore rule exists" in withRepositories() { implicit repositories =>
-      val user = createUser().futureValue
-      repositories.importRules.existsByUserPatternIgnore(user.id, "groceries").futureValue must be(false)
-    }
-
-    "return false when excluded by id" in withRepositories() { implicit repositories =>
-      val user = createUser().futureValue
-      val id = createImportRule(user.id, pattern = "groceries", action = ImportRuleActionKind.Ignore).futureValue
-
-      repositories.importRules
-        .existsByUserPatternIgnore(user.id, "groceries", excludeId = Some(id))
-        .futureValue must be(false)
-    }
-  }
-
   "existsByUserPatternMerchant" should {
     "return true when a matching rule exists" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
@@ -140,53 +117,6 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
       val user = createUser().futureValue
       val merchant = createMerchant(user.id).futureValue
       repositories.importRules.existsByUserPatternMerchant(user.id, "amazon", merchant.id).futureValue must be(false)
-    }
-  }
-
-  "existsByUserPatternCategory" should {
-    "return true when a matching set_category rule exists, ignoring case" in withRepositories() {
-      implicit repositories =>
-        val user = createUser().futureValue
-        val category = createCategory(user.id).futureValue
-        createImportRule(
-          user.id,
-          pattern = "cafeteria",
-          action = ImportRuleActionKind.SetCategory,
-          categoryId = Some(category.id)
-        ).futureValue
-
-        repositories.importRules.existsByUserPatternCategory(user.id, "CAFETERIA", category.id).futureValue must be(
-          true
-        )
-    }
-
-    "return false for a different category" in withRepositories() { implicit repositories =>
-      val user = createUser().futureValue
-      val category = createCategory(user.id, name = "Restaurants").futureValue
-      val other = createCategory(user.id, name = "Coffee").futureValue
-      createImportRule(
-        user.id,
-        pattern = "cafeteria",
-        action = ImportRuleActionKind.SetCategory,
-        categoryId = Some(category.id)
-      ).futureValue
-
-      repositories.importRules.existsByUserPatternCategory(user.id, "cafeteria", other.id).futureValue must be(false)
-    }
-
-    "return false when excluded by id" in withRepositories() { implicit repositories =>
-      val user = createUser().futureValue
-      val category = createCategory(user.id).futureValue
-      val id = createImportRule(
-        user.id,
-        pattern = "cafeteria",
-        action = ImportRuleActionKind.SetCategory,
-        categoryId = Some(category.id)
-      ).futureValue
-
-      repositories.importRules
-        .existsByUserPatternCategory(user.id, "cafeteria", category.id, excludeId = Some(id))
-        .futureValue must be(false)
     }
   }
 

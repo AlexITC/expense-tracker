@@ -12,11 +12,16 @@ import scala.concurrent.Future
 
 class SavingsRepository @Inject() (database: Database)(implicit ec: DatabaseExecutionContext, clock: Clock) {
 
-  def createGoal(goal: SavingsGoal.Create): Future[Unit] = Future {
-    database.withTransaction { implicit conn =>
-      SavingsGoalDAO.create(goal)
+  def createGoal(goal: SavingsGoal.Create): Future[Unit] =
+    Future {
+      ConstraintViolations.translating(
+        "savings_goal_user_id_name_unique" -> "A savings goal with that name already exists"
+      ) {
+        database.withTransaction { implicit conn =>
+          SavingsGoalDAO.create(goal)
+        }
+      }
     }
-  }
 
   def allGoals(userId: UUID): Future[List[(SavingsGoal, BigDecimal)]] = Future {
     database.withConnection { implicit conn =>
@@ -36,11 +41,16 @@ class SavingsRepository @Inject() (database: Database)(implicit ec: DatabaseExec
     }
   }
 
-  def updateGoal(id: UUID, userId: UUID, name: String, targetAmount: Option[BigDecimal]): Future[Unit] = Future {
-    database.withTransaction { implicit conn =>
-      SavingsGoalDAO.update(id, userId, name, targetAmount, clock.instant())
+  def updateGoal(id: UUID, userId: UUID, name: String, targetAmount: Option[BigDecimal]): Future[Unit] =
+    Future {
+      ConstraintViolations.translating(
+        "savings_goal_user_id_name_unique" -> "A savings goal with that name already exists"
+      ) {
+        database.withTransaction { implicit conn =>
+          SavingsGoalDAO.update(id, userId, name, targetAmount, clock.instant())
+        }
+      }
     }
-  }
 
   def deleteGoal(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>

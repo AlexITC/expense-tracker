@@ -78,28 +78,6 @@ object ImportRuleDAO {
         AND r.user_id = ${userId.toString}::UUID
       """.as(ruleParser.singleOpt)
 
-  def existsByUserPatternIgnore(userId: UUID, pattern: String, excludeId: Option[UUID] = None)(implicit
-      conn: Connection
-  ): Boolean = {
-    excludeId match {
-      case None =>
-        SQL"""
-          SELECT COUNT(*) FROM merchant_rule
-          WHERE user_id = ${userId.toString}::UUID
-            AND pattern = $pattern::CITEXT
-            AND action = 'ignore'
-          """.as(scalar[Long].single) > 0
-      case Some(excl) =>
-        SQL"""
-          SELECT COUNT(*) FROM merchant_rule
-          WHERE user_id = ${userId.toString}::UUID
-            AND pattern = $pattern::CITEXT
-            AND action = 'ignore'
-            AND id != ${excl.toString}::UUID
-          """.as(scalar[Long].single) > 0
-    }
-  }
-
   def existsByUserPatternMerchant(userId: UUID, pattern: String, merchantId: UUID, excludeId: Option[UUID] = None)(
       implicit conn: Connection
   ): Boolean = {
@@ -119,30 +97,6 @@ object ImportRuleDAO {
             AND pattern = $pattern::CITEXT
             AND merchant_id = ${merchantId.toString}::UUID
             AND action = 'set_merchant'
-            AND id != ${excl.toString}::UUID
-          """.as(scalar[Long].single) > 0
-    }
-  }
-
-  def existsByUserPatternCategory(userId: UUID, pattern: String, categoryId: UUID, excludeId: Option[UUID] = None)(
-      implicit conn: Connection
-  ): Boolean = {
-    excludeId match {
-      case None =>
-        SQL"""
-          SELECT COUNT(*) FROM merchant_rule
-          WHERE user_id = ${userId.toString}::UUID
-            AND pattern = $pattern::CITEXT
-            AND category_id = ${categoryId.toString}::UUID
-            AND action = 'set_category'
-          """.as(scalar[Long].single) > 0
-      case Some(excl) =>
-        SQL"""
-          SELECT COUNT(*) FROM merchant_rule
-          WHERE user_id = ${userId.toString}::UUID
-            AND pattern = $pattern::CITEXT
-            AND category_id = ${categoryId.toString}::UUID
-            AND action = 'set_category'
             AND id != ${excl.toString}::UUID
           """.as(scalar[Long].single) > 0
     }

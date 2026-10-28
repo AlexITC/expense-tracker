@@ -2,7 +2,7 @@ package net.wiringbits.repositories
 
 import com.github.f4b6a3.uuid.UuidCreator
 import net.wiringbits.executors.DatabaseExecutionContext
-import net.wiringbits.repositories.daos.{ExpenseDAO, MerchantDAO, RefundDAO}
+import net.wiringbits.repositories.daos.{CategoryDAO, ExpenseDAO, MerchantDAO, RefundDAO}
 import net.wiringbits.repositories.models.Merchant
 import play.api.db.Database
 
@@ -23,8 +23,15 @@ class MerchantsRepository @Inject() (database: Database)(implicit
   }
 
   def create(request: Merchant.Create): Future[Unit] = Future {
-    database.withTransaction { implicit conn =>
-      MerchantDAO.create(request)
+    ConstraintViolations.translating(
+      "merchant_user_id_name_unique" -> "A merchant with that name already exists",
+      "merchant_tax_id_user_idx" -> "A merchant with that tax ID already exists"
+    ) {
+      database.withTransaction { implicit conn =>
+        if (request.categoryId.exists(cid => CategoryDAO.find(cid, request.userId).isEmpty))
+          throw new RuntimeException("Category not found")
+        MerchantDAO.create(request)
+      }
     }
   }
 
@@ -90,12 +97,19 @@ class MerchantsRepository @Inject() (database: Database)(implicit
       notes: Option[String],
       categoryId: Option[UUID],
       taxId: Option[String]
-  ): Future[Unit] =
-    Future {
+  ): Future[Unit] = Future {
+    ConstraintViolations.translating(
+      "merchant_user_id_name_unique" -> "A merchant with that name already exists",
+      "merchant_tax_id_user_idx" -> "A merchant with that tax ID already exists"
+    ) {
       database.withTransaction { implicit conn =>
+        if (MerchantDAO.find(id, userId).isEmpty) throw new RuntimeException("Merchant not found")
+        if (categoryId.exists(cid => CategoryDAO.find(cid, userId).isEmpty))
+          throw new RuntimeException("Category not found")
         MerchantDAO.update(id, userId, name, notes, categoryId, taxId, clock.instant())
       }
     }
+  }
 
   def markReviewed(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>

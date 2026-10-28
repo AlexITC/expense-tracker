@@ -3,10 +3,11 @@ package net.wiringbits.repositories
 import com.github.f4b6a3.uuid.UuidCreator
 import net.wiringbits.api.models.merchants.ImportRuleAction
 import net.wiringbits.executors.DatabaseExecutionContext
-import net.wiringbits.repositories.daos.ImportRuleDAO
+import net.wiringbits.repositories.daos.{CategoryDAO, ImportRuleDAO, MerchantDAO}
 import net.wiringbits.repositories.models.ImportRule
 import play.api.db.Database
 
+import java.sql.Connection
 import java.time.Clock
 import java.util.UUID
 import javax.inject.Inject
@@ -17,25 +18,34 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
     clock: Clock
 ) {
 
+  private val conflictMappings: Seq[(String, String)] = Seq(
+    "merchant_rule_ignore_unique" -> "An ignore rule with that pattern already exists",
+    "merchant_rule_set_merchant_unique" -> "A rule with that pattern and merchant already exists",
+    "merchant_rule_set_category_unique" -> "A rule with that pattern and category already exists"
+  )
+
   def create(
       userId: UUID,
       action: ImportRuleAction,
       pattern: String,
       autoCreated: Boolean = false
   ): Future[UUID] = Future {
-    database.withTransaction { implicit conn =>
-      val now = clock.instant()
-      val rule = ImportRule.Create(
-        id = UuidCreator.getTimeOrderedEpoch(),
-        userId = userId,
-        action = action,
-        pattern = pattern,
-        autoCreated = autoCreated,
-        createdAt = now,
-        updatedAt = now
-      )
-      ImportRuleDAO.create(rule)
-      rule.id
+    ConstraintViolations.translating(conflictMappings*) {
+      database.withTransaction { implicit conn =>
+        verifyReferencesOwned(action, userId)
+        val now = clock.instant()
+        val rule = ImportRule.Create(
+          id = UuidCreator.getTimeOrderedEpoch(),
+          userId = userId,
+          action = action,
+          pattern = pattern,
+          autoCreated = autoCreated,
+          createdAt = now,
+          updatedAt = now
+        )
+        ImportRuleDAO.create(rule)
+        rule.id
+      }
     }
   }
 
@@ -51,13 +61,8 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
     }
   }
 
-  def existsByUserPatternIgnore(userId: UUID, pattern: String, excludeId: Option[UUID] = None): Future[Boolean] =
-    Future {
-      database.withConnection { implicit conn =>
-        ImportRuleDAO.existsByUserPatternIgnore(userId, pattern, excludeId)
-      }
-    }
-
+  // Used by the auto-rule-creation sites (receipt confirm/parse, mark-duplicate) to skip creating a set_merchant
+  // rule that already exists — a get-or-create, not a reject. Left in place deliberately.
   def existsByUserPatternMerchant(
       userId: UUID,
       pattern: String,
@@ -69,27 +74,32 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
     }
   }
 
-  def existsByUserPatternCategory(
-      userId: UUID,
-      pattern: String,
-      categoryId: UUID,
-      excludeId: Option[UUID] = None
-  ): Future[Boolean] = Future {
-    database.withConnection { implicit conn =>
-      ImportRuleDAO.existsByUserPatternCategory(userId, pattern, categoryId, excludeId)
-    }
-  }
-
   def update(
       id: UUID,
       userId: UUID,
       action: ImportRuleAction,
       pattern: String
-  ): Future[Unit] = Future {
-    database.withTransaction { implicit conn =>
-      ImportRuleDAO.update(id, userId, action, pattern, clock.instant())
+  ): Future[Unit] =
+    Future {
+      ConstraintViolations.translating(conflictMappings*) {
+        database.withTransaction { implicit conn =>
+          if (ImportRuleDAO.find(id, userId).isEmpty) throw new RuntimeException("Import rule not found")
+          verifyReferencesOwned(action, userId)
+          ImportRuleDAO.update(id, userId, action, pattern, clock.instant())
+        }
+      }
     }
-  }
+
+  // Tenant/ownership integrity for the rule's referenced entity, enforced within the write transaction so a
+  // cross-tenant reference can never be persisted (see architecture / persistence reviewers).
+  private def verifyReferencesOwned(action: ImportRuleAction, userId: UUID)(implicit conn: Connection): Unit =
+    action match {
+      case ImportRuleAction.SetMerchant(merchantId) =>
+        if (MerchantDAO.find(merchantId, userId).isEmpty) throw new RuntimeException("Merchant not found")
+      case ImportRuleAction.SetCategory(categoryId) =>
+        if (CategoryDAO.find(categoryId, userId).isEmpty) throw new RuntimeException("Category not found")
+      case ImportRuleAction.Ignore => ()
+    }
 
   def delete(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>

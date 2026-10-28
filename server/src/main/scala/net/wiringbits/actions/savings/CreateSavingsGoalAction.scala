@@ -4,7 +4,6 @@ import com.github.f4b6a3.uuid.UuidCreator
 import net.wiringbits.api.models.savings.CreateSavingsGoal
 import net.wiringbits.repositories.SavingsRepository
 import net.wiringbits.repositories.models.SavingsGoal
-import net.wiringbits.validations.ValidateSavingsGoalNameIsAvailable
 
 import java.time.Clock
 import java.util.UUID
@@ -31,6 +30,6 @@ class CreateSavingsGoalAction @Inject() (savingsRepository: SavingsRepository)(i
     else if (request.name.length > 100) Future.failed(new RuntimeException("Name must be 100 characters or less"))
     else if (request.targetAmount.exists(_ <= 0))
       Future.failed(new RuntimeException("Target amount must be greater than zero"))
-    else ValidateSavingsGoalNameIsAvailable(savingsRepository, userId, request.name)
+    else Future.unit
   }
 }

@@ -36,7 +36,7 @@ class MerchantsRepositorySpec extends RepositorySpec with RepositoryUtils {
         val ex = intercept[RuntimeException] {
           createMerchant(user.id, name = "amazon").futureValue
         }
-        ex.getCause.getMessage must include("merchant_user_id_name_unique")
+        ex.getCause.getMessage must include("A merchant with that name already exists")
     }
 
     "allow the same name for different users" in withRepositories() { implicit repositories =>
@@ -131,7 +131,7 @@ class MerchantsRepositorySpec extends RepositorySpec with RepositoryUtils {
         val ex = intercept[RuntimeException] {
           repositories.merchants.update(other.id, user.id, "walmart", None, None, None).futureValue
         }
-        ex.getCause.getMessage must include("merchant_user_id_name_unique")
+        ex.getCause.getMessage must include("A merchant with that name already exists")
     }
 
     "fail when the merchant does not belong to the user" in withRepositories() { implicit repositories =>

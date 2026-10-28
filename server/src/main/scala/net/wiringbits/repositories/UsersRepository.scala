@@ -25,25 +25,27 @@ class UsersRepository @Inject() (
 ) {
 
   def create(request: User.CreateUser): Future[Unit] = Future {
-    val createToken = UserToken.Create(
-      id = UUID.randomUUID(),
-      token = request.verifyEmailToken,
-      tokenType = UserTokenType.EmailVerification,
-      createdAt = clock.instant(),
-      expiresAt = clock.instant().plus(userTokensConfig.emailVerificationExp.toHours, ChronoUnit.HOURS),
-      userId = request.id
-    )
-
-    database.withTransaction { implicit conn =>
-      UsersDAO.create(request)
-      UserTokensDAO.create(createToken)
-      UserLogsDAO.create(
-        UserLog.CreateUserLog(
-          UUID.randomUUID(),
-          request.id,
-          s"Account created, name = ${request.name}, email = ${request.email}"
-        )
+    ConstraintViolations.translating("users_email_unique" -> "The email is not available") {
+      val createToken = UserToken.Create(
+        id = UUID.randomUUID(),
+        token = request.verifyEmailToken,
+        tokenType = UserTokenType.EmailVerification,
+        createdAt = clock.instant(),
+        expiresAt = clock.instant().plus(userTokensConfig.emailVerificationExp.toHours, ChronoUnit.HOURS),
+        userId = request.id
       )
+
+      database.withTransaction { implicit conn =>
+        UsersDAO.create(request)
+        UserTokensDAO.create(createToken)
+        UserLogsDAO.create(
+          UserLog.CreateUserLog(
+            UUID.randomUUID(),
+            request.id,
+            s"Account created, name = ${request.name}, email = ${request.email}"
+          )
+        )
+      }
     }
   }
 

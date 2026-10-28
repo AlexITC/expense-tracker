@@ -2,7 +2,6 @@ package net.wiringbits.actions.merchants
 
 import net.wiringbits.api.models.merchants.ReviewMerchant
 import net.wiringbits.repositories.{CategoriesRepository, MerchantsRepository}
-import net.wiringbits.validations.ValidateMerchantNameIsAvailable
 
 import java.util.UUID
 import javax.inject.Inject
@@ -22,8 +21,6 @@ class ReviewMerchantAction @Inject() (
         case Some(name) if name.isBlank => Future.failed(new RuntimeException("Name cannot be blank"))
         case Some(name) if name.length > 100 =>
           Future.failed(new RuntimeException("Name must be 100 characters or less"))
-        case Some(name) if !name.equalsIgnoreCase(merchant.name) =>
-          ValidateMerchantNameIsAvailable(merchantsRepository, userId, name)
         case _ => Future.unit
       }
       _ <- request.categoryId match {
