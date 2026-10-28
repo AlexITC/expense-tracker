@@ -1,8 +1,9 @@
 package net.wiringbits.repositories.models
 
+/** `entryName` is the value stored in the `user_tokens.token_type` column. */
 enum UserTokenType(val entryName: String) {
-  case EmailVerification extends UserTokenType("EMAILVERIFICATION")
-  case ResetPassword extends UserTokenType("RESETPASSWORD")
+  case EmailVerification extends UserTokenType("EmailVerification")
+  case ResetPassword extends UserTokenType("ResetPassword")
 }
 
 object UserTokenType {

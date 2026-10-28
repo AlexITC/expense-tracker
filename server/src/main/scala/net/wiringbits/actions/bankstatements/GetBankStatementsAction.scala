@@ -1,6 +1,5 @@
 package net.wiringbits.actions.bankstatements
 
-import net.wiringbits.api.models.documents.{DocumentStatus => ApiStatus}
 import net.wiringbits.api.models.bankstatements.GetBankStatements
 import net.wiringbits.repositories.BankStatementRepository
 
@@ -18,7 +17,7 @@ class GetBankStatementsAction @Inject() (bankStatementRepository: BankStatementR
         GetBankStatements.Response.BankStatement(
           id = s.id,
           documentFilename = s.documentFilename,
-          documentStatus = ApiStatus.fromEntryName(s.documentStatus.entryName),
+          documentStatus = s.documentStatus.toApi,
           bankName = s.bankName,
           productType = s.productType,
           currency = s.currency,

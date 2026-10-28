@@ -25,7 +25,7 @@ object ReceiptDAO {
         ${receipt.userId.toString}::UUID,
         ${receipt.documentId.toString}::UUID,
         ${receipt.manuallyEdited},
-        ${receipt.status.toString},
+        ${receipt.status.entryName},
         ${receipt.createdAt},
         ${receipt.updatedAt}
       )
@@ -93,7 +93,7 @@ object ReceiptDAO {
   ): Unit = {
     val updated = SQL"""
       UPDATE receipt
-      SET status = ${status.toString},
+      SET status = ${status.entryName},
           updated_at = $updatedAt
       WHERE id = ${id.toString}::UUID
         AND user_id = ${userId.toString}::UUID

@@ -187,7 +187,7 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
         SQL"""
           SELECT COUNT(*)
           FROM background_jobs
-          WHERE UPPER(type) = ${BackgroundJobType.ProcessDocument.entryName}
+          WHERE type = ${BackgroundJobType.ProcessDocument.entryName}
             AND payload ->> 'documentId' = ${documentId.toString}
           """.as(SqlParser.scalar[Long].single)
       }
@@ -337,7 +337,7 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
         SQL"""
           SELECT COUNT(*)
           FROM background_jobs
-          WHERE UPPER(type) = ${BackgroundJobType.ResolveStatementSuggestions.entryName}
+          WHERE type = ${BackgroundJobType.ResolveStatementSuggestions.entryName}
             AND payload ->> 'bankStatementId' = ${stmtId.toString}
           """.as(SqlParser.scalar[Long].single)
       }

@@ -1,6 +1,5 @@
 package net.wiringbits.actions.receipts
 
-import net.wiringbits.api.models.documents.{DocumentStatus => ApiStatus}
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.repositories.ReceiptRepository
 
@@ -16,7 +15,7 @@ class GetReceiptsAction @Inject() (receiptRepository: ReceiptRepository)(implici
         GetReceipts.Response.Receipt(
           id = r.id,
           documentFilename = r.documentFilename,
-          documentStatus = ApiStatus.fromEntryName(r.status.entryName),
+          documentStatus = r.status.toApi,
           amount = r.amount,
           date = r.date,
           merchantName = r.merchantName,

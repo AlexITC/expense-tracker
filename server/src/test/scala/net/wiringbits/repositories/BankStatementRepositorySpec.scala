@@ -330,7 +330,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         SQL"""
           SELECT payload::TEXT AS payload
           FROM background_jobs
-          WHERE UPPER(type) = ${BackgroundJobType.ResolveStatementSuggestions.entryName}
+          WHERE type = ${BackgroundJobType.ResolveStatementSuggestions.entryName}
             AND payload->>'bankStatementId' = ${bankStatementId.toString}
           ORDER BY created_at
           """.as(SqlParser.str("payload").*)

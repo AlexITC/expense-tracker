@@ -123,7 +123,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
     db.withConnection { implicit conn =>
       anorm
         .SQL("SELECT COUNT(*) FROM background_jobs WHERE type = {type} AND payload ->> 'documentId' = {documentId}")
-        .on("type" -> BackgroundJobType.ProcessDocument.toString, "documentId" -> documentId.toString)
+        .on("type" -> BackgroundJobType.ProcessDocument.entryName, "documentId" -> documentId.toString)
         .as(anorm.SqlParser.scalar[Int].single)
     }
 
