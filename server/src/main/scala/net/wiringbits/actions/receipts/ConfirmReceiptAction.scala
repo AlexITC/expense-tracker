@@ -2,7 +2,6 @@ package net.wiringbits.actions.receipts
 
 import com.github.f4b6a3.uuid.UuidCreator
 import net.wiringbits.actions.expenses.ExpenseValidator
-import net.wiringbits.api.models.merchants.ImportRuleAction
 import net.wiringbits.api.models.receipts.ConfirmReceipt
 import net.wiringbits.models.documents.DocumentStatus
 import net.wiringbits.repositories.{ExpensesRepository, ImportRuleRepository, ReceiptRepository}
@@ -73,13 +72,7 @@ class ConfirmReceiptAction @Inject() (
       createdExpenseId <- receiptRepository.confirm(receiptId, userId, expense, splits, request.rowId)
       _ <- (request.parsedMerchantName, request.merchantId) match {
         case (Some(parsedName), Some(mId)) =>
-          ruleRepository.existsByUserPatternMerchant(userId, parsedName, mId).flatMap {
-            case true => Future.unit
-            case false =>
-              ruleRepository
-                .create(userId, ImportRuleAction.SetMerchant(mId), parsedName, autoCreated = true)
-                .map(_ => ())
-          }
+          ruleRepository.createSetMerchantIfAbsent(userId, mId, parsedName)
         case _ => Future.unit
       }
     } yield ConfirmReceipt.Response(Some(createdExpenseId))

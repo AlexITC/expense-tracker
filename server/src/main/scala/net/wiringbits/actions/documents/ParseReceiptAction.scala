@@ -2,7 +2,6 @@ package net.wiringbits.actions.documents
 
 import io.scalaland.chimney.dsl.*
 import net.wiringbits.apis.{TelegramApi, TextractApiType}
-import net.wiringbits.api.models.merchants.ImportRuleAction
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.config.WebAppConfig
 import net.wiringbits.models.documents.DocumentStatus
@@ -101,18 +100,7 @@ class ParseReceiptAction @Inject() (
                             merchantsRepository.createPendingIfAbsent(doc.userId, name).flatMap { merchantId =>
                               for {
                                 _ <- receiptRepository.setMerchantId(receipt.id, merchantId)
-                                exists <- ruleRepository.existsByUserPatternMerchant(doc.userId, name, merchantId)
-                                _ <-
-                                  if (exists) Future.unit
-                                  else
-                                    ruleRepository
-                                      .create(
-                                        doc.userId,
-                                        ImportRuleAction.SetMerchant(merchantId),
-                                        name,
-                                        autoCreated = true
-                                      )
-                                      .map(_ => ())
+                                _ <- ruleRepository.createSetMerchantIfAbsent(doc.userId, merchantId, name)
                               } yield ()
                             }
                         }

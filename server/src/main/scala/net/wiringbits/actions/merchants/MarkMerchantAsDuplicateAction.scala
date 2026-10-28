@@ -1,6 +1,6 @@
 package net.wiringbits.actions.merchants
 
-import net.wiringbits.api.models.merchants.{ImportRuleAction, MarkMerchantAsDuplicate}
+import net.wiringbits.api.models.merchants.MarkMerchantAsDuplicate
 import net.wiringbits.repositories.{ImportRuleRepository, MerchantsRepository}
 
 import java.util.UUID
@@ -25,18 +25,7 @@ class MarkMerchantAsDuplicateAction @Inject() (
         throw new RuntimeException("Cannot mark a merchant as a duplicate of itself")
       realOpt <- merchantsRepository.find(request.realMerchantId, userId)
       _ = if (realOpt.isEmpty) throw new RuntimeException("Real merchant not found")
-      exists <- ruleRepository.existsByUserPatternMerchant(userId, pending.name, request.realMerchantId)
-      _ <-
-        if (exists) Future.unit
-        else
-          ruleRepository
-            .create(
-              userId,
-              ImportRuleAction.SetMerchant(request.realMerchantId),
-              pending.name,
-              autoCreated = true
-            )
-            .map(_ => ())
+      _ <- ruleRepository.createSetMerchantIfAbsent(userId, request.realMerchantId, pending.name)
       _ <- merchantsRepository.rePointAndDelete(pendingId, request.realMerchantId, userId)
     } yield MarkMerchantAsDuplicate.Response()
 }

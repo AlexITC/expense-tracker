@@ -54,6 +54,24 @@ object ImportRuleDAO {
       """.executeUpdate()
   }
 
+  def createSetMerchantIfAbsent(rule: ImportRule.Create)(implicit conn: Connection): Unit = {
+    val _ = SQL"""
+      INSERT INTO merchant_rule (id, user_id, action, pattern, merchant_id, category_id, auto_created, created_at, updated_at)
+      VALUES (
+        ${rule.id.toString}::UUID,
+        ${rule.userId.toString}::UUID,
+        ${rule.action.entryName},
+        ${rule.pattern},
+        ${rule.action.merchantIdOpt.map(_.toString)}::UUID,
+        ${rule.action.categoryIdOpt.map(_.toString)}::UUID,
+        ${rule.autoCreated},
+        ${rule.createdAt},
+        ${rule.updatedAt}
+      )
+      ON CONFLICT (user_id, pattern, merchant_id) WHERE action = 'set_merchant' DO NOTHING
+      """.executeUpdate()
+  }
+
   def all(userId: UUID)(implicit conn: Connection): List[ImportRule] =
     SQL"""
       SELECT r.id, r.user_id, r.action, r.pattern, r.merchant_id,
@@ -77,30 +95,6 @@ object ImportRuleDAO {
       WHERE r.id = ${id.toString}::UUID
         AND r.user_id = ${userId.toString}::UUID
       """.as(ruleParser.singleOpt)
-
-  def existsByUserPatternMerchant(userId: UUID, pattern: String, merchantId: UUID, excludeId: Option[UUID] = None)(
-      implicit conn: Connection
-  ): Boolean = {
-    excludeId match {
-      case None =>
-        SQL"""
-          SELECT COUNT(*) FROM merchant_rule
-          WHERE user_id = ${userId.toString}::UUID
-            AND pattern = $pattern::CITEXT
-            AND merchant_id = ${merchantId.toString}::UUID
-            AND action = 'set_merchant'
-          """.as(scalar[Long].single) > 0
-      case Some(excl) =>
-        SQL"""
-          SELECT COUNT(*) FROM merchant_rule
-          WHERE user_id = ${userId.toString}::UUID
-            AND pattern = $pattern::CITEXT
-            AND merchant_id = ${merchantId.toString}::UUID
-            AND action = 'set_merchant'
-            AND id != ${excl.toString}::UUID
-          """.as(scalar[Long].single) > 0
-    }
-  }
 
   def update(
       id: UUID,
