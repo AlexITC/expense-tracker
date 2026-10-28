@@ -100,6 +100,7 @@ class CategoriesControllerSpec extends PlayPostgresSpec with LoginUtils with Moc
 
       val second = client.createCategory(CreateCategory.Request("groceries")).futureValue
       second.id must be(first.id)
+      second.name must be("Groceries")
     }
 
     "allow the same name for two different users" in withApiClient { implicit client =>

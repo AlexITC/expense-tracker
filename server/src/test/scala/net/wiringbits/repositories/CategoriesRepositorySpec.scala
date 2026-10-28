@@ -7,6 +7,7 @@ import org.scalatest.matchers.must.Matchers.*
 import utils.RepositoryUtils
 
 import java.util.UUID
+import scala.concurrent.Future
 
 class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
 
@@ -76,18 +77,52 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
   }
 
-  "findByName" should {
-    "find a category case-insensitively" in withRepositories() { implicit repositories =>
+  "getOrCreate" should {
+    "create the category when absent" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
-      createCategory(user.id, name = "Groceries").futureValue
+      val category = repositories.categories.getOrCreate(user.id, "Groceries").futureValue
 
-      val found = repositories.categories.findByName(user.id, "GROCERIES").futureValue
-      found.value.name must be("Groceries")
+      category.name must be("Groceries")
+      repositories.categories.all(user.id).futureValue.map(_.id) must be(List(category.id))
     }
 
-    "return None when no category matches" in withRepositories() { implicit repositories =>
+    "return the existing id and stored name for a case-variant name" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
-      repositories.categories.findByName(user.id, "NonExistent").futureValue must be(None)
+      val existing = createCategory(user.id, name = "Groceries").futureValue
+
+      val category = repositories.categories.getOrCreate(user.id, "GROCERIES").futureValue
+      category.id must be(existing.id)
+      category.name must be("Groceries")
+      repositories.categories.all(user.id).futureValue.size must be(1)
+    }
+
+    "return the same id on sequential calls" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val first = repositories.categories.getOrCreate(user.id, "Groceries").futureValue
+      val second = repositories.categories.getOrCreate(user.id, "Groceries").futureValue
+
+      second.id must be(first.id)
+      repositories.categories.all(user.id).futureValue.size must be(1)
+    }
+
+    "converge on one row under concurrent calls" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val results =
+        Future.sequence((1 to 8).map(_ => repositories.categories.getOrCreate(user.id, "Groceries"))).futureValue
+
+      results.map(_.id).distinct.size must be(1)
+      repositories.categories.all(user.id).futureValue.size must be(1)
+    }
+
+    "create separate rows for different users" in withRepositories() { implicit repositories =>
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
+      val a = repositories.categories.getOrCreate(userA.id, "Groceries").futureValue
+      val b = repositories.categories.getOrCreate(userB.id, "Groceries").futureValue
+
+      a.id must not be b.id
+      repositories.categories.all(userA.id).futureValue.map(_.id) must be(List(a.id))
+      repositories.categories.all(userB.id).futureValue.map(_.id) must be(List(b.id))
     }
   }
 

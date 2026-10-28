@@ -4,7 +4,7 @@ import com.github.f4b6a3.uuid.UuidCreator
 import net.wiringbits.actions.telegram.UpsertTelegramWebAppExpenseAction.Error
 import net.wiringbits.apis.TelegramApi
 import net.wiringbits.config.WebAppConfig
-import net.wiringbits.repositories.models.{Category, Expense, ExpenseCategorySplit}
+import net.wiringbits.repositories.models.{Expense, ExpenseCategorySplit}
 import net.wiringbits.repositories.{
   CategoriesRepository,
   ExpensesRepository,
@@ -88,16 +88,7 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
   private def resolveCategory(userId: UUID, category: Option[String]): Future[Option[UUID]] =
     category match {
       case None => Future.successful(None)
-      case Some(name) => findOrCreateCategory(userId, name).map(Some(_))
-    }
-
-  private def findOrCreateCategory(userId: UUID, name: String): Future[UUID] =
-    categoriesRepository.findByName(userId, name).flatMap {
-      case Some(cat) => Future.successful(cat.id)
-      case None =>
-        val now = clock.instant()
-        val catId = UuidCreator.getTimeOrderedEpoch()
-        categoriesRepository.create(Category.Create(catId, userId, name, now, now)).map(_ => catId)
+      case Some(name) => categoriesRepository.getOrCreate(userId, name).map(c => Some(c.id))
     }
 
   private def createExpense(

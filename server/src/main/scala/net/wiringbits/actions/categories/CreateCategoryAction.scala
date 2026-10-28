@@ -1,39 +1,21 @@
 package net.wiringbits.actions.categories
 
-import com.github.f4b6a3.uuid.UuidCreator
-import io.scalaland.chimney.dsl.*
 import net.wiringbits.api.models.categories.CreateCategory
 import net.wiringbits.repositories.CategoriesRepository
-import net.wiringbits.repositories.models.Category
 
-import java.time.Clock
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 
 class CreateCategoryAction @Inject() (categoriesRepository: CategoriesRepository)(implicit
-    ec: ExecutionContext,
-    clock: Clock
+    ec: ExecutionContext
 ) {
 
   def apply(userId: UUID, request: CreateCategory.Request): Future[CreateCategory.Response] = {
     for {
       _ <- validateFormat(request)
-      existing <- categoriesRepository.findByName(userId, request.name)
-      response <- existing match {
-        case Some(cat) => Future.successful(CreateCategory.Response(id = cat.id, name = cat.name))
-        case None =>
-          val now = clock.instant()
-          val create = request
-            .into[Category.Create]
-            .withFieldConst(_.id, UuidCreator.getTimeOrderedEpoch())
-            .withFieldConst(_.userId, userId)
-            .withFieldConst(_.createdAt, now)
-            .withFieldConst(_.updatedAt, now)
-            .transform
-          categoriesRepository.create(create).map(_ => create.transformInto[CreateCategory.Response])
-      }
-    } yield response
+      category <- categoriesRepository.getOrCreate(userId, request.name)
+    } yield CreateCategory.Response(id = category.id, name = category.name)
   }
 
   private def validateFormat(request: CreateCategory.Request): Future[Unit] = {
