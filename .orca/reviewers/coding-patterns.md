@@ -49,6 +49,21 @@ guard where only one variant is genuinely of interest and a new variant should
 not change it (e.g. `if (rule.action == Ignore) skip`); this targets
 dispatch/selection, not every equality check.
 
+## Correctness invariants live at the database, not in a check-then-write
+A uniqueness, exclusion, or referential invariant must be guaranteed by a DB
+constraint — not by an application read-then-write that checks the value looks
+free and then inserts. That check-then-write races under concurrency: two
+requests both pass the check and both write, so it only narrows the window, it
+never closes it. Flag such a pre-check — both when it is relied on as the
+guarantee, and when it merely sits on top of a constraint, where it is redundant
+dead weight that duplicates (and will drift from) the real error. Both the
+guarantee and the user-facing error come from catching the constraint's
+violation **at the repository boundary** (see persistence) and returning the
+domain error — not caught in an action/controller, where the `PSQLException` has
+leaked up a layer. Not: validating a value's shape or content (length, format,
+range) that no constraint expresses; logic with a single writer / no concurrent
+writes.
+
 ## Log user-scoped operations with the user id
 Flag a `logger.*` statement describing an operation on a specific user's data
 that omits the user id when a `userId` is in scope (or trivially derivable, e.g.
