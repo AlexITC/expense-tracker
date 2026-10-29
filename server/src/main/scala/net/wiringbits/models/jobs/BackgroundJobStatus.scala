@@ -1,11 +1,13 @@
 package net.wiringbits.models.jobs
 
-/** `entryName` is the value stored in the `background_jobs.status` column. */
-enum BackgroundJobStatus(val entryName: String) {
-  case Success extends BackgroundJobStatus("Success")
-  case Pending extends BackgroundJobStatus("Pending")
-  case Failed extends BackgroundJobStatus("Failed")
-  case Running extends BackgroundJobStatus("Running")
+import net.wiringbits.models.DbEnum
+
+/** `entryName` (the case name) is the value stored in the `background_jobs.status` column. */
+enum BackgroundJobStatus extends DbEnum {
+  case Success
+  case Pending
+  case Failed
+  case Running
 }
 
 object BackgroundJobStatus {

@@ -1,9 +1,11 @@
 package net.wiringbits.repositories.models
 
-/** `entryName` is the value stored in the `user_tokens.token_type` column. */
-enum UserTokenType(val entryName: String) {
-  case EmailVerification extends UserTokenType("EmailVerification")
-  case ResetPassword extends UserTokenType("ResetPassword")
+import net.wiringbits.models.DbEnum
+
+/** `entryName` (the case name) is the value stored in the `user_tokens.token_type` column. */
+enum UserTokenType extends DbEnum {
+  case EmailVerification
+  case ResetPassword
 }
 
 object UserTokenType {
