@@ -1,9 +1,8 @@
 package net.wiringbits.models.documents
 
-import net.wiringbits.api.models.documents.DocumentStatus as ApiDocumentStatus
-
-/** `entryName` is the value stored in status columns (e.g. `receipt.status`). It differs from the API representation
-  * ([[ApiDocumentStatus]]), which the UI consumes — [[toApi]] maps between the two.
+/** `entryName` is the value stored in status columns (e.g. `receipt.status`). The API representation
+  * ([[net.wiringbits.api.models.documents.DocumentStatus]]) is a separate type the UI consumes; Chimney maps between
+  * the two by case name.
   */
 enum DocumentStatus(val entryName: String) {
   case Ingested extends DocumentStatus("Ingested")
@@ -12,15 +11,6 @@ enum DocumentStatus(val entryName: String) {
   case Parsed extends DocumentStatus("Parsed")
   case ParseFailed extends DocumentStatus("ParseFailed")
   case Unsupported extends DocumentStatus("Unsupported")
-
-  def toApi: ApiDocumentStatus = this match {
-    case Ingested => ApiDocumentStatus.Ingested
-    case Processing => ApiDocumentStatus.Processing
-    case Analyzed => ApiDocumentStatus.Analyzed
-    case Parsed => ApiDocumentStatus.Parsed
-    case ParseFailed => ApiDocumentStatus.ParseFailed
-    case Unsupported => ApiDocumentStatus.Unsupported
-  }
 }
 
 object DocumentStatus {

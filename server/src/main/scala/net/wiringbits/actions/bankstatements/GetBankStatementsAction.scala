@@ -1,6 +1,8 @@
 package net.wiringbits.actions.bankstatements
 
+import io.scalaland.chimney.dsl.*
 import net.wiringbits.api.models.bankstatements.GetBankStatements
+import net.wiringbits.api.models.documents.DocumentStatus as ApiDocumentStatus
 import net.wiringbits.repositories.BankStatementRepository
 
 import java.util.UUID
@@ -17,7 +19,7 @@ class GetBankStatementsAction @Inject() (bankStatementRepository: BankStatementR
         GetBankStatements.Response.BankStatement(
           id = s.id,
           documentFilename = s.documentFilename,
-          documentStatus = s.documentStatus.toApi,
+          documentStatus = s.documentStatus.transformInto[ApiDocumentStatus],
           bankName = s.bankName,
           productType = s.productType,
           currency = s.currency,
