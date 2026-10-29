@@ -402,52 +402,16 @@ object BankStatementReviewContent {
       ),
       // ── Bulk bar ──
       if (selectedInView.nonEmpty)
-        mui.Box.sx(new CSSPropertiesUtils {
-          margin = "12px 24px 0 24px"; padding = "8px 16px"; borderRadius = "8px"
-          display = "flex"; alignItems = "center"; gap = "12px"
-          backgroundColor = "var(--lc-brand)"
-        })(
-          mui
-            .Typography(s"${selectedInView.size} selected")
-            .sx(new CSSPropertiesUtils { fontWeight = "600"; fontSize = "14px"; color = "var(--lc-brand-on)" }),
-          mui.Box.sx(new CSSPropertiesUtils { flex = "1" })(),
-          bulkImportProgress match {
-            case Some((done, total, failed)) =>
-              mui
-                .Typography(s"Processing $done/$total${if (failed > 0) s" ($failed failed)" else ""}…")
-                .sx(new CSSPropertiesUtils { color = "var(--lc-brand-on)"; fontSize = "14px" })
-            case None =>
-              (mui.Button
-                .normal()("Process ready")
-                .size("small")
-                .variant("contained")
-                .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-paper)"; color = "var(--lc-brand)" })
-                .disabled(!bulkActive)
-                .onClick(_ => handleBulkImport(stmt.id, selectedInView.toList))
-                .build: ReactElement)
-          },
-          bulkIgnoreProgress match {
-            case Some((done, total, failed)) =>
-              mui
-                .Typography(s"Ignoring $done/$total${if (failed > 0) s" ($failed failed)" else ""}…")
-                .sx(new CSSPropertiesUtils { color = "var(--lc-brand-on)"; fontSize = "14px" })
-            case None =>
-              (mui.Button
-                .normal()("Ignore")
-                .size("small")
-                .variant("text")
-                .sx(new CSSPropertiesUtils { color = "var(--lc-brand-on)" })
-                .disabled(!bulkActive)
-                .onClick(_ => handleBulkIgnore(stmt.id, selectedInView.toList))
-                .build: ReactElement)
-          },
-          (mui.IconButton
-            .normal()(
-              mui.Typography("×").sx(new CSSPropertiesUtils { fontSize = "20px"; color = "var(--lc-brand-on)" })
-            )
-            .size("small")
-            .onClick(_ => setSelectedRowIds(Set.empty))
-            .build: ReactElement)
+        BankStatementReviewBulkBar(
+          BankStatementReviewBulkBar.Props(
+            selectedCount = selectedInView.size,
+            bulkActive = bulkActive,
+            importProgress = bulkImportProgress,
+            ignoreProgress = bulkIgnoreProgress,
+            onProcess = () => handleBulkImport(stmt.id, selectedInView.toList),
+            onIgnore = () => handleBulkIgnore(stmt.id, selectedInView.toList),
+            onClear = () => setSelectedRowIds(Set.empty)
+          )
         )
       else Fragment(),
       // ── Error ──
@@ -520,21 +484,11 @@ object BankStatementReviewContent {
             )
         ),
         if (bulkImportResults.nonEmpty || bulkIgnoreResults.nonEmpty)
-          mui.Box.sx(new CSSPropertiesUtils { marginTop = "16px" })(
-            Fragment({
-              val descById = statementRows.map(r => r.id -> r.description).toMap
-              (bulkImportResults ++ bulkIgnoreResults).map { case (rowId, outcome) =>
-                val lbl = resultLabel(rowId, descById, outcome)
-                val txtColor = outcome match {
-                  case Right(_) => "var(--lc-success-text)"
-                  case Left(_) => "var(--lc-error)"
-                }
-                (mui
-                  .Typography(lbl)
-                  .sx(new CSSPropertiesUtils { fontSize = "12px"; color = txtColor })
-                  .withKey(rowId.toString): ReactElement)
-              }
-            }*)
+          BankStatementReviewBulkResults(
+            BankStatementReviewBulkResults.Props(
+              results = bulkImportResults ++ bulkIgnoreResults,
+              descById = statementRows.map(r => r.id -> r.description).toMap
+            )
           )
         else Fragment()
       ),
