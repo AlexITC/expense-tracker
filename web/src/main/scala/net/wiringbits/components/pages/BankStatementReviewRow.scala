@@ -36,6 +36,7 @@ object BankStatementReviewRow {
       selected: Boolean,
       showCheckbox: Boolean,
       pollingSuggestions: Boolean,
+      linksToExpense: Boolean,
       onToggleSelected: (UUID, Boolean) => Unit,
       onAction: (UUID, RowAction) => Unit
   )
@@ -123,17 +124,25 @@ object BankStatementReviewRow {
         else dash
 
       // Linked rows show the linked expense's merchant (else "Linked"); other rows the merchant set on import, rule-matched
-      // or AI-suggested, with "→ Ignore" taking over when an Ignore rule applies.
+      // or AI-suggested, with "→ Ignore" taking over when an Ignore rule applies, plus "↔ Link existing" when processing
+      // would link the row to an existing expense.
       def matchCell: ReactElement =
         if (row.expenseId.isDefined || row.refundId.isDefined)
           tintChip(info.linkedMerchantName.getOrElse("Linked"), "var(--lc-brand)")
         else if (info.verdict == RowRuleVerdict.Ignore)
           tintChip("→ Ignore", "var(--lc-brand-dark)")
-        else
-          info.merchantName match {
+        else {
+          val merchant = info.merchantName match {
             case Some(name) => tintChip(name, "var(--lc-brand-dark)")
             case None => suggestingOrDash
           }
+          if (props.linksToExpense)
+            mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px"; alignItems = "center" })(
+              merchant,
+              tintChip("↔ Link existing", "var(--lc-brand)")
+            )
+          else merchant
+        }
 
       // Linked rows show the linked expense's category; other rows the category the expense will get on import, tagged
       // "AI" when it came from a suggestion rather than a rule.

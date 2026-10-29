@@ -64,7 +64,8 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
       r: GetBankStatement.StatementRowData,
       info: RowInfo,
       onAction: (UUID, RowAction) => Unit,
-      onToggleSelected: (UUID, Boolean) => Unit = (_, _) => ()
+      onToggleSelected: (UUID, Boolean) => Unit = (_, _) => (),
+      linksToExpense: Boolean = false
   ): BankStatementReviewRow.Props =
     BankStatementReviewRow.Props(
       row = r,
@@ -72,6 +73,7 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
       selected = false,
       showCheckbox = true,
       pollingSuggestions = false,
+      linksToExpense = linksToExpense,
       onToggleSelected = onToggleSelected,
       onAction = onAction
     )
@@ -203,6 +205,14 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
       val cells = container.querySelectorAll("td")
       cells(4).textContent mustBe "Multiple"
       cells(5).textContent mustBe "Linked"
+    }
+
+    "show the Link existing chip only when the row would link to an existing expense" in {
+      val r = row("SUPERMARKET")
+      renderProps(List(props(r, readyInfo, (_, _) => (), linksToExpense = true)))
+      container.textContent must include("↔ Link existing")
+      renderProps(List(props(r, readyInfo, (_, _) => (), linksToExpense = false)))
+      container.textContent must not include ("↔ Link existing")
     }
 
     "report onToggleSelected when the checkbox is clicked" in {
