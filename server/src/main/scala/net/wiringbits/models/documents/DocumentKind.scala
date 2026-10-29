@@ -1,13 +1,12 @@
 package net.wiringbits.models.documents
 
-import enumeratum.{Enum, EnumEntry}
+import net.wiringbits.models.DbEnum
 
-sealed abstract class DocumentKind(override val entryName: String) extends EnumEntry
-
-object DocumentKind extends Enum[DocumentKind] {
-  case object Receipt extends DocumentKind("receipt")
-  case object Invoice extends DocumentKind("invoice")
-  case object BankStatementPdf extends DocumentKind("bank_statement_pdf")
-
-  val values: IndexedSeq[DocumentKind] = findValues
+/** `entryName` (the case name) is the value stored in the `document.kind` column. */
+enum DocumentKind extends DbEnum {
+  case Receipt
+  case Invoice
+  case BankStatementPdf
 }
+
+object DocumentKind extends DbEnum.Companion[DocumentKind]

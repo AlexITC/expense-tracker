@@ -1,13 +1,11 @@
 package net.wiringbits.repositories.models
 
-import enumeratum.EnumEntry.Uppercase
-import enumeratum.{Enum, EnumEntry}
+import net.wiringbits.models.DbEnum
 
-sealed trait UserTokenType extends EnumEntry with Uppercase
-
-object UserTokenType extends Enum[UserTokenType] {
-  case object EmailVerification extends UserTokenType
-  case object ResetPassword extends UserTokenType
-
-  val values = findValues
+/** `entryName` (the case name) is the value stored in the `user_tokens.token_type` column. */
+enum UserTokenType extends DbEnum {
+  case EmailVerification
+  case ResetPassword
 }
+
+object UserTokenType extends DbEnum.Companion[UserTokenType]

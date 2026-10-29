@@ -1,5 +1,6 @@
 package net.wiringbits.services
 
+import net.wiringbits.models.documents.DocumentKind
 import play.api.libs.json.*
 
 import java.time.LocalDate
@@ -79,10 +80,10 @@ object DocumentParser {
   case class UnsupportedKind(kind: String) extends ParseFailure
   case class ParseError(reason: String) extends ParseFailure
 
-  def parse(response: JsValue, kind: String): Either[ParseFailure, ParsedData] =
+  def parse(response: JsValue, kind: DocumentKind): Either[ParseFailure, ParsedData] =
     kind match {
-      case "receipt" | "invoice" => Right(extractFromTextract(response))
-      case _ => Left(UnsupportedKind(kind))
+      case DocumentKind.Receipt | DocumentKind.Invoice => Right(extractFromTextract(response))
+      case _ => Left(UnsupportedKind(kind.entryName))
     }
 
   /** Rebuilds plain text from a cached AnalyzeExpense response, which has no LINE blocks: one "label: value" line per

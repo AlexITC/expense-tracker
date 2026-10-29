@@ -155,7 +155,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
           """.as((SqlParser.str("type") ~ SqlParser.str("payload")).map { case t ~ p => (t, p) }.*)
       }
 
-      jobs.map(j => BackgroundJobType.withNameInsensitive(j._1)) must be(
+      jobs.map(j => BackgroundJobType.withNameInsensitiveOption(j._1).get) must be(
         List(BackgroundJobType.ResolveStatementSuggestions)
       )
       Json.parse(jobs.head._2) must be(Json.obj("bankStatementId" -> id.toString))
@@ -330,7 +330,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         SQL"""
           SELECT payload::TEXT AS payload
           FROM background_jobs
-          WHERE UPPER(type) = ${BackgroundJobType.ResolveStatementSuggestions.entryName}
+          WHERE type = ${BackgroundJobType.ResolveStatementSuggestions.entryName}
             AND payload->>'bankStatementId' = ${bankStatementId.toString}
           ORDER BY created_at
           """.as(SqlParser.str("payload").*)

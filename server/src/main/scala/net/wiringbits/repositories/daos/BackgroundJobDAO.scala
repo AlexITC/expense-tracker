@@ -20,9 +20,9 @@ object BackgroundJobDAO {
         (background_job_id, type, payload, status, execute_at, created_at, updated_at)
       VALUES (
         ${request.id},
-        ${request.`type`.toString},
+        ${request.`type`.entryName},
         ${Json.toJson(request.payload)},
-        ${request.status.toString},
+        ${request.status.entryName},
         ${request.executeAt},
         ${request.createdAt},
         ${request.updatedAt}
@@ -47,21 +47,21 @@ object BackgroundJobDAO {
     val deadline = now.plusMillis(timeout.toMillis)
     SQL"""
       UPDATE background_jobs SET
-        status = ${BackgroundJobStatus.Running.toString}::TEXT,
+        status = ${BackgroundJobStatus.Running.entryName}::TEXT,
         deadline = $deadline::TIMESTAMPTZ,
-        error_count = error_count + (CASE WHEN status = ${BackgroundJobStatus.Running.toString}::TEXT THEN 1 ELSE 0 END),
+        error_count = error_count + (CASE WHEN status = ${BackgroundJobStatus.Running.entryName}::TEXT THEN 1 ELSE 0 END),
         updated_at = $now::TIMESTAMPTZ
       WHERE background_job_id IN (
         SELECT background_job_id
         FROM background_jobs
-        WHERE type = ${jobType.toString}::TEXT
+        WHERE type = ${jobType.entryName}::TEXT
           AND error_count < $allowedErrors
           AND (
             (
-              status IN (${BackgroundJobStatus.Pending.toString}::TEXT, ${BackgroundJobStatus.Failed.toString}::TEXT)
+              status IN (${BackgroundJobStatus.Pending.entryName}::TEXT, ${BackgroundJobStatus.Failed.entryName}::TEXT)
               AND execute_at <= $now::TIMESTAMPTZ
             )
-            OR (status = ${BackgroundJobStatus.Running.toString}::TEXT AND deadline <= $now::TIMESTAMPTZ)
+            OR (status = ${BackgroundJobStatus.Running.entryName}::TEXT AND deadline <= $now::TIMESTAMPTZ)
           )
         ORDER BY execute_at, background_job_id
         LIMIT $limit
@@ -76,7 +76,7 @@ object BackgroundJobDAO {
   ): Unit = {
     val affected = SQL"""
       UPDATE background_jobs SET
-        status = ${BackgroundJobStatus.Failed.toString}::TEXT,
+        status = ${BackgroundJobStatus.Failed.entryName}::TEXT,
         status_details = $failReason,
         error_count = error_count + 1,
         execute_at = $executeAt::TIMESTAMPTZ,
@@ -92,7 +92,7 @@ object BackgroundJobDAO {
   ): Unit = {
     val affected = SQL"""
       UPDATE background_jobs SET
-        status = ${BackgroundJobStatus.Success.toString}::TEXT,
+        status = ${BackgroundJobStatus.Success.entryName}::TEXT,
         updated_at = ${Instant.now()}
       WHERE background_job_id = ${backgroundJobId.toString}::UUID
       """

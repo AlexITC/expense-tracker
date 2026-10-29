@@ -86,7 +86,7 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
       SQL"""
         SELECT COUNT(*)
         FROM background_jobs
-        WHERE UPPER(type) = ${BackgroundJobType.ResolveStatementSuggestions.entryName}
+        WHERE type = ${BackgroundJobType.ResolveStatementSuggestions.entryName}
           AND payload ->> 'bankStatementId' = ${stmtId.toString}
         """.as(SqlParser.scalar[Long].single)
     }

@@ -1,5 +1,7 @@
 package net.wiringbits.services
 
+import net.wiringbits.models.documents.DocumentKind
+
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 import play.api.libs.json.{JsObject, Json}
@@ -20,7 +22,7 @@ class DocumentParserSpec extends AnyWordSpec {
         val textract = loadJson(s"fixtures/textract/$n.json")
         val fixture = loadJson(s"fixtures/tickets/$n.json")
 
-        val result = DocumentParser.parse(textract, "receipt")
+        val result = DocumentParser.parse(textract, DocumentKind.Receipt)
         result mustBe a[Right[?, ?]]
 
         val parsed = Json.toJson(result.toOption.get).as[JsObject]
@@ -46,7 +48,7 @@ class DocumentParserSpec extends AnyWordSpec {
       "ExpenseDocuments" -> documents.map(fields => Json.obj("SummaryFields" -> fields, "LineItemGroups" -> Json.arr()))
     )
 
-  private def parsed(response: JsObject) = DocumentParser.parse(response, "receipt").toOption.get
+  private def parsed(response: JsObject) = DocumentParser.parse(response, DocumentKind.Receipt).toOption.get
 
   "DocumentParser.parse (async multi-document handling)" should {
     "aggregate fields across all ExpenseDocuments, not just the first" in {

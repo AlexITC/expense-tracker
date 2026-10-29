@@ -63,7 +63,7 @@ class ParseReceiptAction @Inject() (
       case Some(cache) =>
         // Advisory post-OCR classification (fail-open) before parsing the cached Textract result.
         classifyAfterTextract(doc, cache.response).flatMap { _ =>
-          DocumentParser.parse(cache.response, doc.kind.entryName) match {
+          DocumentParser.parse(cache.response, doc.kind) match {
             case Right(parsed) =>
               val date =
                 parsed.transaction_date.flatMap(d => scala.util.Try(java.time.LocalDate.parse(d)).toOption)

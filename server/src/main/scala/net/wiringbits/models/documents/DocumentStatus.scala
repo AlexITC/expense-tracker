@@ -1,17 +1,18 @@
 package net.wiringbits.models.documents
 
-import enumeratum.EnumEntry.Uppercase
-import enumeratum.{Enum, EnumEntry}
+import net.wiringbits.models.DbEnum
 
-sealed trait DocumentStatus extends EnumEntry with Uppercase
-
-object DocumentStatus extends Enum[DocumentStatus] {
-  case object Ingested extends DocumentStatus
-  case object Processing extends DocumentStatus
-  case object Analyzed extends DocumentStatus
-  case object Parsed extends DocumentStatus
-  case object ParseFailed extends DocumentStatus
-  case object Unsupported extends DocumentStatus
-
-  val values = findValues
+/** `entryName` (the case name) is the value stored in status columns (e.g. `receipt.status`). The API representation
+  * ([[net.wiringbits.api.models.documents.DocumentStatus]]) is a separate type the UI consumes; Chimney maps between
+  * the two by case name.
+  */
+enum DocumentStatus extends DbEnum {
+  case Ingested
+  case Processing
+  case Analyzed
+  case Parsed
+  case ParseFailed
+  case Unsupported
 }
+
+object DocumentStatus extends DbEnum.Companion[DocumentStatus]

@@ -1,6 +1,7 @@
 package net.wiringbits.actions.receipts
 
-import net.wiringbits.api.models.documents.{DocumentStatus => ApiStatus}
+import io.scalaland.chimney.dsl.*
+import net.wiringbits.api.models.documents.DocumentStatus as ApiDocumentStatus
 import net.wiringbits.api.models.receipts.GetReceipt
 import net.wiringbits.repositories.ReceiptRepository
 
@@ -17,7 +18,7 @@ class GetReceiptAction @Inject() (receiptRepository: ReceiptRepository)(implicit
         id = r.id,
         documentId = r.documentId,
         documentFilename = r.documentFilename,
-        documentStatus = ApiStatus.fromEntryName(r.status.entryName),
+        documentStatus = r.status.transformInto[ApiDocumentStatus],
         amount = r.amount,
         date = r.date,
         time = r.time,

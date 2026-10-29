@@ -1,8 +1,8 @@
 package net.wiringbits.actions.bankstatements
 
 import io.scalaland.chimney.dsl.*
-import net.wiringbits.api.models.documents.{DocumentStatus => ApiStatus}
 import net.wiringbits.api.models.bankstatements.GetBankStatement
+import net.wiringbits.api.models.documents.DocumentStatus as ApiDocumentStatus
 import net.wiringbits.repositories.BankStatementRepository
 import org.slf4j.LoggerFactory
 
@@ -28,7 +28,7 @@ class GetBankStatementAction @Inject() (bankStatementRepository: BankStatementRe
       id = view.id,
       documentId = view.documentId,
       documentFilename = view.documentFilename,
-      documentStatus = ApiStatus.fromEntryName(view.documentStatus.entryName),
+      documentStatus = view.documentStatus.transformInto[ApiDocumentStatus],
       bankName = view.bankName,
       productType = view.productType,
       currency = view.currency,

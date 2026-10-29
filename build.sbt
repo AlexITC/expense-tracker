@@ -25,7 +25,6 @@ val playJson = "3.0.6"
 val sttp = "3.11.0"
 val webappUtils = "0.7.2"
 val anorm = "3.0.0"
-val enumeratum = "1.9.7"
 val scalaJavaTime = "2.6.0"
 val tapir = "1.13.19"
 val chimney = "1.10.0"
@@ -267,8 +266,7 @@ lazy val common = (crossProject(JSPlatform, JVMPlatform) in file("lib/common"))
       "io.github.cquiroz" %%% "scala-java-time" % scalaJavaTime,
       "org.playframework" %%% "play-json" % playJson,
       "net.wiringbits" %%% "webapp-common" % webappUtils,
-      "org.scalatest" %%% "scalatest" % "3.2.20" % Test,
-      "com.beachape" %%% "enumeratum" % enumeratum
+      "org.scalatest" %%% "scalatest" % "3.2.20" % Test
     )
   )
 
@@ -295,7 +293,6 @@ lazy val api = (crossProject(JSPlatform, JVMPlatform) in file("lib/api"))
     libraryDependencies ++= Seq(
       "org.playframework" %%% "play-json" % playJson,
       "org.scalatest" %%% "scalatest" % "3.2.20" % Test,
-      "com.beachape" %%% "enumeratum" % enumeratum,
       "com.softwaremill.sttp.client3" %%% "core" % sttp,
       "com.softwaremill.sttp.tapir" %%% "tapir-json-play" % tapir,
       "com.softwaremill.sttp.tapir" %%% "tapir-sttp-client" % tapir
@@ -344,8 +341,7 @@ lazy val ui = (project in file("lib/ui"))
       "org.scala-js" %%% "scala-js-macrotask-executor" % "1.1.1",
       "com.olvind.st-material-ui" %%% "st-material-ui-icons-slinky" % "5.11.16",
       "net.wiringbits" %%% "slinky-utils" % webappUtils,
-      "org.scalatest" %%% "scalatest" % "3.2.20" % Test,
-      "com.beachape" %%% "enumeratum" % enumeratum
+      "org.scalatest" %%% "scalatest" % "3.2.20" % Test
     )
   )
 
@@ -388,7 +384,6 @@ lazy val server = (project in file("server"))
       "javax.annotation" % "javax.annotation-api" % "1.3.2",
       "javax.el" % "javax.el-api" % "3.0.0",
       "org.glassfish" % "javax.el" % "3.0.0",
-      "com.beachape" %% "enumeratum" % enumeratum,
       "io.scalaland" %% "chimney" % chimney,
       "com.softwaremill.sttp.tapir" %% "tapir-swagger-ui-bundle" % tapir,
       "com.softwaremill.sttp.tapir" %% "tapir-json-play" % tapir,

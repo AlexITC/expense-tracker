@@ -17,7 +17,7 @@ object UserTokensDAO {
         VALUES (
           ${request.id.toString}::UUID,
           ${request.token}::TEXT,
-          ${request.tokenType.toString}::TEXT,
+          ${request.tokenType.entryName}::TEXT,
           ${request.createdAt}::TIMESTAMPTZ,
           ${request.expiresAt}::TIMESTAMPTZ,
           ${request.userId.toString}::UUID

@@ -94,7 +94,9 @@ object UserEditPage {
     val tabs = mui.CardContent()(
       mui
         .Tabs()(
-          UserMenuOption.values.map(x => mui.Tab.normal().label(texts.userMenuOption(x)).withKey(x.toString).build)
+          UserMenuOption.values.toSeq.map(x =>
+            mui.Tab.normal().label(texts.userMenuOption(x)).withKey(x.toString).build
+          )
         )
         .value(UserMenuOption.values.indexOf(menuOption))
         .onChange((_, index) => setMenuOption(UserMenuOption.values(index.toString.toInt)))

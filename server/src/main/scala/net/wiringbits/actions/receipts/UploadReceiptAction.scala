@@ -21,10 +21,9 @@ class UploadReceiptAction @Inject() (
 )(implicit ec: ExecutionContext, clock: Clock) {
 
   def apply(userId: UUID, bytes: Array[Byte], kindStr: String, filename: String): Future[UploadReceipt.Response] = {
-    val kind = kindStr match {
-      case "receipt" => DocumentKind.Receipt
-      case "invoice" => DocumentKind.Invoice
-      case other => throw new RuntimeException(s"Unsupported receipt kind: $other")
+    val kind = DocumentKind.withNameOption(kindStr) match {
+      case Some(k @ (DocumentKind.Receipt | DocumentKind.Invoice)) => k
+      case _ => throw new RuntimeException(s"Unsupported receipt kind: $kindStr")
     }
     val sha256 = computeSha256(bytes)
     for {
