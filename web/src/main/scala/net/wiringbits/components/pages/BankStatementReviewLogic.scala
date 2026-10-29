@@ -16,6 +16,16 @@ object BankStatementReviewLogic {
   /** A running bulk action's (done, total, failed), or None when idle. */
   type BulkProgress = Option[(Int, Int, Int)]
   type BulkResults = List[(UUID, Either[String, Unit])]
+  type RowEdits = Map[UUID, (String, String, String)]
+
+  /** Everything the review page loads up front; re-fetched as a whole on every refresh. */
+  final case class ReviewData(
+      statement: GetBankStatement.Response,
+      merchants: List[GetMerchants.Response.Merchant],
+      categories: List[GetCategories.Response.Category],
+      rules: List[ImportRuleMatcher.Rule],
+      expenses: List[GetExpenses.Response.Expense]
+  )
 
   def resultLabel(
       rowId: UUID,
@@ -236,44 +246,16 @@ object BankStatementReviewLogic {
     if (parts.isEmpty) "No rows processed" else parts.mkString(", ")
   }
 
-  /** A tab of the review table; `key` is its `?tab=` value. */
-  enum Tab(val key: String) {
-    case Ready extends Tab("ready")
-    case Unprocessed extends Tab("unprocessed")
-    case Ignored extends Tab("ignored")
-    case Linked extends Tab("linked")
-    case All extends Tab("all")
-  }
-
-  object Tab {
-
-    /** Any unknown value is the unprocessed tab. */
-    def parse(key: String): Tab = Tab.values.find(_.key == key).getOrElse(Tab.Unprocessed)
-  }
-
-  /** The rows shown under a tab. */
+  /** The rows shown under a `?tab=` value; any other value shows the unprocessed rows. */
   def filterRows(
       rows: List[GetBankStatement.StatementRowData],
-      tab: Tab,
+      tab: String,
       rowInfoById: Map[UUID, RowInfo]
   ): List[GetBankStatement.StatementRowData] = tab match {
-    case Tab.Ignored => rows.filter(_.ignoredAt.isDefined)
-    case Tab.Linked => rows.filter(r => r.expenseId.isDefined || r.refundId.isDefined)
-    case Tab.Ready => rows.filter(r => rowInfoById.get(r.id).exists(_.isReady))
-    case Tab.All => rows
-    case Tab.Unprocessed => rows.filter(r => r.expenseId.isEmpty && r.refundId.isEmpty && r.ignoredAt.isEmpty)
-  }
-
-  final case class TabCounts(ready: Int, unprocessed: Int, ignored: Int, linked: Int, all: Int)
-
-  def tabCounts(rows: List[GetBankStatement.StatementRowData], rowInfoById: Map[UUID, RowInfo]): TabCounts = {
-    def count(tab: Tab): Int = filterRows(rows, tab, rowInfoById).size
-    TabCounts(
-      ready = count(Tab.Ready),
-      unprocessed = count(Tab.Unprocessed),
-      ignored = count(Tab.Ignored),
-      linked = count(Tab.Linked),
-      all = count(Tab.All)
-    )
+    case "ignored" => rows.filter(_.ignoredAt.isDefined)
+    case "linked" => rows.filter(r => r.expenseId.isDefined || r.refundId.isDefined)
+    case "ready" => rows.filter(r => rowInfoById.get(r.id).exists(_.isReady))
+    case "all" => rows
+    case _ => rows.filter(r => r.expenseId.isEmpty && r.refundId.isEmpty && r.ignoredAt.isEmpty)
   }
 }

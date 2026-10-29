@@ -2,12 +2,8 @@ package net.wiringbits.components.pages
 
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
-import net.wiringbits.api.models.bankstatements.GetBankStatement
-import net.wiringbits.api.models.categories.GetCategories
-import net.wiringbits.api.models.expenses.GetExpenses
-import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.utils.ImportRuleMatcher
-import net.wiringbits.components.pages.BankStatementReviewLogic.{BulkProgress, BulkResults}
+import net.wiringbits.components.pages.BankStatementReviewLogic.{BulkProgress, BulkResults, ReviewData}
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -28,18 +24,7 @@ object BankStatementReviewPage {
 
   case class Props(ctx: AppContext, user: User)
 
-  type RowEdits = Map[UUID, (String, String, String)]
-
   private val hintStyling = new CSSPropertiesUtils { fontSize = "0.8em"; color = "var(--lc-brand)" }
-
-  /** Everything the review page loads up front; re-fetched as a whole on every refresh. */
-  final case class ReviewData(
-      statement: GetBankStatement.Response,
-      merchants: List[GetMerchants.Response.Merchant],
-      categories: List[GetCategories.Response.Category],
-      rules: List[ImportRuleMatcher.Rule],
-      expenses: List[GetExpenses.Response.Expense]
-  )
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext

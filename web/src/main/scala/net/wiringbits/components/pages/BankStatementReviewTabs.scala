@@ -1,7 +1,6 @@
 package net.wiringbits.components.pages
 
 import com.olvind.mui.muiMaterial.components as mui
-import net.wiringbits.components.pages.BankStatementReviewLogic.{Tab, TabCounts}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 import slinky.core.{FunctionalComponent, KeyAddingStage}
@@ -10,19 +9,26 @@ import slinky.core.{FunctionalComponent, KeyAddingStage}
 object BankStatementReviewTabs {
   def apply(props: Props): KeyAddingStage = component(props)
 
-  case class Props(rowFilter: Tab, counts: TabCounts, onChange: Tab => Unit)
+  case class Props(
+      rowFilter: String,
+      countReady: Int,
+      countUnprocessed: Int,
+      countIgnored: Int,
+      countLinked: Int,
+      countAll: Int,
+      onChange: String => Unit
+  )
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
-    val counts = props.counts
     mui.Tabs
-      .value(props.rowFilter.key)
-      .onChange((_, v) => props.onChange(Tab.parse(MuiCompat.tabValue(v))))
+      .value(props.rowFilter)
+      .onChange((_, v) => props.onChange(MuiCompat.tabValue(v)))
       .sx(new CSSPropertiesUtils { marginTop = "8px"; minHeight = "42px" })(
-        mui.Tab.normal().value(Tab.Ready.key).label(s"Ready (${counts.ready})").build,
-        mui.Tab.normal().value(Tab.Unprocessed.key).label(s"Unprocessed (${counts.unprocessed})").build,
-        mui.Tab.normal().value(Tab.Ignored.key).label(s"Ignored (${counts.ignored})").build,
-        mui.Tab.normal().value(Tab.Linked.key).label(s"Linked (${counts.linked})").build,
-        mui.Tab.normal().value(Tab.All.key).label(s"All (${counts.all})").build
+        mui.Tab.normal().value("ready").label(s"Ready (${props.countReady})").build,
+        mui.Tab.normal().value("unprocessed").label(s"Unprocessed (${props.countUnprocessed})").build,
+        mui.Tab.normal().value("ignored").label(s"Ignored (${props.countIgnored})").build,
+        mui.Tab.normal().value("linked").label(s"Linked (${props.countLinked})").build,
+        mui.Tab.normal().value("all").label(s"All (${props.countAll})").build
       )
   }
 }

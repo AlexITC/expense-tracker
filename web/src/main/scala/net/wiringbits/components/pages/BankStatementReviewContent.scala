@@ -9,23 +9,18 @@ import net.wiringbits.utils.ReconciliationMatcher
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.RouterCompat
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.useHistory
-import org.scalajs.dom
 import org.scalajs.dom.URLSearchParams
 import slinky.core.facade.{Fragment, Hooks, SetStateHookCallback}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 
-import java.time.Instant
 import java.util.UUID
 import scala.concurrent.ExecutionContext
-import scala.scalajs.js
-import scala.util.{Failure, Success}
 
 /** The review page body for one loaded statement. Its parent remounts it on every refresh, so state seeded from `data`
   * is always fresh.
   */
 object BankStatementReviewContent {
   import BankStatementReviewLogic.*
-  import BankStatementReviewPage.*
 
   def apply(props: Props): KeyAddingStage = component(props)
 
@@ -43,10 +38,6 @@ object BankStatementReviewContent {
       bulkImportResults: BulkResults,
       setBulkImportResults: SetStateHookCallback[BulkResults]
   )
-
-  // Statements confirmed before AI suggestions existed stay NULL forever, so polling is capped.
-  private val SuggestionsPollMaxAttempts = 20
-  private val SuggestionsPollIntervalMs = 3000
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
@@ -73,13 +64,13 @@ object BankStatementReviewContent {
     val (merchantList, setMerchantList) = Hooks.useState(props.data.merchants)
     val (categoryList, setCategoryList) = Hooks.useState(props.data.categories)
     val (ruleList, setRuleList) = Hooks.useState(props.data.rules)
-    // Kept current by `refreshExpenses` after single-row link changes; expense matching reads it.
+    // Kept current by `BankStatementRowActions.refreshExpenses` after single-row link changes; expense matching reads it.
     val (expenseList, setExpenseList) = Hooks.useState(props.data.expenses)
 
     val initialTab = {
       val params = new URLSearchParams(location.search)
       val t = params.get("tab")
-      if (t == null || t.isEmpty) Tab.Ready else Tab.parse(t)
+      if (t == null || t.isEmpty) "ready" else t
     }
     val (rowFilter, setRowFilter) = Hooks.useState(initialTab)
     val (selectedRowIds, setSelectedRowIds) = Hooks.useState[Set[UUID]](Set.empty)
@@ -89,31 +80,12 @@ object BankStatementReviewContent {
     val (creatingRefundForRow, setCreatingRefundForRow) = Hooks.useState[Option[UUID]](None)
     val (ruleFormForRow, setRuleFormForRow) = Hooks.useState[Option[UUID]](None)
 
-    // Poll for AI suggestions until they are resolved or the attempts cap is reached
-    val (suggestionsPollAttempts, setSuggestionsPollAttempts) = Hooks.useState(0)
-    val (regeneratingSuggestions, setRegeneratingSuggestions) = Hooks.useState(false)
-    val regenerateSuggestionsDisabled = regeneratingSuggestions ||
-      !canRegenerateSuggestions(statement.aiSuggestions, suggestionsPollAttempts >= SuggestionsPollMaxAttempts)
-    val pollingSuggestions =
-      suggestionsPending(statement.aiSuggestions) && suggestionsPollAttempts < SuggestionsPollMaxAttempts
-    val suggestionsPollKey = s"$stmtId:$pollingSuggestions"
-    Hooks.useEffect(
-      () => {
-        if (pollingSuggestions) {
-          val timer = dom.window.setInterval(
-            () => {
-              setSuggestionsPollAttempts(_ + 1)
-              props.ctx.api.client.getBankStatement(stmtId).onComplete {
-                case Success(full) => setStatement(cur => cur.copy(aiSuggestions = full.aiSuggestions))
-                case Failure(_) => ()
-              }
-            },
-            SuggestionsPollIntervalMs
-          )
-          () => { dom.window.clearInterval(timer); () }
-        } else () => ()
-      },
-      js.Array(suggestionsPollKey)
+    val suggestions = BankStatementSuggestionsPolling.useSuggestionsPolling(
+      client = props.ctx.api.client,
+      statement = statement,
+      setStatement = setStatement,
+      setError = setError,
+      showToast = showToast
     )
 
     // Rule matching is the expensive part of rendering a row, so it only re-runs when its inputs change.
@@ -136,80 +108,16 @@ object BankStatementReviewContent {
       () => expenseMatches(statementRows, rowInfoById, unlinkedExpensesByDate),
       List(statementRows, rowInfoById, unlinkedExpensesByDate)
     )
-    def handleIgnore(stmtId: UUID, rowId: UUID): Unit =
-      props.ctx.api.client.ignoreRow(stmtId, rowId).onComplete {
-        case Success(_) =>
-          setError("")
-          setSelectedRowIds(cur => cur - rowId)
-          setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(ignoredAt = Some(Instant.now())) else r))
-          showToast("Row ignored")
-        case Failure(ex) => setError(ex.getMessage)
-      }
 
-    // Setting Pending and resetting the attempts re-enables the poll effect above
-    def handleRegenerateSuggestions(stmtId: UUID): Unit = {
-      setRegeneratingSuggestions(true)
-      props.ctx.api.client.regenerateBankStatementAiSuggestions(stmtId).onComplete {
-        case Success(resp) =>
-          setError("")
-          setStatement(cur => cur.copy(aiSuggestions = Some(resp.aiSuggestions)))
-          setSuggestionsPollAttempts(0)
-          setRegeneratingSuggestions(false)
-          showToast("Regenerating AI suggestions…")
-        case Failure(ex) =>
-          setError(ex.getMessage)
-          setRegeneratingSuggestions(false)
-      }
-    }
-
-    def handleUnignore(stmtId: UUID, rowId: UUID): Unit =
-      props.ctx.api.client.unignoreRow(stmtId, rowId).onComplete {
-        case Success(_) =>
-          setError("")
-          setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(ignoredAt = None) else r))
-        case Failure(ex) => setError(ex.getMessage)
-      }
-
-    def handleUnlink(stmtId: UUID, rowId: UUID): Unit =
-      props.ctx.api.client.unlinkRow(stmtId, rowId).onComplete {
-        case Success(_) =>
-          setError("")
-          setStatementRows(cur =>
-            cur.map(r =>
-              if (r.id == rowId) r.copy(expenseId = None, expenseMerchantId = None, expenseCategoryId = None) else r
-            )
-          )
-          // The expense is unlinked again, so keep the expense list current.
-          refreshExpenses()
-        case Failure(ex) => setError(ex.getMessage)
-      }
-
-    def handleUnlinkRefund(stmtId: UUID, rowId: UUID): Unit =
-      props.ctx.api.client.unlinkRowRefund(stmtId, rowId).onComplete {
-        case Success(_) =>
-          setError("")
-          setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(refundId = None) else r))
-        case Failure(ex) => setError(ex.getMessage)
-      }
-
-    // The drawer forms only report the new expense id, so re-read the row to get the expense's merchant and category.
-    // Single-row changes refresh just that row and the expense list, so the page is not remounted.
-    def refreshRow(rowId: UUID): Unit = {
-      props.ctx.api.client.getBankStatement(stmtId).onComplete {
-        case Success(full) =>
-          full.statementRows.find(_.id == rowId).foreach { fresh =>
-            setStatementRows(cur => cur.map(r => if (r.id == rowId) fresh else r))
-          }
-        case Failure(ex) => setError(ex.getMessage)
-      }
-      refreshExpenses()
-    }
-
-    def refreshExpenses(): Unit =
-      props.ctx.api.client.getExpenses.onComplete {
-        case Success(resp) => setExpenseList(resp.data)
-        case Failure(ex) => setError(ex.getMessage)
-      }
+    val rowActions = BankStatementRowActions(
+      client = props.ctx.api.client,
+      stmtId = stmtId,
+      setStatementRows = setStatementRows,
+      setSelectedRowIds = setSelectedRowIds,
+      setExpenseList = setExpenseList,
+      setError = setError,
+      showToast = showToast
+    )
 
     // Stable across renders so the memoized rows only re-render when their own props change. They may only use setters
     // and values that never change for this statement.
@@ -225,10 +133,10 @@ object BankStatementReviewContent {
           case RowAction.OpenRefundForm => setCreatingRefundForRow(Some(rowId))
           case RowAction.OpenLinkPicker => setLinkingForRow(Some(rowId)); setCreatingForRow(None)
           case RowAction.OpenRuleForm => setRuleFormForRow(Some(rowId))
-          case RowAction.Ignore => handleIgnore(stmtId, rowId)
-          case RowAction.Unignore => handleUnignore(stmtId, rowId)
-          case RowAction.Unlink => handleUnlink(stmtId, rowId)
-          case RowAction.UnlinkRefund => handleUnlinkRefund(stmtId, rowId)
+          case RowAction.Ignore => rowActions.ignore(rowId)
+          case RowAction.Unignore => rowActions.unignore(rowId)
+          case RowAction.Unlink => rowActions.unlink(rowId)
+          case RowAction.UnlinkRefund => rowActions.unlinkRefund(rowId)
         },
       List(stmtId.toString)
     )
@@ -250,13 +158,17 @@ object BankStatementReviewContent {
     val selectedInView = selectedRowIds.intersect(tableRows.map(_.id).toSet)
     val bulkActive = selectedInView.nonEmpty && bulkIgnoreProgress.isEmpty && bulkImportProgress.isEmpty
 
-    val counts = tabCounts(statementRows, rowInfoById)
+    val countReady = statementRows.count(r => rowInfoById.get(r.id).exists(_.isReady))
+    val countUnprocessed =
+      statementRows.count(r => r.expenseId.isEmpty && r.refundId.isEmpty && r.ignoredAt.isEmpty)
+    val countIgnored = statementRows.count(_.ignoredAt.isDefined)
+    val countLinked = statementRows.count(r => r.expenseId.isDefined || r.refundId.isDefined)
 
-    def handleTabChange(tab: Tab): Unit = {
+    def handleTabChange(tab: String): Unit = {
       setRowFilter(tab)
       setSelectedRowIds(Set.empty)
       val pathname = location.pathname
-      history.replace(s"$pathname?tab=${tab.key}")
+      history.replace(s"$pathname?tab=$tab")
     }
 
     mui.Box.sx(new CSSPropertiesUtils {
@@ -268,12 +180,20 @@ object BankStatementReviewContent {
           BankStatementReviewHeader.Props(
             statement = stmt,
             rowCount = statementRows.size,
-            regenerateDisabled = regenerateSuggestionsDisabled,
-            onRegenerate = () => handleRegenerateSuggestions(stmt.id)
+            regenerateDisabled = suggestions.regenerateDisabled,
+            onRegenerate = suggestions.regenerate
           )
         ),
         BankStatementReviewTabs(
-          BankStatementReviewTabs.Props(rowFilter = rowFilter, counts = counts, onChange = handleTabChange)
+          BankStatementReviewTabs.Props(
+            rowFilter = rowFilter,
+            countReady = countReady,
+            countUnprocessed = countUnprocessed,
+            countIgnored = countIgnored,
+            countLinked = countLinked,
+            countAll = statementRows.size,
+            onChange = handleTabChange
+          )
         )
       ),
       // ── Bulk bar ──
@@ -327,8 +247,8 @@ object BankStatementReviewContent {
             rows = tableRows,
             rowInfoById = rowInfoById,
             selectedRowIds = selectedRowIds,
-            showCheckbox = rowFilter == Tab.Unprocessed || rowFilter == Tab.Ready,
-            pollingSuggestions = pollingSuggestions,
+            showCheckbox = rowFilter == "unprocessed" || rowFilter == "ready",
+            pollingSuggestions = suggestions.polling,
             expenseMatchById = expenseMatchById,
             onSelectAll =
               checked => if (checked) setSelectedRowIds(tableRows.map(_.id).toSet) else setSelectedRowIds(Set.empty),
@@ -366,7 +286,7 @@ object BankStatementReviewContent {
           onExpenseCreated = (rowId, expenseId) => {
             setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(expenseId = Some(expenseId)) else r))
             setCreatingForRow(None)
-            refreshRow(rowId)
+            rowActions.refreshRow(rowId)
             showToast("Expense created")
           },
           onRefundCreated = (rowId, refundId) => {
@@ -377,7 +297,7 @@ object BankStatementReviewContent {
           onExpenseLinked = (rowId, expenseId) => {
             setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(expenseId = Some(expenseId)) else r))
             setLinkingForRow(None)
-            refreshRow(rowId)
+            rowActions.refreshRow(rowId)
           },
           onRuleCreated = (rule, newMerchantOpt) => {
             setRuleList(cur => cur :+ rule)

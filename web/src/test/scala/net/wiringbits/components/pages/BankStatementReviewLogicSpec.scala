@@ -611,7 +611,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
   }
 
   "filterRows" should {
-    import BankStatementReviewLogic.{LinkedCategory, RowInfo, Tab, filterRows}
+    import BankStatementReviewLogic.{LinkedCategory, RowInfo, filterRows}
 
     val open = sampleRow()
     val ready = sampleRow()
@@ -631,58 +631,27 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
     val infos = Map(ready.id -> readyInfo, open.id -> readyInfo.copy(isReady = false))
 
     "keep only ready rows on the ready tab" in {
-      filterRows(rows, Tab.Ready, infos) mustBe List(ready)
+      filterRows(rows, "ready", infos) mustBe List(ready)
     }
 
     "keep open rows on the unprocessed tab" in {
-      filterRows(rows, Tab.Unprocessed, infos) mustBe List(open, ready)
+      filterRows(rows, "unprocessed", infos) mustBe List(open, ready)
     }
 
     "keep only ignored rows on the ignored tab" in {
-      filterRows(rows, Tab.Ignored, infos) mustBe List(ignored)
+      filterRows(rows, "ignored", infos) mustBe List(ignored)
     }
 
     "keep expense- and refund-linked rows on the linked tab" in {
-      filterRows(rows, Tab.Linked, infos) mustBe List(linkedExpense, linkedRefund)
+      filterRows(rows, "linked", infos) mustBe List(linkedExpense, linkedRefund)
     }
 
     "keep every row on the all tab" in {
-      filterRows(rows, Tab.All, infos) mustBe rows
-    }
-  }
-
-  "Tab.parse" should {
-    import BankStatementReviewLogic.Tab
-
-    "map each key to its tab" in {
-      Tab.values.foreach(tab => Tab.parse(tab.key) mustBe tab)
+      filterRows(rows, "all", infos) mustBe rows
     }
 
-    "treat an unknown key as unprocessed" in {
-      Tab.parse("bogus") mustBe Tab.Unprocessed
-    }
-  }
-
-  "tabCounts" should {
-    import BankStatementReviewLogic.{LinkedCategory, RowInfo, TabCounts, tabCounts}
-
-    "count the rows of each tab" in {
-      val open = sampleRow()
-      val ready = sampleRow()
-      val ignored = sampleRow().copy(ignoredAt = Some(Instant.now()))
-      val linkedExpense = sampleRow().copy(expenseId = Some(UUID.randomUUID()))
-      val linkedRefund = sampleRow().copy(refundId = Some(UUID.randomUUID()))
-      val info = RowInfo(
-        verdict = RowRuleVerdict.NoRule,
-        resolved = None,
-        isReady = true,
-        merchantName = None,
-        categoryName = None,
-        linkedMerchantName = None,
-        linkedCategory = LinkedCategory.Unknown
-      )
-      tabCounts(List(open, ready, ignored, linkedExpense, linkedRefund), Map(ready.id -> info)) mustBe
-        TabCounts(ready = 1, unprocessed = 2, ignored = 1, linked = 2, all = 5)
+    "keep open rows for an unknown tab" in {
+      filterRows(rows, "bogus", infos) mustBe List(open, ready)
     }
   }
 }
