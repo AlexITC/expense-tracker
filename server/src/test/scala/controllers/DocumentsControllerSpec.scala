@@ -51,24 +51,24 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
   "POST /receipts" should {
     "upload a receipt and return its id" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val response = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val response = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
       response.id must not be null
     }
 
     "return the existing receipt when the same content is uploaded again" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val first = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
-      val second = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val first = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
+      val second = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
       second.id must be(first.id)
     }
 
     "allow different users to upload the same file independently" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val first = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val first = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
-      val second = client2.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val second = client2.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
       second.id must not be first.id
     }
   }
@@ -81,14 +81,14 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
     "return the user's receipts" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      client.uploadReceipt(sampleBytes, "receipt", "a.pdf").futureValue
-      client.uploadReceipt("other".getBytes, "receipt", "b.pdf").futureValue
+      client.uploadReceipt(sampleBytes, "Receipt", "a.pdf").futureValue
+      client.uploadReceipt("other".getBytes, "Receipt", "b.pdf").futureValue
       client.getReceipts.futureValue.data.length must be(2)
     }
 
     "not return another user's receipts" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
@@ -99,14 +99,14 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
   "GET /receipts/:id" should {
     "return the receipt" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val uploaded = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val uploaded = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
       val receipt = client.getReceipt(uploaded.id).futureValue
       receipt.documentFilename must be("test.pdf")
     }
 
     "fail when the receipt belongs to another user" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val uploaded = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val uploaded = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
@@ -118,7 +118,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
   "ProcessDocument background job" should {
     "process a receipt to Parsed status via async lifecycle" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val uploaded = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val uploaded = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
       val documentId = client.getReceipt(uploaded.id).futureValue.documentId
 
       driveReceiptToCompletion(documentId)
@@ -129,7 +129,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
     "be idempotent — reprocessing a Parsed receipt changes nothing" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val uploaded = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val uploaded = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
       val documentId = client.getReceipt(uploaded.id).futureValue.documentId
 
       driveReceiptToCompletion(documentId)
@@ -143,7 +143,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
   "POST /receipts/:id/confirm" should {
     "create an expense and link it to the receipt" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val uploaded = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val uploaded = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
       val documentId = client.getReceipt(uploaded.id).futureValue.documentId
 
       driveReceiptToCompletion(documentId)
@@ -158,7 +158,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
     "fail when receipt is not Parsed" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val uploaded = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val uploaded = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
 
       val req = ConfirmReceipt.Request(Some(BigDecimal("50.00")), Some(sampleDate), None, None, None, Nil)
       val error = client.confirmReceipt(uploaded.id, req).expectError
@@ -167,7 +167,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
     "fail when receipt is already confirmed" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val uploaded = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val uploaded = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
       val documentId = client.getReceipt(uploaded.id).futureValue.documentId
 
       driveReceiptToCompletion(documentId)
@@ -180,7 +180,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
     "fail when receipt belongs to another user" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val uploaded = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val uploaded = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
@@ -314,14 +314,14 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
   "DELETE /receipts/:id" should {
     "delete a receipt" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val uploaded = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val uploaded = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
       client.deleteReceipt(uploaded.id).futureValue
       client.getReceipts.futureValue.data must be(empty)
     }
 
     "fail when receipt belongs to another user" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val uploaded = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val uploaded = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
@@ -337,7 +337,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
     "leave the expense intact after receipt deletion" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val uploaded = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val uploaded = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
       val documentId = client.getReceipt(uploaded.id).futureValue.documentId
 
       driveReceiptToCompletion(documentId)
@@ -354,7 +354,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
   "expense delete" should {
     "set expense_id to null on the related receipt (ON DELETE SET NULL)" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val uploaded = client.uploadReceipt(sampleBytes, "receipt", "test.pdf").futureValue
+      val uploaded = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
       val documentId = client.getReceipt(uploaded.id).futureValue.documentId
 
       driveReceiptToCompletion(documentId)
@@ -446,7 +446,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
   }
 
   private def setupParsedReceipt()(implicit client: net.wiringbits.api.ApiClient): UUID = {
-    val uploaded = client.uploadReceipt("receipt-bytes".getBytes("UTF-8"), "receipt", "test.pdf").futureValue
+    val uploaded = client.uploadReceipt("receipt-bytes".getBytes("UTF-8"), "Receipt", "test.pdf").futureValue
     val documentId = client.getReceipt(uploaded.id).futureValue.documentId
     driveReceiptToCompletion(documentId)
     uploaded.id
@@ -729,7 +729,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val (stmtId, rowId) = setupStmtWithRow()
 
       val receiptBytes = "fake-receipt-distinct".getBytes("UTF-8")
-      val uploadedReceipt = client.uploadReceipt(receiptBytes, "receipt", "test.pdf").futureValue
+      val uploadedReceipt = client.uploadReceipt(receiptBytes, "Receipt", "test.pdf").futureValue
       val documentId = client.getReceipt(uploadedReceipt.id).futureValue.documentId
       driveReceiptToCompletion(documentId)
 
@@ -815,7 +815,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       createVerifyLoginUser(tokenGenerator).futureValue
       val receiptId1 = setupParsedReceipt()
       val receiptId2 =
-        client.uploadReceipt("second-receipt-idem".getBytes("UTF-8"), "receipt", "r2.pdf").futureValue.id
+        client.uploadReceipt("second-receipt-idem".getBytes("UTF-8"), "Receipt", "r2.pdf").futureValue.id
       val docId2 = client.getReceipt(receiptId2).futureValue.documentId
       driveReceiptToCompletion(docId2)
       val merchantId = client.createMerchant(CreateMerchant.Request("Amazon", None, None)).futureValue.id

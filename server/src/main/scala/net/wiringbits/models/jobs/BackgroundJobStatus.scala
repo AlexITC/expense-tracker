@@ -10,7 +10,4 @@ enum BackgroundJobStatus extends DbEnum {
   case Running
 }
 
-object BackgroundJobStatus {
-  def withNameInsensitiveOption(name: String): Option[BackgroundJobStatus] =
-    values.find(_.entryName.equalsIgnoreCase(name))
-}
+object BackgroundJobStatus extends DbEnum.Companion[BackgroundJobStatus]

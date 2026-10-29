@@ -1,12 +1,12 @@
 package net.wiringbits.models.documents
 
-enum DocumentKind(val entryName: String) {
-  case Receipt extends DocumentKind("receipt")
-  case Invoice extends DocumentKind("invoice")
-  case BankStatementPdf extends DocumentKind("bank_statement_pdf")
+import net.wiringbits.models.DbEnum
+
+/** `entryName` (the case name) is the value stored in the `document.kind` column. */
+enum DocumentKind extends DbEnum {
+  case Receipt
+  case Invoice
+  case BankStatementPdf
 }
 
-object DocumentKind {
-  def withNameOption(name: String): Option[DocumentKind] =
-    values.find(_.entryName == name)
-}
+object DocumentKind extends DbEnum.Companion[DocumentKind]

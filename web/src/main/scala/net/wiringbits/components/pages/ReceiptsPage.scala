@@ -125,7 +125,7 @@ object ReceiptList {
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
-    val (uploadKind, setUploadKind) = Hooks.useState("receipt")
+    val (uploadKind, setUploadKind) = Hooks.useState("Receipt")
     val (error, setError) = Hooks.useState("")
     val (toast, setToast) = Hooks.useState[Option[String]](None)
 
@@ -845,8 +845,8 @@ object ReceiptList {
                   .label("Kind")
                   .value(uploadKind)
                   .onChange(e => setUploadKind(e.target.asInstanceOf[dom.HTMLInputElement].value))(
-                    mui.MenuItem.normal()("Receipt").value("receipt").withKey("receipt").build,
-                    mui.MenuItem.normal()("Invoice").value("invoice").withKey("invoice").build
+                    mui.MenuItem.normal()("Receipt").value("Receipt").withKey("Receipt").build,
+                    mui.MenuItem.normal()("Invoice").value("Invoice").withKey("Invoice").build
                   ),
                 batchProgress match {
                   case Some((done, total, failed)) =>
@@ -1363,8 +1363,8 @@ object ReceiptList {
                   .value(uploadKind)
                   .size("small")
                   .onChange(e => setUploadKind(e.target.asInstanceOf[dom.HTMLInputElement].value))(
-                    mui.MenuItem.normal()("Receipt").value("receipt").withKey("receipt").build,
-                    mui.MenuItem.normal()("Invoice").value("invoice").withKey("invoice").build
+                    mui.MenuItem.normal()("Receipt").value("Receipt").withKey("Receipt").build,
+                    mui.MenuItem.normal()("Invoice").value("Invoice").withKey("Invoice").build
                   )
               ),
               (batchProgress match {

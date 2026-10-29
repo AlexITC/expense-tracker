@@ -15,7 +15,4 @@ enum DocumentStatus extends DbEnum {
   case Unsupported
 }
 
-object DocumentStatus {
-  def withNameInsensitiveOption(name: String): Option[DocumentStatus] =
-    values.find(_.entryName.equalsIgnoreCase(name))
-}
+object DocumentStatus extends DbEnum.Companion[DocumentStatus]

@@ -18,7 +18,4 @@ enum BackgroundJobType extends DbEnum {
   case ResolveStatementSuggestions
 }
 
-object BackgroundJobType {
-  def withNameInsensitiveOption(name: String): Option[BackgroundJobType] =
-    values.find(_.entryName.equalsIgnoreCase(name))
-}
+object BackgroundJobType extends DbEnum.Companion[BackgroundJobType]

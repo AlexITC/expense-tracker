@@ -2,6 +2,7 @@ package net.wiringbits.scripts
 
 import anorm.*
 import net.wiringbits.apis.TextractApiType
+import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.repositories.daos.{DocumentDAO, ExpenseDAO, ReceiptDAO, TextractCacheDAO}
 import net.wiringbits.repositories.models.{Expense, Receipt}
 import net.wiringbits.services.DocumentParser
@@ -103,7 +104,7 @@ object ParserAccuracyReport {
         case (None, _) => acc.copy(noCache = acc.noCache + 1)
         case (_, None) => acc.copy(noExpense = acc.noExpense + 1)
         case (Some(cache), Some(expense)) =>
-          DocumentParser.parse(cache.response, "receipt") match {
+          DocumentParser.parse(cache.response, DocumentKind.Receipt) match {
             case Left(_) => acc.copy(parseFailed = acc.parseFailed + 1)
             case Right(parsed) =>
               val raw = cache.response.toString

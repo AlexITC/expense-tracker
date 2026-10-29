@@ -1,5 +1,7 @@
 package net.wiringbits.services
 
+import net.wiringbits.models.documents.DocumentKind
+
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 import play.api.libs.json.{JsObject, Json}
@@ -42,7 +44,7 @@ class ParserAccuracyScoreSpec extends AnyWordSpec {
     "match the confirmed amount and date within the allowed failure budget" in {
       val results = labels.map { label =>
         val response = Json.parse(loadResource(s"fixtures/parser-accuracy/responses/${label.id}.json"))
-        val parsed = DocumentParser.parse(response, "receipt").toOption.get
+        val parsed = DocumentParser.parse(response, DocumentKind.Receipt).toOption.get
         (label, parsed)
       }
       val n = results.size

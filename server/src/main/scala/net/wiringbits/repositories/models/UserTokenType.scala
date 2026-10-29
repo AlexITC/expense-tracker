@@ -8,7 +8,4 @@ enum UserTokenType extends DbEnum {
   case ResetPassword
 }
 
-object UserTokenType {
-  def withNameInsensitiveOption(name: String): Option[UserTokenType] =
-    values.find(_.entryName.equalsIgnoreCase(name))
-}
+object UserTokenType extends DbEnum.Companion[UserTokenType]

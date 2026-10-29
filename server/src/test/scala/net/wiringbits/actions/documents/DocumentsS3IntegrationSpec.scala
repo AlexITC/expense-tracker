@@ -134,7 +134,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
       val bytes = "receipt-bytes".getBytes("UTF-8")
       val action = new UploadDocumentAction(documentsRepo, storage)(using ec, Clock.systemUTC())
 
-      val resp = action(userId, bytes, "receipt", "r.pdf").futureValue
+      val resp = action(userId, bytes, "Receipt", "r.pdf").futureValue
 
       val doc = documentsRepo.find(resp.id, userId).futureValue.get
       doc.storageKey must startWith(s"data/$userId/")
@@ -151,10 +151,10 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
       val bytes = "dup-bytes".getBytes("UTF-8")
       val action = new UploadDocumentAction(documentsRepo, storage)(using ec, Clock.systemUTC())
 
-      val first = action(userId, bytes, "receipt", "a.pdf").futureValue
+      val first = action(userId, bytes, "Receipt", "a.pdf").futureValue
       val objectsAfterFirst = countS3Objects()
 
-      val second = action(userId, bytes, "receipt", "b.pdf").futureValue
+      val second = action(userId, bytes, "Receipt", "b.pdf").futureValue
       second.id must be(first.id)
       countS3Objects() must be(objectsAfterFirst)
     }
@@ -164,7 +164,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
       val userId = makeUser()
       val bytes = "race-bytes".getBytes("UTF-8")
       val action = new UploadDocumentAction(documentsRepo, storage)(using ec, Clock.systemUTC())
-      val first = action(userId, bytes, "receipt", "a.pdf").futureValue
+      val first = action(userId, bytes, "Receipt", "a.pdf").futureValue
 
       // Simulates a concurrent upload: findBySha256 misses, so the action goes all the way to create
       var attempted = List.empty[UUID]
@@ -177,7 +177,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
       }
       val racing = new UploadDocumentAction(staleRepo, storage)(using ec, Clock.systemUTC())
 
-      val second = racing(userId, bytes, "receipt", "b.pdf").futureValue
+      val second = racing(userId, bytes, "Receipt", "b.pdf").futureValue
 
       second.id must be(first.id)
       attempted.size must be(1)
@@ -203,7 +203,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
       val brokenStorage = new S3BlobStorage(badConfig)
       val action = new UploadDocumentAction(documentsRepo, brokenStorage)(using ec, Clock.systemUTC())
 
-      action(userId, bytes, "receipt", "fail.pdf").failed.futureValue must not be null
+      action(userId, bytes, "Receipt", "fail.pdf").failed.futureValue must not be null
       documentsRepo.all(userId).futureValue must be(empty)
     }
   }
@@ -214,7 +214,7 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
       val userId = makeUser()
       val bytes = "delete-me".getBytes("UTF-8")
       val upload = new UploadDocumentAction(documentsRepo, storage)(using ec, Clock.systemUTC())
-      val resp = upload(userId, bytes, "receipt", "del.pdf").futureValue
+      val resp = upload(userId, bytes, "Receipt", "del.pdf").futureValue
 
       val doc = documentsRepo.find(resp.id, userId).futureValue.get
       val storageKey = doc.storageKey
@@ -245,8 +245,8 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
       val user2 = makeUser()
       val action = new UploadDocumentAction(documentsRepo, storage)(using ec, Clock.systemUTC())
 
-      val r1 = action(user1, "u1-bytes".getBytes("UTF-8"), "receipt", "u1.pdf").futureValue
-      val r2 = action(user2, "u2-bytes".getBytes("UTF-8"), "receipt", "u2.pdf").futureValue
+      val r1 = action(user1, "u1-bytes".getBytes("UTF-8"), "Receipt", "u1.pdf").futureValue
+      val r2 = action(user2, "u2-bytes".getBytes("UTF-8"), "Receipt", "u2.pdf").futureValue
 
       val doc1 = documentsRepo.find(r1.id, user1).futureValue.get
       val doc2 = documentsRepo.find(r2.id, user2).futureValue.get
