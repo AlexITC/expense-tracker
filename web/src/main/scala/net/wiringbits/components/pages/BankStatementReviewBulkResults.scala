@@ -1,7 +1,7 @@
 package net.wiringbits.components.pages
 
 import com.olvind.mui.muiMaterial.components as mui
-import net.wiringbits.components.pages.BankStatementReviewPage.BulkResults
+import net.wiringbits.components.pages.BankStatementReviewLogic.BulkResults
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import slinky.core.facade.{Fragment, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}

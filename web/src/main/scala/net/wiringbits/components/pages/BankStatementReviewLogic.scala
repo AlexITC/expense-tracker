@@ -12,6 +12,11 @@ import java.util.UUID
 
 /** Pure logic behind the bank statement review page: no React or MUI. */
 object BankStatementReviewLogic {
+
+  /** A running bulk action's (done, total, failed), or None when idle. */
+  type BulkProgress = Option[(Int, Int, Int)]
+  type BulkResults = List[(UUID, Either[String, Unit])]
+
   def resultLabel(
       rowId: UUID,
       descById: Map[UUID, String],

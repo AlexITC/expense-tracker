@@ -7,6 +7,7 @@ import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.components.pages.BankStatementReviewLogic.{BulkProgress, BulkResults}
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -39,9 +40,6 @@ object BankStatementReviewPage {
       rules: List[ImportRuleMatcher.Rule],
       expenses: List[GetExpenses.Response.Expense]
   )
-
-  type BulkProgress = Option[(Int, Int, Int)]
-  type BulkResults = List[(UUID, Either[String, Unit])]
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext

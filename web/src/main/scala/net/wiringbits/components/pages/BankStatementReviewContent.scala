@@ -2,7 +2,6 @@ package net.wiringbits.components.pages
 
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
-import net.wiringbits.api.models.bankstatements.{CreateExpenseFromRow, LinkRowToExpense}
 import net.wiringbits.components.pages.BankStatementReviewDrawer.DrawerForm
 import net.wiringbits.components.pages.BankStatementReviewRow.RowAction
 import net.wiringbits.api.utils.ImportRuleMatcher
@@ -212,124 +211,6 @@ object BankStatementReviewContent {
         case Failure(ex) => setError(ex.getMessage)
       }
 
-    def handleBulkIgnore(stmtId: UUID, ids: List[UUID]): Unit = {
-      val total = ids.length
-      setBulkIgnoreProgress(Some((0, total, 0)))
-      setBulkIgnoreResults(Nil)
-      def loop(remaining: List[UUID], done: Int, failed: Int): Unit =
-        remaining match {
-          case Nil => setBulkIgnoreProgress(None); setSelectedRowIds(Set.empty)
-          case rowId :: rest =>
-            props.ctx.api.client.ignoreRow(stmtId, rowId).onComplete {
-              case Success(_) =>
-                setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(ignoredAt = Some(Instant.now())) else r))
-                setBulkIgnoreResults(cur => cur :+ (rowId -> Right(())))
-                setBulkIgnoreProgress(Some((done + 1, total, failed)))
-                loop(rest, done + 1, failed)
-              case Failure(ex) =>
-                setBulkIgnoreResults(cur => cur :+ (rowId -> Left(ex.getMessage)))
-                setBulkIgnoreProgress(Some((done + 1, total, failed + 1)))
-                loop(rest, done + 1, failed + 1)
-            }
-        }
-      loop(ids, 0, 0)
-    }
-
-    // Matches are taken from this render; expenses linked during a bulk run are tracked in the loop instead.
-    def handleBulkImport(stmtId: UUID, ids: List[UUID]): Unit = {
-      val total = ids.length
-      setBulkImportProgress(Some((0, total, 0)))
-      setBulkImportResults(Nil)
-      final case class Counts(linked: Int, created: Int, ignored: Int, failed: Int) {
-        def done: Int = linked + created + ignored + failed
-      }
-      def loop(remaining: List[UUID], counts: Counts, linkedThisRun: Set[UUID]): Unit =
-        remaining match {
-          case Nil =>
-            setBulkImportProgress(None)
-            setSelectedRowIds(Set.empty)
-            showToast(bulkImportSummary(counts.linked, counts.created, counts.ignored, counts.failed))
-            props.onRefresh()
-          case rowId :: rest =>
-            def advance(outcome: Either[String, Unit], next: Counts, nextLinked: Set[UUID]): Unit = {
-              setBulkImportResults(cur => cur :+ (rowId -> outcome))
-              setBulkImportProgress(Some((next.done, total, next.failed)))
-              loop(rest, next, nextLinked)
-            }
-            def succeed(next: Counts): Unit = advance(Right(()), next, linkedThisRun)
-            def fail(message: String): Unit =
-              advance(Left(message), counts.copy(failed = counts.failed + 1), linkedThisRun)
-            statementRows.find(_.id == rowId) match {
-              case None => fail("Row not found")
-              case Some(row) =>
-                bulkRowDecision(rowInfoById.get(rowId), expenseMatchById.get(rowId), linkedThisRun) match {
-                  case BulkRowDecision.Fail(message) => fail(message)
-                  case BulkRowDecision.Ignore =>
-                    props.ctx.api.client.ignoreRow(stmtId, rowId).onComplete {
-                      case Success(_) =>
-                        setStatementRows(cur =>
-                          cur.map(r => if (r.id == rowId) r.copy(ignoredAt = Some(Instant.now())) else r)
-                        )
-                        succeed(counts.copy(ignored = counts.ignored + 1))
-                      case Failure(ex) => fail(ex.getMessage)
-                    }
-                  case BulkRowDecision.Link(expenseId) =>
-                    props.ctx.api.client
-                      .linkRowToExpense(stmtId, rowId, LinkRowToExpense.Request(expenseId))
-                      .onComplete {
-                        case Success(_) =>
-                          val expense = expenseList.find(_.id == expenseId)
-                          // The server only reports a category for single-split expenses.
-                          val categoryId = expense.flatMap(_.splits match {
-                            case List(single) => Some(single.categoryId)
-                            case _ => None
-                          })
-                          setStatementRows(cur =>
-                            cur.map(r =>
-                              if (r.id == rowId)
-                                r.copy(
-                                  expenseId = Some(expenseId),
-                                  expenseMerchantId = expense.flatMap(_.merchantId),
-                                  expenseCategoryId = categoryId
-                                )
-                              else r
-                            )
-                          )
-                          advance(Right(()), counts.copy(linked = counts.linked + 1), linkedThisRun + expenseId)
-                        case Failure(ex) => fail(ex.getMessage)
-                      }
-                  case BulkRowDecision.Create(res) =>
-                    val req = CreateExpenseFromRow.Request(
-                      amount = row.amount.abs,
-                      date = row.date,
-                      time = None,
-                      merchantId = res.merchantId,
-                      notes = Some(row.description).filter(_.nonEmpty),
-                      splits = List(CreateExpenseFromRow.Split(res.categoryId, row.amount.abs)),
-                      receiptId = None
-                    )
-                    props.ctx.api.client.createExpenseFromRow(stmtId, rowId, req).onComplete {
-                      case Success(resp) =>
-                        setStatementRows(cur =>
-                          cur.map(r =>
-                            if (r.id == rowId)
-                              r.copy(
-                                expenseId = Some(resp.expenseId),
-                                expenseMerchantId = res.merchantId,
-                                expenseCategoryId = Some(res.categoryId)
-                              )
-                            else r
-                          )
-                        )
-                        succeed(counts.copy(created = counts.created + 1))
-                      case Failure(ex) => fail(ex.getMessage)
-                    }
-                }
-            }
-        }
-      loop(ids, Counts(0, 0, 0, 0), Set.empty)
-    }
-
     // Stable across renders so the memoized rows only re-render when their own props change. They may only use setters
     // and values that never change for this statement.
     val onToggleSelected: (UUID, Boolean) => Unit = Hooks.useCallback(
@@ -403,8 +284,32 @@ object BankStatementReviewContent {
             bulkActive = bulkActive,
             importProgress = bulkImportProgress,
             ignoreProgress = bulkIgnoreProgress,
-            onProcess = () => handleBulkImport(stmt.id, selectedInView.toList),
-            onIgnore = () => handleBulkIgnore(stmt.id, selectedInView.toList),
+            onProcess = () =>
+              BankStatementBulkRuns.handleBulkImport(
+                client = props.ctx.api.client,
+                stmtId = stmt.id,
+                ids = selectedInView.toList,
+                statementRows = statementRows,
+                rowInfoById = rowInfoById,
+                expenseMatchById = expenseMatchById,
+                expenseList = expenseList,
+                setStatementRows = setStatementRows,
+                setBulkImportProgress = setBulkImportProgress,
+                setBulkImportResults = setBulkImportResults,
+                setSelectedRowIds = setSelectedRowIds,
+                showToast = showToast,
+                onRefresh = props.onRefresh
+              ),
+            onIgnore = () =>
+              BankStatementBulkRuns.handleBulkIgnore(
+                client = props.ctx.api.client,
+                stmtId = stmt.id,
+                ids = selectedInView.toList,
+                setStatementRows = setStatementRows,
+                setBulkIgnoreProgress = setBulkIgnoreProgress,
+                setBulkIgnoreResults = setBulkIgnoreResults,
+                setSelectedRowIds = setSelectedRowIds
+              ),
             onClear = () => setSelectedRowIds(Set.empty)
           )
         )
