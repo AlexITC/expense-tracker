@@ -18,6 +18,12 @@ Review changes under test sources. Flag:
   human-readable.
 - A test description that includes the spec/class name
   (`"DocumentParserSpec.parse"`) — name the method only (`"parse"`).
+- A test that reaches the database with hand-written SQL via
+  `anorm.SQL("...").on("p" -> v)`. Match how the DAOs query: use the
+  `SQL"""... ${param}"""` string interpolator (same binding, one consistent
+  style), and prefer calling the existing repository/DAO over re-implementing
+  its query inline.
 
 Not: unit tests of pure logic using fakes; integration tests backed by docker
-Postgres.
+Postgres; a one-off `SQL"""...${param}"""` interpolated query that inspects
+state no repository/DAO exposes.

@@ -1,15 +1,27 @@
 ---
-description: Scala coding patterns — Chimney for case-class mapping, no dropped Futures, no silent defaults for missing data
+description: Scala coding patterns — Chimney for case-class and sum-type mapping, no dropped Futures, no silent defaults for missing data
 ---
 
 Review the added/changed lines for the patterns below only. Report clear,
 actionable cases with file and line; if none apply, report nothing.
 
-## Use Chimney for case-class mapping
+## Use Chimney for case-class and sum-type mapping
 Flag a case class built from another by hand (`Target(a.x, a.y, ...)` or
 `Target(x = src.x, ...)`) when the fields line up by name — use
-`src.transformInto[Target]` / `src.into[Target].transform` instead. Not:
-mappings that are mostly computation, or where most fields need custom handling.
+`src.transformInto[Target]` / `src.into[Target].transform` instead.
+
+This applies to **sum types** too: a `match` that maps one `enum`/sealed type to
+another whose cases correspond by name (`case Foo => Other.Foo; case Bar =>
+Other.Bar; ...`) is a hand-rolled transformation — use
+`src.transformInto[Other]`, which Chimney derives case-by-name and turns a new
+unmapped case into a compile error. A common giveaway is a domain↔DTO bridge
+method such as `toApi`/`fromApi`. Frontend and backend deploy together and there
+are no third-party API clients, so keeping such a type (or its conversion) solely
+to pin a wire representation is not worth the boilerplate — map with Chimney, or
+change the representation.
+
+Not: mappings that are mostly computation, that rename or combine fields/cases,
+or where the cases/fields do not line up by name.
 
 ## Never drop a Future
 Flag a `Future[_]` in statement position whose value is neither returned,
