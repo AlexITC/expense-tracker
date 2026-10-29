@@ -899,6 +899,10 @@ object BankStatementReviewContent {
                         selected = selectedRowIds.contains(row.id),
                         showCheckbox = rowFilter == "unprocessed" || rowFilter == "ready",
                         pollingSuggestions = pollingSuggestions,
+                        linksToExpense = expenseMatchById.get(row.id).exists {
+                          case ReconciliationMatcher.AutoLink(_) => true
+                          case _ => false
+                        },
                         onToggleSelected = onToggleSelected,
                         onAction = onRowAction
                       )
