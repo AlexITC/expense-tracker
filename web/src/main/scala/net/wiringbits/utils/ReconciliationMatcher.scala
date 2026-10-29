@@ -5,11 +5,13 @@ import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 
+import java.time.LocalDate
 import java.util.UUID
 
 object ReconciliationMatcher {
 
-  // Accounts for the gap between purchase date and bank settlement/posting date.
+  // Accounts for the gap between purchase date and bank settlement/posting date. `reconcile` applies it in both
+  // directions; `matchRow` only allows the row to post after the expense.
   private val MaxDateDifferenceDays = 3L
 
   // Tolerance for small amount differences (tips, rounding, FX adjustments) when no exact match exists.
@@ -44,6 +46,9 @@ object ReconciliationMatcher {
     }
   }
 
+  /** Auto-reconcile's matching. It intentionally keeps a symmetric ±3-day window and exact amounts only, so it can
+    * propose different links than `matchRow`, which the review page uses.
+    */
   def reconcile(
       rows: List[GetBankStatement.StatementRowData],
       expenses: List[GetExpenses.Response.Expense],
@@ -91,18 +96,39 @@ object ReconciliationMatcher {
             case None => _ => true
           }
       }
-    val eligible = expenses.filter { e =>
-      e.rowIds.isEmpty &&
-      !row.date.isBefore(e.date) &&
-      !row.date.isAfter(e.date.plusDays(MaxDateDifferenceDays)) &&
-      constraint(e)
-    }
+    val eligible = expenses.filter(e => isMatchRowCandidate(row, e) && constraint(e))
     val exact = eligible.filter(_.amount.abs == row.amount.abs)
     val candidates =
       if (exact.nonEmpty) exact
       else eligible.filter(e => (row.amount.abs - e.amount.abs).abs <= NearAmountTolerance)
     actionFor(candidates)
   }
+
+  /** Unlinked expenses grouped by date, built once so each row only looks at the dates it can match. */
+  def unlinkedByDate(
+      expenses: List[GetExpenses.Response.Expense]
+  ): Map[LocalDate, List[GetExpenses.Response.Expense]] =
+    expenses.filter(_.rowIds.isEmpty).groupBy(_.date)
+
+  /** An index-based prefilter for `matchRow`: the expenses on the dates its window can reach. `matchRow` re-checks
+    * every candidate with `isMatchRowCandidate`, so the window and the unlinked rule are only defined there.
+    */
+  def candidatesFor(
+      row: GetBankStatement.StatementRowData,
+      byDate: Map[LocalDate, List[GetExpenses.Response.Expense]]
+  ): List[GetExpenses.Response.Expense] =
+    (0L to MaxDateDifferenceDays).toList
+      .flatMap(d => byDate.getOrElse(row.date.minusDays(d), Nil))
+      .filter(isMatchRowCandidate(row, _))
+
+  // `matchRow`'s window and unlinked rule: the expense is unlinked and the row posts 0 to 3 days after it.
+  private def isMatchRowCandidate(
+      row: GetBankStatement.StatementRowData,
+      e: GetExpenses.Response.Expense
+  ): Boolean =
+    e.rowIds.isEmpty &&
+      !row.date.isBefore(e.date) &&
+      !row.date.isAfter(e.date.plusDays(MaxDateDifferenceDays))
 
   private def actionFor(candidates: List[GetExpenses.Response.Expense]): ProposedAction =
     candidates match {

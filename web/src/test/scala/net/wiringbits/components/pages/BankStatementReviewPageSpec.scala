@@ -2,6 +2,7 @@ package net.wiringbits.components.pages
 
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus, GetBankStatement}
 import net.wiringbits.api.models.categories.GetCategories
+import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction, ImportRuleActionKind}
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.utils.ReconciliationMatcher
@@ -562,6 +563,50 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
     "fail with No category when the row resolves to nothing" in {
       BankStatementReviewPage.bulkRowDecision(info(RowRuleVerdict.NoRule, None), None, Set.empty) mustBe
         BulkRowDecision.Fail("No category")
+    }
+  }
+
+  "expenseMatches" should {
+    import BankStatementReviewPage.{LinkedCategory, RowInfo}
+
+    def info(verdict: RowRuleVerdict.Verdict, isReady: Boolean): RowInfo =
+      RowInfo(
+        verdict = verdict,
+        resolved = None,
+        isReady = isReady,
+        merchantName = None,
+        categoryName = None,
+        linkedMerchantName = None,
+        linkedCategory = LinkedCategory.Unknown
+      )
+
+    "only match ready, non-ignored debit rows" in {
+      val eligible = sampleRow()
+      val refund = sampleRow().copy(amount = BigDecimal("120.00"))
+      val notReady = sampleRow()
+      val ignored = sampleRow()
+      val expense = GetExpenses.Response.Expense(
+        id = UUID.randomUUID(),
+        amount = BigDecimal("120.00"),
+        date = eligible.date,
+        time = None,
+        merchantId = None,
+        merchantName = None,
+        notes = None,
+        splits = Nil,
+        createdAt = Instant.now()
+      )
+      val infos = Map(
+        eligible.id -> info(RowRuleVerdict.NoRule, isReady = true),
+        refund.id -> info(RowRuleVerdict.NoRule, isReady = true),
+        notReady.id -> info(RowRuleVerdict.NoRule, isReady = false),
+        ignored.id -> info(RowRuleVerdict.Ignore, isReady = true)
+      )
+      BankStatementReviewPage.expenseMatches(
+        List(eligible, refund, notReady, ignored),
+        infos,
+        ReconciliationMatcher.unlinkedByDate(List(expense))
+      ) mustBe Map(eligible.id -> ReconciliationMatcher.AutoLink(expense.id))
     }
   }
 }

@@ -259,6 +259,24 @@ object BankStatementReviewPage {
           info.flatMap(_.resolved).fold(BulkRowDecision.Fail("No category"))(BulkRowDecision.Create(_))
       }
 
+  /** Matches only ready debit rows that would become an expense (not Ignore-verdict rows) against the unlinked
+    * expenses, given as `ReconciliationMatcher.unlinkedByDate`.
+    */
+  def expenseMatches(
+      rows: List[GetBankStatement.StatementRowData],
+      rowInfoById: Map[UUID, RowInfo],
+      unlinkedByDate: Map[LocalDate, List[GetExpenses.Response.Expense]]
+  ): Map[UUID, ReconciliationMatcher.ProposedAction] =
+    rows.flatMap { row =>
+      rowInfoById
+        .get(row.id)
+        .filter(info => info.isReady && info.verdict != RowRuleVerdict.Ignore && row.amount < 0)
+        .map { info =>
+          val candidates = ReconciliationMatcher.candidatesFor(row, unlinkedByDate)
+          row.id -> ReconciliationMatcher.matchRow(row, info.verdict, candidates)
+        }
+    }.toMap
+
   /** The toast shown after "Process ready", listing only the non-zero counts. */
   def bulkImportSummary(linked: Int, created: Int, ignored: Int, failed: Int): String = {
     val parts = List(linked -> "linked", created -> "created", ignored -> "ignored", failed -> "failed")
@@ -414,7 +432,7 @@ object BankStatementReviewContent {
     val (merchantList, setMerchantList) = Hooks.useState(props.data.merchants)
     val (categoryList, setCategoryList) = Hooks.useState(props.data.categories)
     val (ruleList, setRuleList) = Hooks.useState(props.data.rules)
-    // Kept current by `refreshExpenses` after single-row link changes and by bulk links; expense matching reads it.
+    // Kept current by `refreshExpenses` after single-row link changes; expense matching reads it.
     val (expenseList, setExpenseList) = Hooks.useState(props.data.expenses)
 
     val initialTab = {
@@ -469,16 +487,13 @@ object BankStatementReviewContent {
         statementRows.map(r => r.id -> rowInfo(effectiveRuleList, merchantList, categoryList, aiSuggestions, r)).toMap,
       List(statementRows, effectiveRuleList, merchantList, aiSuggestions, categoryList)
     )
-    // Only ready debit rows that would become an expense are matched against existing expenses.
+    val unlinkedExpensesByDate = Hooks.useMemo(
+      () => ReconciliationMatcher.unlinkedByDate(expenseList),
+      List(expenseList)
+    )
     val expenseMatchById: Map[UUID, ReconciliationMatcher.ProposedAction] = Hooks.useMemo(
-      () =>
-        statementRows.flatMap { row =>
-          rowInfoById
-            .get(row.id)
-            .filter(info => info.isReady && info.verdict != RowRuleVerdict.Ignore && row.amount < 0)
-            .map(info => row.id -> ReconciliationMatcher.matchRow(row, info.verdict, expenseList))
-        }.toMap,
-      List(statementRows, rowInfoById, expenseList)
+      () => expenseMatches(statementRows, rowInfoById, unlinkedExpensesByDate),
+      List(statementRows, rowInfoById, unlinkedExpensesByDate)
     )
     def isReadyToProcess(row: GetBankStatement.StatementRowData): Boolean = rowInfoById.get(row.id).exists(_.isReady)
 
@@ -538,6 +553,14 @@ object BankStatementReviewContent {
         case Failure(ex) => setError(ex.getMessage)
       }
 
+    def handleUnlinkRefund(stmtId: UUID, rowId: UUID): Unit =
+      props.ctx.api.client.unlinkRowRefund(stmtId, rowId).onComplete {
+        case Success(_) =>
+          setError("")
+          setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(refundId = None) else r))
+        case Failure(ex) => setError(ex.getMessage)
+      }
+
     // The drawer forms only report the new expense id, so re-read the row to get the expense's merchant and category.
     // Single-row changes refresh just that row and the expense list, so the page is not remounted.
     def refreshRow(rowId: UUID): Unit = {
@@ -554,14 +577,6 @@ object BankStatementReviewContent {
     def refreshExpenses(): Unit =
       props.ctx.api.client.getExpenses.onComplete {
         case Success(resp) => setExpenseList(resp.data)
-        case Failure(ex) => setError(ex.getMessage)
-      }
-
-    def handleUnlinkRefund(stmtId: UUID, rowId: UUID): Unit =
-      props.ctx.api.client.unlinkRowRefund(stmtId, rowId).onComplete {
-        case Success(_) =>
-          setError("")
-          setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(refundId = None) else r))
         case Failure(ex) => setError(ex.getMessage)
       }
 
@@ -588,7 +603,7 @@ object BankStatementReviewContent {
       loop(ids, 0, 0)
     }
 
-    // Matches are taken from this render; rows linked during a bulk run are tracked in the loop instead.
+    // Matches are taken from this render; expenses linked during a bulk run are tracked in the loop instead.
     def handleBulkImport(stmtId: UUID, ids: List[UUID]): Unit = {
       val total = ids.length
       setBulkImportProgress(Some((0, total, 0)))
@@ -647,9 +662,6 @@ object BankStatementReviewContent {
                                 )
                               else r
                             )
-                          )
-                          setExpenseList(cur =>
-                            cur.map(e => if (e.id == expenseId) e.copy(rowIds = e.rowIds :+ rowId) else e)
                           )
                           advance(Right(()), counts.copy(linked = counts.linked + 1), linkedThisRun + expenseId)
                         case Failure(ex) => fail(ex.getMessage)

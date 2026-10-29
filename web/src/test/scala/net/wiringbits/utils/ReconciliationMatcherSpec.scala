@@ -360,4 +360,15 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       )
     }
   }
+
+  "candidatesFor" should {
+    "return unlinked expenses dated 0 to 3 days before the row" in {
+      val row = makeRow()
+      val inWindow = List(0L, 3L).map(d => makeExpense(date = baseDate.minusDays(d)))
+      val outside = List(makeExpense(date = baseDate.minusDays(4)), makeExpense(date = baseDate.plusDays(1)))
+      val linked = makeExpense(rowIds = List(UUID.randomUUID()))
+      val byDate = ReconciliationMatcher.unlinkedByDate(inWindow ++ outside :+ linked)
+      ReconciliationMatcher.candidatesFor(row, byDate).map(_.id).toSet mustBe inWindow.map(_.id).toSet
+    }
+  }
 }
