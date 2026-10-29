@@ -3,6 +3,7 @@ package net.wiringbits.components.pages
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{CreateExpenseFromRow, LinkRowToExpense}
+import net.wiringbits.components.pages.BankStatementReviewDrawer.DrawerForm
 import net.wiringbits.components.pages.BankStatementReviewRow.RowAction
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.utils.ReconciliationMatcher
@@ -11,7 +12,7 @@ import net.wiringbits.webapp.utils.slinkyUtils.compat.RouterCompat
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.useHistory
 import org.scalajs.dom
 import org.scalajs.dom.URLSearchParams
-import slinky.core.facade.{Fragment, Hooks, ReactElement, SetStateHookCallback}
+import slinky.core.facade.{Fragment, Hooks, SetStateHookCallback}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 
 import java.time.Instant
@@ -354,8 +355,9 @@ object BankStatementReviewContent {
     val drawerOpen =
       creatingForRow.isDefined || creatingRefundForRow.isDefined ||
         linkingForRow.isDefined || ruleFormForRow.isDefined
-    val drawerRowId =
-      creatingForRow.orElse(creatingRefundForRow).orElse(linkingForRow).orElse(ruleFormForRow)
+    val drawerTarget = BankStatementReviewDrawer
+      .activeForm(creatingForRow, creatingRefundForRow, linkingForRow, ruleFormForRow)
+      .flatMap { case (id, form) => statementRows.find(_.id == id).map(_ -> form) }
 
     def closeDrawer(): Unit = {
       setCreatingForRow(None); setCreatingRefundForRow(None)
@@ -439,151 +441,51 @@ object BankStatementReviewContent {
         else Fragment()
       ),
       // ── Detail Drawer ──
-      mui.Drawer
-        .anchor("right")
-        .open(drawerOpen)
-        .onClose((_, _) => closeDrawer())(
-          mui.Box.sx(new CSSPropertiesUtils {
-            width = "480px"; maxWidth = "92vw"; height = "100%"
-            display = "flex"; flexDirection = "column"; padding = "20px"
-          })(
-            mui.Box.sx(new CSSPropertiesUtils {
-              display = "flex"; alignItems = "center"; marginBottom = "16px"
-            })(
-              mui
-                .Typography("Review transaction")
-                .sx(new CSSPropertiesUtils { fontSize = "16px"; fontWeight = "600"; color = "var(--lc-text)" }),
-              mui.Box.sx(new CSSPropertiesUtils { flex = "1" })(),
-              (mui.IconButton
-                .normal()(
-                  mui.Typography("×").sx(new CSSPropertiesUtils { fontSize = "22px" })
-                )
-                .onClick(_ => closeDrawer())
-                .build: ReactElement)
-            ),
-            drawerRowId
-              .flatMap(id => statementRows.find(_.id == id))
-              .map { row =>
-                (Fragment(
-                  mui.Box.sx(new CSSPropertiesUtils {
-                    padding = "12px 16px"; marginBottom = "16px"; borderRadius = "8px"
-                    border = "1px solid var(--lc-border)"; backgroundColor = "var(--lc-bg)"
-                  })(
-                    mui.Box.sx(new CSSPropertiesUtils {
-                      display = "flex"; justifyContent = "space-between"; alignItems = "flex-start"
-                    })(
-                      mui.Box(
-                        mui
-                          .Typography("From statement")
-                          .sx(new CSSPropertiesUtils {
-                            fontSize = "11px"; fontWeight = "700"; letterSpacing = "0.06em"
-                            textTransform = "uppercase"; color = "var(--lc-text-2)"; display = "block"
-                          }),
-                        mui
-                          .Typography(row.description)
-                          .sx(new CSSPropertiesUtils {
-                            fontFamily = "\"IBM Plex Mono\", monospace"; fontSize = "13.5px"
-                            marginTop = "4px"; display = "block"
-                          }),
-                        mui
-                          .Typography(row.date.toString)
-                          .sx(new CSSPropertiesUtils {
-                            fontSize = "12px"; color = "var(--lc-text-2)"; display = "block"
-                          })
-                      ),
-                      mui
-                        .Typography(s"${if (row.amount > 0) "+" else ""}${row.amount}")
-                        .sx(new CSSPropertiesUtils {
-                          fontWeight = "700"; fontSize = "18px"
-                          fontFamily = "\"IBM Plex Mono\", monospace"
-                          color = if (row.amount > 0) "var(--lc-brand)" else "var(--lc-error)"
-                        })
-                    )
-                  ),
-                  if (creatingForRow.contains(row.id))
-                    BankRowCreateExpenseForm(
-                      BankRowCreateExpenseForm.Props(
-                        stmtId = stmt.id,
-                        row = row,
-                        merchants = merchantList,
-                        categories = categoryList,
-                        ruleList = ruleList,
-                        aiSuggestion = stmt.aiSuggestions.flatMap(_.rows.find(_.rowId == row.id)),
-                        ctx = props.ctx,
-                        onSuccess = expenseId => {
-                          setStatementRows(cur =>
-                            cur.map(r => if (r.id == row.id) r.copy(expenseId = Some(expenseId)) else r)
-                          )
-                          setCreatingForRow(None)
-                          refreshRow(row.id)
-                          showToast("Expense created")
-                        },
-                        onCancel = () => setCreatingForRow(None),
-                        onNewEntities = (newRule, newMerchant) => {
-                          newRule.foreach(r => setRuleList(cur => cur :+ r))
-                          newMerchant.foreach(m => setMerchantList(cur => cur :+ m))
-                        }
-                      )
-                    )
-                  else if (creatingRefundForRow.contains(row.id))
-                    BankRowCreateRefundForm(
-                      BankRowCreateRefundForm.Props(
-                        stmtId = stmt.id,
-                        rowId = row.id,
-                        row = row,
-                        merchants = merchantList,
-                        categories = categoryList,
-                        ruleList = ruleList,
-                        ctx = props.ctx,
-                        onSuccess = refundId => {
-                          setStatementRows(cur =>
-                            cur.map(r => if (r.id == row.id) r.copy(refundId = Some(refundId)) else r)
-                          )
-                          setCreatingRefundForRow(None)
-                          showToast("Refund created")
-                        },
-                        onCancel = () => setCreatingRefundForRow(None)
-                      )
-                    )
-                  else if (linkingForRow.contains(row.id))
-                    BankRowLinkPicker(
-                      BankRowLinkPicker.Props(
-                        stmtId = stmt.id,
-                        rowId = row.id,
-                        ctx = props.ctx,
-                        onSuccess = expenseId => {
-                          setStatementRows(cur =>
-                            cur.map(r => if (r.id == row.id) r.copy(expenseId = Some(expenseId)) else r)
-                          )
-                          setLinkingForRow(None)
-                          refreshRow(row.id)
-                        },
-                        onCancel = () => setLinkingForRow(None)
-                      )
-                    )
-                  else if (ruleFormForRow.contains(row.id))
-                    BankRowRuleForm(
-                      BankRowRuleForm.Props(
-                        stmtId = stmt.id,
-                        row = row,
-                        merchants = merchantList,
-                        categories = categoryList,
-                        ctx = props.ctx,
-                        onSuccess = (rule, newMerchantOpt) => {
-                          setRuleList(cur => cur :+ rule)
-                          newMerchantOpt.foreach(m => setMerchantList(cur => cur :+ m))
-                          setRuleFormForRow(None)
-                          showToast("Rule created")
-                        },
-                        onCancel = () => setRuleFormForRow(None)
-                      )
-                    )
-                  else Fragment()
-                ): ReactElement)
-              }
-              .getOrElse(Fragment())
-          )
+      BankStatementReviewDrawer(
+        BankStatementReviewDrawer.Props(
+          ctx = props.ctx,
+          stmtId = stmt.id,
+          open = drawerOpen,
+          target = drawerTarget,
+          merchants = merchantList,
+          categories = categoryList,
+          ruleList = ruleList,
+          aiSuggestions = stmt.aiSuggestions,
+          onClose = () => closeDrawer(),
+          onCancel = {
+            case DrawerForm.CreateExpense => setCreatingForRow(None)
+            case DrawerForm.CreateRefund => setCreatingRefundForRow(None)
+            case DrawerForm.LinkExpense => setLinkingForRow(None)
+            case DrawerForm.CreateRule => setRuleFormForRow(None)
+          },
+          onExpenseCreated = (rowId, expenseId) => {
+            setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(expenseId = Some(expenseId)) else r))
+            setCreatingForRow(None)
+            refreshRow(rowId)
+            showToast("Expense created")
+          },
+          onRefundCreated = (rowId, refundId) => {
+            setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(refundId = Some(refundId)) else r))
+            setCreatingRefundForRow(None)
+            showToast("Refund created")
+          },
+          onExpenseLinked = (rowId, expenseId) => {
+            setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(expenseId = Some(expenseId)) else r))
+            setLinkingForRow(None)
+            refreshRow(rowId)
+          },
+          onRuleCreated = (rule, newMerchantOpt) => {
+            setRuleList(cur => cur :+ rule)
+            newMerchantOpt.foreach(m => setMerchantList(cur => cur :+ m))
+            setRuleFormForRow(None)
+            showToast("Rule created")
+          },
+          onNewEntities = (newRule, newMerchant) => {
+            newRule.foreach(r => setRuleList(cur => cur :+ r))
+            newMerchant.foreach(m => setMerchantList(cur => cur :+ m))
+          }
         )
+      )
     )
   }
 }
