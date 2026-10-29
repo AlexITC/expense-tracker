@@ -14,7 +14,7 @@ import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.core.GenericHooks
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.useParams
 import org.scalajs.dom
-import slinky.core.facade.{Fragment, Hooks, ReactElement}
+import slinky.core.facade.{Fragment, Hooks}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 
 import java.util.UUID
@@ -28,25 +28,6 @@ object BankStatementReviewPage {
   case class Props(ctx: AppContext, user: User)
 
   type RowEdits = Map[UUID, (String, String, String)]
-
-  /** A one-line summary of the statement metadata. */
-  def statementMetadataLine(stmt: GetBankStatement.Response): ReactElement = {
-    val productType = stmt.productType match {
-      case "credit" => "Type: Credit card"
-      case "debit" => "Type: Debit account"
-      case other => s"Type: $other"
-    }
-    val parts = List(
-      s"Bank: ${stmt.bankName}",
-      productType,
-      s"Currency: ${stmt.currency}",
-      s"Account: ••••${stmt.accountLast4}",
-      s"Period: ${stmt.periodStart} – ${stmt.periodEnd}"
-    )
-    mui
-      .Typography(parts.mkString("    ·    "))
-      .sx(new CSSPropertiesUtils { fontSize = "13px"; color = "var(--lc-text-2)"; marginBottom = "8px" })
-  }
 
   private val hintStyling = new CSSPropertiesUtils { fontSize = "0.8em"; color = "var(--lc-brand)" }
 

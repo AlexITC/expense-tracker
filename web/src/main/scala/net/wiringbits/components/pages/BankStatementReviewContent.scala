@@ -371,6 +371,13 @@ object BankStatementReviewContent {
 
     val counts = tabCounts(statementRows, rowInfoById)
 
+    def handleTabChange(tab: Tab): Unit = {
+      setRowFilter(tab)
+      setSelectedRowIds(Set.empty)
+      val pathname = location.pathname
+      history.replace(s"$pathname?tab=${tab.key}")
+    }
+
     val hcell = new CSSPropertiesUtils {
       fontWeight = "700"; fontSize = "11px"; letterSpacing = "0.06em"
       textTransform = "uppercase"; color = "var(--lc-text-2)"
@@ -381,56 +388,17 @@ object BankStatementReviewContent {
     })(
       // ── Header + Tabs ──
       mui.Box.sx(new CSSPropertiesUtils { padding = "20px 24px 0 24px" })(
-        mui.Box.sx(new CSSPropertiesUtils {
-          display = "flex"; alignItems = "baseline"; gap = "12px"; marginBottom = "4px"
-        })(
-          mui
-            .Typography(stmt.documentFilename)
-            .sx(new CSSPropertiesUtils {
-              fontSize = "18px"; fontWeight = "700"; color = "var(--lc-text)"
-              fontFamily = "\"IBM Plex Sans\", sans-serif"
-            }),
-          mui
-            .Typography(s"${statementRows.size} transactions")
-            .sx(new CSSPropertiesUtils { fontSize = "14px"; color = "var(--lc-text-2)" }),
-          mui.Box.sx(new CSSPropertiesUtils { flex = "1" })(),
-          mui.Button
-            .normal()(
-              if (regenerateSuggestionsDisabled) "Regenerating…"
-              else "Regenerate AI suggestions"
-            )
-            .size("small")
-            .variant("outlined")
-            .disabled(regenerateSuggestionsDisabled)
-            .onClick(_ => handleRegenerateSuggestions(stmt.id)),
-          mui.Button
-            .normal()("Auto-reconcile")
-            .size("small")
-            .variant("outlined")
-            .onClick(_ => history.push(s"/bank-statements/${stmt.id}/auto-reconcile")),
-          mui.Button
-            .normal()("← Back")
-            .size("small")
-            .variant("outlined")
-            .onClick(_ => history.push("/bank-statements"))
-        ),
-        statementMetadataLine(stmt),
-        mui.Tabs
-          .value(rowFilter.key)
-          .onChange((_, v) => {
-            val tab = Tab.parse(v.asInstanceOf[String])
-            setRowFilter(tab)
-            setSelectedRowIds(Set.empty)
-            val pathname = location.pathname
-            history.replace(s"$pathname?tab=${tab.key}")
-          })
-          .sx(new CSSPropertiesUtils { marginTop = "8px"; minHeight = "42px" })(
-            mui.Tab.normal().value(Tab.Ready.key).label(s"Ready (${counts.ready})").build,
-            mui.Tab.normal().value(Tab.Unprocessed.key).label(s"Unprocessed (${counts.unprocessed})").build,
-            mui.Tab.normal().value(Tab.Ignored.key).label(s"Ignored (${counts.ignored})").build,
-            mui.Tab.normal().value(Tab.Linked.key).label(s"Linked (${counts.linked})").build,
-            mui.Tab.normal().value(Tab.All.key).label(s"All (${counts.all})").build
+        BankStatementReviewHeader(
+          BankStatementReviewHeader.Props(
+            statement = stmt,
+            rowCount = statementRows.size,
+            regenerateDisabled = regenerateSuggestionsDisabled,
+            onRegenerate = () => handleRegenerateSuggestions(stmt.id)
           )
+        ),
+        BankStatementReviewTabs(
+          BankStatementReviewTabs.Props(rowFilter = rowFilter, counts = counts, onChange = handleTabChange)
+        )
       ),
       // ── Bulk bar ──
       if (selectedInView.nonEmpty)
