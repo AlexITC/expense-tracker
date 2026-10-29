@@ -3,7 +3,7 @@ package net.wiringbits.components.pages
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.api.models.bankstatements.GetBankStatement
 import net.wiringbits.api.utils.RowRuleVerdict
-import net.wiringbits.components.pages.BankStatementReviewPage.{LinkedCategory, ResolvedImport, RowInfo}
+import net.wiringbits.components.pages.BankStatementReviewLogic.{LinkedCategory, ResolvedImport, RowInfo}
 import net.wiringbits.components.pages.BankStatementReviewRow.RowAction
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.BrowserRouter
 import org.scalajs.dom

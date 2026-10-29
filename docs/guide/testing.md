@@ -134,7 +134,7 @@ For all other frontend logic, prefer extracting a **pure function** and writing 
 BulkExpenseCreationPage.formatDate(someDate) mustBe "2024-01-15"
 
 // Instead of rendering the component to test a label:
-BankStatementReviewPage.resultLabel(id, merchants, Right(())) mustBe "✓ Acme"
+BankStatementReviewLogic.resultLabel(id, merchants, Right(())) mustBe "✓ Acme"
 ```
 
 If you cannot extract a pure function and a DOM test feels necessary, state the specific runtime failure it prevents in a comment on the test.
