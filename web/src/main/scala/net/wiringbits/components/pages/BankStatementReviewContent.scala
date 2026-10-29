@@ -366,8 +366,6 @@ object BankStatementReviewContent {
     val tableRows = filterRows(statementRows, rowFilter, rowInfoById)
     val selectedInView = selectedRowIds.intersect(tableRows.map(_.id).toSet)
     val bulkActive = selectedInView.nonEmpty && bulkIgnoreProgress.isEmpty && bulkImportProgress.isEmpty
-    val allTableSelected = tableRows.nonEmpty && tableRows.forall(r => selectedRowIds.contains(r.id))
-    val someTableSelected = tableRows.exists(r => selectedRowIds.contains(r.id)) && !allTableSelected
 
     val counts = tabCounts(statementRows, rowInfoById)
 
@@ -376,11 +374,6 @@ object BankStatementReviewContent {
       setSelectedRowIds(Set.empty)
       val pathname = location.pathname
       history.replace(s"$pathname?tab=${tab.key}")
-    }
-
-    val hcell = new CSSPropertiesUtils {
-      fontWeight = "700"; fontSize = "11px"; letterSpacing = "0.06em"
-      textTransform = "uppercase"; color = "var(--lc-text-2)"
     }
 
     mui.Box.sx(new CSSPropertiesUtils {
@@ -422,66 +415,19 @@ object BankStatementReviewContent {
       else Fragment(),
       // ── Table ──
       mui.Box.sx(new CSSPropertiesUtils { flex = "1"; overflowY = "auto"; padding = "0 24px 24px 24px" })(
-        mui.Table.size("small")(
-          mui.TableHead(
-            mui.TableRow(
-              mui.TableCell.padding("checkbox")(
-                if (rowFilter == Tab.Unprocessed || rowFilter == Tab.Ready)
-                  (mui.Checkbox
-                    .checked(allTableSelected)
-                    .indeterminate(someTableSelected)
-                    .size("small")
-                    .onChange((_, checked) =>
-                      if (checked)
-                        setSelectedRowIds(tableRows.map(_.id).toSet)
-                      else setSelectedRowIds(Set.empty)
-                    ): ReactElement)
-                else Fragment()
-              ),
-              mui.TableCell.sx(hcell)("Date"),
-              mui.TableCell.align("right").sx(hcell)("Amount"),
-              mui.TableCell.sx(hcell)("Description"),
-              mui.TableCell.sx(hcell)("Category"),
-              mui.TableCell.sx(hcell)("Match"),
-              mui.TableCell.align("right").sx(hcell)("")
-            )
-          ),
-          if (tableRows.isEmpty)
-            mui.TableBody(
-              mui.TableRow(
-                mui.TableCell.colSpan(7)(
-                  mui
-                    .Typography("No transactions in this view.")
-                    .sx(new CSSPropertiesUtils {
-                      padding = "32px 0"; textAlign = "center"; color = "var(--lc-text-2)"; display = "block"
-                    })
-                )
-              )
-            )
-          else
-            mui.TableBody(
-              Fragment(
-                tableRows.flatMap { row =>
-                  rowInfoById.get(row.id).map { info =>
-                    (BankStatementReviewRow(
-                      BankStatementReviewRow.Props(
-                        row = row,
-                        info = info,
-                        selected = selectedRowIds.contains(row.id),
-                        showCheckbox = rowFilter == Tab.Unprocessed || rowFilter == Tab.Ready,
-                        pollingSuggestions = pollingSuggestions,
-                        linksToExpense = expenseMatchById.get(row.id).exists {
-                          case ReconciliationMatcher.AutoLink(_) => true
-                          case _ => false
-                        },
-                        onToggleSelected = onToggleSelected,
-                        onAction = onRowAction
-                      )
-                    ).withKey(row.id.toString): ReactElement)
-                  }
-                }*
-              )
-            )
+        BankStatementReviewTable(
+          BankStatementReviewTable.Props(
+            rows = tableRows,
+            rowInfoById = rowInfoById,
+            selectedRowIds = selectedRowIds,
+            showCheckbox = rowFilter == Tab.Unprocessed || rowFilter == Tab.Ready,
+            pollingSuggestions = pollingSuggestions,
+            expenseMatchById = expenseMatchById,
+            onSelectAll =
+              checked => if (checked) setSelectedRowIds(tableRows.map(_.id).toSet) else setSelectedRowIds(Set.empty),
+            onToggleSelected = onToggleSelected,
+            onRowAction = onRowAction
+          )
         ),
         if (bulkImportResults.nonEmpty || bulkIgnoreResults.nonEmpty)
           BankStatementReviewBulkResults(
