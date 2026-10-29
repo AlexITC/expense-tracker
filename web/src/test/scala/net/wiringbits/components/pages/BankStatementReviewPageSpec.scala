@@ -4,6 +4,7 @@ import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsSta
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction, ImportRuleActionKind}
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
+import net.wiringbits.utils.ReconciliationMatcher
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -462,6 +463,105 @@ class BankStatementReviewPageSpec extends AnyWordSpec {
 
     "be None when the merchant is not in the list" in {
       linkedMerchantName(linked.copy(expenseMerchantId = Some(UUID.randomUUID())), merchants) mustBe None
+    }
+  }
+
+  "bulkImportSummary" should {
+    "list every non-zero count" in {
+      BankStatementReviewPage.bulkImportSummary(linked = 2, created = 3, ignored = 1, failed = 1) mustBe
+        "2 linked, 3 created, 1 ignored, 1 failed"
+    }
+
+    "omit zero counts" in {
+      BankStatementReviewPage.bulkImportSummary(linked = 0, created = 4, ignored = 0, failed = 2) mustBe
+        "4 created, 2 failed"
+    }
+
+    "say nothing was processed when every count is zero" in {
+      BankStatementReviewPage.bulkImportSummary(0, 0, 0, 0) mustBe "No rows processed"
+    }
+  }
+
+  "bulkRowDecision" should {
+    import BankStatementReviewPage.{BulkRowDecision, LinkedCategory, ResolvedImport, RowInfo}
+
+    val categoryId = UUID.randomUUID()
+    val expenseId = UUID.randomUUID()
+    def info(verdict: RowRuleVerdict.Verdict, resolved: Option[ResolvedImport]): Option[RowInfo] =
+      Some(
+        RowInfo(
+          verdict = verdict,
+          resolved = resolved,
+          isReady = true,
+          merchantName = None,
+          categoryName = None,
+          linkedMerchantName = None,
+          linkedCategory = LinkedCategory.Unknown
+        )
+      )
+    val resolved = ResolvedImport(merchantId = None, categoryId = categoryId, categoryFromAi = false)
+
+    "ignore a row with an Ignore verdict" in {
+      BankStatementReviewPage.bulkRowDecision(info(RowRuleVerdict.Ignore, None), None, Set.empty) mustBe
+        BulkRowDecision.Ignore
+    }
+
+    "ignore a row with an Ignore verdict even when it has an expense match" in {
+      BankStatementReviewPage.bulkRowDecision(
+        info(RowRuleVerdict.Ignore, Some(resolved)),
+        Some(ReconciliationMatcher.AutoLink(expenseId)),
+        Set.empty
+      ) mustBe BulkRowDecision.Ignore
+      BankStatementReviewPage.bulkRowDecision(
+        info(RowRuleVerdict.Ignore, Some(resolved)),
+        Some(ReconciliationMatcher.NeedsReview(List(UUID.randomUUID(), UUID.randomUUID()))),
+        Set.empty
+      ) mustBe BulkRowDecision.Ignore
+    }
+
+    "link a row with a unique match" in {
+      BankStatementReviewPage.bulkRowDecision(
+        info(RowRuleVerdict.NoRule, Some(resolved)),
+        Some(ReconciliationMatcher.AutoLink(expenseId)),
+        Set.empty
+      ) mustBe BulkRowDecision.Link(expenseId)
+    }
+
+    "fail a row whose unique match was already linked in this run" in {
+      val decision = BankStatementReviewPage.bulkRowDecision(
+        info(RowRuleVerdict.NoRule, Some(resolved)),
+        Some(ReconciliationMatcher.AutoLink(expenseId)),
+        Set(expenseId)
+      )
+      decision match {
+        case BulkRowDecision.Fail(msg) => msg must include("already linked")
+        case other => fail(s"Expected Fail, got $other")
+      }
+    }
+
+    "fail a row with several matches, naming how many" in {
+      val decision = BankStatementReviewPage.bulkRowDecision(
+        info(RowRuleVerdict.NoRule, Some(resolved)),
+        Some(ReconciliationMatcher.NeedsReview(List(UUID.randomUUID(), UUID.randomUUID()))),
+        Set.empty
+      )
+      decision match {
+        case BulkRowDecision.Fail(msg) => msg must startWith("Matches 2 existing expenses")
+        case other => fail(s"Expected Fail, got $other")
+      }
+    }
+
+    "create an expense when nothing matches" in {
+      BankStatementReviewPage.bulkRowDecision(
+        info(RowRuleVerdict.NoRule, Some(resolved)),
+        Some(ReconciliationMatcher.CreateNew),
+        Set.empty
+      ) mustBe BulkRowDecision.Create(resolved)
+    }
+
+    "fail with No category when the row resolves to nothing" in {
+      BankStatementReviewPage.bulkRowDecision(info(RowRuleVerdict.NoRule, None), None, Set.empty) mustBe
+        BulkRowDecision.Fail("No category")
     }
   }
 }

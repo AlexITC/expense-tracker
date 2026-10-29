@@ -10,6 +10,7 @@ import net.wiringbits.api.models.bankstatements.{
   CreateExpenseFromRow,
   GetBankStatement,
   IgnoreRow,
+  LinkRowToExpense,
   UnignoreRow
 }
 import net.wiringbits.api.models.categories.GetCategories
@@ -19,6 +20,7 @@ import net.wiringbits.components.pages.BankStatementReviewRow.RowAction
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.models.User
+import net.wiringbits.utils.ReconciliationMatcher
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.Container
@@ -226,6 +228,44 @@ object BankStatementReviewPage {
     else if (row.amount > 0) PrimaryAction.CreateRefund
     else PrimaryAction.CreateExpense
 
+  /** What "Process ready" does with one selected row. */
+  enum BulkRowDecision {
+    case Ignore
+    case Link(expenseId: UUID)
+    case Create(resolved: ResolvedImport)
+    case Fail(message: String)
+  }
+
+  private val manualLinkHint = "link it manually via … → Link to existing expense"
+
+  /** Decide a selected row's bulk action from its info and its expense match. An Ignore verdict wins; a unique match is
+    * linked unless an earlier row in this run already took that expense; an ambiguous match fails so the user picks
+    * manually; otherwise a new expense is created when the row resolves to a category.
+    */
+  def bulkRowDecision(
+      info: Option[RowInfo],
+      expenseMatch: Option[ReconciliationMatcher.ProposedAction],
+      linkedThisRun: Set[UUID]
+  ): BulkRowDecision =
+    if (info.exists(_.verdict == RowRuleVerdict.Ignore)) BulkRowDecision.Ignore
+    else
+      expenseMatch match {
+        case Some(ReconciliationMatcher.AutoLink(expenseId)) if linkedThisRun.contains(expenseId) =>
+          BulkRowDecision.Fail(s"Its matching expense was already linked to another row in this run — $manualLinkHint")
+        case Some(ReconciliationMatcher.AutoLink(expenseId)) => BulkRowDecision.Link(expenseId)
+        case Some(ReconciliationMatcher.NeedsReview(ids)) =>
+          BulkRowDecision.Fail(s"Matches ${ids.size} existing expenses — $manualLinkHint")
+        case None | Some(ReconciliationMatcher.CreateNew) =>
+          info.flatMap(_.resolved).fold(BulkRowDecision.Fail("No category"))(BulkRowDecision.Create(_))
+      }
+
+  /** The toast shown after "Process ready", listing only the non-zero counts. */
+  def bulkImportSummary(linked: Int, created: Int, ignored: Int, failed: Int): String = {
+    val parts = List(linked -> "linked", created -> "created", ignored -> "ignored", failed -> "failed")
+      .collect { case (n, label) if n > 0 => s"$n $label" }
+    if (parts.isEmpty) "No rows processed" else parts.mkString(", ")
+  }
+
   private val hintStyling = new CSSPropertiesUtils { fontSize = "0.8em"; color = "var(--lc-brand)" }
 
   /** Everything the review page loads up front; re-fetched as a whole on every refresh. */
@@ -374,7 +414,7 @@ object BankStatementReviewContent {
     val (merchantList, setMerchantList) = Hooks.useState(props.data.merchants)
     val (categoryList, setCategoryList) = Hooks.useState(props.data.categories)
     val (ruleList, setRuleList) = Hooks.useState(props.data.rules)
-    // Kept current by `refreshExpenses` after single-row link changes; the per-row expense matching reads it.
+    // Kept current by `refreshExpenses` after single-row link changes and by bulk links; expense matching reads it.
     val (expenseList, setExpenseList) = Hooks.useState(props.data.expenses)
 
     val initialTab = {
@@ -428,6 +468,17 @@ object BankStatementReviewContent {
       () =>
         statementRows.map(r => r.id -> rowInfo(effectiveRuleList, merchantList, categoryList, aiSuggestions, r)).toMap,
       List(statementRows, effectiveRuleList, merchantList, aiSuggestions, categoryList)
+    )
+    // Only ready debit rows that would become an expense are matched against existing expenses.
+    val expenseMatchById: Map[UUID, ReconciliationMatcher.ProposedAction] = Hooks.useMemo(
+      () =>
+        statementRows.flatMap { row =>
+          rowInfoById
+            .get(row.id)
+            .filter(info => info.isReady && info.verdict != RowRuleVerdict.Ignore && row.amount < 0)
+            .map(info => row.id -> ReconciliationMatcher.matchRow(row, info.verdict, expenseList))
+        }.toMap,
+      List(statementRows, rowInfoById, expenseList)
     )
     def isReadyToProcess(row: GetBankStatement.StatementRowData): Boolean = rowInfoById.get(row.id).exists(_.isReady)
 
@@ -537,77 +588,102 @@ object BankStatementReviewContent {
       loop(ids, 0, 0)
     }
 
+    // Matches are taken from this render; rows linked during a bulk run are tracked in the loop instead.
     def handleBulkImport(stmtId: UUID, ids: List[UUID]): Unit = {
       val total = ids.length
       setBulkImportProgress(Some((0, total, 0)))
       setBulkImportResults(Nil)
-      def loop(remaining: List[UUID], done: Int, failed: Int): Unit =
+      final case class Counts(linked: Int, created: Int, ignored: Int, failed: Int) {
+        def done: Int = linked + created + ignored + failed
+      }
+      def loop(remaining: List[UUID], counts: Counts, linkedThisRun: Set[UUID]): Unit =
         remaining match {
           case Nil =>
             setBulkImportProgress(None)
             setSelectedRowIds(Set.empty)
-            if (failed == 0) showToast(s"Imported $done expenses")
+            showToast(bulkImportSummary(counts.linked, counts.created, counts.ignored, counts.failed))
+            props.onRefresh()
           case rowId :: rest =>
+            def advance(outcome: Either[String, Unit], next: Counts, nextLinked: Set[UUID]): Unit = {
+              setBulkImportResults(cur => cur :+ (rowId -> outcome))
+              setBulkImportProgress(Some((next.done, total, next.failed)))
+              loop(rest, next, nextLinked)
+            }
+            def succeed(next: Counts): Unit = advance(Right(()), next, linkedThisRun)
+            def fail(message: String): Unit =
+              advance(Left(message), counts.copy(failed = counts.failed + 1), linkedThisRun)
             statementRows.find(_.id == rowId) match {
-              case None =>
-                setBulkImportResults(cur => cur :+ (rowId -> Left("Row not found")))
-                loop(rest, done + 1, failed + 1)
+              case None => fail("Row not found")
               case Some(row) =>
-                val info = rowInfoById.get(row.id)
-                if (info.exists(_.verdict == RowRuleVerdict.Ignore))
-                  props.ctx.api.client.ignoreRow(stmtId, rowId).onComplete {
-                    case Success(_) =>
-                      setStatementRows(cur =>
-                        cur.map(r => if (r.id == rowId) r.copy(ignoredAt = Some(Instant.now())) else r)
-                      )
-                      setBulkImportResults(cur => cur :+ (rowId -> Right(())))
-                      setBulkImportProgress(Some((done + 1, total, failed)))
-                      loop(rest, done + 1, failed)
-                    case Failure(ex) =>
-                      setBulkImportResults(cur => cur :+ (rowId -> Left(ex.getMessage)))
-                      setBulkImportProgress(Some((done + 1, total, failed + 1)))
-                      loop(rest, done + 1, failed + 1)
-                  }
-                else
-                  info.flatMap(_.resolved) match {
-                    case None =>
-                      setBulkImportResults(cur => cur :+ (rowId -> Left("No category")))
-                      loop(rest, done + 1, failed + 1)
-                    case Some(res) =>
-                      val req = CreateExpenseFromRow.Request(
-                        amount = row.amount.abs,
-                        date = row.date,
-                        time = None,
-                        merchantId = res.merchantId,
-                        notes = Some(row.description).filter(_.nonEmpty),
-                        splits = List(CreateExpenseFromRow.Split(res.categoryId, row.amount.abs)),
-                        receiptId = None
-                      )
-                      props.ctx.api.client.createExpenseFromRow(stmtId, rowId, req).onComplete {
-                        case Success(resp) =>
+                bulkRowDecision(rowInfoById.get(rowId), expenseMatchById.get(rowId), linkedThisRun) match {
+                  case BulkRowDecision.Fail(message) => fail(message)
+                  case BulkRowDecision.Ignore =>
+                    props.ctx.api.client.ignoreRow(stmtId, rowId).onComplete {
+                      case Success(_) =>
+                        setStatementRows(cur =>
+                          cur.map(r => if (r.id == rowId) r.copy(ignoredAt = Some(Instant.now())) else r)
+                        )
+                        succeed(counts.copy(ignored = counts.ignored + 1))
+                      case Failure(ex) => fail(ex.getMessage)
+                    }
+                  case BulkRowDecision.Link(expenseId) =>
+                    props.ctx.api.client
+                      .linkRowToExpense(stmtId, rowId, LinkRowToExpense.Request(expenseId))
+                      .onComplete {
+                        case Success(_) =>
+                          val expense = expenseList.find(_.id == expenseId)
+                          // The server only reports a category for single-split expenses.
+                          val categoryId = expense.flatMap(_.splits match {
+                            case List(single) => Some(single.categoryId)
+                            case _ => None
+                          })
                           setStatementRows(cur =>
                             cur.map(r =>
                               if (r.id == rowId)
                                 r.copy(
-                                  expenseId = Some(resp.expenseId),
-                                  expenseMerchantId = res.merchantId,
-                                  expenseCategoryId = Some(res.categoryId)
+                                  expenseId = Some(expenseId),
+                                  expenseMerchantId = expense.flatMap(_.merchantId),
+                                  expenseCategoryId = categoryId
                                 )
                               else r
                             )
                           )
-                          setBulkImportResults(cur => cur :+ (rowId -> Right(())))
-                          setBulkImportProgress(Some((done + 1, total, failed)))
-                          loop(rest, done + 1, failed)
-                        case Failure(ex) =>
-                          setBulkImportResults(cur => cur :+ (rowId -> Left(ex.getMessage)))
-                          setBulkImportProgress(Some((done + 1, total, failed + 1)))
-                          loop(rest, done + 1, failed + 1)
+                          setExpenseList(cur =>
+                            cur.map(e => if (e.id == expenseId) e.copy(rowIds = e.rowIds :+ rowId) else e)
+                          )
+                          advance(Right(()), counts.copy(linked = counts.linked + 1), linkedThisRun + expenseId)
+                        case Failure(ex) => fail(ex.getMessage)
                       }
-                  }
+                  case BulkRowDecision.Create(res) =>
+                    val req = CreateExpenseFromRow.Request(
+                      amount = row.amount.abs,
+                      date = row.date,
+                      time = None,
+                      merchantId = res.merchantId,
+                      notes = Some(row.description).filter(_.nonEmpty),
+                      splits = List(CreateExpenseFromRow.Split(res.categoryId, row.amount.abs)),
+                      receiptId = None
+                    )
+                    props.ctx.api.client.createExpenseFromRow(stmtId, rowId, req).onComplete {
+                      case Success(resp) =>
+                        setStatementRows(cur =>
+                          cur.map(r =>
+                            if (r.id == rowId)
+                              r.copy(
+                                expenseId = Some(resp.expenseId),
+                                expenseMerchantId = res.merchantId,
+                                expenseCategoryId = Some(res.categoryId)
+                              )
+                            else r
+                          )
+                        )
+                        succeed(counts.copy(created = counts.created + 1))
+                      case Failure(ex) => fail(ex.getMessage)
+                    }
+                }
             }
         }
-      loop(ids, 0, 0)
+      loop(ids, Counts(0, 0, 0, 0), Set.empty)
     }
 
     // Stable across renders so the memoized rows only re-render when their own props change. They may only use setters
@@ -731,7 +807,7 @@ object BankStatementReviewContent {
           bulkImportProgress match {
             case Some((done, total, failed)) =>
               mui
-                .Typography(s"Importing $done/$total${if (failed > 0) s" ($failed failed)" else ""}…")
+                .Typography(s"Processing $done/$total${if (failed > 0) s" ($failed failed)" else ""}…")
                 .sx(new CSSPropertiesUtils { color = "var(--lc-brand-on)"; fontSize = "14px" })
             case None =>
               (mui.Button
