@@ -423,7 +423,7 @@ object ReceiptList {
       props.ctx.api.client.linkReceiptToExpense(receiptId, LinkReceiptToExpense.Request(expenseId)).onComplete {
         case Success(_) =>
           setError("")
-          setMode(ReceiptMode.Viewing(Some(receiptId)))
+          setMode(_.linked(receiptId))
           setLocalReceipts(cur => cur.map(r => if (r.id == receiptId) r.copy(expenseId = Some(expenseId)) else r))
         case Failure(ex) => setError(ex.getMessage)
       }

@@ -95,6 +95,17 @@ class ReceiptsLogicSpec extends AnyWordSpec {
       ReceiptMode.Viewing(Some(otherId)).confirmed(id) mustBe ReceiptMode.Viewing(Some(otherId))
     }
 
+    "return to viewing when the linked receipt is still being linked" in {
+      ReceiptMode.Linking(id).linked(id) mustBe ReceiptMode.Viewing(Some(id))
+    }
+
+    "stay put when the user moved on before the link arrived" in {
+      val otherId = UUID.randomUUID()
+      ReceiptMode.Linking(otherId).linked(id) mustBe ReceiptMode.Linking(otherId)
+      ReceiptMode.Confirming(id, form).linked(id) mustBe ReceiptMode.Confirming(id, form)
+      ReceiptMode.Viewing(Some(otherId)).linked(id) mustBe ReceiptMode.Viewing(Some(otherId))
+    }
+
     "keep the mode while its receipt is visible" in {
       val otherId = UUID.randomUUID()
       ReceiptMode.Confirming(id, form).keptVisible(List(otherId, id)) mustBe ReceiptMode.Confirming(id, form)

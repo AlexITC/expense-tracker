@@ -114,6 +114,12 @@ object ReceiptsLogic {
       case other => other
     }
 
+    /** After the receipt is linked to an expense, go back to viewing it, unless the user already moved on. */
+    def linked(receiptId: UUID): ReceiptMode = this match {
+      case Linking(id) if id == receiptId => Viewing(Some(receiptId))
+      case other => other
+    }
+
     /** Keep the mode while its receipt is visible; otherwise view the first visible receipt. */
     def keptVisible(visibleIds: List[UUID]): ReceiptMode =
       if (selectedId.exists(visibleIds.contains)) this else Viewing(visibleIds.headOption)
