@@ -112,6 +112,8 @@ object BankStatementReviewContent {
     val rowActions = BankStatementRowActions(
       client = props.ctx.api.client,
       stmtId = stmtId,
+      // Computed once from the loaded rows: no action on this page changes a row's date or the statement period
+      // (row confirmation/editing is not exposed here), and a full refresh remounts with a fresh window.
       expenseWindow = candidateExpenseWindow(props.data.statement),
       setStatementRows = setStatementRows,
       setSelectedRowIds = setSelectedRowIds,
