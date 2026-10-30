@@ -3,8 +3,10 @@ package net.wiringbits.components.pages
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.BankStatementDraft
-import net.wiringbits.models.User
+import net.wiringbits.components.widgets.Loader
+import net.wiringbits.models.{SaveState, User}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
+import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.{useHistory, useParams}
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
@@ -13,7 +15,6 @@ import slinky.core.{FunctionalComponent, KeyAddingStage}
 import java.time.LocalDate
 import java.util.UUID
 import scala.concurrent.ExecutionContext
-import scala.scalajs.js
 import scala.util.{Failure, Success, Try}
 
 /** Review one draft import (reached from the bank statements page): fix the AI-extracted metadata/rows and confirm it
@@ -21,16 +22,10 @@ import scala.util.{Failure, Success, Try}
   */
 object BankStatementTemplatePage {
 
-  private val txnTypes = List("purchase", "payment", "fee", "interest", "refund")
-
   def apply(ctx: AppContext, user: User): KeyAddingStage =
     component(Props(ctx, user))
 
   case class Props(ctx: AppContext, user: User)
-
-  private val hcellSx = new CSSPropertiesUtils {
-    fontWeight = "600"; fontSize = "12px"; color = "var(--lc-text-2)"
-  }
 
   def amountColor(amt: BigDecimal): String =
     if (amt >= 0) "var(--lc-brand)" else "var(--lc-error)"
@@ -40,38 +35,75 @@ object BankStatementTemplatePage {
       m.currency.exists(_.trim.nonEmpty) && m.accountLast4.exists(_.trim.nonEmpty) &&
       m.periodStart.isDefined && m.periodEnd.isDefined
 
+  private[pages] def notReadyText: ReactElement =
+    mui
+      .Typography("This draft isn't ready yet, or no longer exists.")
+      .sx(new CSSPropertiesUtils { fontSize = "13px"; color = "var(--lc-text-2)" })
+
+  private[pages] def errorText(message: String): ReactElement =
+    mui
+      .Typography(message)
+      .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px"; marginTop = "12px" })
+
+  val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
+    implicit val ec: ExecutionContext = props.ctx.executionContext
+    val client = props.ctx.api.client
+    val params = useParams()
+    val draftIdOpt = Try(UUID.fromString(params.get("draftId").getOrElse(""))).toOption
+
+    val content: ReactElement = draftIdOpt match {
+      case None => Fragment(notReadyText, errorText("Invalid draft"))
+      case Some(id) =>
+        AsyncComponent[(BankStatementDraft.Data, List[String])](
+          fetch = () =>
+            for {
+              draft <- client.getBankStatementDraft(id)
+              stmts <- client.getBankStatements
+            } yield (draft, stmts.data.map(_.bankName).distinct.sorted),
+          render = { case (draft, banks) =>
+            BankStatementTemplateEditor(props.ctx, id, draft, banks).withKey(id.toString)
+          },
+          progressIndicator = () => Loader(props.ctx),
+          watchedObjects = List(id)
+        )
+    }
+
+    mui.Box.sx(new CSSPropertiesUtils { padding = "24px"; maxWidth = "1000px" })(
+      mui.Box.sx(new CSSPropertiesUtils { marginBottom = "20px" })(
+        mui
+          .Typography("Review Statement Import")
+          .sx(new CSSPropertiesUtils { fontSize = "20px"; fontWeight = "700"; color = "var(--lc-text)" })
+      ),
+      content
+    )
+  }
+}
+
+object BankStatementTemplateEditor {
+  import BankStatementTemplatePage.{amountColor, errorText, metaComplete, notReadyText}
+
+  private val txnTypes = List("purchase", "payment", "fee", "interest", "refund")
+
+  def apply(ctx: AppContext, draftId: UUID, draft: BankStatementDraft.Data, bankNames: List[String]): KeyAddingStage =
+    component(Props(ctx, draftId, draft, bankNames))
+
+  case class Props(ctx: AppContext, draftId: UUID, draft: BankStatementDraft.Data, bankNames: List[String])
+
+  private val hcellSx = new CSSPropertiesUtils {
+    fontWeight = "600"; fontSize = "12px"; color = "var(--lc-text-2)"
+  }
+
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
     val client = props.ctx.api.client
     val history = useHistory()
-    val params = useParams()
-    val draftIdOpt = Try(UUID.fromString(params.get("draftId").getOrElse(""))).toOption
+    val id = props.draftId
+    val filename = props.draft.filename
+    val bankNames = props.bankNames
 
-    val (loading, setLoading) = Hooks.useState(true)
-    val (payloadOpt, setPayloadOpt) = Hooks.useState[Option[BankStatementDraft.Payload]](None)
-    val (filename, setFilename) = Hooks.useState("")
-    val (bankNames, setBankNames) = Hooks.useState[List[String]](Nil)
-    val (error, setError) = Hooks.useState("")
-    val (busy, setBusy) = Hooks.useState(false)
-
-    Hooks.useEffect(
-      () => {
-        draftIdOpt match {
-          case None => setError("Invalid draft"); setLoading(false)
-          case Some(id) =>
-            val load = for {
-              draft <- client.getBankStatementDraft(id)
-              stmts <- client.getBankStatements
-            } yield (draft, stmts.data.map(_.bankName).distinct.sorted)
-            load.onComplete {
-              case Success((draft, banks)) =>
-                setFilename(draft.filename); setPayloadOpt(draft.payload); setBankNames(banks); setLoading(false)
-              case Failure(ex) => setError(ex.getMessage); setLoading(false)
-            }
-        }
-      },
-      js.Array(draftIdOpt.map(_.toString).getOrElse(""))
-    )
+    val (payloadOpt, setPayloadOpt) = Hooks.useState[Option[BankStatementDraft.Payload]](props.draft.payload)
+    val (saveState, setSaveState) = Hooks.useState[SaveState](SaveState.Idle)
+    val busy = saveState.isSaving
 
     def setMeta(f: BankStatementDraft.Metadata => BankStatementDraft.Metadata): Unit =
       setPayloadOpt(_.map(p => p.copy(metadata = f(p.metadata))))
@@ -94,35 +126,31 @@ object BankStatementTemplatePage {
         )
       )
 
-    def doSave(): Unit = (draftIdOpt, payloadOpt) match {
-      case (Some(id), Some(p)) =>
-        setBusy(true); setError("")
-        client.updateBankStatementDraft(id, BankStatementDraft.Update.Request(p)).onComplete {
-          case Success(data) => data.payload.foreach(pl => setPayloadOpt(Some(pl))); setBusy(false)
-          case Failure(ex) => setError(ex.getMessage); setBusy(false)
-        }
-      case _ => ()
+    def doSave(): Unit = payloadOpt.foreach { p =>
+      setSaveState(SaveState.Saving)
+      client.updateBankStatementDraft(id, BankStatementDraft.Update.Request(p)).onComplete {
+        case Success(data) => data.payload.foreach(pl => setPayloadOpt(Some(pl))); setSaveState(SaveState.Idle)
+        case Failure(ex) => setSaveState(SaveState.Failed(ex.getMessage))
+      }
     }
 
-    def doConfirm(): Unit = (draftIdOpt, payloadOpt) match {
-      case (Some(id), Some(p)) =>
-        setBusy(true); setError("")
-        val run = for {
-          _ <- client.updateBankStatementDraft(id, BankStatementDraft.Update.Request(p))
-          confirmed <- client.confirmBankStatementDraft(id)
-        } yield confirmed
-        run.onComplete {
-          case Success(resp) => history.push(s"/bank-statements/${resp.bankStatementId}")
-          case Failure(ex) => setError(ex.getMessage); setBusy(false)
-        }
-      case _ => ()
+    def doConfirm(): Unit = payloadOpt.foreach { p =>
+      setSaveState(SaveState.Saving)
+      val run = for {
+        _ <- client.updateBankStatementDraft(id, BankStatementDraft.Update.Request(p))
+        confirmed <- client.confirmBankStatementDraft(id)
+      } yield confirmed
+      run.onComplete {
+        case Success(resp) => history.push(s"/bank-statements/${resp.bankStatementId}")
+        case Failure(ex) => setSaveState(SaveState.Failed(ex.getMessage))
+      }
     }
 
-    def doDiscard(): Unit = draftIdOpt.foreach { id =>
-      setBusy(true); setError("")
+    def doDiscard(): Unit = {
+      setSaveState(SaveState.Saving)
       client.discardBankStatementDraft(id).onComplete {
         case Success(_) => history.push("/bank-statements")
-        case Failure(ex) => setError(ex.getMessage); setBusy(false)
+        case Failure(ex) => setSaveState(SaveState.Failed(ex.getMessage))
       }
     }
 
@@ -319,33 +347,15 @@ object BankStatementTemplatePage {
       )
     }
 
-    val content: ReactElement =
-      if (loading)
-        mui.Box.sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; gap = "10px" })(
-          mui.CircularProgress().size(20.0),
-          mui.Typography("Loading…").sx(new CSSPropertiesUtils { fontSize = "13px"; color = "var(--lc-text-2)" })
-        )
-      else
-        payloadOpt match {
-          case Some(p) => editingView(p)
-          case None =>
-            mui
-              .Typography("This draft isn't ready yet, or no longer exists.")
-              .sx(new CSSPropertiesUtils { fontSize = "13px"; color = "var(--lc-text-2)" })
-        }
-
-    mui.Box.sx(new CSSPropertiesUtils { padding = "24px"; maxWidth = "1000px" })(
-      mui.Box.sx(new CSSPropertiesUtils { marginBottom = "20px" })(
-        mui
-          .Typography("Review Statement Import")
-          .sx(new CSSPropertiesUtils { fontSize = "20px"; fontWeight = "700"; color = "var(--lc-text)" })
-      ),
-      content,
-      if (error.nonEmpty)
-        mui
-          .Typography(error)
-          .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px"; marginTop = "12px" })
-      else Fragment()
+    Fragment(
+      payloadOpt match {
+        case Some(p) => editingView(p)
+        case None => notReadyText
+      },
+      saveState.errorOpt match {
+        case Some(message) => errorText(message)
+        case None => Fragment()
+      }
     )
   }
 }
