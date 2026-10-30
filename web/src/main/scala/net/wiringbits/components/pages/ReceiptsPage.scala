@@ -13,7 +13,7 @@ import net.wiringbits.api.models.bankstatements.GetAllRows
 import net.wiringbits.api.models.merchants.{GetImportRules, ImportRuleAction}
 import net.wiringbits.api.models.receipts.{ConfirmReceipt, GetReceipt, GetReceipts, LinkReceiptToExpense}
 import net.wiringbits.api.utils.ImportRuleMatcher
-import net.wiringbits.components.pages.ReceiptsLogic.BatchState
+import net.wiringbits.components.pages.ReceiptsLogic.{BatchState, ConfirmForm, ReceiptMode}
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
@@ -139,27 +139,16 @@ object ReceiptList {
     // all expenses for linked-evidence display
     val (allExpenses, setAllExpenses) = Hooks.useState[List[GetExpenses.Response.Expense]](Nil)
 
-    // create-expense confirm form state
-    val (confirmingId, setConfirmingId) = Hooks.useState[Option[UUID]](None)
-    val (confirmAmount, setConfirmAmount) = Hooks.useState("")
-    val (confirmDate, setConfirmDate) = Hooks.useState("")
-    val (confirmTime, setConfirmTime) = Hooks.useState("")
-    val (confirmMerchantId, setConfirmMerchantId) = Hooks.useState("")
-    val (confirmMerchantInput, setConfirmMerchantInput) = Hooks.useState("")
-    val (confirmNotes, setConfirmNotes) = Hooks.useState("")
-    val (confirmSplits, setConfirmSplits) =
-      Hooks.useState[List[(String, String, String)]](Nil) // (catId, catInput, amount)
-
-    val (confirmParsedMerchantName, setConfirmParsedMerchantName) = Hooks.useState[Option[String]](None)
+    // selected receipt, plus its create-expense form or link picker
+    val (mode, setMode) = Hooks.useState[ReceiptMode](ReceiptMode.Viewing(None))
+    def updateForm(f: ConfirmForm => ConfirmForm): Unit = setMode(_.withForm(f))
 
     // link-existing state
-    val (linkingId, setLinkingId) = Hooks.useState[Option[UUID]](None)
     val (expenseList, setExpenseList) = Hooks.useState[List[GetExpenses.Response.Expense]](Nil)
     val (expenseFilter, setExpenseFilter) = Hooks.useState("")
 
     // row cross-link state (for confirm form)
     val (rowList, setRowList) = Hooks.useState[List[GetAllRows.RowData]](Nil)
-    val (confirmRowId, setConfirmRowId) = Hooks.useState[Option[UUID]](None)
 
     // batch confirm state
     val (batchConfirmMode, setBatchConfirmMode) = Hooks.useState(false)
@@ -177,7 +166,6 @@ object ReceiptList {
     val (showIgnored, setShowIgnored) = Hooks.useState(false)
     val (receiptFilter, setReceiptFilter) = Hooks.useState(FilterNeedsConfirm)
     val (receiptPage, setReceiptPage) = Hooks.useState(0)
-    val (selectedReceiptId, setSelectedReceiptId) = Hooks.useState[Option[UUID]](None)
     val (previewUrl, setPreviewUrl) = Hooks.useState[Option[String]](None)
     val (previewLoading, setPreviewLoading) = Hooks.useState(false)
 
@@ -252,13 +240,13 @@ object ReceiptList {
       .sortBy(_.createdAt)(using Ordering[Instant].reverse)
     Hooks.useEffect(
       () => {
-        if (!visibleForFilter.exists(r => selectedReceiptId.contains(r.id)))
-          setSelectedReceiptId(visibleForFilter.headOption.map(_.id))
+        setMode(_.keptVisible(visibleForFilter.map(_.id)))
         ()
       },
       js.Array(visibleForFilter.map(_.id.toString).mkString(","), receiptFilter)
     )
 
+    val selectedReceiptId = mode.selectedId
     val selectedIdKey = selectedReceiptId.map(_.toString).getOrElse("")
     Hooks.useEffect(
       () => {
@@ -379,20 +367,20 @@ object ReceiptList {
         .map(catId => List(CreateExpense.Split(catId, amount)))
         .getOrElse(Nil)
 
-    def handleConfirm(receiptId: UUID): Unit =
-      (Try(BigDecimal(confirmAmount)).toOption, Try(LocalDate.parse(confirmDate)).toOption) match {
+    def handleConfirm(receiptId: UUID, form: ConfirmForm): Unit =
+      (Try(BigDecimal(form.amount)).toOption, Try(LocalDate.parse(form.date)).toOption) match {
         case (None, _) => setError("Invalid amount")
         case (_, None) => setError("Invalid date (use YYYY-MM-DD)")
         case (Some(amount), Some(date)) =>
-          val time = if (confirmTime.isEmpty) None else Try(LocalTime.parse(confirmTime)).toOption
-          val merchantId = if (confirmMerchantId.isEmpty) None else Try(UUID.fromString(confirmMerchantId)).toOption
-          val notes = Option(confirmNotes.trim).filter(_.nonEmpty)
-          val explicit = confirmSplits.flatMap { case (catId, _, amt) =>
+          val time = if (form.time.isEmpty) None else Try(LocalTime.parse(form.time)).toOption
+          val merchantId = if (form.merchantId.isEmpty) None else Try(UUID.fromString(form.merchantId)).toOption
+          val notes = Option(form.notes.trim).filter(_.nonEmpty)
+          val explicit = form.splits.flatMap { case (catId, _, amt) =>
             if (catId.nonEmpty && amt.nonEmpty)
               Try(CreateExpense.Split(UUID.fromString(catId), BigDecimal(amt))).toOption
             else None
           }
-          val splits = if (explicit.nonEmpty) explicit else merchantDefaultSplits(confirmMerchantId, amount)
+          val splits = if (explicit.nonEmpty) explicit else merchantDefaultSplits(form.merchantId, amount)
           props.ctx.api.client
             .confirmReceipt(
               receiptId,
@@ -404,15 +392,14 @@ object ReceiptList {
                   merchantId,
                   notes,
                   splits,
-                  confirmParsedMerchantName,
-                  confirmRowId
+                  form.parsedMerchantName,
+                  form.rowId
                 )
             )
             .onComplete {
               case Success(_) =>
-                setConfirmingId(None); setConfirmAmount(""); setConfirmDate(""); setConfirmTime("")
-                setConfirmMerchantId(""); setConfirmMerchantInput(""); setConfirmNotes(""); setConfirmSplits(Nil)
-                setConfirmParsedMerchantName(None); setConfirmRowId(None); setError("")
+                setMode(_.confirmed(receiptId))
+                setError("")
                 showToast("Expense created")
                 props.ctx.api.client.getReceipt(receiptId).onComplete {
                   case Success(updated) =>
@@ -424,8 +411,7 @@ object ReceiptList {
       }
 
     def openLinkMode(receiptId: UUID): Unit = {
-      setLinkingId(Some(receiptId))
-      setConfirmingId(None)
+      setMode(ReceiptMode.Linking(receiptId))
       setExpenseFilter("")
       props.ctx.api.client.getExpenses.onComplete {
         case Success(resp) => setExpenseList(resp.data)
@@ -437,7 +423,7 @@ object ReceiptList {
       props.ctx.api.client.linkReceiptToExpense(receiptId, LinkReceiptToExpense.Request(expenseId)).onComplete {
         case Success(_) =>
           setError("")
-          setLinkingId(None)
+          setMode(ReceiptMode.Viewing(Some(receiptId)))
           setLocalReceipts(cur => cur.map(r => if (r.id == receiptId) r.copy(expenseId = Some(expenseId)) else r))
         case Failure(ex) => setError(ex.getMessage)
       }
@@ -598,7 +584,7 @@ object ReceiptList {
           mui.Button
             .normal()("Cancel")
             .size("small")
-            .onClick(_ => setLinkingId(None))
+            .onClick(_ => setMode(ReceiptMode.Viewing(Some(receiptId))))
         )
       )
     }
@@ -606,7 +592,7 @@ object ReceiptList {
     def renderTextField(label: String)(params: AutocompleteRenderInputParams): ReactElement =
       (mui.TextField.outlined.withProps(MuiCompat.textFieldProps(params, label, size = Some("small"))): ReactElement)
 
-    def merchantAutocomplete: ReactElement = {
+    def merchantAutocomplete(merchantInput: String): ReactElement = {
       val acProps = AutocompleteProps[GetMerchants.Response.Merchant, Boolean, Boolean, Boolean, "div"](
         options = props.merchants.data.toJSArray,
         renderInput = renderTextField("Merchant (optional)")
@@ -614,19 +600,17 @@ object ReceiptList {
       val acDyn = acProps.asInstanceOf[js.Dynamic]
       acDyn.freeSolo = true
       acDyn.size = "small"
-      acDyn.inputValue = confirmMerchantInput
+      acDyn.inputValue = merchantInput
       acDyn.getOptionLabel = (opt: js.Any) => DescriptionRow.merchantOptionLabel(opt)
       acDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
         (value: Any) match {
           case m: GetMerchants.Response.Merchant =>
-            setConfirmMerchantId(m.id.toString)
-            setConfirmMerchantInput(m.name)
+            updateForm(_.copy(merchantId = m.id.toString, merchantInput = m.name))
           case _ => ()
         }
       acDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
         val (text, rsn) = MuiCompat.autocompleteInputChange(value, reason)
-        setConfirmMerchantInput(text)
-        if (rsn != "reset") setConfirmMerchantId("")
+        updateForm(f => f.copy(merchantInput = text, merchantId = if (rsn != "reset") "" else f.merchantId))
       }
       (mui.Autocomplete.withProps(acProps).withKey("merchant-ac"): ReactElement)
     }
@@ -932,8 +916,6 @@ object ReceiptList {
     }
 
     def renderReceiptDetail(r: GetReceipts.Response.Receipt): ReactElement = {
-      val isConfirming = confirmingId.contains(r.id)
-      val isLinking = linkingId.contains(r.id)
       val isPending =
         r.documentStatus == DocumentStatus.Ingested || r.documentStatus == DocumentStatus.Processing || r.documentStatus == DocumentStatus.Analyzed
       val isPolling = pollingIds.contains(r.id)
@@ -952,14 +934,14 @@ object ReceiptList {
         }
       }
 
-      val actionArea: ReactElement =
-        if (isConfirming) {
+      val actionArea: ReactElement = mode match {
+        case ReceiptMode.Confirming(id, cf) if id == r.id =>
           val rowSuggestStyling = new CSSPropertiesUtils { fontSize = "0.8em"; color = "#555" }
           val rowSelectedStyling =
             new CSSPropertiesUtils { fontSize = "0.8em"; color = "var(--lc-link)"; fontWeight = "bold" }
-          val receiptAmt = Try(BigDecimal(confirmAmount)).toOption
-          val receiptDate = if (confirmDate.isEmpty) None else Some(confirmDate)
-          val receiptMerchant = Option(confirmMerchantId)
+          val receiptAmt = Try(BigDecimal(cf.amount)).toOption
+          val receiptDate = if (cf.date.isEmpty) None else Some(cf.date)
+          val receiptMerchant = Option(cf.merchantId)
             .filter(_.nonEmpty)
             .flatMap(id => Try(java.util.UUID.fromString(id)).toOption)
             .flatMap(id => props.merchants.data.find(_.id == id))
@@ -978,7 +960,7 @@ object ReceiptList {
             .sortBy { case (_, score) => -score }
           form(onSubmit := { ev =>
             ev.preventDefault()
-            handleConfirm(r.id)
+            handleConfirm(r.id, cf)
           })(
             Container(
               flexDirection = FlexDirection.column,
@@ -991,34 +973,46 @@ object ReceiptList {
                       .outlined()
                       .autoFocus(true)
                       .label("Amount")
-                      .value(confirmAmount)
-                      .onChange(e => setConfirmAmount(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+                      .value(cf.amount)
+                      .onChange { e =>
+                        val v = e.target.asInstanceOf[dom.HTMLInputElement].value
+                        updateForm(_.copy(amount = v))
+                      },
                     mui.TextField
                       .outlined()
                       .label("Date (YYYY-MM-DD)")
-                      .value(confirmDate)
-                      .onChange(e => setConfirmDate(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+                      .value(cf.date)
+                      .onChange { e =>
+                        val v = e.target.asInstanceOf[dom.HTMLInputElement].value
+                        updateForm(_.copy(date = v))
+                      },
                     mui.TextField
                       .outlined()
                       .label("Time (HH:MM, optional)")
-                      .value(confirmTime)
-                      .onChange(e => setConfirmTime(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-                    merchantAutocomplete,
+                      .value(cf.time)
+                      .onChange { e =>
+                        val v = e.target.asInstanceOf[dom.HTMLInputElement].value
+                        updateForm(_.copy(time = v))
+                      },
+                    merchantAutocomplete(cf.merchantInput),
                     mui.TextField
                       .outlined()
                       .label("Notes (optional)")
-                      .value(confirmNotes)
-                      .onChange(e => setConfirmNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+                      .value(cf.notes)
+                      .onChange { e =>
+                        val v = e.target.asInstanceOf[dom.HTMLInputElement].value
+                        updateForm(_.copy(notes = v))
+                      },
                     mui.Button
                       .normal()("Save")
                       .variant("contained")
-                      .onClick(_ => handleConfirm(r.id)),
+                      .onClick(_ => handleConfirm(r.id, cf)),
                     mui.Button
                       .normal()("Cancel")
-                      .onClick(_ => { setConfirmingId(None); setConfirmRowId(None) })
+                      .onClick(_ => setMode(ReceiptMode.Viewing(Some(r.id))))
                   )
                 ),
-                splitsSection(confirmSplits, setConfirmSplits, confirmAmount),
+                splitsSection(cf.splits, s => updateForm(_.copy(splits = s)), cf.amount),
                 if (rankedRows.nonEmpty)
                   Container(
                     flexDirection = FlexDirection.column,
@@ -1026,7 +1020,7 @@ object ReceiptList {
                       mui.Typography("Attach bank row (optional):").sx(rowSuggestStyling),
                       Fragment(
                         rankedRows.take(5).map { case (row, _) =>
-                          val isSelected = confirmRowId.contains(row.id)
+                          val isSelected = cf.rowId.contains(row.id)
                           val label = s"${row.date} | ${row.amount} | ${row.description.take(40)}"
                           Container(
                             flexDirection = FlexDirection.row,
@@ -1034,12 +1028,15 @@ object ReceiptList {
                             child = Fragment(
                               mui.Typography(label).sx(if (isSelected) rowSelectedStyling else rowSuggestStyling),
                               if (isSelected)
-                                mui.Button.normal()("Deselect").size("small").onClick(_ => setConfirmRowId(None))
+                                mui.Button
+                                  .normal()("Deselect")
+                                  .size("small")
+                                  .onClick(_ => updateForm(_.copy(rowId = None)))
                               else
                                 mui.Button
                                   .normal()("Attach")
                                   .size("small")
-                                  .onClick(_ => setConfirmRowId(Some(row.id)))
+                                  .onClick(_ => updateForm(_.copy(rowId = Some(row.id))))
                             )
                           ).withKey(row.id.toString)
                         }*
@@ -1050,9 +1047,9 @@ object ReceiptList {
               )
             )
           )
-        } else if (isLinking)
+        case ReceiptMode.Linking(id) if id == r.id =>
           renderLinkPicker(r.id)
-        else
+        case _ =>
           Container(
             flexDirection = FlexDirection.row,
             alignItems = Container.Alignment.center,
@@ -1077,28 +1074,12 @@ object ReceiptList {
                     .variant("contained")
                     .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
                     .onClick { _ =>
-                      setConfirmingId(Some(r.id))
-                      setConfirmSplits(Nil)
-                      setConfirmParsedMerchantName(r.merchantName)
-                      setConfirmRowId(None)
-                      r.amount.foreach(a => setConfirmAmount(a.toString))
-                      r.date.foreach(d => setConfirmDate(d.toString))
-                      val taxIdMatch = r.taxId.flatMap(tid => props.merchants.data.find(_.taxId.contains(tid)))
-                      taxIdMatch match {
-                        case Some(m) =>
-                          setConfirmMerchantId(m.id.toString)
-                          setConfirmMerchantInput(m.name)
-                        case None =>
-                          r.merchantName.foreach { name =>
-                            ImportRuleMatcher
-                              .findReceiptWinner(effectiveRuleList, name)
-                              .flatMap(_.action.merchantIdOpt)
-                              .foreach { id =>
-                                setConfirmMerchantId(id.toString)
-                                props.merchants.data.find(_.id == id).foreach(m => setConfirmMerchantInput(m.name))
-                              }
-                          }
-                      }
+                      setMode(
+                        ReceiptMode.Confirming(
+                          r.id,
+                          ConfirmForm.fromReceipt(r, props.merchants.data, effectiveRuleList)
+                        )
+                      )
                       props.ctx.api.client.getAllBankStatementRows.onComplete {
                         case Success(resp) =>
                           setRowList(
@@ -1130,6 +1111,7 @@ object ReceiptList {
               (mui.Button.normal()("Delete").onClick(_ => handleDelete(r.id)).build: ReactElement)
             )
           )
+      }
 
       mui.Box.sx(new CSSPropertiesUtils { maxWidth = "640px" })(
         // Header: merchant name + status chip
@@ -1487,9 +1469,7 @@ object ReceiptList {
                             display = "flex"; gap = "10px"; alignItems = "center"
                           })
                           .onClick(_ => {
-                            setSelectedReceiptId(Some(r.id))
-                            setConfirmingId(None)
-                            setLinkingId(None)
+                            setMode(ReceiptMode.Viewing(Some(r.id)))
                           })(
                             mui.Box.sx(new CSSPropertiesUtils {
                               width = "38px"; height = "38px"; flex = "0 0 38px"
