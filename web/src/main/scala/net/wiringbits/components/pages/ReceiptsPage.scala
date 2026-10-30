@@ -13,6 +13,7 @@ import net.wiringbits.api.models.bankstatements.GetAllRows
 import net.wiringbits.api.models.merchants.{GetImportRules, ImportRuleAction}
 import net.wiringbits.api.models.receipts.{ConfirmReceipt, GetReceipt, GetReceipts, LinkReceiptToExpense}
 import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.components.pages.ReceiptsLogic.BatchState
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
@@ -130,8 +131,7 @@ object ReceiptList {
     val (toast, setToast) = Hooks.useState[Option[String]](None)
 
     // batch upload progress: (done, total, failed) + per-file results
-    val (batchProgress, setBatchProgress) = Hooks.useState[Option[(Int, Int, Int)]](None)
-    val (batchResults, setBatchResults) = Hooks.useState[List[(String, Either[String, Unit])]](Nil)
+    val (batch, setBatch) = Hooks.useState[BatchState](BatchState.Idle)
 
     // polling spinner: IDs of receipts currently being fetched
     val (pollingIds, setPollingIds) = Hooks.useState[Set[UUID]](Set.empty)
@@ -166,8 +166,7 @@ object ReceiptList {
     // receiptId → resolved merchantId (None means resolution returned no match)
     val (resolvedMerchantIds, setResolvedMerchantIds) = Hooks.useState[Map[UUID, Option[UUID]]](Map.empty)
     val (batchConfirmSelectedIds, setBatchConfirmSelectedIds) = Hooks.useState[Set[UUID]](Set.empty)
-    val (batchConfirmProgress, setBatchConfirmProgress) = Hooks.useState[Option[(Int, Int, Int)]](None)
-    val (batchConfirmResults, setBatchConfirmResults) = Hooks.useState[List[(String, Either[String, Unit])]](Nil)
+    val (batchConfirm, setBatchConfirm) = Hooks.useState[BatchState](BatchState.Idle)
 
     val (ruleList, setRuleList) = Hooks.useState[List[ImportRuleMatcher.Rule]](Nil)
     // Explicit rules plus one virtual rule per merchant name; `ruleList` itself stays explicit-only.
@@ -321,12 +320,11 @@ object ReceiptList {
     def handleFilesBatch(files: List[dom.File]): Unit =
       if (files.nonEmpty) {
         val total = files.length
-        setBatchProgress(Some((0, total, 0)))
-        setBatchResults(Nil)
+        setBatch(BatchState.Running(0, total, 0, Nil))
         setError("")
-        def loop(remaining: List[dom.File], done: Int, failed: Int): Unit =
+        def loop(remaining: List[dom.File]): Unit =
           remaining match {
-            case Nil => setBatchProgress(None)
+            case Nil => setBatch(_.finished)
             case file :: rest =>
               val reader = new dom.FileReader()
               reader.readAsArrayBuffer(file)
@@ -336,31 +334,27 @@ object ReceiptList {
                 props.ctx.api.client.uploadReceipt(bytes, uploadKind, file.name).onComplete {
                   case Success(resp) =>
                     if (localReceipts.exists(_.id == resp.id)) {
-                      setBatchResults(cur => cur :+ (file.name -> Left("Already uploaded (duplicate)")))
-                      setBatchProgress(Some((done + 1, total, failed + 1)))
-                      loop(rest, done + 1, failed + 1)
+                      setBatch(_.recorded(file.name, Left("Already uploaded (duplicate)")))
+                      loop(rest)
                     } else {
                       props.ctx.api.client.getReceipt(resp.id).onComplete {
                         case Success(r) => setLocalReceipts(cur => toListReceipt(r) :: cur)
                         case Failure(_) => ()
                       }
-                      setBatchResults(cur => cur :+ (file.name -> Right(())))
-                      setBatchProgress(Some((done + 1, total, failed)))
-                      loop(rest, done + 1, failed)
+                      setBatch(_.recorded(file.name, Right(())))
+                      loop(rest)
                     }
                   case Failure(ex) =>
-                    setBatchResults(cur => cur :+ (file.name -> Left(ex.getMessage)))
-                    setBatchProgress(Some((done + 1, total, failed + 1)))
-                    loop(rest, done + 1, failed + 1)
+                    setBatch(_.recorded(file.name, Left(ex.getMessage)))
+                    loop(rest)
                 }
               }
               reader.onerror = { _ =>
-                setBatchResults(cur => cur :+ (file.name -> Left("File read error")))
-                setBatchProgress(Some((done + 1, total, failed + 1)))
-                loop(rest, done + 1, failed + 1)
+                setBatch(_.recorded(file.name, Left("File read error")))
+                loop(rest)
               }
           }
-        loop(files, 0, 0)
+        loop(files)
       }
 
     def handleFileChange(inputEl: dom.HTMLInputElement): Unit = {
@@ -496,7 +490,7 @@ object ReceiptList {
     def enterBatchConfirmMode(): Unit = {
       setBatchConfirmMode(true)
       setBatchConfirmSelectedIds(Set.empty)
-      setBatchConfirmProgress(None)
+      // Batch-confirm state is left as is: earlier results stay visible on re-entry, as before.
       setResolvedMerchantIds(Map.empty[UUID, Option[UUID]])
       localReceipts
         .filter(r => r.documentStatus == DocumentStatus.Parsed && r.expenseId.isEmpty)
@@ -516,32 +510,28 @@ object ReceiptList {
 
     def handleBatchConfirm(ids: List[UUID]): Unit = {
       val total = ids.length
-      setBatchConfirmProgress(Some((0, total, 0)))
-      setBatchConfirmResults(Nil)
-      def loop(remaining: List[UUID], done: Int, failed: Int): Unit =
+      setBatchConfirm(BatchState.Running(0, total, 0, Nil))
+      def loop(remaining: List[UUID]): Unit =
         remaining match {
           case Nil =>
-            setBatchConfirmProgress(None)
+            setBatchConfirm(_.finished)
             setBatchConfirmSelectedIds(Set.empty)
           case id :: rest =>
             localReceipts.find(_.id == id) match {
               case None =>
-                setBatchConfirmResults(cur => cur :+ (id.toString.take(8) -> Left("Receipt not found")))
-                setBatchConfirmProgress(Some((done + 1, total, failed + 1)))
-                loop(rest, done + 1, failed + 1)
+                setBatchConfirm(_.recorded(id.toString.take(8), Left("Receipt not found")))
+                loop(rest)
               case Some(r) =>
                 val label = r.documentFilename
                 gateCheck(r) match {
                   case Left(reason) =>
-                    setBatchConfirmResults(cur => cur :+ (label -> Left(reason)))
-                    setBatchConfirmProgress(Some((done + 1, total, failed + 1)))
-                    loop(rest, done + 1, failed + 1)
+                    setBatchConfirm(_.recorded(label, Left(reason)))
+                    loop(rest)
                   case Right((merchantId, catId)) =>
                     r.amount match {
                       case None =>
-                        setBatchConfirmResults(cur => cur :+ (label -> Left("Missing amount")))
-                        setBatchConfirmProgress(Some((done + 1, total, failed + 1)))
-                        loop(rest, done + 1, failed + 1)
+                        setBatchConfirm(_.recorded(label, Left("Missing amount")))
+                        loop(rest)
                       case Some(amount) =>
                         val req = ConfirmReceipt.Request(
                           amount = Some(amount),
@@ -557,19 +547,17 @@ object ReceiptList {
                             setLocalReceipts(cur =>
                               cur.map(rx => if (rx.id == id) rx.copy(expenseId = resp.expenseId) else rx)
                             )
-                            setBatchConfirmResults(cur => cur :+ (label -> Right(())))
-                            setBatchConfirmProgress(Some((done + 1, total, failed)))
-                            loop(rest, done + 1, failed)
+                            setBatchConfirm(_.recorded(label, Right(())))
+                            loop(rest)
                           case Failure(ex) =>
-                            setBatchConfirmResults(cur => cur :+ (label -> Left(ex.getMessage)))
-                            setBatchConfirmProgress(Some((done + 1, total, failed + 1)))
-                            loop(rest, done + 1, failed + 1)
+                            setBatchConfirm(_.recorded(label, Left(ex.getMessage)))
+                            loop(rest)
                         }
                     }
                 }
             }
         }
-      loop(ids, 0, 0)
+      loop(ids)
     }
 
     def renderLinkPicker(receiptId: UUID): ReactElement = {
@@ -735,10 +723,10 @@ object ReceiptList {
       )
     }
 
-    val batchActiveKey = if (batchConfirmMode || batchProgress.isDefined) "inactive" else "idle"
+    val batchActiveKey = if (batchConfirmMode || batch.isRunning) "inactive" else "idle"
     Hooks.useEffect(
       () => {
-        if (batchConfirmMode || batchProgress.isDefined) { () => () }
+        if (batchConfirmMode || batch.isRunning) { () => () }
         else {
           val handleDragOver: js.Function1[dom.DragEvent, Unit] = e => e.preventDefault()
           val handleDrop: js.Function1[dom.DragEvent, Unit] = { e =>
@@ -762,7 +750,7 @@ object ReceiptList {
     val errorMsg = mui.Typography(error).color("error")
 
     def clearBatchResultsButton: ReactElement =
-      mui.Button.normal()("Clear").size("small").onClick(_ => setBatchResults(Nil))
+      mui.Button.normal()("Clear").size("small").onClick(_ => setBatch(_.cleared))
 
     // Single header section: upload area in normal mode, batch-confirm controls in batch mode.
     val header: slinky.core.facade.ReactElement = {
@@ -782,7 +770,6 @@ object ReceiptList {
                   .onClick { _ =>
                     setBatchConfirmMode(false)
                     setBatchConfirmSelectedIds(Set.empty)
-                    setBatchConfirmProgress(None)
                     setResolvedMerchantIds(Map.empty[UUID, Option[UUID]])
                   },
                 input(
@@ -796,12 +783,12 @@ object ReceiptList {
                   }
                 ),
                 mui.Typography(s"${batchConfirmSelectedIds.size} selected").sx(secondaryStyling),
-                batchConfirmProgress match {
-                  case Some((done, total, failed)) =>
+                batchConfirm match {
+                  case BatchState.Running(done, total, failed, _) =>
                     mui.Typography(
                       s"Confirming: $done/$total${if (failed > 0) s" ($failed failed)" else ""}…"
                     )
-                  case None =>
+                  case _ =>
                     if (batchConfirmSelectedIds.nonEmpty)
                       mui.Button
                         .normal()(s"Confirm selected (${batchConfirmSelectedIds.size})")
@@ -812,11 +799,11 @@ object ReceiptList {
                 }
               )
             ),
-            if (batchConfirmResults.nonEmpty)
+            if (batchConfirm.results.nonEmpty)
               Container(
                 flexDirection = FlexDirection.column,
                 child = Fragment(
-                  batchConfirmResults.map { case (label, outcome) =>
+                  batchConfirm.results.map { case (label, outcome) =>
                     val (text, textColor) = outcome match {
                       case Right(_) => (s"✓ $label", "var(--lc-success-text)")
                       case Left(err) => (s"✗ $label: $err", "var(--lc-error)")
@@ -848,12 +835,12 @@ object ReceiptList {
                     mui.MenuItem.normal()("Receipt").value("Receipt").withKey("Receipt").build,
                     mui.MenuItem.normal()("Invoice").value("Invoice").withKey("Invoice").build
                   ),
-                batchProgress match {
-                  case Some((done, total, failed)) =>
+                batch match {
+                  case BatchState.Running(done, total, failed, _) =>
                     mui.Typography(
                       s"Uploading: $done/$total${if (failed > 0) s" ($failed failed)" else ""}…"
                     )
-                  case None =>
+                  case _ =>
                     Fragment(
                       input(
                         `type` := "file",
@@ -870,12 +857,12 @@ object ReceiptList {
                   .onClick(_ => enterBatchConfirmMode())
               )
             ),
-            if (batchResults.nonEmpty)
+            if (batch.results.nonEmpty)
               Container(
                 flexDirection = FlexDirection.column,
                 child = Fragment(
                   Fragment(
-                    batchResults.map { case (name, outcome) =>
+                    batch.results.map { case (name, outcome) =>
                       val (label, textColor) = outcome match {
                         case Right(_) => (s"✓ $name", "var(--lc-success-text)")
                         case Left(err) => (s"✗ $name: $err", "var(--lc-error)")
@@ -1367,13 +1354,13 @@ object ReceiptList {
                     mui.MenuItem.normal()("Invoice").value("Invoice").withKey("Invoice").build
                   )
               ),
-              (batchProgress match {
-                case Some((done, total, failed)) =>
+              (batch match {
+                case BatchState.Running(done, total, failed, _) =>
                   (mui
                     .Typography(s"Uploading: $done/$total${if (failed > 0) s" ($failed failed)" else ""}…")
                     .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" })
                     .build: ReactElement)
-                case None =>
+                case _ =>
                   (mui.Box.sx(new CSSPropertiesUtils {
                     display = "flex"; alignItems = "center"; gap = "8px"; marginBottom = "6px"
                   })(
@@ -1390,10 +1377,10 @@ object ReceiptList {
                       .build: ReactElement)
                   ): ReactElement)
               }),
-              if (batchResults.nonEmpty)
+              if (batch.results.nonEmpty)
                 (mui.Box.sx(new CSSPropertiesUtils { marginBottom = "6px" })(
                   Fragment(
-                    batchResults.map { case (name, outcome) =>
+                    batch.results.map { case (name, outcome) =>
                       val (lbl2, clr2) = outcome match {
                         case Right(_) => (s"✓ $name", "var(--lc-success-text)")
                         case Left(err) => (s"✗ $name: $err", "var(--lc-error)")
