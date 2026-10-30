@@ -20,30 +20,26 @@ object BankStatementBulkRuns {
       stmtId: UUID,
       ids: List[UUID],
       setStatementRows: SetStateHookCallback[List[GetBankStatement.StatementRowData]],
-      setBulkIgnoreProgress: SetStateHookCallback[BulkProgress],
-      setBulkIgnoreResults: SetStateHookCallback[BulkResults],
+      setBulkIgnore: SetStateHookCallback[BulkRun],
       setSelectedRowIds: SetStateHookCallback[Set[UUID]]
   )(implicit ec: ExecutionContext): Unit = {
     val total = ids.length
-    setBulkIgnoreProgress(Some((0, total, 0)))
-    setBulkIgnoreResults(Nil)
-    def loop(remaining: List[UUID], done: Int, failed: Int): Unit =
+    setBulkIgnore(BulkRun.Running(total, Nil))
+    def loop(remaining: List[UUID]): Unit =
       remaining match {
-        case Nil => setBulkIgnoreProgress(None); setSelectedRowIds(Set.empty)
+        case Nil => setBulkIgnore(_.finished); setSelectedRowIds(Set.empty)
         case rowId :: rest =>
           client.ignoreRow(stmtId, rowId).onComplete {
             case Success(_) =>
               setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(ignoredAt = Some(Instant.now())) else r))
-              setBulkIgnoreResults(cur => cur :+ (rowId -> Right(())))
-              setBulkIgnoreProgress(Some((done + 1, total, failed)))
-              loop(rest, done + 1, failed)
+              setBulkIgnore(_.recorded(rowId, Right(())))
+              loop(rest)
             case Failure(ex) =>
-              setBulkIgnoreResults(cur => cur :+ (rowId -> Left(ex.getMessage)))
-              setBulkIgnoreProgress(Some((done + 1, total, failed + 1)))
-              loop(rest, done + 1, failed + 1)
+              setBulkIgnore(_.recorded(rowId, Left(ex.getMessage)))
+              loop(rest)
           }
       }
-    loop(ids, 0, 0)
+    loop(ids)
   }
 
   // Matches are taken from this render; expenses linked during a bulk run are tracked in the loop instead.
@@ -56,29 +52,24 @@ object BankStatementBulkRuns {
       expenseMatchById: Map[UUID, ReconciliationMatcher.ProposedAction],
       expenseList: List[GetExpenses.Response.Expense],
       setStatementRows: SetStateHookCallback[List[GetBankStatement.StatementRowData]],
-      setBulkImportProgress: SetStateHookCallback[BulkProgress],
-      setBulkImportResults: SetStateHookCallback[BulkResults],
+      setBulkImport: SetStateHookCallback[BulkRun],
       setSelectedRowIds: SetStateHookCallback[Set[UUID]],
       showToast: String => Unit,
       onRefresh: () => Unit
   )(implicit ec: ExecutionContext): Unit = {
     val total = ids.length
-    setBulkImportProgress(Some((0, total, 0)))
-    setBulkImportResults(Nil)
-    final case class Counts(linked: Int, created: Int, ignored: Int, failed: Int) {
-      def done: Int = linked + created + ignored + failed
-    }
+    setBulkImport(BulkRun.Running(total, Nil))
+    final case class Counts(linked: Int, created: Int, ignored: Int, failed: Int)
     def loop(remaining: List[UUID], counts: Counts, linkedThisRun: Set[UUID]): Unit =
       remaining match {
         case Nil =>
-          setBulkImportProgress(None)
+          setBulkImport(_.finished)
           setSelectedRowIds(Set.empty)
           showToast(bulkImportSummary(counts.linked, counts.created, counts.ignored, counts.failed))
           onRefresh()
         case rowId :: rest =>
           def advance(outcome: Either[String, Unit], next: Counts, nextLinked: Set[UUID]): Unit = {
-            setBulkImportResults(cur => cur :+ (rowId -> outcome))
-            setBulkImportProgress(Some((next.done, total, next.failed)))
+            setBulkImport(_.recorded(rowId, outcome))
             loop(rest, next, nextLinked)
           }
           def succeed(next: Counts): Unit = advance(Right(()), next, linkedThisRun)

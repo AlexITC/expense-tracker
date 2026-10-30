@@ -721,4 +721,42 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       DrawerState.Closed.closing(DrawerState.CreateRule(rowId)) mustBe DrawerState.Closed
     }
   }
+
+  "BulkRun" should {
+    import BankStatementReviewLogic.BulkRun
+    val ok = UUID.randomUUID() -> Right(())
+    val bad = UUID.randomUUID() -> Left("boom")
+
+    "have no results when idle" in {
+      BulkRun.Idle.results mustBe Nil
+      BulkRun.Idle.isRunning mustBe false
+    }
+
+    "append outcomes only while running" in {
+      BulkRun.Running(2, Nil).recorded(ok._1, ok._2).recorded(bad._1, bad._2) mustBe BulkRun.Running(2, List(ok, bad))
+      BulkRun.Idle.recorded(ok._1, ok._2) mustBe BulkRun.Idle
+      BulkRun.Done(List(ok)).recorded(bad._1, bad._2) mustBe BulkRun.Done(List(ok))
+    }
+
+    "derive done and failed from the recorded results" in {
+      val run: BulkRun.Running = BulkRun.Running(3, List(ok, bad))
+      run.isRunning mustBe true
+      run.done mustBe 2
+      run.failed mustBe 1
+    }
+
+    "keep the results when finished" in {
+      BulkRun.Running(2, List(ok, bad)).finished mustBe BulkRun.Done(List(ok, bad))
+      BulkRun.Done(List(ok, bad)).results mustBe List(ok, bad)
+    }
+
+    "not be running once done" in {
+      BulkRun.Done(List(ok)).isRunning mustBe false
+      BulkRun.Running(1, Nil).finished.isRunning mustBe false
+    }
+
+    "stay idle when finishing an idle run" in {
+      BulkRun.Idle.finished mustBe BulkRun.Idle
+    }
+  }
 }

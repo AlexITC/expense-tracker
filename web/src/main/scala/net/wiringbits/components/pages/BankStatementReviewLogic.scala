@@ -13,8 +13,6 @@ import java.util.UUID
 /** Pure logic behind the bank statement review page: no React or MUI. */
 object BankStatementReviewLogic {
 
-  /** A running bulk action's (done, total, failed), or None when idle. */
-  type BulkProgress = Option[(Int, Int, Int)]
   type BulkResults = List[(UUID, Either[String, Unit])]
   type RowEdits = Map[UUID, (String, String, String)]
 
@@ -206,6 +204,39 @@ object BankStatementReviewLogic {
     case Link(expenseId: UUID)
     case Create(resolved: ResolvedImport)
     case Fail(message: String)
+  }
+
+  /** A bulk action's lifecycle. Results are kept while running and after it finishes, so they stay displayed. */
+  enum BulkRun {
+    case Idle
+    case Running(total: Int, override val results: BulkResults)
+    case Done(override val results: BulkResults)
+
+    /** Idle has none; Running and Done override this with their own field. */
+    def results: BulkResults = Nil
+
+    def isRunning: Boolean = this match {
+      case Running(_, _) => true
+      case _ => false
+    }
+
+    /** Append a row's outcome; only a running action records anything. */
+    def recorded(rowId: UUID, outcome: Either[String, Unit]): BulkRun = this match {
+      case Running(total, rs) => Running(total, rs :+ (rowId -> outcome))
+      case other => other
+    }
+
+    def finished: BulkRun = this match {
+      case Running(_, rs) => Done(rs)
+      case other => other
+    }
+  }
+
+  object BulkRun {
+    extension (r: BulkRun.Running) {
+      def done: Int = r.results.size
+      def failed: Int = r.results.count(_._2.isLeft)
+    }
   }
 
   /** Which per-row form the side drawer shows, if any. */

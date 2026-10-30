@@ -28,14 +28,10 @@ object BankStatementReviewContent {
       data: ReviewData,
       onRefresh: () => Unit,
       showToast: String => Unit,
-      bulkIgnoreProgress: BulkProgress,
-      setBulkIgnoreProgress: SetStateHookCallback[BulkProgress],
-      bulkIgnoreResults: BulkResults,
-      setBulkIgnoreResults: SetStateHookCallback[BulkResults],
-      bulkImportProgress: BulkProgress,
-      setBulkImportProgress: SetStateHookCallback[BulkProgress],
-      bulkImportResults: BulkResults,
-      setBulkImportResults: SetStateHookCallback[BulkResults]
+      bulkIgnore: BulkRun,
+      setBulkIgnore: SetStateHookCallback[BulkRun],
+      bulkImport: BulkRun,
+      setBulkImport: SetStateHookCallback[BulkRun]
   )
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
@@ -44,14 +40,10 @@ object BankStatementReviewContent {
     val location = RouterCompat.useTypedLocation()
     val stmtId = props.data.statement.id
     val showToast = props.showToast
-    val bulkIgnoreProgress = props.bulkIgnoreProgress
-    val setBulkIgnoreProgress = props.setBulkIgnoreProgress
-    val bulkIgnoreResults = props.bulkIgnoreResults
-    val setBulkIgnoreResults = props.setBulkIgnoreResults
-    val bulkImportProgress = props.bulkImportProgress
-    val setBulkImportProgress = props.setBulkImportProgress
-    val bulkImportResults = props.bulkImportResults
-    val setBulkImportResults = props.setBulkImportResults
+    val bulkIgnore = props.bulkIgnore
+    val setBulkIgnore = props.setBulkIgnore
+    val bulkImport = props.bulkImport
+    val setBulkImport = props.setBulkImport
 
     val (statement, setStatement) = Hooks.useState(props.data.statement)
     val (statementRows, setStatementRows) = Hooks.useState(props.data.statement.statementRows)
@@ -145,7 +137,7 @@ object BankStatementReviewContent {
     val stmt = statement
     val tableRows = filterRows(statementRows, rowFilter, rowInfoById)
     val selectedInView = selectedRowIds.intersect(tableRows.map(_.id).toSet)
-    val bulkActive = selectedInView.nonEmpty && bulkIgnoreProgress.isEmpty && bulkImportProgress.isEmpty
+    val bulkActive = selectedInView.nonEmpty && !bulkIgnore.isRunning && !bulkImport.isRunning
 
     val countReady = statementRows.count(r => rowInfoById.get(r.id).exists(_.isReady))
     val countUnprocessed =
@@ -191,8 +183,8 @@ object BankStatementReviewContent {
           BankStatementReviewBulkBar.Props(
             selectedCount = selectedInView.size,
             bulkActive = bulkActive,
-            importProgress = bulkImportProgress,
-            ignoreProgress = bulkIgnoreProgress,
+            importRun = bulkImport,
+            ignoreRun = bulkIgnore,
             onProcess = () =>
               BankStatementBulkRuns.handleBulkImport(
                 client = props.ctx.api.client,
@@ -203,8 +195,7 @@ object BankStatementReviewContent {
                 expenseMatchById = expenseMatchById,
                 expenseList = expenseList,
                 setStatementRows = setStatementRows,
-                setBulkImportProgress = setBulkImportProgress,
-                setBulkImportResults = setBulkImportResults,
+                setBulkImport = setBulkImport,
                 setSelectedRowIds = setSelectedRowIds,
                 showToast = showToast,
                 onRefresh = props.onRefresh
@@ -215,8 +206,7 @@ object BankStatementReviewContent {
                 stmtId = stmt.id,
                 ids = selectedInView.toList,
                 setStatementRows = setStatementRows,
-                setBulkIgnoreProgress = setBulkIgnoreProgress,
-                setBulkIgnoreResults = setBulkIgnoreResults,
+                setBulkIgnore = setBulkIgnore,
                 setSelectedRowIds = setSelectedRowIds
               ),
             onClear = () => setSelectedRowIds(Set.empty)
@@ -245,10 +235,10 @@ object BankStatementReviewContent {
             onRowAction = onRowAction
           )
         ),
-        if (bulkImportResults.nonEmpty || bulkIgnoreResults.nonEmpty)
+        if ((bulkImport.results ++ bulkIgnore.results).nonEmpty)
           BankStatementReviewBulkResults(
             BankStatementReviewBulkResults.Props(
-              results = bulkImportResults ++ bulkIgnoreResults,
+              results = bulkImport.results ++ bulkIgnore.results,
               descById = statementRows.map(r => r.id -> r.description).toMap
             )
           )

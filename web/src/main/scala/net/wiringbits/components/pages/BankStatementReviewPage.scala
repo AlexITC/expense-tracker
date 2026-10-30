@@ -3,7 +3,7 @@ package net.wiringbits.components.pages
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.utils.ImportRuleMatcher
-import net.wiringbits.components.pages.BankStatementReviewLogic.{BulkProgress, BulkResults, ReviewData}
+import net.wiringbits.components.pages.BankStatementReviewLogic.{BulkRun, ReviewData}
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -34,10 +34,8 @@ object BankStatementReviewPage {
 
     // Kept here, not in the content, so they survive the remount a refresh causes.
     val (toast, setToast) = Hooks.useState[Option[String]](None)
-    val (bulkIgnoreProgress, setBulkIgnoreProgress) = Hooks.useState[BulkProgress](None)
-    val (bulkIgnoreResults, setBulkIgnoreResults) = Hooks.useState[BulkResults](Nil)
-    val (bulkImportProgress, setBulkImportProgress) = Hooks.useState[BulkProgress](None)
-    val (bulkImportResults, setBulkImportResults) = Hooks.useState[BulkResults](Nil)
+    val (bulkIgnore, setBulkIgnore) = Hooks.useState[BulkRun](BulkRun.Idle)
+    val (bulkImport, setBulkImport) = Hooks.useState[BulkRun](BulkRun.Idle)
 
     def showToast(msg: String): Unit = {
       setToast(Some(msg))
@@ -83,14 +81,10 @@ object BankStatementReviewPage {
                   data = data,
                   onRefresh = () => forceRefresh(),
                   showToast = showToast,
-                  bulkIgnoreProgress = bulkIgnoreProgress,
-                  setBulkIgnoreProgress = setBulkIgnoreProgress,
-                  bulkIgnoreResults = bulkIgnoreResults,
-                  setBulkIgnoreResults = setBulkIgnoreResults,
-                  bulkImportProgress = bulkImportProgress,
-                  setBulkImportProgress = setBulkImportProgress,
-                  bulkImportResults = bulkImportResults,
-                  setBulkImportResults = setBulkImportResults
+                  bulkIgnore = bulkIgnore,
+                  setBulkIgnore = setBulkIgnore,
+                  bulkImport = bulkImport,
+                  setBulkImport = setBulkImport
                 )
               ).withKey(timesRefreshing.toString),
             progressIndicator = () => Loader(props.ctx),
