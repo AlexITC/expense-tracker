@@ -1,7 +1,7 @@
 package net.wiringbits.components.pages
 
 import com.olvind.mui.muiMaterial.components as mui
-import net.wiringbits.components.pages.BankStatementReviewLogic.BulkProgress
+import net.wiringbits.components.pages.BankStatementReviewLogic.BulkRun
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import slinky.core.facade.ReactElement
 import slinky.core.{FunctionalComponent, KeyAddingStage}
@@ -13,8 +13,8 @@ object BankStatementReviewBulkBar {
   case class Props(
       selectedCount: Int,
       bulkActive: Boolean,
-      importProgress: BulkProgress,
-      ignoreProgress: BulkProgress,
+      importRun: BulkRun,
+      ignoreRun: BulkRun,
       onProcess: () => Unit,
       onIgnore: () => Unit,
       onClear: () => Unit
@@ -30,12 +30,12 @@ object BankStatementReviewBulkBar {
         .Typography(s"${props.selectedCount} selected")
         .sx(new CSSPropertiesUtils { fontWeight = "600"; fontSize = "14px"; color = "var(--lc-brand-on)" }),
       mui.Box.sx(new CSSPropertiesUtils { flex = "1" })(),
-      props.importProgress match {
-        case Some((done, total, failed)) =>
+      props.importRun match {
+        case r: BulkRun.Running =>
           mui
-            .Typography(s"Processing $done/$total${if (failed > 0) s" ($failed failed)" else ""}…")
+            .Typography(s"Processing ${r.done}/${r.total}${if (r.failed > 0) s" (${r.failed} failed)" else ""}…")
             .sx(new CSSPropertiesUtils { color = "var(--lc-brand-on)"; fontSize = "14px" })
-        case None =>
+        case _ =>
           (mui.Button
             .normal()("Process ready")
             .size("small")
@@ -45,12 +45,12 @@ object BankStatementReviewBulkBar {
             .onClick(_ => props.onProcess())
             .build: ReactElement)
       },
-      props.ignoreProgress match {
-        case Some((done, total, failed)) =>
+      props.ignoreRun match {
+        case r: BulkRun.Running =>
           mui
-            .Typography(s"Ignoring $done/$total${if (failed > 0) s" ($failed failed)" else ""}…")
+            .Typography(s"Ignoring ${r.done}/${r.total}${if (r.failed > 0) s" (${r.failed} failed)" else ""}…")
             .sx(new CSSPropertiesUtils { color = "var(--lc-brand-on)"; fontSize = "14px" })
-        case None =>
+        case _ =>
           (mui.Button
             .normal()("Ignore")
             .size("small")

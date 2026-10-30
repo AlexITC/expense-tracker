@@ -102,8 +102,7 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
       val bad = sampleRow("BAD")
       val client = new StubClient(failIgnoreFor = Set(bad.id))
       val rows = new Recorder(List(ok, bad))
-      val progress = new Recorder[BulkProgress](None)
-      val results = new Recorder[BulkResults](Nil)
+      val run = new Recorder[BulkRun](BulkRun.Idle)
       val selected = new Recorder[Set[UUID]](Set(ok.id, bad.id))
 
       BankStatementBulkRuns.handleBulkIgnore(
@@ -111,14 +110,19 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
         stmtId = stmtId,
         ids = List(ok.id, bad.id),
         setStatementRows = rows.callback,
-        setBulkIgnoreProgress = progress.callback,
-        setBulkIgnoreResults = results.callback,
+        setBulkIgnore = run.callback,
         setSelectedRowIds = selected.callback
       )
 
       client.calls.toList mustBe List(s"ignore:${ok.id}", s"ignore:${bad.id}")
-      results.value mustBe List(ok.id -> Right(()), bad.id -> Left("boom"))
-      progress.states.toList mustBe List(Some((0, 2, 0)), Some((1, 2, 0)), Some((2, 2, 1)), None)
+      val okResult = ok.id -> Right(())
+      val badResult = bad.id -> Left("boom")
+      run.states.toList mustBe List(
+        BulkRun.Running(2, Nil),
+        BulkRun.Running(2, List(okResult)),
+        BulkRun.Running(2, List(okResult, badResult)),
+        BulkRun.Done(List(okResult, badResult))
+      )
       rows.value.find(_.id == ok.id).flatMap(_.ignoredAt) must not be empty
       rows.value.find(_.id == bad.id).flatMap(_.ignoredAt) mustBe None
       selected.value mustBe Set.empty
@@ -147,8 +151,7 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
       val second = sampleRow("SECOND")
       val client = new StubClient()
       val rows = new Recorder(List(first, second))
-      val progress = new Recorder[BulkProgress](None)
-      val results = new Recorder[BulkResults](Nil)
+      val run = new Recorder[BulkRun](BulkRun.Idle)
 
       BankStatementBulkRuns.handleBulkImport(
         client = client,
@@ -162,18 +165,23 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
         ),
         expenseList = List(exp),
         setStatementRows = rows.callback,
-        setBulkImportProgress = progress.callback,
-        setBulkImportResults = results.callback,
+        setBulkImport = run.callback,
         setSelectedRowIds = new Recorder[Set[UUID]](Set.empty).callback,
         showToast = _ => (),
         onRefresh = () => ()
       )
 
       client.calls.toList mustBe List(s"link:${first.id}:${exp.id}")
-      results.value.map(_._1) mustBe List(first.id, second.id)
-      results.value.head._2 mustBe Right(())
-      results.value(1)._2.isLeft mustBe true
-      progress.states.toList mustBe List(Some((0, 2, 0)), Some((1, 2, 0)), Some((2, 2, 1)), None)
+      val results = run.value.results
+      results.map(_._1) mustBe List(first.id, second.id)
+      results.head._2 mustBe Right(())
+      results(1)._2.isLeft mustBe true
+      run.states.toList mustBe List(
+        BulkRun.Running(2, Nil),
+        BulkRun.Running(2, List(results.head)),
+        BulkRun.Running(2, results),
+        BulkRun.Done(results)
+      )
       val linked = rows.value.find(_.id == first.id).get
       linked.expenseId mustBe Some(exp.id)
       linked.expenseMerchantId mustBe Some(merchantId)
@@ -181,7 +189,7 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
       rows.value.find(_.id == second.id).get.expenseId mustBe None
     }
 
-    "create, ignore, then clear progress and selection, toast the summary and refresh once" in {
+    "create, ignore, then finish the run, clear the selection, toast the summary and refresh once" in {
       val categoryId = UUID.randomUUID()
       val merchantId = UUID.randomUUID()
       val createdExpenseId = UUID.randomUUID()
@@ -189,7 +197,7 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
       val toIgnore = sampleRow("IGNORE")
       val client = new StubClient(createdExpenseId = createdExpenseId)
       val rows = new Recorder(List(toCreate, toIgnore))
-      val progress = new Recorder[BulkProgress](None)
+      val run = new Recorder[BulkRun](BulkRun.Idle)
       val selected = new Recorder[Set[UUID]](Set(toCreate.id, toIgnore.id))
       val events = ListBuffer.empty[String]
       val resolved = ResolvedImport(merchantId = Some(merchantId), categoryId = categoryId, categoryFromAi = false)
@@ -206,10 +214,9 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
         expenseMatchById = Map.empty,
         expenseList = Nil,
         setStatementRows = rows.callback,
-        setBulkImportProgress = progress.callback,
-        setBulkImportResults = new Recorder[BulkResults](Nil).callback,
+        setBulkImport = run.callback,
         setSelectedRowIds = selected.callback,
-        showToast = msg => events += s"toast:$msg:${progress.value}:${selected.value}",
+        showToast = msg => events += s"toast:$msg:${run.value}:${selected.value}",
         onRefresh = () => events += "refresh"
       )
 
@@ -219,7 +226,8 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
       created.expenseMerchantId mustBe Some(merchantId)
       created.expenseCategoryId mustBe Some(categoryId)
       rows.value.find(_.id == toIgnore.id).flatMap(_.ignoredAt) must not be empty
-      events.toList mustBe List(s"toast:${bulkImportSummary(0, 1, 1, 0)}:None:Set()", "refresh")
+      val done = BulkRun.Done(List(toCreate.id -> Right(()), toIgnore.id -> Right(())))
+      events.toList mustBe List(s"toast:${bulkImportSummary(0, 1, 1, 0)}:$done:Set()", "refresh")
     }
   }
 }

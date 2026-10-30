@@ -2,7 +2,6 @@ package net.wiringbits.components.pages
 
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
-import net.wiringbits.components.pages.BankStatementReviewDrawer.DrawerForm
 import net.wiringbits.components.pages.BankStatementReviewRow.RowAction
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.utils.ReconciliationMatcher
@@ -29,14 +28,10 @@ object BankStatementReviewContent {
       data: ReviewData,
       onRefresh: () => Unit,
       showToast: String => Unit,
-      bulkIgnoreProgress: BulkProgress,
-      setBulkIgnoreProgress: SetStateHookCallback[BulkProgress],
-      bulkIgnoreResults: BulkResults,
-      setBulkIgnoreResults: SetStateHookCallback[BulkResults],
-      bulkImportProgress: BulkProgress,
-      setBulkImportProgress: SetStateHookCallback[BulkProgress],
-      bulkImportResults: BulkResults,
-      setBulkImportResults: SetStateHookCallback[BulkResults]
+      bulkIgnore: BulkRun,
+      setBulkIgnore: SetStateHookCallback[BulkRun],
+      bulkImport: BulkRun,
+      setBulkImport: SetStateHookCallback[BulkRun]
   )
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
@@ -45,14 +40,10 @@ object BankStatementReviewContent {
     val location = RouterCompat.useTypedLocation()
     val stmtId = props.data.statement.id
     val showToast = props.showToast
-    val bulkIgnoreProgress = props.bulkIgnoreProgress
-    val setBulkIgnoreProgress = props.setBulkIgnoreProgress
-    val bulkIgnoreResults = props.bulkIgnoreResults
-    val setBulkIgnoreResults = props.setBulkIgnoreResults
-    val bulkImportProgress = props.bulkImportProgress
-    val setBulkImportProgress = props.setBulkImportProgress
-    val bulkImportResults = props.bulkImportResults
-    val setBulkImportResults = props.setBulkImportResults
+    val bulkIgnore = props.bulkIgnore
+    val setBulkIgnore = props.setBulkIgnore
+    val bulkImport = props.bulkImport
+    val setBulkImport = props.setBulkImport
 
     val (statement, setStatement) = Hooks.useState(props.data.statement)
     val (statementRows, setStatementRows) = Hooks.useState(props.data.statement.statementRows)
@@ -75,10 +66,7 @@ object BankStatementReviewContent {
     val (rowFilter, setRowFilter) = Hooks.useState(initialTab)
     val (selectedRowIds, setSelectedRowIds) = Hooks.useState[Set[UUID]](Set.empty)
 
-    val (creatingForRow, setCreatingForRow) = Hooks.useState[Option[UUID]](None)
-    val (linkingForRow, setLinkingForRow) = Hooks.useState[Option[UUID]](None)
-    val (creatingRefundForRow, setCreatingRefundForRow) = Hooks.useState[Option[UUID]](None)
-    val (ruleFormForRow, setRuleFormForRow) = Hooks.useState[Option[UUID]](None)
+    val (drawerState, setDrawerState) = Hooks.useState[DrawerState](DrawerState.Closed)
 
     val suggestions = BankStatementSuggestionsPolling.useSuggestionsPolling(
       client = props.ctx.api.client,
@@ -132,10 +120,10 @@ object BankStatementReviewContent {
     val onRowAction: (UUID, RowAction) => Unit = Hooks.useCallback(
       (rowId: UUID, action: RowAction) =>
         action match {
-          case RowAction.OpenExpenseForm => setCreatingForRow(Some(rowId)); setLinkingForRow(None)
-          case RowAction.OpenRefundForm => setCreatingRefundForRow(Some(rowId))
-          case RowAction.OpenLinkPicker => setLinkingForRow(Some(rowId)); setCreatingForRow(None)
-          case RowAction.OpenRuleForm => setRuleFormForRow(Some(rowId))
+          case RowAction.OpenExpenseForm => setDrawerState(DrawerState.CreateExpense(rowId))
+          case RowAction.OpenRefundForm => setDrawerState(DrawerState.CreateRefund(rowId))
+          case RowAction.OpenLinkPicker => setDrawerState(DrawerState.LinkExpense(rowId))
+          case RowAction.OpenRuleForm => setDrawerState(DrawerState.CreateRule(rowId))
           case RowAction.Ignore => rowActions.ignore(rowId)
           case RowAction.Unignore => rowActions.unignore(rowId)
           case RowAction.Unlink => rowActions.unlink(rowId)
@@ -144,22 +132,13 @@ object BankStatementReviewContent {
       List(stmtId.toString)
     )
 
-    val drawerOpen =
-      creatingForRow.isDefined || creatingRefundForRow.isDefined ||
-        linkingForRow.isDefined || ruleFormForRow.isDefined
-    val drawerTarget = BankStatementReviewDrawer
-      .activeForm(creatingForRow, creatingRefundForRow, linkingForRow, ruleFormForRow)
-      .flatMap { case (id, form) => statementRows.find(_.id == id).map(_ -> form) }
-
-    def closeDrawer(): Unit = {
-      setCreatingForRow(None); setCreatingRefundForRow(None)
-      setLinkingForRow(None); setRuleFormForRow(None)
-    }
+    val drawerTarget =
+      drawerState.openRowId.flatMap(id => statementRows.find(_.id == id)).map(row => (row, drawerState))
 
     val stmt = statement
     val tableRows = filterRows(statementRows, rowFilter, rowInfoById)
     val selectedInView = selectedRowIds.intersect(tableRows.map(_.id).toSet)
-    val bulkActive = selectedInView.nonEmpty && bulkIgnoreProgress.isEmpty && bulkImportProgress.isEmpty
+    val bulkActive = selectedInView.nonEmpty && !bulkIgnore.isRunning && !bulkImport.isRunning
 
     val countReady = statementRows.count(r => rowInfoById.get(r.id).exists(_.isReady))
     val countUnprocessed =
@@ -205,8 +184,8 @@ object BankStatementReviewContent {
           BankStatementReviewBulkBar.Props(
             selectedCount = selectedInView.size,
             bulkActive = bulkActive,
-            importProgress = bulkImportProgress,
-            ignoreProgress = bulkIgnoreProgress,
+            importRun = bulkImport,
+            ignoreRun = bulkIgnore,
             onProcess = () =>
               BankStatementBulkRuns.handleBulkImport(
                 client = props.ctx.api.client,
@@ -217,8 +196,7 @@ object BankStatementReviewContent {
                 expenseMatchById = expenseMatchById,
                 expenseList = expenseList,
                 setStatementRows = setStatementRows,
-                setBulkImportProgress = setBulkImportProgress,
-                setBulkImportResults = setBulkImportResults,
+                setBulkImport = setBulkImport,
                 setSelectedRowIds = setSelectedRowIds,
                 showToast = showToast,
                 onRefresh = props.onRefresh
@@ -229,8 +207,7 @@ object BankStatementReviewContent {
                 stmtId = stmt.id,
                 ids = selectedInView.toList,
                 setStatementRows = setStatementRows,
-                setBulkIgnoreProgress = setBulkIgnoreProgress,
-                setBulkIgnoreResults = setBulkIgnoreResults,
+                setBulkIgnore = setBulkIgnore,
                 setSelectedRowIds = setSelectedRowIds
               ),
             onClear = () => setSelectedRowIds(Set.empty)
@@ -259,10 +236,10 @@ object BankStatementReviewContent {
             onRowAction = onRowAction
           )
         ),
-        if (bulkImportResults.nonEmpty || bulkIgnoreResults.nonEmpty)
+        if ((bulkImport.results ++ bulkIgnore.results).nonEmpty)
           BankStatementReviewBulkResults(
             BankStatementReviewBulkResults.Props(
-              results = bulkImportResults ++ bulkIgnoreResults,
+              results = bulkImport.results ++ bulkIgnore.results,
               descById = statementRows.map(r => r.id -> r.description).toMap
             )
           )
@@ -273,39 +250,33 @@ object BankStatementReviewContent {
         BankStatementReviewDrawer.Props(
           ctx = props.ctx,
           stmtId = stmt.id,
-          open = drawerOpen,
           target = drawerTarget,
           merchants = merchantList,
           categories = categoryList,
           ruleList = ruleList,
           aiSuggestions = stmt.aiSuggestions,
-          onClose = () => closeDrawer(),
-          onCancel = {
-            case DrawerForm.CreateExpense => setCreatingForRow(None)
-            case DrawerForm.CreateRefund => setCreatingRefundForRow(None)
-            case DrawerForm.LinkExpense => setLinkingForRow(None)
-            case DrawerForm.CreateRule => setRuleFormForRow(None)
-          },
+          onClose = () => setDrawerState(DrawerState.Closed),
+          onCancel = form => setDrawerState(_.closing(form)),
           onExpenseCreated = (rowId, expenseId) => {
             setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(expenseId = Some(expenseId)) else r))
-            setCreatingForRow(None)
+            setDrawerState(_.closing(DrawerState.CreateExpense(rowId)))
             rowActions.refreshRow(rowId)
             showToast("Expense created")
           },
           onRefundCreated = (rowId, refundId) => {
             setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(refundId = Some(refundId)) else r))
-            setCreatingRefundForRow(None)
+            setDrawerState(_.closing(DrawerState.CreateRefund(rowId)))
             showToast("Refund created")
           },
           onExpenseLinked = (rowId, expenseId) => {
             setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(expenseId = Some(expenseId)) else r))
-            setLinkingForRow(None)
+            setDrawerState(_.closing(DrawerState.LinkExpense(rowId)))
             rowActions.refreshRow(rowId)
           },
-          onRuleCreated = (rule, newMerchantOpt) => {
+          onRuleCreated = (rowId, rule, newMerchantOpt) => {
             setRuleList(cur => cur :+ rule)
             newMerchantOpt.foreach(m => setMerchantList(cur => cur :+ m))
-            setRuleFormForRow(None)
+            setDrawerState(_.closing(DrawerState.CreateRule(rowId)))
             showToast("Rule created")
           },
           onNewEntities = (newRule, newMerchant) => {
