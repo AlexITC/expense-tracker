@@ -208,6 +208,27 @@ object BankStatementReviewLogic {
     case Fail(message: String)
   }
 
+  /** Which per-row form the side drawer shows, if any. */
+  enum DrawerState {
+    case Closed
+    case CreateExpense(rowId: UUID)
+    case CreateRefund(rowId: UUID)
+    case LinkExpense(rowId: UUID)
+    case CreateRule(rowId: UUID)
+
+    /** The row whose form is showing; a method named `rowId` would clash with the cases' fields. */
+    def openRowId: Option[UUID] = this match {
+      case Closed => None
+      case CreateExpense(id) => Some(id)
+      case CreateRefund(id) => Some(id)
+      case LinkExpense(id) => Some(id)
+      case CreateRule(id) => Some(id)
+    }
+
+    /** Close the drawer only if `form` is still the one showing. */
+    def closing(form: DrawerState): DrawerState = if (this == form) Closed else this
+  }
+
   private val manualLinkHint = "link it manually via … → Link to existing expense"
 
   /** Decide a selected row's bulk action from its info and its expense match. An Ignore verdict wins; a unique match is

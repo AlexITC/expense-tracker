@@ -2,7 +2,6 @@ package net.wiringbits.components.pages
 
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
-import net.wiringbits.components.pages.BankStatementReviewDrawer.DrawerForm
 import net.wiringbits.components.pages.BankStatementReviewRow.RowAction
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.utils.ReconciliationMatcher
@@ -75,10 +74,7 @@ object BankStatementReviewContent {
     val (rowFilter, setRowFilter) = Hooks.useState(initialTab)
     val (selectedRowIds, setSelectedRowIds) = Hooks.useState[Set[UUID]](Set.empty)
 
-    val (creatingForRow, setCreatingForRow) = Hooks.useState[Option[UUID]](None)
-    val (linkingForRow, setLinkingForRow) = Hooks.useState[Option[UUID]](None)
-    val (creatingRefundForRow, setCreatingRefundForRow) = Hooks.useState[Option[UUID]](None)
-    val (ruleFormForRow, setRuleFormForRow) = Hooks.useState[Option[UUID]](None)
+    val (drawerState, setDrawerState) = Hooks.useState[DrawerState](DrawerState.Closed)
 
     val suggestions = BankStatementSuggestionsPolling.useSuggestionsPolling(
       client = props.ctx.api.client,
@@ -132,10 +128,10 @@ object BankStatementReviewContent {
     val onRowAction: (UUID, RowAction) => Unit = Hooks.useCallback(
       (rowId: UUID, action: RowAction) =>
         action match {
-          case RowAction.OpenExpenseForm => setCreatingForRow(Some(rowId)); setLinkingForRow(None)
-          case RowAction.OpenRefundForm => setCreatingRefundForRow(Some(rowId))
-          case RowAction.OpenLinkPicker => setLinkingForRow(Some(rowId)); setCreatingForRow(None)
-          case RowAction.OpenRuleForm => setRuleFormForRow(Some(rowId))
+          case RowAction.OpenExpenseForm => setDrawerState(DrawerState.CreateExpense(rowId))
+          case RowAction.OpenRefundForm => setDrawerState(DrawerState.CreateRefund(rowId))
+          case RowAction.OpenLinkPicker => setDrawerState(DrawerState.LinkExpense(rowId))
+          case RowAction.OpenRuleForm => setDrawerState(DrawerState.CreateRule(rowId))
           case RowAction.Ignore => rowActions.ignore(rowId)
           case RowAction.Unignore => rowActions.unignore(rowId)
           case RowAction.Unlink => rowActions.unlink(rowId)
@@ -144,17 +140,7 @@ object BankStatementReviewContent {
       List(stmtId.toString)
     )
 
-    val drawerOpen =
-      creatingForRow.isDefined || creatingRefundForRow.isDefined ||
-        linkingForRow.isDefined || ruleFormForRow.isDefined
-    val drawerTarget = BankStatementReviewDrawer
-      .activeForm(creatingForRow, creatingRefundForRow, linkingForRow, ruleFormForRow)
-      .flatMap { case (id, form) => statementRows.find(_.id == id).map(_ -> form) }
-
-    def closeDrawer(): Unit = {
-      setCreatingForRow(None); setCreatingRefundForRow(None)
-      setLinkingForRow(None); setRuleFormForRow(None)
-    }
+    val drawerRow = drawerState.openRowId.flatMap(id => statementRows.find(_.id == id))
 
     val stmt = statement
     val tableRows = filterRows(statementRows, rowFilter, rowInfoById)
@@ -273,39 +259,34 @@ object BankStatementReviewContent {
         BankStatementReviewDrawer.Props(
           ctx = props.ctx,
           stmtId = stmt.id,
-          open = drawerOpen,
-          target = drawerTarget,
+          state = drawerState,
+          row = drawerRow,
           merchants = merchantList,
           categories = categoryList,
           ruleList = ruleList,
           aiSuggestions = stmt.aiSuggestions,
-          onClose = () => closeDrawer(),
-          onCancel = {
-            case DrawerForm.CreateExpense => setCreatingForRow(None)
-            case DrawerForm.CreateRefund => setCreatingRefundForRow(None)
-            case DrawerForm.LinkExpense => setLinkingForRow(None)
-            case DrawerForm.CreateRule => setRuleFormForRow(None)
-          },
+          onClose = () => setDrawerState(DrawerState.Closed),
+          onCancel = form => setDrawerState(_.closing(form)),
           onExpenseCreated = (rowId, expenseId) => {
             setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(expenseId = Some(expenseId)) else r))
-            setCreatingForRow(None)
+            setDrawerState(_.closing(DrawerState.CreateExpense(rowId)))
             rowActions.refreshRow(rowId)
             showToast("Expense created")
           },
           onRefundCreated = (rowId, refundId) => {
             setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(refundId = Some(refundId)) else r))
-            setCreatingRefundForRow(None)
+            setDrawerState(_.closing(DrawerState.CreateRefund(rowId)))
             showToast("Refund created")
           },
           onExpenseLinked = (rowId, expenseId) => {
             setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(expenseId = Some(expenseId)) else r))
-            setLinkingForRow(None)
+            setDrawerState(_.closing(DrawerState.LinkExpense(rowId)))
             rowActions.refreshRow(rowId)
           },
-          onRuleCreated = (rule, newMerchantOpt) => {
+          onRuleCreated = (rowId, rule, newMerchantOpt) => {
             setRuleList(cur => cur :+ rule)
             newMerchantOpt.foreach(m => setMerchantList(cur => cur :+ m))
-            setRuleFormForRow(None)
+            setDrawerState(_.closing(DrawerState.CreateRule(rowId)))
             showToast("Rule created")
           },
           onNewEntities = (newRule, newMerchant) => {

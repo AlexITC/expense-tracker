@@ -690,4 +690,35 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       window mustBe (LocalDate.of(2024, 2, 27), LocalDate.of(2024, 4, 5))
     }
   }
+
+  "DrawerState" should {
+    import BankStatementReviewLogic.DrawerState
+    val rowId = UUID.randomUUID()
+
+    "have no open row when closed" in {
+      DrawerState.Closed.openRowId mustBe None
+    }
+
+    "expose the row of every open form" in {
+      DrawerState.CreateExpense(rowId).openRowId mustBe Some(rowId)
+      DrawerState.CreateRefund(rowId).openRowId mustBe Some(rowId)
+      DrawerState.LinkExpense(rowId).openRowId mustBe Some(rowId)
+      DrawerState.CreateRule(rowId).openRowId mustBe Some(rowId)
+    }
+
+    "close when the closing form is the one showing" in {
+      DrawerState.CreateExpense(rowId).closing(DrawerState.CreateExpense(rowId)) mustBe DrawerState.Closed
+    }
+
+    "leave a different form open" in {
+      val otherRow = UUID.randomUUID()
+      DrawerState.LinkExpense(rowId).closing(DrawerState.CreateExpense(rowId)) mustBe DrawerState.LinkExpense(rowId)
+      DrawerState.CreateExpense(otherRow).closing(DrawerState.CreateExpense(rowId)) mustBe
+        DrawerState.CreateExpense(otherRow)
+    }
+
+    "stay closed when already closed" in {
+      DrawerState.Closed.closing(DrawerState.CreateRule(rowId)) mustBe DrawerState.Closed
+    }
+  }
 }

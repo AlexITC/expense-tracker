@@ -14,46 +14,32 @@ import java.util.UUID
 
 /** Side drawer hosting the per-row forms: create expense, create refund, link to an expense, or create a rule. */
 object BankStatementReviewDrawer {
+  import BankStatementReviewLogic.DrawerState
+
   def apply(props: Props): KeyAddingStage = component(props)
-
-  enum DrawerForm {
-    case CreateExpense, CreateRefund, LinkExpense, CreateRule
-  }
-
-  /** The form to show, by precedence: creating → refund → linking → rule. */
-  def activeForm(
-      creating: Option[UUID],
-      refund: Option[UUID],
-      linking: Option[UUID],
-      rule: Option[UUID]
-  ): Option[(UUID, DrawerForm)] =
-    creating
-      .map(_ -> DrawerForm.CreateExpense)
-      .orElse(refund.map(_ -> DrawerForm.CreateRefund))
-      .orElse(linking.map(_ -> DrawerForm.LinkExpense))
-      .orElse(rule.map(_ -> DrawerForm.CreateRule))
 
   case class Props(
       ctx: AppContext,
       stmtId: UUID,
-      open: Boolean,
-      target: Option[(GetBankStatement.StatementRowData, DrawerForm)],
+      state: DrawerState,
+      row: Option[GetBankStatement.StatementRowData],
       merchants: List[GetMerchants.Response.Merchant],
       categories: List[GetCategories.Response.Category],
       ruleList: List[ImportRuleMatcher.Rule],
       aiSuggestions: Option[AiSuggestions],
       onClose: () => Unit,
-      onCancel: DrawerForm => Unit,
+      onCancel: DrawerState => Unit,
       onExpenseCreated: (UUID, UUID) => Unit,
       onRefundCreated: (UUID, UUID) => Unit,
       onExpenseLinked: (UUID, UUID) => Unit,
-      onRuleCreated: (ImportRuleMatcher.Rule, Option[GetMerchants.Response.Merchant]) => Unit,
+      onRuleCreated: (UUID, ImportRuleMatcher.Rule, Option[GetMerchants.Response.Merchant]) => Unit,
       onNewEntities: (Option[ImportRuleMatcher.Rule], Option[GetMerchants.Response.Merchant]) => Unit
   )
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
-    def renderForm(row: GetBankStatement.StatementRowData, form: DrawerForm): ReactElement = form match {
-      case DrawerForm.CreateExpense =>
+    def renderForm(row: GetBankStatement.StatementRowData, state: DrawerState): ReactElement = state match {
+      case DrawerState.Closed => Fragment()
+      case form: DrawerState.CreateExpense =>
         BankRowCreateExpenseForm(
           BankRowCreateExpenseForm.Props(
             stmtId = props.stmtId,
@@ -64,11 +50,11 @@ object BankStatementReviewDrawer {
             aiSuggestion = props.aiSuggestions.flatMap(_.rows.find(_.rowId == row.id)),
             ctx = props.ctx,
             onSuccess = expenseId => props.onExpenseCreated(row.id, expenseId),
-            onCancel = () => props.onCancel(DrawerForm.CreateExpense),
+            onCancel = () => props.onCancel(form),
             onNewEntities = props.onNewEntities
           )
         )
-      case DrawerForm.CreateRefund =>
+      case form: DrawerState.CreateRefund =>
         BankRowCreateRefundForm(
           BankRowCreateRefundForm.Props(
             stmtId = props.stmtId,
@@ -79,20 +65,20 @@ object BankStatementReviewDrawer {
             ruleList = props.ruleList,
             ctx = props.ctx,
             onSuccess = refundId => props.onRefundCreated(row.id, refundId),
-            onCancel = () => props.onCancel(DrawerForm.CreateRefund)
+            onCancel = () => props.onCancel(form)
           )
         )
-      case DrawerForm.LinkExpense =>
+      case form: DrawerState.LinkExpense =>
         BankRowLinkPicker(
           BankRowLinkPicker.Props(
             stmtId = props.stmtId,
             rowId = row.id,
             ctx = props.ctx,
             onSuccess = expenseId => props.onExpenseLinked(row.id, expenseId),
-            onCancel = () => props.onCancel(DrawerForm.LinkExpense)
+            onCancel = () => props.onCancel(form)
           )
         )
-      case DrawerForm.CreateRule =>
+      case form: DrawerState.CreateRule =>
         BankRowRuleForm(
           BankRowRuleForm.Props(
             stmtId = props.stmtId,
@@ -100,15 +86,15 @@ object BankStatementReviewDrawer {
             merchants = props.merchants,
             categories = props.categories,
             ctx = props.ctx,
-            onSuccess = props.onRuleCreated,
-            onCancel = () => props.onCancel(DrawerForm.CreateRule)
+            onSuccess = (rule, newMerchant) => props.onRuleCreated(row.id, rule, newMerchant),
+            onCancel = () => props.onCancel(form)
           )
         )
     }
 
     mui.Drawer
       .anchor("right")
-      .open(props.open)
+      .open(props.state != DrawerState.Closed)
       .onClose((_, _) => props.onClose())(
         mui.Box.sx(new CSSPropertiesUtils {
           width = "480px"; maxWidth = "92vw"; height = "100%"
@@ -128,10 +114,10 @@ object BankStatementReviewDrawer {
               .onClick(_ => props.onClose())
               .build: ReactElement)
           ),
-          props.target.fold[ReactElement](Fragment()) { case (row, form) =>
+          props.row.fold[ReactElement](Fragment()) { row =>
             Fragment(
               BankStatementRowSummary(BankStatementRowSummary.Props(row)),
-              renderForm(row, form)
+              renderForm(row, props.state)
             )
           }
         )
