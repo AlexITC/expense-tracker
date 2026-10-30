@@ -112,6 +112,15 @@ class BulkMerchantSetupPageSpec extends AnyWordSpec with BeforeAndAfterEach {
       container
     )
 
+  private def clickAssign(): Unit =
+    container
+      .querySelectorAll("button")
+      .toList
+      .find(_.textContent == "Assign")
+      .getOrElse(fail("Assign button not found"))
+      .asInstanceOf[dom.html.Element]
+      .click()
+
   "findUnmatchedGroups" should {
     val otherRow = sampleRows.head.copy(id = UUID.randomUUID(), description = "UNKNOWN SHOP 42")
 
@@ -200,6 +209,19 @@ class BulkMerchantSetupPageSpec extends AnyWordSpec with BeforeAndAfterEach {
         inputs.length must be > 1
         inputs.item(1).asInstanceOf[dom.HTMLInputElement].click()
       }
+    }
+
+    // The validation error is rendered from SaveState.Failed via errorOpt; no API call is made on this path.
+    "show 'Merchant name is required' when Assign is clicked with an empty merchant" in {
+      renderRow("", Nil, Nil, Nil)
+      clickAssign()
+      container.textContent must include("Merchant name is required")
+    }
+
+    "show 'Category is required' when Assign is clicked with only the merchant filled" in {
+      renderRow("CARNICERIA EL RISCU (GIJON)", sampleRows, Nil, Nil)
+      clickAssign()
+      container.textContent must include("Category is required")
     }
   }
 }
