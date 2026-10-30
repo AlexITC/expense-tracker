@@ -12,7 +12,7 @@ object ReconciliationMatcher {
 
   // Accounts for the gap between purchase date and bank settlement/posting date. `reconcile` applies it in both
   // directions; `matchRow` only allows the row to post after the expense.
-  private val MaxDateDifferenceDays = 3L
+  val MaxDateDifferenceDays = 3L
 
   // Tolerance for small amount differences (tips, rounding, FX adjustments) when no exact match exists.
   private val NearAmountTolerance = BigDecimal("1.00")

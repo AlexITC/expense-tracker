@@ -27,6 +27,16 @@ object BankStatementReviewLogic {
       expenses: List[GetExpenses.Response.Expense]
   )
 
+  /** The expense dates (from, to) that can match the statement's rows: a row matches expenses up to
+    * `MaxDateDifferenceDays` before it. Rows outside the statement period widen the window.
+    */
+  def candidateExpenseWindow(statement: GetBankStatement.Response): (LocalDate, LocalDate) = {
+    val dates = statement.statementRows.map(_.date)
+    val earliest = (statement.periodStart :: dates).minBy(_.toEpochDay)
+    val latest = (statement.periodEnd :: dates).maxBy(_.toEpochDay)
+    (earliest.minusDays(ReconciliationMatcher.MaxDateDifferenceDays), latest)
+  }
+
   def resultLabel(
       rowId: UUID,
       descById: Map[UUID, String],

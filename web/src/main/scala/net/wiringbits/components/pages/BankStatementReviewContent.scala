@@ -112,6 +112,7 @@ object BankStatementReviewContent {
     val rowActions = BankStatementRowActions(
       client = props.ctx.api.client,
       stmtId = stmtId,
+      expenseWindow = candidateExpenseWindow(props.data.statement),
       setStatementRows = setStatementRows,
       setSelectedRowIds = setSelectedRowIds,
       setExpenseList = setExpenseList,

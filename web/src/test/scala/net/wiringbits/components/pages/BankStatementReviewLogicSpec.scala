@@ -3,6 +3,7 @@ package net.wiringbits.components.pages
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus, GetBankStatement}
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.expenses.GetExpenses
+import net.wiringbits.api.models.documents.DocumentStatus
 import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction, ImportRuleActionKind}
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.utils.ReconciliationMatcher
@@ -652,6 +653,41 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
 
     "keep open rows for an unknown tab" in {
       filterRows(rows, "bogus", infos) mustBe List(open, ready)
+    }
+  }
+
+  "candidateExpenseWindow" should {
+    def statement(rowDates: LocalDate*): GetBankStatement.Response =
+      GetBankStatement.Response(
+        id = UUID.randomUUID(),
+        documentId = UUID.randomUUID(),
+        documentFilename = "statement.pdf",
+        documentStatus = DocumentStatus.Parsed,
+        bankName = "Bank",
+        productType = "credit",
+        currency = "USD",
+        accountLast4 = "1234",
+        periodStart = LocalDate.of(2024, 3, 1),
+        periodEnd = LocalDate.of(2024, 3, 31),
+        statementRows = rowDates.toList.map(d => sampleRow().copy(date = d)),
+        createdAt = Instant.now(),
+        extractionInfo = None,
+        aiSuggestions = None
+      )
+
+    "span the period, starting the match tolerance before it" in {
+      val window = BankStatementReviewLogic.candidateExpenseWindow(statement(LocalDate.of(2024, 3, 10)))
+      window mustBe (LocalDate.of(2024, 2, 27), LocalDate.of(2024, 3, 31))
+    }
+
+    "start before a row dated before the period" in {
+      val window = BankStatementReviewLogic.candidateExpenseWindow(statement(LocalDate.of(2024, 2, 20)))
+      window mustBe (LocalDate.of(2024, 2, 17), LocalDate.of(2024, 3, 31))
+    }
+
+    "end at a row dated after the period" in {
+      val window = BankStatementReviewLogic.candidateExpenseWindow(statement(LocalDate.of(2024, 4, 5)))
+      window mustBe (LocalDate.of(2024, 2, 27), LocalDate.of(2024, 4, 5))
     }
   }
 }
