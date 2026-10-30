@@ -3,6 +3,7 @@ package net.wiringbits.actions.expenses
 import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.repositories.{BankStatementRepository, ExpensesRepository, MerchantsRepository, ReceiptRepository}
 
+import java.time.LocalDate
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
@@ -14,9 +15,14 @@ class GetExpensesAction @Inject() (
     bankStatementRepository: BankStatementRepository
 )(implicit ec: ExecutionContext) {
 
-  def apply(userId: UUID): Future[GetExpenses.Response] = {
+  def apply(
+      userId: UUID,
+      from: Option[LocalDate],
+      to: Option[LocalDate],
+      unlinkedOnly: Boolean
+  ): Future[GetExpenses.Response] = {
     for {
-      expenses <- expensesRepository.all(userId)
+      expenses <- expensesRepository.all(userId, from, to, unlinkedOnly)
       merchants <- merchantsRepository.all(userId)
       splits <- expensesRepository.allSplits(userId)
       receipts <- receiptRepository.all(userId)

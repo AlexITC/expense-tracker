@@ -9,6 +9,7 @@ import sttp.capabilities.WebSockets
 import sttp.capabilities.pekko.PekkoStreams
 import sttp.tapir.server.ServerEndpoint
 
+import java.time.LocalDate
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
@@ -21,10 +22,15 @@ class ExpensesController @Inject() (
 )(implicit ec: ExecutionContext) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
-  private def getAll(userIdF: Future[UUID]): Future[Either[ErrorResponse, GetExpenses.Response]] = handleRequest {
+  private def getAll(
+      from: Option[LocalDate],
+      to: Option[LocalDate],
+      unlinkedOnly: Boolean,
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, GetExpenses.Response]] = handleRequest {
     for {
       userId <- userIdF
-      response <- getExpensesAction(userId)
+      response <- getExpensesAction(userId, from, to, unlinkedOnly)
     } yield Right(response)
   }
 

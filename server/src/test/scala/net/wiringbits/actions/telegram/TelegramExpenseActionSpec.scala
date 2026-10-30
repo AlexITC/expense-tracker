@@ -36,7 +36,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
         val result = newAction().apply(user.id, msg).futureValue
 
         result mustBe a[Right[?, ?]]
-        val expense = repositories.expenses.all(user.id).futureValue.headOption.value
+        val expense = repositories.expenses.all(user.id, None, None, false).futureValue.headOption.value
         expense.amount must be(BigDecimal("25.00"))
         expense.merchantId must be(Some(merchant.id))
         val splits = repositories.expenses.allSplits(user.id).futureValue
@@ -92,7 +92,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
       val result = newAction().apply(user.id, msg).futureValue
 
       result mustBe a[Right[?, ?]]
-      val expense = repositories.expenses.all(user.id).futureValue.headOption.value
+      val expense = repositories.expenses.all(user.id, None, None, false).futureValue.headOption.value
       expense.merchantId must be(Some(merchant.id))
       val splits = repositories.expenses.allSplits(user.id).futureValue
       splits.map(_.categoryId) must contain(category.id)
@@ -123,7 +123,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
         merchants.map(_.name) must contain("New Shop")
         val categories = repositories.categories.all(user.id).futureValue
         categories.map(_.name) must contain("Misc")
-        val expense = repositories.expenses.all(user.id).futureValue.headOption.value
+        val expense = repositories.expenses.all(user.id, None, None, false).futureValue.headOption.value
         expense.amount must be(BigDecimal("8.00"))
         val splits = repositories.expenses.allSplits(user.id).futureValue
         splits must not be empty
@@ -152,7 +152,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
         val result = newAction().apply(user.id, msg).futureValue
 
         result mustBe a[Left[?, ?]]
-        repositories.expenses.all(user.id).futureValue mustBe empty
+        repositories.expenses.all(user.id, None, None, false).futureValue mustBe empty
     }
 
     // Monthly expense cap
@@ -166,7 +166,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
 
       result mustBe a[Left[?, ?]]
       result.left.getOrElse("") must include("500")
-      repositories.expenses.all(user.id).futureValue.length must be(500)
+      repositories.expenses.all(user.id, None, None, false).futureValue.length must be(500)
     }
 
     // Merchant with no categoryId and no category in message → Right, no splits
@@ -179,7 +179,7 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
         val result = newAction().apply(user.id, msg).futureValue
 
         result mustBe a[Right[?, ?]]
-        val expense = repositories.expenses.all(user.id).futureValue.headOption.value
+        val expense = repositories.expenses.all(user.id, None, None, false).futureValue.headOption.value
         expense.merchantId must be(Some(merchant.id))
         repositories.expenses.allSplits(user.id).futureValue mustBe empty
     }

@@ -22,9 +22,14 @@ class ExpensesRepository @Inject() (database: Database)(implicit
     }
   }
 
-  def all(userId: UUID): Future[List[Expense]] = Future {
+  def all(
+      userId: UUID,
+      from: Option[LocalDate],
+      to: Option[LocalDate],
+      unlinkedOnly: Boolean
+  ): Future[List[Expense]] = Future {
     database.withConnection { implicit conn =>
-      ExpenseDAO.all(userId)
+      ExpenseDAO.all(userId, from, to, unlinkedOnly)
     }
   }
 

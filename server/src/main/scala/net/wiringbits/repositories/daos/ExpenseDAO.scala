@@ -33,11 +33,18 @@ object ExpenseDAO {
         """.execute()
   }
 
-  def all(userId: UUID)(implicit conn: Connection): List[Expense] = {
+  def all(userId: UUID, from: Option[LocalDate], to: Option[LocalDate], unlinkedOnly: Boolean)(implicit
+      conn: Connection
+  ): List[Expense] = {
     SQL"""
         SELECT id, user_id, amount, date, time, merchant_id, notes, created_at, updated_at
         FROM expense
         WHERE user_id = ${userId.toString}::UUID
+          AND (${from}::DATE IS NULL OR date >= ${from}::DATE)
+          AND (${to}::DATE IS NULL OR date <= ${to}::DATE)
+          AND (NOT ${unlinkedOnly} OR NOT EXISTS (
+            SELECT 1 FROM bank_statement_row r WHERE r.expense_id = expense.id
+          ))
         ORDER BY date DESC, time DESC NULLS LAST, created_at DESC
         """.as(expenseParser.*)
   }
