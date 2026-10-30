@@ -21,8 +21,8 @@ object BankStatementReviewDrawer {
   case class Props(
       ctx: AppContext,
       stmtId: UUID,
-      state: DrawerState,
-      row: Option[GetBankStatement.StatementRowData],
+      /** The open form and the row it was resolved for; None while closed. */
+      target: Option[(GetBankStatement.StatementRowData, DrawerState)],
       merchants: List[GetMerchants.Response.Merchant],
       categories: List[GetCategories.Response.Category],
       ruleList: List[ImportRuleMatcher.Rule],
@@ -94,7 +94,7 @@ object BankStatementReviewDrawer {
 
     mui.Drawer
       .anchor("right")
-      .open(props.state != DrawerState.Closed)
+      .open(props.target.isDefined)
       .onClose((_, _) => props.onClose())(
         mui.Box.sx(new CSSPropertiesUtils {
           width = "480px"; maxWidth = "92vw"; height = "100%"
@@ -114,10 +114,10 @@ object BankStatementReviewDrawer {
               .onClick(_ => props.onClose())
               .build: ReactElement)
           ),
-          props.row.fold[ReactElement](Fragment()) { row =>
+          props.target.fold[ReactElement](Fragment()) { case (row, state) =>
             Fragment(
               BankStatementRowSummary(BankStatementRowSummary.Props(row)),
-              renderForm(row, props.state)
+              renderForm(row, state)
             )
           }
         )

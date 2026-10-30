@@ -132,7 +132,8 @@ object BankStatementReviewContent {
       List(stmtId.toString)
     )
 
-    val drawerRow = drawerState.openRowId.flatMap(id => statementRows.find(_.id == id))
+    val drawerTarget =
+      drawerState.openRowId.flatMap(id => statementRows.find(_.id == id)).map(row => (row, drawerState))
 
     val stmt = statement
     val tableRows = filterRows(statementRows, rowFilter, rowInfoById)
@@ -249,8 +250,7 @@ object BankStatementReviewContent {
         BankStatementReviewDrawer.Props(
           ctx = props.ctx,
           stmtId = stmt.id,
-          state = drawerState,
-          row = drawerRow,
+          target = drawerTarget,
           merchants = merchantList,
           categories = categoryList,
           ruleList = ruleList,
