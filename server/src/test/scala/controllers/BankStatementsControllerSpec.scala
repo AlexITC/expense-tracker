@@ -4,7 +4,12 @@ import anorm.*
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.github.f4b6a3.uuid.UuidCreator
 import controllers.common.PlayPostgresSpec
-import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus, CreateExpenseFromRow}
+import net.wiringbits.api.models.bankstatements.{
+  AiSuggestions,
+  AiSuggestionsStatus,
+  CreateExpenseFromRow,
+  LinkRowToExpense
+}
 import net.wiringbits.api.models.categories.CreateCategory
 import net.wiringbits.api.models.merchants.CreateMerchant
 import net.wiringbits.apis.models.EmailRequest
@@ -219,6 +224,29 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
 
       val error = client.unignoreRow(stmtId, UUID.randomUUID()).expectError
       error must be("Bank statement row not found")
+    }
+  }
+
+  "POST /bank-statements/:id/rows/:rowId/link" should {
+    "fail when the expense is already linked to another row" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      implicit val now: Instant = Instant.now()
+      val userId = client.currentUser.futureValue.id
+      val firstRowId = UuidCreator.getTimeOrderedEpoch()
+      val secondRowId = UuidCreator.getTimeOrderedEpoch()
+      val stmtId = createBankStatementWithRows(
+        userId,
+        sid =>
+          List(
+            makeRow(firstRowId, sid, BigDecimal("-50.00")),
+            makeRow(secondRowId, sid, BigDecimal("-50.00")).copy(index = 1)
+          )
+      )
+      val req = CreateExpenseFromRow.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil)
+      val expenseId = client.createExpenseFromRow(stmtId, firstRowId, req).futureValue.expenseId
+
+      val error = client.linkRowToExpense(stmtId, secondRowId, LinkRowToExpense.Request(expenseId)).expectError
+      error must be("That expense is already linked to another row")
     }
   }
 

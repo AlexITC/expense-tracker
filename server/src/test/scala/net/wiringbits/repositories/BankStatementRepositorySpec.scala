@@ -728,6 +728,74 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       }
       ex.getMessage must include("Bank statement not found")
     }
+
+    "fail when the expense is already linked to another row" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val expense = createExpense(user.id).futureValue
+      val rows = createRows(user.id, List("First", "Second"))
+      val stmtId = rows.head.bankStatementId
+      repositories.bankStatements.setRowExpenseId(stmtId, rows(0).id, user.id, expense.id, Instant.now()).futureValue
+
+      val ex = intercept[RuntimeException] {
+        repositories.bankStatements.setRowExpenseId(stmtId, rows(1).id, user.id, expense.id, Instant.now()).futureValue
+      }
+      ex.getCause.getMessage must be("That expense is already linked to another row")
+    }
+
+    "fail when the expense belongs to another user" in withRepositories() { implicit repositories =>
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
+      val expense = createExpense(userB.id).futureValue
+      val row = createRows(userA.id, List("Mine")).head
+
+      val ex = intercept[RuntimeException] {
+        repositories.bankStatements
+          .setRowExpenseId(row.bankStatementId, row.id, userA.id, expense.id, Instant.now())
+          .futureValue
+      }
+      ex.getCause.getMessage must be("Expense not found")
+    }
+
+    "allow a row and a receipt to share the same expense" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val expense = createExpense(user.id).futureValue
+      val receipt = createReceipt(user.id).futureValue
+      val row = createRows(user.id, List("Shared")).head
+      repositories.receipts.linkToExpense(receipt.id, user.id, expense.id).futureValue
+
+      repositories.bankStatements
+        .setRowExpenseId(row.bankStatementId, row.id, user.id, expense.id, Instant.now())
+        .futureValue
+
+      val linked = repositories.bankStatements.findRow(row.id, row.bankStatementId).futureValue
+      linked.value.expenseId must be(Some(expense.id))
+    }
+  }
+
+  "setRowExpenseIdForUser" should {
+    "fail when the expense belongs to another user" in withRepositories() { implicit repositories =>
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
+      val expense = createExpense(userB.id).futureValue
+      val row = createRows(userA.id, List("Mine")).head
+
+      val ex = intercept[RuntimeException] {
+        repositories.bankStatements.setRowExpenseIdForUser(row.id, userA.id, expense.id, Instant.now()).futureValue
+      }
+      ex.getCause.getMessage must be("Expense not found")
+    }
+
+    "fail when the expense is already linked to another row" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val expense = createExpense(user.id).futureValue
+      val rows = createRows(user.id, List("First", "Second"))
+      repositories.bankStatements.setRowExpenseIdForUser(rows(0).id, user.id, expense.id, Instant.now()).futureValue
+
+      val ex = intercept[RuntimeException] {
+        repositories.bankStatements.setRowExpenseIdForUser(rows(1).id, user.id, expense.id, Instant.now()).futureValue
+      }
+      ex.getCause.getMessage must be("That expense is already linked to another row")
+    }
   }
 
   "ignoreRow / unignoreRow" should {
