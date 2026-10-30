@@ -19,6 +19,7 @@ import javax.inject.Inject
 import scala.concurrent.Future
 
 class ReceiptRepository @Inject() (database: Database)(implicit ec: DatabaseExecutionContext, clock: Clock) {
+  import ReceiptRepository._
 
   def createWithDocument(
       document: Document.Create,
@@ -78,6 +79,7 @@ class ReceiptRepository @Inject() (database: Database)(implicit ec: DatabaseExec
       splits: List[ExpenseCategorySplit.Create],
       linkedRowId: Option[UUID] = None
   ): Future[UUID] = Future {
+    // The expense is created here, so neither the receipt nor the row unique index on expense_id can be violated.
     database.withTransaction { implicit conn =>
       ExpenseDAO.create(expense)
       ExpenseCategorySplitDAO.createAll(splits)
@@ -90,8 +92,11 @@ class ReceiptRepository @Inject() (database: Database)(implicit ec: DatabaseExec
   }
 
   def linkToExpense(id: UUID, userId: UUID, expenseId: UUID): Future[Unit] = Future {
-    database.withConnection { implicit conn =>
-      ReceiptDAO.setExpenseId(id, userId, expenseId, clock.instant())
+    ConstraintViolations.translating(ReceiptExpenseIdUnique) {
+      database.withTransaction { implicit conn =>
+        if (ExpenseDAO.find(expenseId, userId).isEmpty) throw new RuntimeException("Expense not found")
+        ReceiptDAO.setExpenseId(id, userId, expenseId, clock.instant())
+      }
     }
   }
 
@@ -131,4 +136,9 @@ class ReceiptRepository @Inject() (database: Database)(implicit ec: DatabaseExec
       ReceiptDAO.setMerchantId(id, merchantId, clock.instant())
     }
   }
+}
+
+object ReceiptRepository {
+  val ReceiptExpenseIdUnique: (String, String) =
+    "receipt_expense_id_unique" -> "That expense is already linked to another receipt"
 }

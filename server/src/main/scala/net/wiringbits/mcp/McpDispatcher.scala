@@ -79,7 +79,8 @@ class McpDispatcher @Inject() (
           rpcError(id, -32602, s"Tool $name accepts no arguments")
         } else {
           name match {
-            case McpTools.ListExpenses => toolResult(id, getExpensesAction(userId).map(Json.toJson(_)))
+            case McpTools.ListExpenses =>
+              toolResult(id, getExpensesAction(userId, None, None, false).map(Json.toJson(_)))
             case McpTools.ListCategories => toolResult(id, getCategoriesAction(userId).map(Json.toJson(_)))
             case McpTools.ListBankStatementRows =>
               val grouped = for {

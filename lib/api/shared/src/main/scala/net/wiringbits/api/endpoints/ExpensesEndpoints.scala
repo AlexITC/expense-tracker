@@ -6,6 +6,7 @@ import sttp.tapir.*
 import sttp.tapir.json.play.*
 import sttp.tapir.model.ServerRequest
 
+import java.time.LocalDate
 import java.util.UUID
 import scala.concurrent.Future
 
@@ -17,8 +18,17 @@ object ExpensesEndpoints {
 
   def getAll(implicit
       authHandler: ServerRequest => Future[UUID]
-  ): Endpoint[Unit, Future[UUID], ErrorResponse, GetExpenses.Response, Any] =
+  ): Endpoint[
+    Unit,
+    (Option[LocalDate], Option[LocalDate], Boolean, Future[UUID]),
+    ErrorResponse,
+    GetExpenses.Response,
+    Any
+  ] =
     baseEndpoint.get
+      .in(query[Option[LocalDate]]("from"))
+      .in(query[Option[LocalDate]]("to"))
+      .in(query[Boolean]("unlinkedOnly").default(false))
       .in(userAuth)
       .out(jsonBody[GetExpenses.Response])
       .errorOut(oneOf(HttpErrors.badRequest))

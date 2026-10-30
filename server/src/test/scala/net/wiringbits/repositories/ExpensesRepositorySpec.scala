@@ -1,16 +1,35 @@
 package net.wiringbits.repositories
 
-import net.wiringbits.core.RepositorySpec
-import net.wiringbits.repositories.models.ExpenseCategorySplit
+import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
+import net.wiringbits.repositories.models.{BankStatementRow, ExpenseCategorySplit}
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
 import utils.RepositoryUtils
 
-import java.time.LocalDate
+import java.time.{Instant, LocalDate}
 import java.util.UUID
 
 class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
+
+  private def linkToNewRow(userId: UUID, expenseId: UUID)(implicit repositories: RepositoryComponents): Unit = {
+    val stmt = createBankStatement(userId).futureValue
+    val now = Instant.now()
+    val row = BankStatementRow.Create(
+      id = UUID.randomUUID(),
+      bankStatementId = stmt.id,
+      index = 0,
+      date = LocalDate.of(2024, 1, 15),
+      amount = BigDecimal("50.00"),
+      description = "Row",
+      manuallyEdited = false,
+      createdAt = now,
+      updatedAt = now,
+      txnType = "purchase"
+    )
+    repositories.bankStatements.createRows(List(row)).futureValue
+    repositories.bankStatements.setRowExpenseIdForUser(row.id, userId, expenseId, now).futureValue
+  }
 
   "create" should {
     "work with no splits" in withRepositories() { implicit repositories =>
@@ -61,7 +80,7 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
       createExpense(user.id, date = LocalDate.of(2024, 3, 5)).futureValue
       createExpense(user.id, date = LocalDate.of(2024, 2, 20)).futureValue
 
-      val result = repositories.expenses.all(user.id).futureValue
+      val result = repositories.expenses.all(user.id, None, None, false).futureValue
       result.length must be(3)
       result.map(_.date) must be(List(LocalDate.of(2024, 3, 5), LocalDate.of(2024, 2, 20), LocalDate.of(2024, 1, 10)))
     }
@@ -72,13 +91,69 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
       createExpense(userA.id).futureValue
       createExpense(userB.id).futureValue
 
-      repositories.expenses.all(userA.id).futureValue.length must be(1)
-      repositories.expenses.all(userB.id).futureValue.length must be(1)
+      repositories.expenses.all(userA.id, None, None, false).futureValue.length must be(1)
+      repositories.expenses.all(userB.id, None, None, false).futureValue.length must be(1)
     }
 
     "return empty list when user has no expenses" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
-      repositories.expenses.all(user.id).futureValue must be(empty)
+      repositories.expenses.all(user.id, None, None, false).futureValue must be(empty)
+    }
+
+    "return only expenses within the inclusive from/to bounds" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      List(9, 10, 15, 20, 21).foreach(d => createExpense(user.id, date = LocalDate.of(2024, 1, d)).futureValue)
+
+      val result = repositories.expenses
+        .all(user.id, Some(LocalDate.of(2024, 1, 10)), Some(LocalDate.of(2024, 1, 20)), false)
+        .futureValue
+      result.map(_.date) must be(List(20, 15, 10).map(LocalDate.of(2024, 1, _)))
+    }
+
+    "apply only the from bound when to is missing" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      List(9, 10, 21).foreach(d => createExpense(user.id, date = LocalDate.of(2024, 1, d)).futureValue)
+
+      val result = repositories.expenses.all(user.id, Some(LocalDate.of(2024, 1, 10)), None, false).futureValue
+      result.map(_.date) must be(List(21, 10).map(LocalDate.of(2024, 1, _)))
+    }
+
+    "apply only the to bound when from is missing" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      List(9, 10, 21).foreach(d => createExpense(user.id, date = LocalDate.of(2024, 1, d)).futureValue)
+
+      val result = repositories.expenses.all(user.id, None, Some(LocalDate.of(2024, 1, 10)), false).futureValue
+      result.map(_.date) must be(List(10, 9).map(LocalDate.of(2024, 1, _)))
+    }
+
+    "exclude expenses linked to a bank statement row when unlinkedOnly is set" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val linked = createExpense(user.id).futureValue
+        val unlinked = createExpense(user.id).futureValue
+        linkToNewRow(user.id, linked.id)
+
+        repositories.expenses.all(user.id, None, None, true).futureValue.map(_.id) must be(List(unlinked.id))
+    }
+
+    "keep expenses linked only to a receipt when unlinkedOnly is set" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val expense = createExpense(user.id).futureValue
+      val receipt = createReceipt(user.id).futureValue
+      repositories.receipts.linkToExpense(receipt.id, user.id, expense.id).futureValue
+
+      repositories.expenses.all(user.id, None, None, true).futureValue.map(_.id) must be(List(expense.id))
+    }
+
+    "return linked and unlinked expenses when no filters are given" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val linked = createExpense(user.id).futureValue
+      val unlinked = createExpense(user.id).futureValue
+      linkToNewRow(user.id, linked.id)
+
+      repositories.expenses.all(user.id, None, None, false).futureValue.map(_.id).toSet must be(
+        Set(linked.id, unlinked.id)
+      )
     }
   }
 

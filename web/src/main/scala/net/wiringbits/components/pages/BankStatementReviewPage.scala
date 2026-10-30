@@ -50,7 +50,10 @@ object BankStatementReviewPage {
       val merchantsF = client.getMerchants
       val categoriesF = client.getCategories
       val rulesF = client.getImportRules
-      val expensesF = client.getExpenses
+      val expensesF = statementF.flatMap { statement =>
+        val (from, to) = BankStatementReviewLogic.candidateExpenseWindow(statement)
+        client.getExpensesFiltered(Some(from), Some(to), unlinkedOnly = true)
+      }
       for {
         statement <- statementF
         merchants <- merchantsF

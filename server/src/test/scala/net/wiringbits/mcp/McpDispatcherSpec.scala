@@ -3,7 +3,7 @@ package net.wiringbits.mcp
 import net.wiringbits.actions.bankstatements.{GetAllRowsAction, GetBankStatementsAction}
 import net.wiringbits.actions.categories.GetCategoriesAction
 import net.wiringbits.actions.expenses.GetExpensesAction
-import org.mockito.ArgumentMatchers.any
+import org.mockito.ArgumentMatchers.{any, anyBoolean}
 import org.mockito.Mockito.*
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.must.Matchers
@@ -12,6 +12,7 @@ import org.scalatestplus.mockito.MockitoSugar
 import play.api.libs.json.{JsNumber, JsString, Json}
 import sttp.model.StatusCode
 
+import java.time.LocalDate
 import java.util.UUID
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
@@ -150,7 +151,8 @@ class McpDispatcherSpec extends AnyWordSpec with Matchers with ScalaFutures with
 
     "return isError: true, not a JSON-RPC error, when the underlying action fails" in {
       val expensesAction = mock[GetExpensesAction]
-      when(expensesAction(any[UUID]())).thenReturn(Future.failed(new RuntimeException("boom")))
+      when(expensesAction(any[UUID](), any[Option[LocalDate]](), any[Option[LocalDate]](), anyBoolean()))
+        .thenReturn(Future.failed(new RuntimeException("boom")))
       val dispatcher = newDispatcher(getExpensesAction = expensesAction)
 
       val params = Json.obj("name" -> "list_expenses")

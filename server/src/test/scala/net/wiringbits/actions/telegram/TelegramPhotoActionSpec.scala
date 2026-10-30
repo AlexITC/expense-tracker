@@ -74,7 +74,7 @@ class TelegramPhotoActionSpec extends RepositorySpec with RepositoryUtils with M
       val api = stubTelegramApi()
       newAction(api).apply("file-abc", telegramUserId, fakeChatId).futureValue
 
-      repositories.expenses.all(user.id).futureValue mustBe empty
+      repositories.expenses.all(user.id, None, None, false).futureValue mustBe empty
     }
 
     "not create a duplicate telegram_receipt row when the same photo is sent twice" in withRepositories() {

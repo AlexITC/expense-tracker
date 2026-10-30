@@ -1,12 +1,14 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.core.RepositorySpec
-import net.wiringbits.models.documents.DocumentStatus
+import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.repositories.models.{BankStatement, BankStatementRow, Expense}
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
 import utils.RepositoryUtils
 
+import java.time.{Instant, LocalDate}
 import java.util.UUID
 
 class ReceiptRepositorySpec extends RepositorySpec with RepositoryUtils {
@@ -134,6 +136,71 @@ class ReceiptRepositorySpec extends RepositorySpec with RepositoryUtils {
       repositories.receipts.unlinkExpense(created.id, user.id).futureValue
       val unlinked = repositories.receipts.find(created.id, user.id).futureValue
       unlinked.value.expenseId must be(None)
+    }
+
+    "fail when the expense is already linked to another receipt" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val expense = createExpense(user.id).futureValue
+      val first = createReceipt(user.id).futureValue
+      val second = createReceipt(user.id).futureValue
+      repositories.receipts.linkToExpense(first.id, user.id, expense.id).futureValue
+
+      val ex = intercept[RuntimeException] {
+        repositories.receipts.linkToExpense(second.id, user.id, expense.id).futureValue
+      }
+      ex.getCause.getMessage must be("That expense is already linked to another receipt")
+    }
+
+    "fail when the expense belongs to another user" in withRepositories() { implicit repositories =>
+      val userA = createUser().futureValue
+      val userB = createUser().futureValue
+      val expense = createExpense(userB.id).futureValue
+      val receipt = createReceipt(userA.id).futureValue
+
+      val ex = intercept[RuntimeException] {
+        repositories.receipts.linkToExpense(receipt.id, userA.id, expense.id).futureValue
+      }
+      ex.getCause.getMessage must be("Expense not found")
+    }
+  }
+
+  "confirm" should {
+    "create the expense and link both the receipt and the row" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val receipt = createReceipt(user.id).futureValue
+      val doc = createDocument(user.id, kind = DocumentKind.BankStatementPdf).futureValue
+      val now = Instant.now()
+      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
+      val row = BankStatementRow.Create(
+        id = UUID.randomUUID(),
+        bankStatementId = stmt.id,
+        index = 0,
+        date = LocalDate.of(2024, 1, 15),
+        amount = BigDecimal("-50.00"),
+        description = "Shop",
+        manuallyEdited = false,
+        createdAt = now,
+        updatedAt = now,
+        txnType = "purchase"
+      )
+      createStatement(stmt, sampleStatementMetadata, List(row)).futureValue
+      val expense = Expense.Create(
+        id = UUID.randomUUID(),
+        userId = user.id,
+        amount = BigDecimal("50.00"),
+        date = LocalDate.of(2024, 1, 15),
+        time = None,
+        merchantId = None,
+        notes = None,
+        createdAt = now,
+        updatedAt = now
+      )
+
+      val expenseId = repositories.receipts.confirm(receipt.id, user.id, expense, Nil, Some(row.id)).futureValue
+
+      expenseId must be(expense.id)
+      repositories.receipts.find(receipt.id, user.id).futureValue.value.expenseId must be(Some(expense.id))
+      repositories.bankStatements.findRow(row.id, stmt.id).futureValue.value.expenseId must be(Some(expense.id))
     }
   }
 

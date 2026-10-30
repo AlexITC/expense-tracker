@@ -2,7 +2,13 @@ package net.wiringbits.repositories
 
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, ExtractionInfo}
 import net.wiringbits.executors.DatabaseExecutionContext
-import net.wiringbits.repositories.daos.{BackgroundJobDAO, BankStatementDAO, BankStatementRowDAO, DocumentDAO}
+import net.wiringbits.repositories.daos.{
+  BackgroundJobDAO,
+  BankStatementDAO,
+  BankStatementRowDAO,
+  DocumentDAO,
+  ExpenseDAO
+}
 import net.wiringbits.repositories.models.{
   BackgroundJobData,
   BankStatement,
@@ -18,6 +24,7 @@ import javax.inject.Inject
 import scala.concurrent.Future
 
 class BankStatementRepository @Inject() (database: Database)(implicit ec: DatabaseExecutionContext) {
+  import BankStatementRepository._
 
   /** Confirm a draft import: mark the draft's existing document Parsed and create the statement (with metadata) + rows
     * in one transaction, and enqueue the given job (the AI suggestions job; the rows are already extracted). Used by
@@ -118,8 +125,11 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
   }
 
   def setRowExpenseIdForUser(rowId: UUID, userId: UUID, expenseId: UUID, updatedAt: Instant): Future[Unit] = Future {
-    database.withConnection { implicit conn =>
-      BankStatementRowDAO.setExpenseIdForUser(rowId, userId, expenseId, updatedAt)
+    ConstraintViolations.translating(RowExpenseIdUnique) {
+      database.withTransaction { implicit conn =>
+        if (ExpenseDAO.find(expenseId, userId).isEmpty) throw new RuntimeException("Expense not found")
+        BankStatementRowDAO.setExpenseIdForUser(rowId, userId, expenseId, updatedAt)
+      }
     }
   }
 
@@ -144,10 +154,13 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
 
   def setRowExpenseId(stmtId: UUID, rowId: UUID, userId: UUID, expenseId: UUID, updatedAt: Instant): Future[Unit] =
     Future {
-      database.withTransaction { implicit conn =>
-        val stmtOpt = BankStatementDAO.find(stmtId, userId)
-        if (stmtOpt.isEmpty) throw new RuntimeException("Bank statement not found")
-        BankStatementRowDAO.setExpenseId(rowId, stmtId, expenseId, updatedAt)
+      ConstraintViolations.translating(RowExpenseIdUnique) {
+        database.withTransaction { implicit conn =>
+          val stmtOpt = BankStatementDAO.find(stmtId, userId)
+          if (stmtOpt.isEmpty) throw new RuntimeException("Bank statement not found")
+          if (ExpenseDAO.find(expenseId, userId).isEmpty) throw new RuntimeException("Expense not found")
+          BankStatementRowDAO.setExpenseId(rowId, stmtId, expenseId, updatedAt)
+        }
       }
     }
 
@@ -216,4 +229,9 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
       )
     }
   }
+}
+
+object BankStatementRepository {
+  val RowExpenseIdUnique: (String, String) =
+    "bank_statement_row_expense_id_unique" -> "That expense is already linked to another row"
 }

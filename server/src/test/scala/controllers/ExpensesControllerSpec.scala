@@ -2,10 +2,12 @@ package controllers
 
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
+import net.wiringbits.api.models.bankstatements.LinkRowToExpense
 import net.wiringbits.api.models.expenses.{CreateExpense, UpdateExpense}
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
 import net.wiringbits.common.models.Captcha
+import net.wiringbits.repositories.models.BankStatementRow
 import net.wiringbits.util.TokenGenerator
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.*
@@ -14,7 +16,7 @@ import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
 import utils.LoginUtils
 
-import java.time.LocalDate
+import java.time.{Instant, LocalDate}
 import java.util.UUID
 import scala.concurrent.Future
 
@@ -76,6 +78,53 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
 
       client2.getExpenses.futureValue.data must be(empty)
+    }
+
+    "return only expenses within the requested date range" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      client.createExpense(createRequest(date = LocalDate.of(2024, 1, 9))).futureValue
+      client.createExpense(createRequest(date = LocalDate.of(2024, 1, 10))).futureValue
+      client.createExpense(createRequest(date = LocalDate.of(2024, 1, 21))).futureValue
+
+      val response = client
+        .getExpensesFiltered(Some(LocalDate.of(2024, 1, 10)), Some(LocalDate.of(2024, 1, 20)), unlinkedOnly = false)
+        .futureValue
+      response.data.map(_.date) must be(List(LocalDate.of(2024, 1, 10)))
+    }
+
+    "omit row-linked expenses only when unlinkedOnly is set" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val linkedId = client.createExpense(createRequest()).futureValue.id
+      val unlinkedId = client.createExpense(createRequest()).futureValue.id
+      val userId = client.currentUser.futureValue.id
+      val rowId = UUID.randomUUID()
+      val now = Instant.now()
+      val stmtId = createBankStatementWithRows(
+        userId,
+        sid =>
+          List(
+            BankStatementRow.Create(
+              rowId,
+              sid,
+              0,
+              sampleDate,
+              BigDecimal("-50.00"),
+              "Test row",
+              manuallyEdited = false,
+              now,
+              now,
+              txnType = "purchase"
+            )
+          )
+      )
+      client.linkRowToExpense(stmtId, rowId, LinkRowToExpense.Request(linkedId)).futureValue
+
+      client.getExpensesFiltered(None, None, unlinkedOnly = true).futureValue.data.map(_.id) must be(
+        List(unlinkedId)
+      )
+      client.getExpensesFiltered(None, None, unlinkedOnly = false).futureValue.data.map(_.id).toSet must be(
+        Set(linkedId, unlinkedId)
+      )
     }
   }
 

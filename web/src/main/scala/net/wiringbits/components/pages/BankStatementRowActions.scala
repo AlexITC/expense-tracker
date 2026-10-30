@@ -5,7 +5,7 @@ import net.wiringbits.api.models.bankstatements.GetBankStatement
 import net.wiringbits.api.models.expenses.GetExpenses
 import slinky.core.facade.SetStateHookCallback
 
-import java.time.Instant
+import java.time.{Instant, LocalDate}
 import java.util.UUID
 import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Success}
@@ -14,6 +14,7 @@ import scala.util.{Failure, Success}
 final case class BankStatementRowActions(
     client: ApiClient,
     stmtId: UUID,
+    expenseWindow: (LocalDate, LocalDate),
     setStatementRows: SetStateHookCallback[List[GetBankStatement.StatementRowData]],
     setSelectedRowIds: SetStateHookCallback[Set[UUID]],
     setExpenseList: SetStateHookCallback[List[GetExpenses.Response.Expense]],
@@ -74,9 +75,11 @@ final case class BankStatementRowActions(
     refreshExpenses()
   }
 
-  def refreshExpenses(): Unit =
-    client.getExpenses.onComplete {
+  def refreshExpenses(): Unit = {
+    val (from, to) = expenseWindow
+    client.getExpensesFiltered(Some(from), Some(to), unlinkedOnly = true).onComplete {
       case Success(resp) => setExpenseList(resp.data)
       case Failure(ex) => setError(ex.getMessage)
     }
+  }
 }

@@ -20,6 +20,7 @@ import sttp.tapir.PublicEndpoint
 import sttp.tapir.client.sttp.SttpClientInterpreter
 import sttp.tapir.model.ServerRequest
 
+import java.time.LocalDate
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success, Try}
@@ -139,7 +140,14 @@ class ApiClient(config: ApiClient.Config)(implicit
     handleRequest(CategoriesEndpoints.delete, (categoryId, dummyUserId))
 
   def getExpenses: Future[GetExpenses.Response] =
-    handleRequest(ExpensesEndpoints.getAll, dummyUserId)
+    getExpensesFiltered(None, None, false)
+
+  def getExpensesFiltered(
+      from: Option[LocalDate],
+      to: Option[LocalDate],
+      unlinkedOnly: Boolean
+  ): Future[GetExpenses.Response] =
+    handleRequest(ExpensesEndpoints.getAll, (from, to, unlinkedOnly, dummyUserId))
 
   def createExpense(request: CreateExpense.Request): Future[CreateExpense.Response] =
     handleRequest(ExpensesEndpoints.create, (request, dummyUserId))
