@@ -61,7 +61,7 @@ def syncArrow = mui.Box()(mui.Icon(muiIcons.Sync()))
 | Global (auth, dark mode, language) | `AppContext` + monix `Var` with `$` prefix | `ctx.$auth`, `ctx.$darkMode` |
 | Read a global reactive value | `ReactiveHooks.useDistinctValue(ctx.$auth)` | — |
 | Local form / UI state | `Hooks.useState(initialValue)` | `val (open, setOpen) = Hooks.useState(false)` |
-| Derived / memoised | `Hooks.useMemo(() => ..., deps)` | I18nHooks.useMessages |
+| Derived / memoised | `SafeHooks.useMemo(key)(() => ...)` | see RULE-FE-006 |
 
 @file: web/src/main/scala/net/wiringbits/AppContext.scala  
 @file: web/src/main/scala/net/wiringbits/core/ReactiveHooks.scala
@@ -75,39 +75,47 @@ React's `useContext` is not used in this codebase. `AppContext` is passed explic
 def apply(ctx: AppContext, ...): KeyAddingStage = component(Props(ctx, ...))
 ```
 
-**RULE-FE-006 — `useEffect` and `useMemo` dependency encoding**
+**RULE-FE-006 — hook dependency lists: use `SafeHooks`, keys are `String`**
 
-Slinky encodes React hook dependencies as follows:
+React compares each hook dependency with `Object.is`, which only compares by **value** for JS primitives. In Scala.js
+that means **`String`, `Int`, `Double`, `Boolean` only** — NOT `Long` or `Char` (both boxed objects), and no collection,
+`Option`, tuple, case class, `UUID` or `BigDecimal` (all objects, compared by **reference**, so a fresh instance each
+render looks "changed" and silently re-fires the hook every render). The container (`js.Array` vs `List`) is irrelevant —
+Slinky takes `Iterable[Any]` and React compares the elements. All of this is proven in `HookDepsProbeSpec`.
 
-| Intent | Slinky syntax | React equivalent |
+Use `SafeHooks`, which forces every dependency to a `String` key so the trap cannot occur:
+
+| Intent | SafeHooks | React equivalent |
 |---|---|---|
-| Run once (mount only) | `Hooks.useEffect(fn, "")` | `useEffect(fn, [])` |
-| Re-run when value changes | `Hooks.useEffect(fn, List(obj))` | `useEffect(fn, [obj])` |
-| Memoize once | `Hooks.useMemo(() => expr, "")` | `useMemo(() => expr, [])` |
-| Re-memoize when value changes | `Hooks.useMemo(() => expr, List(obj))` | `useMemo(() => expr, [obj])` |
+| Run once (mount only) | `SafeHooks.useEffect()(fn)` | `useEffect(fn, [])` |
+| Re-run when something changes | `SafeHooks.useEffect(key)(fn)` | `useEffect(fn, [key])` |
+| Memoize once | `SafeHooks.useMemo()(() => expr)` | `useMemo(() => expr, [])` |
+| Re-memoize when something changes | `SafeHooks.useMemo(key)(() => expr)` | `useMemo(() => expr, [key])` |
 
-Never pass an empty `List()` as deps — Slinky does not treat it the same as `""`. Use `""` for the run-once / stable-forever case.
-
-Never use `js.Array(...)` as deps — always use the Scala types above (`""` or `List(...)`). `js.Array` bypasses Slinky's dependency comparison and may cause unexpected re-runs or missed updates.
+Derive the key from whatever the hook truly depends on — `id.toString`, interpolation (`s"$a:$b"`), or
+`ids.map(_.toString).mkString(",")`. No keys means compute-once (an empty dependency list; empty `js.Array`, empty
+`List` and `""` are all equivalent — also proven). For the rare "run on every render" effect, call `Hooks.useEffect(fn)`
+with no dependency argument.
 
 ```scala
-// Run-once memoization (ReCaptcha — avoid re-render on every keystroke)
-Hooks.useMemo(
-  () => AsyncComponent[String](fetch = ..., render = ...),
-  ""
-)
+// Run-once memoization
+SafeHooks.useMemo() { () =>
+  AsyncComponent[String](fetch = ..., render = ...)
+}
 
-// Reactive to Monix Var (ReactiveHooks — subscribe on mount, update on change)
-Hooks.useEffect(
-  () => {
-    val cancelable = value.foreach(setState.apply)
-    () => cancelable.cancel()
-  },
-  List(value)
-)
+// Re-run when the statement or its polling flag changes
+SafeHooks.useEffect(s"$stmtId:$polling") { () =>
+  val timer = startPolling()
+  () => timer.cancel()
+}
 ```
 
-@file: web/src/main/scala/net/wiringbits/components/widgets/ReCaptcha.scala  
+The low-level hook utilities in `net.wiringbits.core` are the exception: `ReactiveHooks` deliberately keys on a stable
+monix `Var` reference (reference identity is the intended semantic — re-subscribe only when a different `Var` is passed),
+so it uses `Hooks` directly.
+
+@file: web/src/main/scala/net/wiringbits/core/SafeHooks.scala  
+@file: web/src/test/scala/net/wiringbits/components/HookDepsProbeSpec.scala  
 @file: web/src/main/scala/net/wiringbits/core/ReactiveHooks.scala
 
 **RULE-FE-007 — `AsyncComponent` for data loading**
