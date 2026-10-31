@@ -184,21 +184,18 @@ object BankRowCreateExpenseForm {
     // A suggestion can arrive (via polling) after the form was opened blank; apply it only while the
     // merchant/category fields are still untouched so user edits are never overwritten.
     val aiSuggestionKey = props.aiSuggestion.map(s => s"${s.merchantId}|${s.categoryId}").getOrElse("")
-    Hooks.useEffect(
-      () => {
-        if (isPristine(props.row, merchantIdOpt, merchantInput, categoryIdOpt, categoryInput)) {
-          initMerchant.foreach { m =>
-            setMerchantInput(m.name)
-            setMerchantIdOpt(Some(m.id))
-          }
-          initCategoryIdOpt.foreach { cid =>
-            setCategoryIdOpt(Some(cid))
-            setCategoryInput(initCategoryName)
-          }
+    SafeHooks.useEffect(aiSuggestionKey)(() => {
+      if (isPristine(props.row, merchantIdOpt, merchantInput, categoryIdOpt, categoryInput)) {
+        initMerchant.foreach { m =>
+          setMerchantInput(m.name)
+          setMerchantIdOpt(Some(m.id))
         }
-      },
-      js.Array(aiSuggestionKey)
-    )
+        initCategoryIdOpt.foreach { cid =>
+          setCategoryIdOpt(Some(cid))
+          setCategoryInput(initCategoryName)
+        }
+      }
+    })
 
     SafeHooks.useEffect()(() => {
       props.ctx.api.client.getReceipts.onComplete {

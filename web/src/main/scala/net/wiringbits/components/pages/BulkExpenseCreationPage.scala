@@ -7,6 +7,7 @@ import net.wiringbits.api.models.bankstatements.{CreateExpenseFromRow, GetAllRow
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
 import net.wiringbits.api.models.merchants.{CreateMerchant, GetMerchants}
 import net.wiringbits.components.widgets.Loader
+import net.wiringbits.core.SafeHooks
 import net.wiringbits.models.{SaveState, User}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
@@ -106,31 +107,28 @@ object BulkExpenseCreationContent {
     val saving = save.isSaving
 
     // Reset Screen 2 state when navigating to a description (or on mount with a desc in URL)
-    Hooks.useEffect(
-      () => {
-        val desc = descParam.getOrElse("")
-        setDescFilter(desc)
-        val initIds =
-          if (desc.nonEmpty)
-            allRows
-              .filter(r => r.amount < 0 && r.expenseId.isEmpty && r.ignoredAt.isEmpty)
-              .filter(r => normalize(r.description).contains(normalize(desc)))
-              .map(_.id)
-              .toSet
-          else Set.empty[UUID]
-        setSelectedIds(initIds)
-        setSave {
-          case SaveState.Failed(_) => SaveState.Idle
-          case s => s
-        }
-        setNotes("")
-        setMerchantInput("")
-        setMerchantIdOpt(None)
-        setCategoryInput("")
-        setCategoryIdOpt(None)
-      },
-      List(descParam.getOrElse(""))
-    )
+    SafeHooks.useEffect(descParam.getOrElse(""))(() => {
+      val desc = descParam.getOrElse("")
+      setDescFilter(desc)
+      val initIds =
+        if (desc.nonEmpty)
+          allRows
+            .filter(r => r.amount < 0 && r.expenseId.isEmpty && r.ignoredAt.isEmpty)
+            .filter(r => normalize(r.description).contains(normalize(desc)))
+            .map(_.id)
+            .toSet
+        else Set.empty[UUID]
+      setSelectedIds(initIds)
+      setSave {
+        case SaveState.Failed(_) => SaveState.Idle
+        case s => s
+      }
+      setNotes("")
+      setMerchantInput("")
+      setMerchantIdOpt(None)
+      setCategoryInput("")
+      setCategoryIdOpt(None)
+    })
 
     val unprocessed = allRows.filter(r => r.amount < 0 && r.expenseId.isEmpty && r.ignoredAt.isEmpty)
 

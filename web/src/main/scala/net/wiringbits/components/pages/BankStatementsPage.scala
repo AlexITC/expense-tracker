@@ -5,6 +5,7 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{BankStatementDraft, GetBankStatement, GetBankStatements}
 import net.wiringbits.api.models.documents.DocumentStatus
+import net.wiringbits.core.SafeHooks
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
@@ -145,18 +146,15 @@ object BankStatementList {
         case Failure(_) => ()
       }
 
-    Hooks.useEffect(() => { refreshDrafts(); () }, "")
+    SafeHooks.useEffect()(() => { refreshDrafts(); () })
 
     val draftsProcessingKey = drafts.filter(_.status == "processing").map(_.id.toString).sorted.mkString(",")
-    Hooks.useEffect(
-      () => {
-        if (draftsProcessingKey.nonEmpty) {
-          val timer = dom.window.setInterval(() => refreshDrafts(), 3000)
-          () => { dom.window.clearInterval(timer); () }
-        } else () => ()
-      },
-      js.Array(draftsProcessingKey)
-    )
+    SafeHooks.useEffect(draftsProcessingKey)(() => {
+      if (draftsProcessingKey.nonEmpty) {
+        val timer = dom.window.setInterval(() => refreshDrafts(), 3000)
+        () => { dom.window.clearInterval(timer); () }
+      } else () => ()
+    })
 
     def handleDraftUpload(inputEl: dom.HTMLInputElement): Unit = {
       val fileList = inputEl.files
@@ -198,10 +196,7 @@ object BankStatementList {
 
     val (localStmts, setLocalStmts) = Hooks.useState(props.stmts.data)
     val stmtsKey = props.stmts.data.map(s => s"${s.id}:${s.documentStatus.entryName}").mkString("|")
-    Hooks.useEffect(
-      () => { setLocalStmts(props.stmts.data); () },
-      js.Array(stmtsKey)
-    )
+    SafeHooks.useEffect(stmtsKey)(() => { setLocalStmts(props.stmts.data); () })
 
     val pendingStmts = localStmts.filter(s =>
       s.documentStatus == DocumentStatus.Ingested ||
@@ -209,28 +204,25 @@ object BankStatementList {
         s.documentStatus == DocumentStatus.Analyzed
     )
     val pendingKey = pendingStmts.map(_.id.toString).sorted.mkString(",")
-    Hooks.useEffect(
-      () => {
-        if (pendingStmts.nonEmpty) {
-          val timer = dom.window.setInterval(
-            () =>
-              pendingStmts.foreach { pending =>
-                setPollingIds(cur => cur + pending.id)
-                props.ctx.api.client.getBankStatement(pending.id).onComplete {
-                  case Success(updated) =>
-                    setPollingIds(cur => cur - updated.id)
-                    setLocalStmts(cur => cur.map(s => if (s.id == updated.id) toListStmt(updated) else s))
-                  case Failure(_) =>
-                    setPollingIds(cur => cur - pending.id)
-                }
-              },
-            3000
-          )
-          () => { dom.window.clearInterval(timer); () }
-        } else { () => () }
-      },
-      js.Array(pendingKey)
-    )
+    SafeHooks.useEffect(pendingKey)(() => {
+      if (pendingStmts.nonEmpty) {
+        val timer = dom.window.setInterval(
+          () =>
+            pendingStmts.foreach { pending =>
+              setPollingIds(cur => cur + pending.id)
+              props.ctx.api.client.getBankStatement(pending.id).onComplete {
+                case Success(updated) =>
+                  setPollingIds(cur => cur - updated.id)
+                  setLocalStmts(cur => cur.map(s => if (s.id == updated.id) toListStmt(updated) else s))
+                case Failure(_) =>
+                  setPollingIds(cur => cur - pending.id)
+              }
+            },
+          3000
+        )
+        () => { dom.window.clearInterval(timer); () }
+      } else { () => () }
+    })
 
     def showToast(msg: String): Unit = {
       setToast(Some(msg))

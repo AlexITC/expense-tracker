@@ -2,12 +2,12 @@ package net.wiringbits.components.pages
 
 import net.wiringbits.api.ApiClient
 import net.wiringbits.api.models.bankstatements.GetBankStatement
+import net.wiringbits.core.SafeHooks
 import org.scalajs.dom
 import slinky.core.facade.{Hooks, SetStateHookCallback}
 
 import java.util.UUID
 import scala.concurrent.ExecutionContext
-import scala.scalajs.js
 import scala.util.{Failure, Success}
 
 /** Polls a statement's AI suggestions until they resolve, and regenerates them on request. */
@@ -36,24 +36,21 @@ object BankStatementSuggestionsPolling {
     val pollingSuggestions =
       suggestionsPending(statement.aiSuggestions) && suggestionsPollAttempts < SuggestionsPollMaxAttempts
     val suggestionsPollKey = s"$stmtId:$pollingSuggestions"
-    Hooks.useEffect(
-      () => {
-        if (pollingSuggestions) {
-          val timer = dom.window.setInterval(
-            () => {
-              setSuggestionsPollAttempts(_ + 1)
-              client.getBankStatement(stmtId).onComplete {
-                case Success(full) => setStatement(cur => cur.copy(aiSuggestions = full.aiSuggestions))
-                case Failure(_) => ()
-              }
-            },
-            SuggestionsPollIntervalMs
-          )
-          () => { dom.window.clearInterval(timer); () }
-        } else () => ()
-      },
-      js.Array(suggestionsPollKey)
-    )
+    SafeHooks.useEffect(suggestionsPollKey)(() => {
+      if (pollingSuggestions) {
+        val timer = dom.window.setInterval(
+          () => {
+            setSuggestionsPollAttempts(_ + 1)
+            client.getBankStatement(stmtId).onComplete {
+              case Success(full) => setStatement(cur => cur.copy(aiSuggestions = full.aiSuggestions))
+              case Failure(_) => ()
+            }
+          },
+          SuggestionsPollIntervalMs
+        )
+        () => { dom.window.clearInterval(timer); () }
+      } else () => ()
+    })
 
     // Setting Pending and resetting the attempts re-enables the poll effect above
     def handleRegenerateSuggestions(): Unit = {

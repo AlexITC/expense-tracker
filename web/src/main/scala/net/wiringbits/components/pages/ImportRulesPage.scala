@@ -14,6 +14,7 @@ import net.wiringbits.api.models.merchants.{
   ImportRuleActionKind,
   UpdateImportRule
 }
+import net.wiringbits.core.SafeHooks
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
@@ -133,17 +134,11 @@ object ImportRuleList {
 
     val (localMerchants, setLocalMerchants) = Hooks.useState(props.merchants.data)
     val merchantsKey = props.merchants.data.map(_.id.toString).mkString(",")
-    Hooks.useEffect(
-      () => { setLocalMerchants(props.merchants.data); () },
-      js.Array(merchantsKey)
-    )
+    SafeHooks.useEffect(merchantsKey)(() => { setLocalMerchants(props.merchants.data); () })
 
     val (localCategories, setLocalCategories) = Hooks.useState(props.categories.data)
     val categoriesKey = props.categories.data.map(_.id.toString).mkString(",")
-    Hooks.useEffect(
-      () => { setLocalCategories(props.categories.data); () },
-      js.Array(categoriesKey)
-    )
+    SafeHooks.useEffect(categoriesKey)(() => { setLocalCategories(props.categories.data); () })
 
     // Filter + pagination state
     val (filterText, setFilterText) = Hooks.useState("")
