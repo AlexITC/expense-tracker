@@ -15,6 +15,7 @@ import net.wiringbits.api.models.merchants.{
 }
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.components.widgets.Loader
+import net.wiringbits.core.SafeHooks
 import net.wiringbits.models.{SaveState, User}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
@@ -126,10 +127,7 @@ object BulkMerchantSetupContent {
     val (page, setPage) = Hooks.useState(initialPage)
     val (pageChanging, setPageChanging) = Hooks.useState(false)
 
-    Hooks.useEffect(
-      () => { setPageChanging(false); () },
-      List(page)
-    )
+    SafeHooks.useEffect(page.toString)(() => { setPageChanging(false); () })
 
     def gotoPage(n: Int): Unit = {
       setPageChanging(true)

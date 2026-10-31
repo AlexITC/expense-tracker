@@ -7,6 +7,7 @@ import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{CreateImportRule, CreateMerchant, GetMerchants, ImportRuleAction}
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
+import net.wiringbits.core.SafeHooks
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
@@ -183,32 +184,26 @@ object BankRowCreateExpenseForm {
     // A suggestion can arrive (via polling) after the form was opened blank; apply it only while the
     // merchant/category fields are still untouched so user edits are never overwritten.
     val aiSuggestionKey = props.aiSuggestion.map(s => s"${s.merchantId}|${s.categoryId}").getOrElse("")
-    Hooks.useEffect(
-      () => {
-        if (isPristine(props.row, merchantIdOpt, merchantInput, categoryIdOpt, categoryInput)) {
-          initMerchant.foreach { m =>
-            setMerchantInput(m.name)
-            setMerchantIdOpt(Some(m.id))
-          }
-          initCategoryIdOpt.foreach { cid =>
-            setCategoryIdOpt(Some(cid))
-            setCategoryInput(initCategoryName)
-          }
+    SafeHooks.useEffect(aiSuggestionKey)(() => {
+      if (isPristine(props.row, merchantIdOpt, merchantInput, categoryIdOpt, categoryInput)) {
+        initMerchant.foreach { m =>
+          setMerchantInput(m.name)
+          setMerchantIdOpt(Some(m.id))
         }
-      },
-      js.Array(aiSuggestionKey)
-    )
+        initCategoryIdOpt.foreach { cid =>
+          setCategoryIdOpt(Some(cid))
+          setCategoryInput(initCategoryName)
+        }
+      }
+    })
 
-    Hooks.useEffect(
-      () => {
-        props.ctx.api.client.getReceipts.onComplete {
-          case Success(resp) => setReceipts(resp.data.filter(r => r.expenseId.isEmpty && r.amount.isDefined))
-          case Failure(_) => ()
-        }
-        ()
-      },
-      ""
-    )
+    SafeHooks.useEffect()(() => {
+      props.ctx.api.client.getReceipts.onComplete {
+        case Success(resp) => setReceipts(resp.data.filter(r => r.expenseId.isEmpty && r.amount.isDefined))
+        case Failure(_) => ()
+      }
+      ()
+    })
 
     val filteredMerchants = props.merchants
       .filter(m => merchantInput.isEmpty || m.name.toLowerCase.contains(merchantInput.toLowerCase))

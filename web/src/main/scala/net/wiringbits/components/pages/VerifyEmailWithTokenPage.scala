@@ -5,7 +5,7 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.users.VerifyEmail
 import net.wiringbits.common.models.UserToken
-import net.wiringbits.core.I18nHooks
+import net.wiringbits.core.{I18nHooks, SafeHooks}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.{CircularLoader, Container}
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.{useHistory, useParams}
@@ -83,7 +83,7 @@ object VerifyEmailWithTokenPage {
       }
     }
 
-    Hooks.useEffect(() => sendEmailCode(), "")
+    SafeHooks.useEffect()(() => sendEmailCode())
 
     val loading =
       if (state.loading || state.error.isEmpty)

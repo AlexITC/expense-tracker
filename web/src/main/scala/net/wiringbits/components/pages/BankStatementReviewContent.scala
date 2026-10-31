@@ -4,6 +4,7 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.components.pages.BankStatementReviewRow.RowAction
 import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.core.SafeHooks
 import net.wiringbits.utils.ReconciliationMatcher
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.RouterCompat
@@ -78,24 +79,26 @@ object BankStatementReviewContent {
 
     // Rule matching is the expensive part of rendering a row, so it only re-runs when its inputs change.
     val aiSuggestions = statement.aiSuggestions
+    val rulesKey = ruleList.toString
+    val merchantsKey = merchantList.toString
+    val categoriesKey = categoryList.toString
+    val aiKey = aiSuggestions.toString
+    val rowsKey = statementRows.toString
+    val expensesKey = expenseList.toString
+    val effectiveRulesKey = s"$rulesKey|$merchantsKey"
+    val rowInfoKey = s"$rowsKey|$effectiveRulesKey|$merchantsKey|$aiKey|$categoriesKey"
     // Explicit rules plus one virtual rule per merchant name; `ruleList` itself stays explicit-only.
-    val effectiveRuleList: List[ImportRuleMatcher.Rule] = Hooks.useMemo(
-      () => ImportRuleMatcher.effectiveRules(ruleList, merchantList.map(m => m.id -> m.name)),
-      List(ruleList, merchantList)
+    val effectiveRuleList: List[ImportRuleMatcher.Rule] = SafeHooks.useMemo(effectiveRulesKey)(() =>
+      ImportRuleMatcher.effectiveRules(ruleList, merchantList.map(m => m.id -> m.name))
     )
-    val rowInfoById: Map[UUID, RowInfo] = Hooks.useMemo(
-      () =>
-        statementRows.map(r => r.id -> rowInfo(effectiveRuleList, merchantList, categoryList, aiSuggestions, r)).toMap,
-      List(statementRows, effectiveRuleList, merchantList, aiSuggestions, categoryList)
+    val rowInfoById: Map[UUID, RowInfo] = SafeHooks.useMemo(rowInfoKey)(() =>
+      statementRows.map(r => r.id -> rowInfo(effectiveRuleList, merchantList, categoryList, aiSuggestions, r)).toMap
     )
-    val unlinkedExpensesByDate = Hooks.useMemo(
-      () => ReconciliationMatcher.unlinkedByDate(expenseList),
-      List(expenseList)
-    )
-    val expenseMatchById: Map[UUID, ReconciliationMatcher.ProposedAction] = Hooks.useMemo(
-      () => expenseMatches(statementRows, rowInfoById, unlinkedExpensesByDate),
-      List(statementRows, rowInfoById, unlinkedExpensesByDate)
-    )
+    val unlinkedExpensesByDate = SafeHooks.useMemo(expensesKey)(() => ReconciliationMatcher.unlinkedByDate(expenseList))
+    val expenseMatchById: Map[UUID, ReconciliationMatcher.ProposedAction] =
+      SafeHooks.useMemo(rowsKey, rowInfoKey, expensesKey)(() =>
+        expenseMatches(statementRows, rowInfoById, unlinkedExpensesByDate)
+      )
 
     val rowActions = BankStatementRowActions(
       client = props.ctx.api.client,
@@ -112,13 +115,11 @@ object BankStatementReviewContent {
 
     // Stable across renders so the memoized rows only re-render when their own props change. They may only use setters
     // and values that never change for this statement.
-    val onToggleSelected: (UUID, Boolean) => Unit = Hooks.useCallback(
-      (rowId: UUID, checked: Boolean) =>
-        if (checked) setSelectedRowIds(cur => cur + rowId) else setSelectedRowIds(cur => cur - rowId),
-      ""
+    val onToggleSelected: (UUID, Boolean) => Unit = SafeHooks.useCallback()((rowId: UUID, checked: Boolean) =>
+      if (checked) setSelectedRowIds(cur => cur + rowId) else setSelectedRowIds(cur => cur - rowId)
     )
-    val onRowAction: (UUID, RowAction) => Unit = Hooks.useCallback(
-      (rowId: UUID, action: RowAction) =>
+    val onRowAction: (UUID, RowAction) => Unit =
+      SafeHooks.useCallback(stmtId.toString)((rowId: UUID, action: RowAction) =>
         action match {
           case RowAction.OpenExpenseForm => setDrawerState(DrawerState.CreateExpense(rowId))
           case RowAction.OpenRefundForm => setDrawerState(DrawerState.CreateRefund(rowId))
@@ -128,9 +129,8 @@ object BankStatementReviewContent {
           case RowAction.Unignore => rowActions.unignore(rowId)
           case RowAction.Unlink => rowActions.unlink(rowId)
           case RowAction.UnlinkRefund => rowActions.unlinkRefund(rowId)
-        },
-      List(stmtId.toString)
-    )
+        }
+      )
 
     val drawerTarget =
       drawerState.openRowId.flatMap(id => statementRows.find(_.id == id)).map(row => (row, drawerState))

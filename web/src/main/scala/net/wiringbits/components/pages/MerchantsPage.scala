@@ -13,6 +13,7 @@ import net.wiringbits.api.models.merchants.{
   ImportRuleAction,
   UpdateMerchant
 }
+import net.wiringbits.core.SafeHooks
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
@@ -115,10 +116,7 @@ object MerchantList {
 
     val (localCategories, setLocalCategories) = Hooks.useState(props.categories.data)
     val categoriesKey = props.categories.data.map(_.id.toString).mkString(",")
-    Hooks.useEffect(
-      () => { setLocalCategories(props.categories.data); () },
-      List(categoriesKey)
-    )
+    SafeHooks.useEffect(categoriesKey)(() => { setLocalCategories(props.categories.data); () })
 
     val (createRuleEnabled, setCreateRuleEnabled) = Hooks.useState(false)
     val (newRulePattern, setNewRulePattern) = Hooks.useState("")
