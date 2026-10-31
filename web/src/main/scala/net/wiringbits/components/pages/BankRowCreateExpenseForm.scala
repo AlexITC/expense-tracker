@@ -7,6 +7,7 @@ import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{CreateImportRule, CreateMerchant, GetMerchants, ImportRuleAction}
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
+import net.wiringbits.core.SafeHooks
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
@@ -199,16 +200,13 @@ object BankRowCreateExpenseForm {
       js.Array(aiSuggestionKey)
     )
 
-    Hooks.useEffect(
-      () => {
-        props.ctx.api.client.getReceipts.onComplete {
-          case Success(resp) => setReceipts(resp.data.filter(r => r.expenseId.isEmpty && r.amount.isDefined))
-          case Failure(_) => ()
-        }
-        ()
-      },
-      ""
-    )
+    SafeHooks.useEffect()(() => {
+      props.ctx.api.client.getReceipts.onComplete {
+        case Success(resp) => setReceipts(resp.data.filter(r => r.expenseId.isEmpty && r.amount.isDefined))
+        case Failure(_) => ()
+      }
+      ()
+    })
 
     val filteredMerchants = props.merchants
       .filter(m => merchantInput.isEmpty || m.name.toLowerCase.contains(merchantInput.toLowerCase))

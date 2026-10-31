@@ -5,6 +5,7 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.merchants.{GetMerchants, GetPendingMerchants, MarkMerchantAsDuplicate, ReviewMerchant}
 import net.wiringbits.api.models.receipts.GetReceipts
+import net.wiringbits.core.SafeHooks
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
@@ -45,30 +46,27 @@ object MerchantReviewPage {
     val (page, setPage) = Hooks.useState(0)
     val pageSize = 15
 
-    Hooks.useEffect(
-      () => {
-        setLoading(true)
-        for {
-          p <- props.ctx.api.client.getPendingMerchants
-          m <- props.ctx.api.client.getMerchants
-          r <- props.ctx.api.client.getReceipts
-        } yield {
-          setPending(p.data)
-          setAllMerchants(m.data)
+    SafeHooks.useEffect()(() => {
+      setLoading(true)
+      for {
+        p <- props.ctx.api.client.getPendingMerchants
+        m <- props.ctx.api.client.getMerchants
+        r <- props.ctx.api.client.getReceipts
+      } yield {
+        setPending(p.data)
+        setAllMerchants(m.data)
 
-          val map: Map[UUID, (UUID, String)] = r.data
-            .flatMap(rec => rec.merchantId.map(mId => mId -> (rec.id, rec.documentFilename)))
-            .foldLeft(Map.empty[UUID, (UUID, String)]) { case (acc, (mId, v)) =>
-              if (acc.contains(mId)) acc else acc + (mId -> v)
-            }
+        val map: Map[UUID, (UUID, String)] = r.data
+          .flatMap(rec => rec.merchantId.map(mId => mId -> (rec.id, rec.documentFilename)))
+          .foldLeft(Map.empty[UUID, (UUID, String)]) { case (acc, (mId, v)) =>
+            if (acc.contains(mId)) acc else acc + (mId -> v)
+          }
 
-          setReceiptMap(map)
-          setLoading(false)
-        }
-        ()
-      },
-      js.Array[Any]()
-    )
+        setReceiptMap(map)
+        setLoading(false)
+      }
+      ()
+    })
 
     def onConfirmed(id: UUID, newName: String): Unit = {
       setPending(cur => cur.filterNot(_.id == id))

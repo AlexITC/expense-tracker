@@ -2,8 +2,8 @@ package net.wiringbits.components.widgets
 
 import net.wiringbits.AppContext
 import net.wiringbits.common.models.Captcha
+import net.wiringbits.core.SafeHooks
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
-import slinky.core.facade.Hooks
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 import typings.reactGoogleRecaptcha.components.ReactGoogleRecaptcha
 
@@ -19,15 +19,13 @@ object ReCaptcha {
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
     // Without useMemo, the component gets rendered everytime the captcha is solved
-    Hooks.useMemo(
-      () =>
-        AsyncComponent[String](
-          fetch = () => props.ctx.api.client.getEnvironmentConfig.map(_.recaptchaSiteKey),
-          render = recaptchaSiteKey =>
-            ReactGoogleRecaptcha(recaptchaSiteKey)
-              .onChange(x => props.onChange(Captcha.validate(x.asInstanceOf[String]).toOption))
-        ),
-      ""
+    SafeHooks.useMemo()(() =>
+      AsyncComponent[String](
+        fetch = () => props.ctx.api.client.getEnvironmentConfig.map(_.recaptchaSiteKey),
+        render = recaptchaSiteKey =>
+          ReactGoogleRecaptcha(recaptchaSiteKey)
+            .onChange(x => props.onChange(Captcha.validate(x.asInstanceOf[String]).toOption))
+      )
     )
   }
 }

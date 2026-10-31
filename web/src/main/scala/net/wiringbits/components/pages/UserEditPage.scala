@@ -5,7 +5,7 @@ import net.wiringbits.AppContext
 import net.wiringbits.api.models.environmentconfig.GetEnvironmentConfig
 import net.wiringbits.common.models.{McpApiToken, TelegramLinkToken}
 import net.wiringbits.components.widgets.{EditPasswordForm, UserInfo}
-import net.wiringbits.core.I18nHooks
+import net.wiringbits.core.{I18nHooks, SafeHooks}
 import net.wiringbits.models.UserMenuOption.{EditPassword, EditSummary}
 import net.wiringbits.models.{User, UserMenuOption}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -51,17 +51,14 @@ object UserEditPage {
     val (envConfig, setEnvConfig) = Hooks.useState[Option[GetEnvironmentConfig.Response]](None)
 
     val mounted = Hooks.useRef(true)
-    Hooks.useEffect(() => () => { mounted.current = false }, Seq.empty)
+    SafeHooks.useEffect()(() => () => { mounted.current = false })
 
-    Hooks.useEffect(
-      () => {
-        props.ctx.api.client.getEnvironmentConfig.onComplete {
-          case Success(res) => if (mounted.current) setEnvConfig(Some(res))
-          case Failure(_) => ()
-        }
-      },
-      Seq.empty
-    )
+    SafeHooks.useEffect()(() => {
+      props.ctx.api.client.getEnvironmentConfig.onComplete {
+        case Success(res) => if (mounted.current) setEnvConfig(Some(res))
+        case Failure(_) => ()
+      }
+    })
 
     def handleLinkTelegram(): Unit = {
       setTelegramAction(TokenAction.Working)

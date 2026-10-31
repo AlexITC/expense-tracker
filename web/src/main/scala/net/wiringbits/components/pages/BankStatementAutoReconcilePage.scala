@@ -7,6 +7,7 @@ import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.components.widgets.Loader
+import net.wiringbits.core.SafeHooks
 import net.wiringbits.models.User
 import net.wiringbits.utils.ReconciliationMatcher
 import net.wiringbits.utils.ReconciliationMatcher.ProposedAction
@@ -20,7 +21,6 @@ import slinky.core.{FunctionalComponent, KeyAddingStage}
 
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
-import scala.scalajs.js
 import scala.util.{Failure, Success, Try}
 
 object BankStatementAutoReconcilePage {
@@ -78,9 +78,8 @@ object ReconcileContent {
 
     // Compute reconciliation once at mount. Rules load asynchronously below;
     // rows without a matching rule fall to CreateNew.
-    val initial = Hooks.useMemo(
-      () => ReconciliationMatcher.reconcile(props.stmt.statementRows, props.expenses.data, Nil, Nil),
-      ""
+    val initial = SafeHooks.useMemo()(() =>
+      ReconciliationMatcher.reconcile(props.stmt.statementRows, props.expenses.data, Nil, Nil)
     )
     val (rowActions, setRowActions) = Hooks.useState(initial)
     val (ruleList, setRuleList) = Hooks.useState[List[ImportRuleMatcher.Rule]](Nil)
@@ -88,23 +87,20 @@ object ReconcileContent {
     val (submitting, setSubmitting) = Hooks.useState(false)
     val (applyError, setApplyError) = Hooks.useState[Option[String]](None)
 
-    Hooks.useEffect(
-      () => {
-        props.ctx.api.client.getImportRules.onComplete {
-          case Success(resp) =>
-            setRuleList(
-              resp.data.map(ImportRuleMatcher.Rule.fromApi)
-            )
-          case Failure(_) => ()
-        }
-        props.ctx.api.client.getMerchants.onComplete {
-          case Success(resp) => setMerchantList(resp.data)
-          case Failure(_) => ()
-        }
-        ()
-      },
-      js.Array("")
-    )
+    SafeHooks.useEffect()(() => {
+      props.ctx.api.client.getImportRules.onComplete {
+        case Success(resp) =>
+          setRuleList(
+            resp.data.map(ImportRuleMatcher.Rule.fromApi)
+          )
+        case Failure(_) => ()
+      }
+      props.ctx.api.client.getMerchants.onComplete {
+        case Success(resp) => setMerchantList(resp.data)
+        case Failure(_) => ()
+      }
+      ()
+    })
 
     def setRowAction(rowId: UUID, action: ProposedAction): Unit =
       setRowActions(cur => cur.updated(rowId, action))

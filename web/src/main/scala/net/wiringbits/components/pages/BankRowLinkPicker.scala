@@ -3,6 +3,7 @@ package net.wiringbits.components.pages
 import com.olvind.mui.csstype.mod.Property.FlexDirection
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
+import net.wiringbits.core.SafeHooks
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.Container
 import org.scalajs.dom
@@ -11,7 +12,6 @@ import slinky.core.{FunctionalComponent, KeyAddingStage}
 
 import java.util.UUID
 import scala.concurrent.ExecutionContext
-import scala.scalajs.js
 import scala.util.{Failure, Success}
 
 object BankRowLinkPicker {
@@ -36,16 +36,13 @@ object BankRowLinkPicker {
     val (filter, setFilter) = Hooks.useState("")
     val (error, setError) = Hooks.useState("")
 
-    Hooks.useEffect(
-      () => {
-        props.ctx.api.client.getExpenses.onComplete {
-          case Success(resp) => setExpenses(resp.data)
-          case Failure(ex) => setError(ex.getMessage)
-        }
-        ()
-      },
-      js.Array("")
-    )
+    SafeHooks.useEffect()(() => {
+      props.ctx.api.client.getExpenses.onComplete {
+        case Success(resp) => setExpenses(resp.data)
+        case Failure(ex) => setError(ex.getMessage)
+      }
+      ()
+    })
 
     def handleLink(expenseId: UUID): Unit =
       props.ctx.api.client
