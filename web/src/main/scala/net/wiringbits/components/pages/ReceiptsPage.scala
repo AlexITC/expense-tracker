@@ -13,6 +13,7 @@ import net.wiringbits.api.models.bankstatements.GetAllRows
 import net.wiringbits.api.models.merchants.{GetImportRules, ImportRuleAction}
 import net.wiringbits.api.models.receipts.{ConfirmReceipt, GetReceipt, GetReceipts, LinkReceiptToExpense}
 import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.components.pages.ReceiptsLogic.{BatchState, ConfirmForm, ReceiptMode}
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
@@ -130,8 +131,7 @@ object ReceiptList {
     val (toast, setToast) = Hooks.useState[Option[String]](None)
 
     // batch upload progress: (done, total, failed) + per-file results
-    val (batchProgress, setBatchProgress) = Hooks.useState[Option[(Int, Int, Int)]](None)
-    val (batchResults, setBatchResults) = Hooks.useState[List[(String, Either[String, Unit])]](Nil)
+    val (batch, setBatch) = Hooks.useState[BatchState](BatchState.Idle)
 
     // polling spinner: IDs of receipts currently being fetched
     val (pollingIds, setPollingIds) = Hooks.useState[Set[UUID]](Set.empty)
@@ -139,35 +139,23 @@ object ReceiptList {
     // all expenses for linked-evidence display
     val (allExpenses, setAllExpenses) = Hooks.useState[List[GetExpenses.Response.Expense]](Nil)
 
-    // create-expense confirm form state
-    val (confirmingId, setConfirmingId) = Hooks.useState[Option[UUID]](None)
-    val (confirmAmount, setConfirmAmount) = Hooks.useState("")
-    val (confirmDate, setConfirmDate) = Hooks.useState("")
-    val (confirmTime, setConfirmTime) = Hooks.useState("")
-    val (confirmMerchantId, setConfirmMerchantId) = Hooks.useState("")
-    val (confirmMerchantInput, setConfirmMerchantInput) = Hooks.useState("")
-    val (confirmNotes, setConfirmNotes) = Hooks.useState("")
-    val (confirmSplits, setConfirmSplits) =
-      Hooks.useState[List[(String, String, String)]](Nil) // (catId, catInput, amount)
-
-    val (confirmParsedMerchantName, setConfirmParsedMerchantName) = Hooks.useState[Option[String]](None)
+    // selected receipt, plus its create-expense form or link picker
+    val (mode, setMode) = Hooks.useState[ReceiptMode](ReceiptMode.Viewing(None))
+    def updateForm(f: ConfirmForm => ConfirmForm): Unit = setMode(_.withForm(f))
 
     // link-existing state
-    val (linkingId, setLinkingId) = Hooks.useState[Option[UUID]](None)
     val (expenseList, setExpenseList) = Hooks.useState[List[GetExpenses.Response.Expense]](Nil)
     val (expenseFilter, setExpenseFilter) = Hooks.useState("")
 
     // row cross-link state (for confirm form)
     val (rowList, setRowList) = Hooks.useState[List[GetAllRows.RowData]](Nil)
-    val (confirmRowId, setConfirmRowId) = Hooks.useState[Option[UUID]](None)
 
     // batch confirm state
     val (batchConfirmMode, setBatchConfirmMode) = Hooks.useState(false)
     // receiptId → resolved merchantId (None means resolution returned no match)
     val (resolvedMerchantIds, setResolvedMerchantIds) = Hooks.useState[Map[UUID, Option[UUID]]](Map.empty)
     val (batchConfirmSelectedIds, setBatchConfirmSelectedIds) = Hooks.useState[Set[UUID]](Set.empty)
-    val (batchConfirmProgress, setBatchConfirmProgress) = Hooks.useState[Option[(Int, Int, Int)]](None)
-    val (batchConfirmResults, setBatchConfirmResults) = Hooks.useState[List[(String, Either[String, Unit])]](Nil)
+    val (batchConfirm, setBatchConfirm) = Hooks.useState[BatchState](BatchState.Idle)
 
     val (ruleList, setRuleList) = Hooks.useState[List[ImportRuleMatcher.Rule]](Nil)
     // Explicit rules plus one virtual rule per merchant name; `ruleList` itself stays explicit-only.
@@ -178,7 +166,6 @@ object ReceiptList {
     val (showIgnored, setShowIgnored) = Hooks.useState(false)
     val (receiptFilter, setReceiptFilter) = Hooks.useState(FilterNeedsConfirm)
     val (receiptPage, setReceiptPage) = Hooks.useState(0)
-    val (selectedReceiptId, setSelectedReceiptId) = Hooks.useState[Option[UUID]](None)
     val (previewUrl, setPreviewUrl) = Hooks.useState[Option[String]](None)
     val (previewLoading, setPreviewLoading) = Hooks.useState(false)
 
@@ -253,13 +240,13 @@ object ReceiptList {
       .sortBy(_.createdAt)(using Ordering[Instant].reverse)
     Hooks.useEffect(
       () => {
-        if (!visibleForFilter.exists(r => selectedReceiptId.contains(r.id)))
-          setSelectedReceiptId(visibleForFilter.headOption.map(_.id))
+        setMode(_.keptVisible(visibleForFilter.map(_.id)))
         ()
       },
       js.Array(visibleForFilter.map(_.id.toString).mkString(","), receiptFilter)
     )
 
+    val selectedReceiptId = mode.selectedId
     val selectedIdKey = selectedReceiptId.map(_.toString).getOrElse("")
     Hooks.useEffect(
       () => {
@@ -321,12 +308,11 @@ object ReceiptList {
     def handleFilesBatch(files: List[dom.File]): Unit =
       if (files.nonEmpty) {
         val total = files.length
-        setBatchProgress(Some((0, total, 0)))
-        setBatchResults(Nil)
+        setBatch(BatchState.Running(0, total, 0, Nil))
         setError("")
-        def loop(remaining: List[dom.File], done: Int, failed: Int): Unit =
+        def loop(remaining: List[dom.File]): Unit =
           remaining match {
-            case Nil => setBatchProgress(None)
+            case Nil => setBatch(_.finished)
             case file :: rest =>
               val reader = new dom.FileReader()
               reader.readAsArrayBuffer(file)
@@ -336,31 +322,27 @@ object ReceiptList {
                 props.ctx.api.client.uploadReceipt(bytes, uploadKind, file.name).onComplete {
                   case Success(resp) =>
                     if (localReceipts.exists(_.id == resp.id)) {
-                      setBatchResults(cur => cur :+ (file.name -> Left("Already uploaded (duplicate)")))
-                      setBatchProgress(Some((done + 1, total, failed + 1)))
-                      loop(rest, done + 1, failed + 1)
+                      setBatch(_.recorded(file.name, Left("Already uploaded (duplicate)")))
+                      loop(rest)
                     } else {
                       props.ctx.api.client.getReceipt(resp.id).onComplete {
                         case Success(r) => setLocalReceipts(cur => toListReceipt(r) :: cur)
                         case Failure(_) => ()
                       }
-                      setBatchResults(cur => cur :+ (file.name -> Right(())))
-                      setBatchProgress(Some((done + 1, total, failed)))
-                      loop(rest, done + 1, failed)
+                      setBatch(_.recorded(file.name, Right(())))
+                      loop(rest)
                     }
                   case Failure(ex) =>
-                    setBatchResults(cur => cur :+ (file.name -> Left(ex.getMessage)))
-                    setBatchProgress(Some((done + 1, total, failed + 1)))
-                    loop(rest, done + 1, failed + 1)
+                    setBatch(_.recorded(file.name, Left(ex.getMessage)))
+                    loop(rest)
                 }
               }
               reader.onerror = { _ =>
-                setBatchResults(cur => cur :+ (file.name -> Left("File read error")))
-                setBatchProgress(Some((done + 1, total, failed + 1)))
-                loop(rest, done + 1, failed + 1)
+                setBatch(_.recorded(file.name, Left("File read error")))
+                loop(rest)
               }
           }
-        loop(files, 0, 0)
+        loop(files)
       }
 
     def handleFileChange(inputEl: dom.HTMLInputElement): Unit = {
@@ -385,20 +367,20 @@ object ReceiptList {
         .map(catId => List(CreateExpense.Split(catId, amount)))
         .getOrElse(Nil)
 
-    def handleConfirm(receiptId: UUID): Unit =
-      (Try(BigDecimal(confirmAmount)).toOption, Try(LocalDate.parse(confirmDate)).toOption) match {
+    def handleConfirm(receiptId: UUID, form: ConfirmForm): Unit =
+      (Try(BigDecimal(form.amount)).toOption, Try(LocalDate.parse(form.date)).toOption) match {
         case (None, _) => setError("Invalid amount")
         case (_, None) => setError("Invalid date (use YYYY-MM-DD)")
         case (Some(amount), Some(date)) =>
-          val time = if (confirmTime.isEmpty) None else Try(LocalTime.parse(confirmTime)).toOption
-          val merchantId = if (confirmMerchantId.isEmpty) None else Try(UUID.fromString(confirmMerchantId)).toOption
-          val notes = Option(confirmNotes.trim).filter(_.nonEmpty)
-          val explicit = confirmSplits.flatMap { case (catId, _, amt) =>
+          val time = if (form.time.isEmpty) None else Try(LocalTime.parse(form.time)).toOption
+          val merchantId = if (form.merchantId.isEmpty) None else Try(UUID.fromString(form.merchantId)).toOption
+          val notes = Option(form.notes.trim).filter(_.nonEmpty)
+          val explicit = form.splits.flatMap { case (catId, _, amt) =>
             if (catId.nonEmpty && amt.nonEmpty)
               Try(CreateExpense.Split(UUID.fromString(catId), BigDecimal(amt))).toOption
             else None
           }
-          val splits = if (explicit.nonEmpty) explicit else merchantDefaultSplits(confirmMerchantId, amount)
+          val splits = if (explicit.nonEmpty) explicit else merchantDefaultSplits(form.merchantId, amount)
           props.ctx.api.client
             .confirmReceipt(
               receiptId,
@@ -410,15 +392,14 @@ object ReceiptList {
                   merchantId,
                   notes,
                   splits,
-                  confirmParsedMerchantName,
-                  confirmRowId
+                  form.parsedMerchantName,
+                  form.rowId
                 )
             )
             .onComplete {
               case Success(_) =>
-                setConfirmingId(None); setConfirmAmount(""); setConfirmDate(""); setConfirmTime("")
-                setConfirmMerchantId(""); setConfirmMerchantInput(""); setConfirmNotes(""); setConfirmSplits(Nil)
-                setConfirmParsedMerchantName(None); setConfirmRowId(None); setError("")
+                setMode(_.confirmed(receiptId))
+                setError("")
                 showToast("Expense created")
                 props.ctx.api.client.getReceipt(receiptId).onComplete {
                   case Success(updated) =>
@@ -430,8 +411,7 @@ object ReceiptList {
       }
 
     def openLinkMode(receiptId: UUID): Unit = {
-      setLinkingId(Some(receiptId))
-      setConfirmingId(None)
+      setMode(ReceiptMode.Linking(receiptId))
       setExpenseFilter("")
       props.ctx.api.client.getExpenses.onComplete {
         case Success(resp) => setExpenseList(resp.data)
@@ -443,7 +423,7 @@ object ReceiptList {
       props.ctx.api.client.linkReceiptToExpense(receiptId, LinkReceiptToExpense.Request(expenseId)).onComplete {
         case Success(_) =>
           setError("")
-          setLinkingId(None)
+          setMode(_.linked(receiptId))
           setLocalReceipts(cur => cur.map(r => if (r.id == receiptId) r.copy(expenseId = Some(expenseId)) else r))
         case Failure(ex) => setError(ex.getMessage)
       }
@@ -496,7 +476,7 @@ object ReceiptList {
     def enterBatchConfirmMode(): Unit = {
       setBatchConfirmMode(true)
       setBatchConfirmSelectedIds(Set.empty)
-      setBatchConfirmProgress(None)
+      // Batch-confirm state is left as is: earlier results stay visible on re-entry, as before.
       setResolvedMerchantIds(Map.empty[UUID, Option[UUID]])
       localReceipts
         .filter(r => r.documentStatus == DocumentStatus.Parsed && r.expenseId.isEmpty)
@@ -516,32 +496,28 @@ object ReceiptList {
 
     def handleBatchConfirm(ids: List[UUID]): Unit = {
       val total = ids.length
-      setBatchConfirmProgress(Some((0, total, 0)))
-      setBatchConfirmResults(Nil)
-      def loop(remaining: List[UUID], done: Int, failed: Int): Unit =
+      setBatchConfirm(BatchState.Running(0, total, 0, Nil))
+      def loop(remaining: List[UUID]): Unit =
         remaining match {
           case Nil =>
-            setBatchConfirmProgress(None)
+            setBatchConfirm(_.finished)
             setBatchConfirmSelectedIds(Set.empty)
           case id :: rest =>
             localReceipts.find(_.id == id) match {
               case None =>
-                setBatchConfirmResults(cur => cur :+ (id.toString.take(8) -> Left("Receipt not found")))
-                setBatchConfirmProgress(Some((done + 1, total, failed + 1)))
-                loop(rest, done + 1, failed + 1)
+                setBatchConfirm(_.recorded(id.toString.take(8), Left("Receipt not found")))
+                loop(rest)
               case Some(r) =>
                 val label = r.documentFilename
                 gateCheck(r) match {
                   case Left(reason) =>
-                    setBatchConfirmResults(cur => cur :+ (label -> Left(reason)))
-                    setBatchConfirmProgress(Some((done + 1, total, failed + 1)))
-                    loop(rest, done + 1, failed + 1)
+                    setBatchConfirm(_.recorded(label, Left(reason)))
+                    loop(rest)
                   case Right((merchantId, catId)) =>
                     r.amount match {
                       case None =>
-                        setBatchConfirmResults(cur => cur :+ (label -> Left("Missing amount")))
-                        setBatchConfirmProgress(Some((done + 1, total, failed + 1)))
-                        loop(rest, done + 1, failed + 1)
+                        setBatchConfirm(_.recorded(label, Left("Missing amount")))
+                        loop(rest)
                       case Some(amount) =>
                         val req = ConfirmReceipt.Request(
                           amount = Some(amount),
@@ -557,19 +533,17 @@ object ReceiptList {
                             setLocalReceipts(cur =>
                               cur.map(rx => if (rx.id == id) rx.copy(expenseId = resp.expenseId) else rx)
                             )
-                            setBatchConfirmResults(cur => cur :+ (label -> Right(())))
-                            setBatchConfirmProgress(Some((done + 1, total, failed)))
-                            loop(rest, done + 1, failed)
+                            setBatchConfirm(_.recorded(label, Right(())))
+                            loop(rest)
                           case Failure(ex) =>
-                            setBatchConfirmResults(cur => cur :+ (label -> Left(ex.getMessage)))
-                            setBatchConfirmProgress(Some((done + 1, total, failed + 1)))
-                            loop(rest, done + 1, failed + 1)
+                            setBatchConfirm(_.recorded(label, Left(ex.getMessage)))
+                            loop(rest)
                         }
                     }
                 }
             }
         }
-      loop(ids, 0, 0)
+      loop(ids)
     }
 
     def renderLinkPicker(receiptId: UUID): ReactElement = {
@@ -610,7 +584,7 @@ object ReceiptList {
           mui.Button
             .normal()("Cancel")
             .size("small")
-            .onClick(_ => setLinkingId(None))
+            .onClick(_ => setMode(ReceiptMode.Viewing(Some(receiptId))))
         )
       )
     }
@@ -618,7 +592,7 @@ object ReceiptList {
     def renderTextField(label: String)(params: AutocompleteRenderInputParams): ReactElement =
       (mui.TextField.outlined.withProps(MuiCompat.textFieldProps(params, label, size = Some("small"))): ReactElement)
 
-    def merchantAutocomplete: ReactElement = {
+    def merchantAutocomplete(merchantInput: String): ReactElement = {
       val acProps = AutocompleteProps[GetMerchants.Response.Merchant, Boolean, Boolean, Boolean, "div"](
         options = props.merchants.data.toJSArray,
         renderInput = renderTextField("Merchant (optional)")
@@ -626,19 +600,17 @@ object ReceiptList {
       val acDyn = acProps.asInstanceOf[js.Dynamic]
       acDyn.freeSolo = true
       acDyn.size = "small"
-      acDyn.inputValue = confirmMerchantInput
+      acDyn.inputValue = merchantInput
       acDyn.getOptionLabel = (opt: js.Any) => DescriptionRow.merchantOptionLabel(opt)
       acDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
         (value: Any) match {
           case m: GetMerchants.Response.Merchant =>
-            setConfirmMerchantId(m.id.toString)
-            setConfirmMerchantInput(m.name)
+            updateForm(_.copy(merchantId = m.id.toString, merchantInput = m.name))
           case _ => ()
         }
       acDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
         val (text, rsn) = MuiCompat.autocompleteInputChange(value, reason)
-        setConfirmMerchantInput(text)
-        if (rsn != "reset") setConfirmMerchantId("")
+        updateForm(f => f.copy(merchantInput = text, merchantId = if (rsn != "reset") "" else f.merchantId))
       }
       (mui.Autocomplete.withProps(acProps).withKey("merchant-ac"): ReactElement)
     }
@@ -735,10 +707,10 @@ object ReceiptList {
       )
     }
 
-    val batchActiveKey = if (batchConfirmMode || batchProgress.isDefined) "inactive" else "idle"
+    val batchActiveKey = if (batchConfirmMode || batch.isRunning) "inactive" else "idle"
     Hooks.useEffect(
       () => {
-        if (batchConfirmMode || batchProgress.isDefined) { () => () }
+        if (batchConfirmMode || batch.isRunning) { () => () }
         else {
           val handleDragOver: js.Function1[dom.DragEvent, Unit] = e => e.preventDefault()
           val handleDrop: js.Function1[dom.DragEvent, Unit] = { e =>
@@ -762,7 +734,7 @@ object ReceiptList {
     val errorMsg = mui.Typography(error).color("error")
 
     def clearBatchResultsButton: ReactElement =
-      mui.Button.normal()("Clear").size("small").onClick(_ => setBatchResults(Nil))
+      mui.Button.normal()("Clear").size("small").onClick(_ => setBatch(_.cleared))
 
     // Single header section: upload area in normal mode, batch-confirm controls in batch mode.
     val header: slinky.core.facade.ReactElement = {
@@ -782,7 +754,6 @@ object ReceiptList {
                   .onClick { _ =>
                     setBatchConfirmMode(false)
                     setBatchConfirmSelectedIds(Set.empty)
-                    setBatchConfirmProgress(None)
                     setResolvedMerchantIds(Map.empty[UUID, Option[UUID]])
                   },
                 input(
@@ -796,12 +767,12 @@ object ReceiptList {
                   }
                 ),
                 mui.Typography(s"${batchConfirmSelectedIds.size} selected").sx(secondaryStyling),
-                batchConfirmProgress match {
-                  case Some((done, total, failed)) =>
+                batchConfirm match {
+                  case BatchState.Running(done, total, failed, _) =>
                     mui.Typography(
                       s"Confirming: $done/$total${if (failed > 0) s" ($failed failed)" else ""}…"
                     )
-                  case None =>
+                  case _ =>
                     if (batchConfirmSelectedIds.nonEmpty)
                       mui.Button
                         .normal()(s"Confirm selected (${batchConfirmSelectedIds.size})")
@@ -812,11 +783,11 @@ object ReceiptList {
                 }
               )
             ),
-            if (batchConfirmResults.nonEmpty)
+            if (batchConfirm.results.nonEmpty)
               Container(
                 flexDirection = FlexDirection.column,
                 child = Fragment(
-                  batchConfirmResults.map { case (label, outcome) =>
+                  batchConfirm.results.map { case (label, outcome) =>
                     val (text, textColor) = outcome match {
                       case Right(_) => (s"✓ $label", "var(--lc-success-text)")
                       case Left(err) => (s"✗ $label: $err", "var(--lc-error)")
@@ -848,12 +819,12 @@ object ReceiptList {
                     mui.MenuItem.normal()("Receipt").value("Receipt").withKey("Receipt").build,
                     mui.MenuItem.normal()("Invoice").value("Invoice").withKey("Invoice").build
                   ),
-                batchProgress match {
-                  case Some((done, total, failed)) =>
+                batch match {
+                  case BatchState.Running(done, total, failed, _) =>
                     mui.Typography(
                       s"Uploading: $done/$total${if (failed > 0) s" ($failed failed)" else ""}…"
                     )
-                  case None =>
+                  case _ =>
                     Fragment(
                       input(
                         `type` := "file",
@@ -870,12 +841,12 @@ object ReceiptList {
                   .onClick(_ => enterBatchConfirmMode())
               )
             ),
-            if (batchResults.nonEmpty)
+            if (batch.results.nonEmpty)
               Container(
                 flexDirection = FlexDirection.column,
                 child = Fragment(
                   Fragment(
-                    batchResults.map { case (name, outcome) =>
+                    batch.results.map { case (name, outcome) =>
                       val (label, textColor) = outcome match {
                         case Right(_) => (s"✓ $name", "var(--lc-success-text)")
                         case Left(err) => (s"✗ $name: $err", "var(--lc-error)")
@@ -945,8 +916,6 @@ object ReceiptList {
     }
 
     def renderReceiptDetail(r: GetReceipts.Response.Receipt): ReactElement = {
-      val isConfirming = confirmingId.contains(r.id)
-      val isLinking = linkingId.contains(r.id)
       val isPending =
         r.documentStatus == DocumentStatus.Ingested || r.documentStatus == DocumentStatus.Processing || r.documentStatus == DocumentStatus.Analyzed
       val isPolling = pollingIds.contains(r.id)
@@ -965,14 +934,14 @@ object ReceiptList {
         }
       }
 
-      val actionArea: ReactElement =
-        if (isConfirming) {
+      val actionArea: ReactElement = mode match {
+        case ReceiptMode.Confirming(id, cf) if id == r.id =>
           val rowSuggestStyling = new CSSPropertiesUtils { fontSize = "0.8em"; color = "#555" }
           val rowSelectedStyling =
             new CSSPropertiesUtils { fontSize = "0.8em"; color = "var(--lc-link)"; fontWeight = "bold" }
-          val receiptAmt = Try(BigDecimal(confirmAmount)).toOption
-          val receiptDate = if (confirmDate.isEmpty) None else Some(confirmDate)
-          val receiptMerchant = Option(confirmMerchantId)
+          val receiptAmt = Try(BigDecimal(cf.amount)).toOption
+          val receiptDate = if (cf.date.isEmpty) None else Some(cf.date)
+          val receiptMerchant = Option(cf.merchantId)
             .filter(_.nonEmpty)
             .flatMap(id => Try(java.util.UUID.fromString(id)).toOption)
             .flatMap(id => props.merchants.data.find(_.id == id))
@@ -991,7 +960,7 @@ object ReceiptList {
             .sortBy { case (_, score) => -score }
           form(onSubmit := { ev =>
             ev.preventDefault()
-            handleConfirm(r.id)
+            handleConfirm(r.id, cf)
           })(
             Container(
               flexDirection = FlexDirection.column,
@@ -1004,34 +973,46 @@ object ReceiptList {
                       .outlined()
                       .autoFocus(true)
                       .label("Amount")
-                      .value(confirmAmount)
-                      .onChange(e => setConfirmAmount(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+                      .value(cf.amount)
+                      .onChange { e =>
+                        val v = e.target.asInstanceOf[dom.HTMLInputElement].value
+                        updateForm(_.copy(amount = v))
+                      },
                     mui.TextField
                       .outlined()
                       .label("Date (YYYY-MM-DD)")
-                      .value(confirmDate)
-                      .onChange(e => setConfirmDate(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+                      .value(cf.date)
+                      .onChange { e =>
+                        val v = e.target.asInstanceOf[dom.HTMLInputElement].value
+                        updateForm(_.copy(date = v))
+                      },
                     mui.TextField
                       .outlined()
                       .label("Time (HH:MM, optional)")
-                      .value(confirmTime)
-                      .onChange(e => setConfirmTime(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-                    merchantAutocomplete,
+                      .value(cf.time)
+                      .onChange { e =>
+                        val v = e.target.asInstanceOf[dom.HTMLInputElement].value
+                        updateForm(_.copy(time = v))
+                      },
+                    merchantAutocomplete(cf.merchantInput),
                     mui.TextField
                       .outlined()
                       .label("Notes (optional)")
-                      .value(confirmNotes)
-                      .onChange(e => setConfirmNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+                      .value(cf.notes)
+                      .onChange { e =>
+                        val v = e.target.asInstanceOf[dom.HTMLInputElement].value
+                        updateForm(_.copy(notes = v))
+                      },
                     mui.Button
                       .normal()("Save")
                       .variant("contained")
-                      .onClick(_ => handleConfirm(r.id)),
+                      .onClick(_ => handleConfirm(r.id, cf)),
                     mui.Button
                       .normal()("Cancel")
-                      .onClick(_ => { setConfirmingId(None); setConfirmRowId(None) })
+                      .onClick(_ => setMode(ReceiptMode.Viewing(Some(r.id))))
                   )
                 ),
-                splitsSection(confirmSplits, setConfirmSplits, confirmAmount),
+                splitsSection(cf.splits, s => updateForm(_.copy(splits = s)), cf.amount),
                 if (rankedRows.nonEmpty)
                   Container(
                     flexDirection = FlexDirection.column,
@@ -1039,7 +1020,7 @@ object ReceiptList {
                       mui.Typography("Attach bank row (optional):").sx(rowSuggestStyling),
                       Fragment(
                         rankedRows.take(5).map { case (row, _) =>
-                          val isSelected = confirmRowId.contains(row.id)
+                          val isSelected = cf.rowId.contains(row.id)
                           val label = s"${row.date} | ${row.amount} | ${row.description.take(40)}"
                           Container(
                             flexDirection = FlexDirection.row,
@@ -1047,12 +1028,15 @@ object ReceiptList {
                             child = Fragment(
                               mui.Typography(label).sx(if (isSelected) rowSelectedStyling else rowSuggestStyling),
                               if (isSelected)
-                                mui.Button.normal()("Deselect").size("small").onClick(_ => setConfirmRowId(None))
+                                mui.Button
+                                  .normal()("Deselect")
+                                  .size("small")
+                                  .onClick(_ => updateForm(_.copy(rowId = None)))
                               else
                                 mui.Button
                                   .normal()("Attach")
                                   .size("small")
-                                  .onClick(_ => setConfirmRowId(Some(row.id)))
+                                  .onClick(_ => updateForm(_.copy(rowId = Some(row.id))))
                             )
                           ).withKey(row.id.toString)
                         }*
@@ -1063,9 +1047,9 @@ object ReceiptList {
               )
             )
           )
-        } else if (isLinking)
+        case ReceiptMode.Linking(id) if id == r.id =>
           renderLinkPicker(r.id)
-        else
+        case _ =>
           Container(
             flexDirection = FlexDirection.row,
             alignItems = Container.Alignment.center,
@@ -1090,28 +1074,12 @@ object ReceiptList {
                     .variant("contained")
                     .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
                     .onClick { _ =>
-                      setConfirmingId(Some(r.id))
-                      setConfirmSplits(Nil)
-                      setConfirmParsedMerchantName(r.merchantName)
-                      setConfirmRowId(None)
-                      r.amount.foreach(a => setConfirmAmount(a.toString))
-                      r.date.foreach(d => setConfirmDate(d.toString))
-                      val taxIdMatch = r.taxId.flatMap(tid => props.merchants.data.find(_.taxId.contains(tid)))
-                      taxIdMatch match {
-                        case Some(m) =>
-                          setConfirmMerchantId(m.id.toString)
-                          setConfirmMerchantInput(m.name)
-                        case None =>
-                          r.merchantName.foreach { name =>
-                            ImportRuleMatcher
-                              .findReceiptWinner(effectiveRuleList, name)
-                              .flatMap(_.action.merchantIdOpt)
-                              .foreach { id =>
-                                setConfirmMerchantId(id.toString)
-                                props.merchants.data.find(_.id == id).foreach(m => setConfirmMerchantInput(m.name))
-                              }
-                          }
-                      }
+                      setMode(
+                        ReceiptMode.Confirming(
+                          r.id,
+                          ConfirmForm.fromReceipt(r, props.merchants.data, effectiveRuleList)
+                        )
+                      )
                       props.ctx.api.client.getAllBankStatementRows.onComplete {
                         case Success(resp) =>
                           setRowList(
@@ -1143,6 +1111,7 @@ object ReceiptList {
               (mui.Button.normal()("Delete").onClick(_ => handleDelete(r.id)).build: ReactElement)
             )
           )
+      }
 
       mui.Box.sx(new CSSPropertiesUtils { maxWidth = "640px" })(
         // Header: merchant name + status chip
@@ -1367,13 +1336,13 @@ object ReceiptList {
                     mui.MenuItem.normal()("Invoice").value("Invoice").withKey("Invoice").build
                   )
               ),
-              (batchProgress match {
-                case Some((done, total, failed)) =>
+              (batch match {
+                case BatchState.Running(done, total, failed, _) =>
                   (mui
                     .Typography(s"Uploading: $done/$total${if (failed > 0) s" ($failed failed)" else ""}…")
                     .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" })
                     .build: ReactElement)
-                case None =>
+                case _ =>
                   (mui.Box.sx(new CSSPropertiesUtils {
                     display = "flex"; alignItems = "center"; gap = "8px"; marginBottom = "6px"
                   })(
@@ -1390,10 +1359,10 @@ object ReceiptList {
                       .build: ReactElement)
                   ): ReactElement)
               }),
-              if (batchResults.nonEmpty)
+              if (batch.results.nonEmpty)
                 (mui.Box.sx(new CSSPropertiesUtils { marginBottom = "6px" })(
                   Fragment(
-                    batchResults.map { case (name, outcome) =>
+                    batch.results.map { case (name, outcome) =>
                       val (lbl2, clr2) = outcome match {
                         case Right(_) => (s"✓ $name", "var(--lc-success-text)")
                         case Left(err) => (s"✗ $name: $err", "var(--lc-error)")
@@ -1500,9 +1469,7 @@ object ReceiptList {
                             display = "flex"; gap = "10px"; alignItems = "center"
                           })
                           .onClick(_ => {
-                            setSelectedReceiptId(Some(r.id))
-                            setConfirmingId(None)
-                            setLinkingId(None)
+                            setMode(ReceiptMode.Viewing(Some(r.id)))
                           })(
                             mui.Box.sx(new CSSPropertiesUtils {
                               width = "38px"; height = "38px"; flex = "0 0 38px"

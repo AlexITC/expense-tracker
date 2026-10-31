@@ -24,15 +24,30 @@ object UserEditPage {
 
   case class Props(ctx: AppContext, user: User)
 
+  enum TokenAction[+T] {
+    case Idle
+    case Working
+    case Loaded(token: T)
+    case Failed(message: String)
+
+    def isWorking: Boolean = this == Working
+
+    def tokenOpt: Option[T] = this match {
+      case Loaded(token) => Some(token)
+      case _ => None
+    }
+
+    def errorOpt: Option[String] = this match {
+      case Failed(message) => Some(message)
+      case _ => None
+    }
+  }
+
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     val texts = I18nHooks.useMessages(props.ctx.$lang)
     val (menuOption, setMenuOption) = Hooks.useState[UserMenuOption](UserMenuOption.EditSummary)
-    val (telegramToken, setTelegramToken) = Hooks.useState[Option[TelegramLinkToken]](None)
-    val (telegramError, setTelegramError) = Hooks.useState[Option[String]](None)
-    val (telegramWorking, setTelegramWorking) = Hooks.useState(false)
-    val (mcpToken, setMcpToken) = Hooks.useState[Option[McpApiToken]](None)
-    val (mcpError, setMcpError) = Hooks.useState[Option[String]](None)
-    val (mcpWorking, setMcpWorking) = Hooks.useState(false)
+    val (telegramAction, setTelegramAction) = Hooks.useState[TokenAction[TelegramLinkToken]](TokenAction.Idle)
+    val (mcpAction, setMcpAction) = Hooks.useState[TokenAction[McpApiToken]](TokenAction.Idle)
     val (envConfig, setEnvConfig) = Hooks.useState[Option[GetEnvironmentConfig.Response]](None)
 
     val mounted = Hooks.useRef(true)
@@ -49,40 +64,24 @@ object UserEditPage {
     )
 
     def handleLinkTelegram(): Unit = {
-      setTelegramWorking(true)
-      setTelegramError(None)
-      setTelegramToken(None)
+      setTelegramAction(TokenAction.Working)
       props.ctx.api.client.createTelegramLinkToken
         .onComplete {
           case Success(res) =>
-            if (mounted.current) {
-              setTelegramWorking(false)
-              setTelegramToken(Some(res.token))
-            }
+            if (mounted.current) setTelegramAction(TokenAction.Loaded(res.token))
           case Failure(ex) =>
-            if (mounted.current) {
-              setTelegramWorking(false)
-              setTelegramError(Some(ex.getMessage))
-            }
+            if (mounted.current) setTelegramAction(TokenAction.Failed(ex.getMessage))
         }
     }
 
     def handleGenerateMcpToken(): Unit = {
-      setMcpWorking(true)
-      setMcpError(None)
-      setMcpToken(None)
+      setMcpAction(TokenAction.Working)
       props.ctx.api.client.createMcpToken
         .onComplete {
           case Success(res) =>
-            if (mounted.current) {
-              setMcpWorking(false)
-              setMcpToken(Some(res.token))
-            }
+            if (mounted.current) setMcpAction(TokenAction.Loaded(res.token))
           case Failure(ex) =>
-            if (mounted.current) {
-              setMcpWorking(false)
-              setMcpError(Some(ex.getMessage))
-            }
+            if (mounted.current) setMcpAction(TokenAction.Failed(ex.getMessage))
         }
     }
 
@@ -118,11 +117,11 @@ object UserEditPage {
             mui.Button
               .normal()("Link Telegram Account")
               .variant("contained")
-              .disabled(telegramWorking)
+              .disabled(telegramAction.isWorking)
               .onClick(_ => handleLinkTelegram()),
-            if (telegramWorking) CircularLoader()
+            if (telegramAction.isWorking) CircularLoader()
             else Fragment(),
-            telegramToken match {
+            telegramAction.tokenOpt match {
               case Some(token) =>
                 val linkCommand = s"/link ${token.value}"
                 Fragment(
@@ -155,12 +154,12 @@ object UserEditPage {
                   mui.Button
                     .normal()("Regenerate")
                     .variant("outlined")
-                    .disabled(telegramWorking)
+                    .disabled(telegramAction.isWorking)
                     .onClick(_ => handleLinkTelegram())
                 )
               case None => Fragment()
             },
-            telegramError match {
+            telegramAction.errorOpt match {
               case Some(error) => ErrorLabel(error)
               case None => Fragment()
             }
@@ -181,11 +180,11 @@ object UserEditPage {
             mui.Button
               .normal()("Generate MCP API Token")
               .variant("contained")
-              .disabled(mcpWorking)
+              .disabled(mcpAction.isWorking)
               .onClick(_ => handleGenerateMcpToken()),
-            if (mcpWorking) CircularLoader()
+            if (mcpAction.isWorking) CircularLoader()
             else Fragment(),
-            mcpToken match {
+            mcpAction.tokenOpt match {
               case Some(token) =>
                 Fragment(
                   mui.TextField
@@ -208,12 +207,12 @@ object UserEditPage {
                   mui.Button
                     .normal()("Regenerate")
                     .variant("outlined")
-                    .disabled(mcpWorking)
+                    .disabled(mcpAction.isWorking)
                     .onClick(_ => handleGenerateMcpToken())
                 )
               case None => Fragment()
             },
-            mcpError match {
+            mcpAction.errorOpt match {
               case Some(error) => ErrorLabel(error)
               case None => Fragment()
             }

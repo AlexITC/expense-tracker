@@ -6,10 +6,18 @@ import net.wiringbits.AppContext
 import net.wiringbits.api.ApiClient
 import net.wiringbits.api.models.bankstatements.GetAllRows
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
-import net.wiringbits.api.models.merchants.{CreateImportRule, CreateMerchant, GetMerchants, ImportRuleAction}
+import net.wiringbits.api.models.merchants.{
+  CreateImportRule,
+  CreateMerchant,
+  GetImportRules,
+  GetMerchants,
+  ImportRuleAction
+}
 import net.wiringbits.api.utils.ImportRuleMatcher
-import net.wiringbits.models.User
+import net.wiringbits.components.widgets.Loader
+import net.wiringbits.models.{SaveState, User}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
+import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.compat.{MuiCompat, RouterCompat}
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.useHistory
 import org.scalajs.dom.URLSearchParams
@@ -29,7 +37,7 @@ object BulkMerchantSetupPage {
 
   case class Props(ctx: AppContext, user: User)
 
-  private val PageSize = 25
+  private[pages] val PageSize = 25
 
   // Rows covered by an explicit rule or by an existing merchant name are not unmatched.
   private[pages] def findUnmatchedGroups(
@@ -50,6 +58,57 @@ object BulkMerchantSetupPage {
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
+    val client = props.ctx.api.client
+
+    AsyncComponent[(GetAllRows.Response, GetImportRules.Response, GetMerchants.Response, GetCategories.Response)](
+      fetch = () => {
+        val fRows = client.getAllBankStatementRows
+        val fRules = client.getImportRules
+        val fMerchants = client.getMerchants
+        val fCats = client.getCategories
+
+        for {
+          rowsResp <- fRows
+          rulesResp <- fRules
+          merchantsResp <- fMerchants
+          catsResp <- fCats
+        } yield (rowsResp, rulesResp, merchantsResp, catsResp)
+      },
+      render = { case (rowsResp, rulesResp, merchantsResp, catsResp) =>
+        BulkMerchantSetupContent(
+          props.ctx,
+          rowsResp.data,
+          rulesResp.data.map(ImportRuleMatcher.Rule.fromApi),
+          merchantsResp.data,
+          catsResp.data
+        )
+      },
+      progressIndicator = () => Loader(props.ctx)
+    )
+  }
+}
+
+object BulkMerchantSetupContent {
+  import BulkMerchantSetupPage.{PageSize, findUnmatchedGroups}
+
+  def apply(
+      ctx: AppContext,
+      rows: List[GetAllRows.RowData],
+      rules: List[ImportRuleMatcher.Rule],
+      merchants: List[GetMerchants.Response.Merchant],
+      categories: List[GetCategories.Response.Category]
+  ): KeyAddingStage =
+    component(Props(ctx, rows, rules, merchants, categories))
+
+  case class Props(
+      ctx: AppContext,
+      rows: List[GetAllRows.RowData],
+      rules: List[ImportRuleMatcher.Rule],
+      merchants: List[GetMerchants.Response.Merchant],
+      categories: List[GetCategories.Response.Category]
+  )
+
+  val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     val history = useHistory()
     val location = RouterCompat.useTypedLocation()
 
@@ -60,12 +119,10 @@ object BulkMerchantSetupPage {
       if (p == null) 0 else math.max(0, p.toIntOption.getOrElse(1) - 1)
     }
 
-    val (loading, setLoading) = Hooks.useState(true)
-    val (error, setError) = Hooks.useState("")
-    val (allRows, setAllRows) = Hooks.useState[List[GetAllRows.RowData]](Nil)
-    val (ruleList, setRuleList) = Hooks.useState[List[ImportRuleMatcher.Rule]](Nil)
-    val (merchants, setMerchants) = Hooks.useState[List[GetMerchants.Response.Merchant]](Nil)
-    val (categories, setCategories) = Hooks.useState[List[GetCategories.Response.Category]](Nil)
+    val allRows = props.rows
+    val (ruleList, setRuleList) = Hooks.useState(props.rules)
+    val (merchants, setMerchants) = Hooks.useState(props.merchants)
+    val (categories, setCategories) = Hooks.useState(props.categories)
     val (page, setPage) = Hooks.useState(initialPage)
     val (pageChanging, setPageChanging) = Hooks.useState(false)
 
@@ -81,36 +138,6 @@ object BulkMerchantSetupPage {
       dom.window.scrollTo(0, 0)
     }
 
-    Hooks.useEffect(
-      () => {
-        val fRows = props.ctx.api.client.getAllBankStatementRows
-        val fRules = props.ctx.api.client.getImportRules
-        val fMerchants = props.ctx.api.client.getMerchants
-        val fCats = props.ctx.api.client.getCategories
-
-        (for {
-          rowsResp <- fRows
-          rulesResp <- fRules
-          merchantsResp <- fMerchants
-          catsResp <- fCats
-        } yield (rowsResp, rulesResp, merchantsResp, catsResp)).onComplete {
-          case Success((rowsResp, rulesResp, merchantsResp, catsResp)) =>
-            setAllRows(rowsResp.data)
-            setRuleList(
-              rulesResp.data.map(ImportRuleMatcher.Rule.fromApi)
-            )
-            setMerchants(merchantsResp.data)
-            setCategories(catsResp.data)
-            setLoading(false)
-          case Failure(ex) =>
-            setError(ex.getMessage)
-            setLoading(false)
-        }
-        ()
-      },
-      js.Array("")
-    )
-
     val unmatchedGroups: List[(String, List[GetAllRows.RowData])] =
       findUnmatchedGroups(allRows, ruleList, merchants)
 
@@ -123,12 +150,8 @@ object BulkMerchantSetupPage {
       textTransform = "uppercase"; color = "var(--lc-text-2)"
     }
 
-    if (loading || pageChanging)
+    if (pageChanging)
       mui.Box.sx(new CSSPropertiesUtils { padding = "24px" })(mui.CircularProgress())
-    else if (error.nonEmpty)
-      mui.Box.sx(new CSSPropertiesUtils { padding = "24px" })(
-        mui.Typography(error).sx(new CSSPropertiesUtils { color = "var(--lc-error)" })
-      )
     else
       mui.Box.sx(new CSSPropertiesUtils { padding = "24px"; maxWidth = "900px" })(
         mui.Box.sx(new CSSPropertiesUtils {
@@ -262,19 +285,18 @@ object DescriptionRow {
     val (merchantIdOpt, setMerchantIdOpt) = Hooks.useState[Option[UUID]](None)
     val (categoryInput, setCategoryInput) = Hooks.useState("")
     val (categoryIdOpt, setCategoryIdOpt) = Hooks.useState[Option[UUID]](None)
-    val (saving, setSaving) = Hooks.useState(false)
-    val (rowError, setRowError) = Hooks.useState("")
+    val (save, setSave) = Hooks.useState[SaveState](SaveState.Idle)
+    val saving = save.isSaving
 
     def handleAssign(): Unit = {
       val merchantName = merchantInput.trim
       val catName = categoryInput.trim
       if (merchantName.isEmpty) {
-        setRowError("Merchant name is required")
+        setSave(SaveState.Failed("Merchant name is required"))
       } else if (catName.isEmpty) {
-        setRowError("Category is required")
+        setSave(SaveState.Failed("Category is required"))
       } else {
-        setSaving(true)
-        setRowError("")
+        setSave(SaveState.Saving)
 
         val fResult: Future[Unit] = for {
           (resolvedCategoryId, newCategoryOpt) <- resolveOrCreateCategory(
@@ -346,15 +368,14 @@ object DescriptionRow {
         }
 
         fResult.onComplete {
-          case Success(_) => setSaving(false)
-          case Failure(ex) => setRowError(ex.getMessage); setSaving(false)
+          case Success(_) => setSave(SaveState.Idle)
+          case Failure(ex) => setSave(SaveState.Failed(ex.getMessage))
         }
       }
     }
 
     def handleIgnore(): Unit = {
-      setSaving(true)
-      setRowError("")
+      setSave(SaveState.Saving)
       props.ctx.api.client
         .createImportRule(
           CreateImportRule.Request(
@@ -369,11 +390,10 @@ object DescriptionRow {
               action = ImportRuleAction.Ignore,
               pattern = props.description
             )
-            setSaving(false)
+            setSave(SaveState.Idle)
             props.onDone(rule, None, None)
           case Failure(ex) =>
-            setRowError(ex.getMessage)
-            setSaving(false)
+            setSave(SaveState.Failed(ex.getMessage))
         }
     }
 
@@ -496,9 +516,11 @@ object DescriptionRow {
               .onClick(_ => handleIgnore())
           )
         ),
-        if (rowError.nonEmpty)
-          mui.Typography(rowError).sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "12px" })
-        else Fragment()
+        save.errorOpt match {
+          case Some(err) =>
+            mui.Typography(err).sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "12px" })
+          case None => Fragment()
+        }
       )
     )
   }
