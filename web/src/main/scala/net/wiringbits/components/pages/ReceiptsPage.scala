@@ -5,6 +5,7 @@ import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
+import net.wiringbits.core.SafeHooks
 import net.wiringbits.api.models.documents.DocumentStatus
 import net.wiringbits.api.models.expenses.{CreateExpense, GetExpenses}
 import net.wiringbits.api.models.merchants.GetMerchants
@@ -159,10 +160,9 @@ object ReceiptList {
 
     val (ruleList, setRuleList) = Hooks.useState[List[ImportRuleMatcher.Rule]](Nil)
     // Explicit rules plus one virtual rule per merchant name; `ruleList` itself stays explicit-only.
-    val effectiveRuleList: List[ImportRuleMatcher.Rule] = Hooks.useMemo(
-      () => ImportRuleMatcher.effectiveRules(ruleList, props.merchants.data.map(m => m.id -> m.name)),
-      List(ruleList, props.merchants.data)
-    )
+    val effectiveRuleList: List[ImportRuleMatcher.Rule] = SafeHooks.useMemo(
+      s"$ruleList|${props.merchants.data.map(m => s"${m.id}:${m.name}").mkString(",")}"
+    )(() => ImportRuleMatcher.effectiveRules(ruleList, props.merchants.data.map(m => m.id -> m.name)))
     val (showIgnored, setShowIgnored) = Hooks.useState(false)
     val (receiptFilter, setReceiptFilter) = Hooks.useState(FilterNeedsConfirm)
     val (receiptPage, setReceiptPage) = Hooks.useState(0)
@@ -172,57 +172,48 @@ object ReceiptList {
     val (localReceipts, setLocalReceipts) = Hooks.useState(props.receipts.data)
     val receiptsKey =
       props.receipts.data.map(r => s"${r.id}:${r.documentStatus.entryName}:${r.expenseId}").mkString("|")
-    Hooks.useEffect(
-      () => { setLocalReceipts(props.receipts.data); () },
-      js.Array(receiptsKey)
-    )
+    SafeHooks.useEffect(receiptsKey)(() => { setLocalReceipts(props.receipts.data); () })
 
     val pendingReceipts =
       localReceipts.filter(r =>
         r.documentStatus == DocumentStatus.Ingested || r.documentStatus == DocumentStatus.Processing || r.documentStatus == DocumentStatus.Analyzed
       )
     val pendingKey = pendingReceipts.map(_.id.toString).sorted.mkString(",")
-    Hooks.useEffect(
-      () => {
-        if (pendingReceipts.nonEmpty) {
-          val timer = dom.window.setInterval(
-            () =>
-              pendingReceipts.foreach { pending =>
-                setPollingIds(cur => cur + pending.id)
-                props.ctx.api.client.getReceipt(pending.id).onComplete {
-                  case Success(updated) =>
-                    setPollingIds(cur => cur - updated.id)
-                    setLocalReceipts(cur => cur.map(r => if (r.id == updated.id) toListReceipt(updated) else r))
-                  case Failure(_) =>
-                    setPollingIds(cur => cur - pending.id)
-                }
-              },
-            3000
-          )
-          () => { dom.window.clearInterval(timer); () }
-        } else { () => () }
-      },
-      js.Array(pendingKey)
-    )
+    SafeHooks.useEffect(pendingKey)(() => {
+      if (pendingReceipts.nonEmpty) {
+        val timer = dom.window.setInterval(
+          () =>
+            pendingReceipts.foreach { pending =>
+              setPollingIds(cur => cur + pending.id)
+              props.ctx.api.client.getReceipt(pending.id).onComplete {
+                case Success(updated) =>
+                  setPollingIds(cur => cur - updated.id)
+                  setLocalReceipts(cur => cur.map(r => if (r.id == updated.id) toListReceipt(updated) else r))
+                case Failure(_) =>
+                  setPollingIds(cur => cur - pending.id)
+              }
+            },
+          3000
+        )
+        () => { dom.window.clearInterval(timer); () }
+      } else { () => () }
+    })
 
     // Fetch all expenses and import rules once on mount
-    Hooks.useEffect(
-      () => {
-        props.ctx.api.client.getExpenses.onComplete {
-          case Success(resp) => setAllExpenses(resp.data)
-          case Failure(_) => ()
-        }
-        props.ctx.api.client.getImportRules.onComplete {
-          case Success(resp) =>
-            setRuleList(
-              resp.data.map(ImportRuleMatcher.Rule.fromApi)
-            )
-          case Failure(_) => ()
-        }
-        ()
-      },
-      js.Array()
-    )
+    SafeHooks.useEffect()(() => {
+      props.ctx.api.client.getExpenses.onComplete {
+        case Success(resp) => setAllExpenses(resp.data)
+        case Failure(_) => ()
+      }
+      props.ctx.api.client.getImportRules.onComplete {
+        case Success(resp) =>
+          setRuleList(
+            resp.data.map(ImportRuleMatcher.Rule.fromApi)
+          )
+        case Failure(_) => ()
+      }
+      ()
+    })
 
     // Auto-select first visible receipt when filter or list changes
     val visibleForFilter = localReceipts
@@ -238,51 +229,45 @@ object ReceiptList {
         }
       }
       .sortBy(_.createdAt)(using Ordering[Instant].reverse)
-    Hooks.useEffect(
-      () => {
-        setMode(_.keptVisible(visibleForFilter.map(_.id)))
-        ()
-      },
-      js.Array(visibleForFilter.map(_.id.toString).mkString(","), receiptFilter)
-    )
+    SafeHooks.useEffect(visibleForFilter.map(_.id.toString).mkString(","), receiptFilter)(() => {
+      setMode(_.keptVisible(visibleForFilter.map(_.id)))
+      ()
+    })
 
     val selectedReceiptId = mode.selectedId
     val selectedIdKey = selectedReceiptId.map(_.toString).getOrElse("")
-    Hooks.useEffect(
-      () => {
-        var cancelled = false
-        var blobUrl = Option.empty[String]
-        selectedReceiptId.foreach { id =>
-          localReceipts.find(_.id == id).foreach { r =>
-            val mimeType = mimeForFilename(r.documentFilename)
-            if (mimeType != "application/octet-stream") {
-              setPreviewLoading(true)
-              props.ctx.api.client.getReceiptFile(id).onComplete {
-                case Success((bytes, _, _)) if !cancelled =>
-                  val typedArray = new js.typedarray.Int8Array(bytes.length)
-                  bytes.indices.foreach(i => typedArray(i) = bytes(i))
-                  val blob = new dom.Blob(
-                    js.Array(typedArray.buffer.asInstanceOf[js.typedarray.ArrayBuffer]),
-                    new dom.BlobPropertyBag { `type` = mimeType }
-                  )
-                  val url = dom.URL.createObjectURL(blob)
-                  blobUrl = Some(url)
-                  setPreviewLoading(false)
-                  setPreviewUrl(Some(url))
-                case Failure(ex) if !cancelled =>
-                  setPreviewLoading(false)
-                  setError(ex.getMessage)
-                case _ => ()
-              }
+    SafeHooks.useEffect(selectedIdKey)(() => {
+      var cancelled = false
+      var blobUrl = Option.empty[String]
+      selectedReceiptId.foreach { id =>
+        localReceipts.find(_.id == id).foreach { r =>
+          val mimeType = mimeForFilename(r.documentFilename)
+          if (mimeType != "application/octet-stream") {
+            setPreviewLoading(true)
+            props.ctx.api.client.getReceiptFile(id).onComplete {
+              case Success((bytes, _, _)) if !cancelled =>
+                val typedArray = new js.typedarray.Int8Array(bytes.length)
+                bytes.indices.foreach(i => typedArray(i) = bytes(i))
+                val blob = new dom.Blob(
+                  js.Array(typedArray.buffer.asInstanceOf[js.typedarray.ArrayBuffer]),
+                  new dom.BlobPropertyBag { `type` = mimeType }
+                )
+                val url = dom.URL.createObjectURL(blob)
+                blobUrl = Some(url)
+                setPreviewLoading(false)
+                setPreviewUrl(Some(url))
+              case Failure(ex) if !cancelled =>
+                setPreviewLoading(false)
+                setError(ex.getMessage)
+              case _ => ()
             }
           }
         }
-        () => {
-          cancelled = true; setPreviewLoading(false); setPreviewUrl(None); blobUrl.foreach(dom.URL.revokeObjectURL); ()
-        }
-      },
-      js.Array(selectedIdKey)
-    )
+      }
+      () => {
+        cancelled = true; setPreviewLoading(false); setPreviewUrl(None); blobUrl.foreach(dom.URL.revokeObjectURL); ()
+      }
+    })
 
     def showToast(msg: String): Unit = {
       setToast(Some(msg))
@@ -708,28 +693,25 @@ object ReceiptList {
     }
 
     val batchActiveKey = if (batchConfirmMode || batch.isRunning) "inactive" else "idle"
-    Hooks.useEffect(
-      () => {
-        if (batchConfirmMode || batch.isRunning) { () => () }
-        else {
-          val handleDragOver: js.Function1[dom.DragEvent, Unit] = e => e.preventDefault()
-          val handleDrop: js.Function1[dom.DragEvent, Unit] = { e =>
-            e.preventDefault()
-            val fileList = e.dataTransfer.files
-            val files = (0 until fileList.length).map(fileList(_)).toList
-            handleFilesBatch(files)
-          }
-          dom.document.addEventListener("dragover", handleDragOver)
-          dom.document.addEventListener("drop", handleDrop)
-          () => {
-            dom.document.removeEventListener("dragover", handleDragOver)
-            dom.document.removeEventListener("drop", handleDrop)
-            ()
-          }
+    SafeHooks.useEffect(batchActiveKey)(() => {
+      if (batchConfirmMode || batch.isRunning) { () => () }
+      else {
+        val handleDragOver: js.Function1[dom.DragEvent, Unit] = e => e.preventDefault()
+        val handleDrop: js.Function1[dom.DragEvent, Unit] = { e =>
+          e.preventDefault()
+          val fileList = e.dataTransfer.files
+          val files = (0 until fileList.length).map(fileList(_)).toList
+          handleFilesBatch(files)
         }
-      },
-      js.Array(batchActiveKey)
-    )
+        dom.document.addEventListener("dragover", handleDragOver)
+        dom.document.addEventListener("drop", handleDrop)
+        () => {
+          dom.document.removeEventListener("dragover", handleDragOver)
+          dom.document.removeEventListener("drop", handleDrop)
+          ()
+        }
+      }
+    })
 
     val errorMsg = mui.Typography(error).color("error")
 
