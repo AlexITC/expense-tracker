@@ -244,8 +244,10 @@ object BankStatementList {
       val afterAccount =
         if (accountFilter.isEmpty) localStmts else localStmts.filter(s => accountKeyOf(s) == accountFilter)
       val afterType = if (typeFilter.isEmpty) afterAccount else afterAccount.filter(_.productType == typeFilter)
+      // The account view is a continuous timeline used for gap detection, so it always keeps fully
+      // processed statements; hiding them there would make a stored statement look like a missing cycle.
       val afterShowAll =
-        if (showAll) afterType
+        if (showAll || accountView) afterType
         else afterType.filter(s => !(s.totalRows > 0 && s.processedRows == s.totalRows))
       val filtered =
         if (stmtFilter.trim.isEmpty) afterShowAll
