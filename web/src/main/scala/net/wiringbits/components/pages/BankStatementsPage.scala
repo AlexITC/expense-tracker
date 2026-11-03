@@ -70,7 +70,7 @@ object BankStatementList {
     s"${s.bankName}~${s.productType}~${s.accountLast4}"
 
   def accountLabelOf(s: GetBankStatements.Response.BankStatement): String =
-    s"${s.bankName} · ${productLabel(s.productType)} · ••••${s.accountLast4}"
+    s"${s.bankName} (${productLabel(s.productType)}) ••••${s.accountLast4}"
 
   /** One-line metadata summary for a statement. */
   def metadataLine(s: GetBankStatements.Response.BankStatement): String =
