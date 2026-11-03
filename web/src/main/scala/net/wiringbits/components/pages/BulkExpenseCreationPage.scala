@@ -34,6 +34,16 @@ object BulkExpenseCreationPage {
 
   private[pages] def normalize(s: String): String = s.toLowerCase.trim
 
+  /** Why the bulk import can't start, if anything: no rows selected or no category chosen. */
+  private[pages] def importError(selectedIds: List[UUID], categoryInput: String): Option[String] =
+    if (selectedIds.isEmpty) Some("No rows selected")
+    else if (categoryInput.trim.isEmpty) Some("Choose a category")
+    else None
+
+  /** Every bulk-created expense is fully allocated to the chosen category. */
+  private[pages] def rowSplits(catId: UUID, rowAmount: BigDecimal): List[CreateExpenseFromRow.Split] =
+    List(CreateExpenseFromRow.Split(catId, rowAmount.abs))
+
   private[pages] def renderTextField(label: String)(params: AutocompleteRenderInputParams): ReactElement =
     (mui.TextField.outlined
       .withProps(MuiCompat.textFieldProps(params, label, size = Some("small")))
@@ -59,7 +69,7 @@ object BulkExpenseCreationPage {
 }
 
 object BulkExpenseCreationContent {
-  import BulkExpenseCreationPage.{PageSize, normalize, renderTextField}
+  import BulkExpenseCreationPage.{PageSize, importError, normalize, renderTextField, rowSplits}
 
   def apply(
       ctx: AppContext,
@@ -171,9 +181,7 @@ object BulkExpenseCreationContent {
 
     def handleImport(): Unit = {
       val ids = effectiveSelected.toList
-      if (ids.isEmpty) { setSave(SaveState.Failed("No rows selected")) }
-      else if (categoryInput.trim.isEmpty) { setSave(SaveState.Failed("Choose a category")) }
-      else {
+      importError(ids, categoryInput).fold {
         setSave(SaveState.Saving)
         val notesVal = notes.trim
 
@@ -192,7 +200,7 @@ object BulkExpenseCreationContent {
                     time = None,
                     merchantId = midOpt,
                     notes = Some(notesVal).filter(_.nonEmpty),
-                    splits = List(CreateExpenseFromRow.Split(catId, row.amount.abs)),
+                    splits = rowSplits(catId, row.amount),
                     receiptId = None
                   )
                   props.ctx.api.client.createExpenseFromRow(row.bankStatementId, rowId, req).map(_ => acc :+ rowId)
@@ -208,7 +216,7 @@ object BulkExpenseCreationContent {
           case Failure(ex) =>
             setSave(SaveState.Failed(ex.getMessage))
         }
-      }
+      }(msg => setSave(SaveState.Failed(msg)))
     }
 
     def handleIgnore(): Unit = {

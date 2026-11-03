@@ -86,6 +86,15 @@ class BankRowCreateRefundFormSpec extends AnyWordSpec {
       BankRowCreateRefundForm.initialSelection(row, Nil, Nil, categories) mustBe (None, None)
     }
 
+    "prefill nothing when a SetMerchant rule's merchant is not among the user's merchants" in {
+      BankRowCreateRefundForm.initialSelection(
+        row,
+        List(rule(ImportRuleAction.SetMerchant(UUID.randomUUID()))),
+        Nil,
+        categories
+      ) mustBe (None, None)
+    }
+
     "drop a SetCategory rule's category that is not among the user's categories" in {
       BankRowCreateRefundForm.initialSelection(
         row,

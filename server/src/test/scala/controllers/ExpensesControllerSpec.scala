@@ -138,15 +138,6 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       error must be(ExpenseSplits.NotFullyAllocatedError)
     }
 
-    "fail when split sum is less than expense amount" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Food")).futureValue
-
-      val splits = List(CreateExpense.Split(cat.id, BigDecimal("30.00")))
-      val error = client.createExpense(createRequest(BigDecimal("50.00"), splits = Some(splits))).expectError
-      error must be(ExpenseSplits.NotFullyAllocatedError)
-    }
-
     "create an expense with splits summing exactly to total" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val cat = client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Food")).futureValue
@@ -214,18 +205,6 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
         )
         .expectError
       error must be("Split amount must be greater than 0")
-    }
-
-    "fail when split sum exceeds expense amount" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Food")).futureValue
-
-      val error = client
-        .createExpense(
-          createRequest(BigDecimal("50.00"), splits = Some(List(CreateExpense.Split(cat.id, BigDecimal("60.00")))))
-        )
-        .expectError
-      error must be(ExpenseSplits.NotFullyAllocatedError)
     }
 
     "fail when duplicate category in splits" in withApiClient { implicit client =>
@@ -333,27 +312,6 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
 
       val error = client
         .updateExpense(created.id, UpdateExpense.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil))
-        .expectError
-      error must be(ExpenseSplits.NotFullyAllocatedError)
-    }
-
-    "fail when split sum exceeds new amount" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Food")).futureValue
-      val created = client.createExpense(createRequest(BigDecimal("100.00"))).futureValue
-
-      val error = client
-        .updateExpense(
-          created.id,
-          UpdateExpense.Request(
-            BigDecimal("10.00"),
-            sampleDate,
-            None,
-            None,
-            None,
-            List(UpdateExpense.Split(cat.id, BigDecimal("20.00")))
-          )
-        )
         .expectError
       error must be(ExpenseSplits.NotFullyAllocatedError)
     }

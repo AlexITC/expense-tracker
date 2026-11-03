@@ -252,18 +252,15 @@ object BankRowCreateExpenseForm {
       (Try(BigDecimal(amount)).toOption, Try(LocalDate.parse(date)).toOption) match {
         case (None, _) => setError("Invalid amount")
         case (_, None) => setError("Invalid date")
+        case _ if categoryInput.trim.isEmpty => setError("Choose a category")
         case (Some(amt), Some(dt)) =>
           setError("")
           val categoryName = categoryInput.trim
 
           val fExpense: Future[(UUID, Option[UUID], Option[UUID])] = for {
-            resolvedCategoryId <- categoryName match {
-              case "" => Future.successful[Option[UUID]](None)
-              case _ =>
-                DescriptionRow
-                  .resolveOrCreateCategory(props.ctx.api.client, props.categories, categoryIdOpt, categoryName)
-                  .map { case (id, _) => Some(id) }
-            }
+            resolvedCategoryId <- DescriptionRow
+              .resolveOrCreateCategory(props.ctx.api.client, props.categories, categoryIdOpt, categoryName)
+              .map { case (id, _) => Some(id) }
 
             resolvedMerchantId <- merchantName match {
               case "" => Future.successful[Option[UUID]](None)

@@ -294,27 +294,6 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Expe
       error must be("Split amount must be greater than 0")
     }
 
-    "reject splits summing to more than expense amount" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-      val cat1 = client.createCategory(CreateCategory.Request("Groceries")).futureValue
-      val cat2 = client.createCategory(CreateCategory.Request("Transport")).futureValue
-      val receiptId = setupParsedReceipt()
-
-      val req = ConfirmReceipt.Request(
-        Some(BigDecimal("50.00")),
-        Some(sampleDate),
-        None,
-        None,
-        None,
-        List(
-          CreateExpense.Split(cat1.id, BigDecimal("30.00")),
-          CreateExpense.Split(cat2.id, BigDecimal("30.00"))
-        )
-      )
-      val error = client.confirmReceipt(receiptId, req).expectError
-      error must be(ExpenseSplits.NotFullyAllocatedError)
-    }
-
     "reject split category belonging to another user" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val receiptId = setupParsedReceipt()

@@ -455,6 +455,18 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       info.categoryName mustBe None
     }
 
+    "not mark a SetMerchant credit ready when the rule's merchant is not loaded" in {
+      val info = rowInfo(
+        List(rule(ImportRuleActionKind.SetMerchant, "SUPERMARKET", Some(UUID.randomUUID()))),
+        Nil,
+        Nil,
+        None,
+        sampleRow().copy(amount = BigDecimal("10.00"))
+      )
+      info.refund mustBe None
+      info.isReady mustBe false
+    }
+
     "resolve a SetCategory credit to a ready refund with that category and no merchant" in {
       val c = UUID.randomUUID()
       val info = rowInfo(
@@ -665,7 +677,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       val credit = sampleRow().copy(amount = BigDecimal("10.00"))
       val creditInfo = BankStatementReviewLogic.rowInfo(
         List(ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant(m), "SUPERMARKET")),
-        Nil,
+        List(GetMerchants.Response.Merchant(m, "Walmart", None, None, None, reviewed = true, Instant.EPOCH)),
         Nil,
         None,
         credit

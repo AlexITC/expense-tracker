@@ -108,7 +108,8 @@ object BankStatementReviewLogic {
   final case class RefundPrefill(merchantId: Option[UUID], categoryId: Option[UUID])
 
   /** Resolve the refund a credit row would create from its rule verdict alone; AI suggestions are not consulted. None
-    * for debits, Ignore verdicts and rows no rule matches.
+    * for debits, Ignore verdicts, rows no rule matches and SetMerchant rules whose merchant is not loaded (the form
+    * could not prefill it either).
     */
   def resolveRefund(
       verdict: RowRuleVerdict.Verdict,
@@ -119,7 +120,7 @@ object BankStatementReviewLogic {
     else
       verdict match {
         case RowRuleVerdict.SetMerchant(merchantId) =>
-          Some(RefundPrefill(Some(merchantId), merchants.find(_.id == merchantId).flatMap(_.categoryId)))
+          merchants.find(_.id == merchantId).map(m => RefundPrefill(Some(m.id), m.categoryId))
         case RowRuleVerdict.SetCategory(categoryId) => Some(RefundPrefill(None, Some(categoryId)))
         case RowRuleVerdict.Ignore | RowRuleVerdict.NoRule => None
       }
