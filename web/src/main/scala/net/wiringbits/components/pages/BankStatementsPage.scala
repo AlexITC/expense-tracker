@@ -57,8 +57,6 @@ object BankStatementList {
       onRefresh: () => Unit
   )
 
-  private val PageSize = 15
-
   def productLabel(productType: String): String = productType match {
     case "credit" => "Credit"
     case "debit" => "Debit"
@@ -130,11 +128,7 @@ object BankStatementList {
     val (toast, setToast) = Hooks.useState[Option[String]](None)
     val (pollingIds, setPollingIds) = Hooks.useState[Set[UUID]](Set.empty)
     val (stmtFilter, setStmtFilter) = Hooks.useState("")
-    val (sortBy, setSortBy) = Hooks.useState("pending") // "pending" | "newest" | "oldest"
-    val (showAll, setShowAll) = Hooks.useState(false)
-    val (page, setPage) = Hooks.useState(0)
-    val (accountFilter, setAccountFilter) = Hooks.useState("") // "" = all accounts; else an account key
-    val (typeFilter, setTypeFilter) = Hooks.useState("") // "" = all types; else "credit"/"debit"
+    val (accountFilter, setAccountFilter) = Hooks.useState("") // "" = not chosen yet; else an account key
 
     // The import queue: drafts being AI-extracted / awaiting review.
     val (drafts, setDrafts) = Hooks.useState[List[BankStatementDraft.Summary]](Nil)
@@ -188,12 +182,6 @@ object BankStatementList {
         case Failure(ex) => setError(ex.getMessage)
       }
 
-    def updateFilter(v: String): Unit = { setStmtFilter(v); setPage(0) }
-    def cycleSortBy(): Unit = {
-      setSortBy(sortBy match { case "pending" => "newest"; case "newest" => "oldest"; case _ => "pending" })
-      setPage(0)
-    }
-
     val (localStmts, setLocalStmts) = Hooks.useState(props.stmts.data)
     val stmtsKey = props.stmts.data.map(s => s"${s.id}:${s.documentStatus.entryName}").mkString("|")
     SafeHooks.useEffect(stmtsKey)(() => { setLocalStmts(props.stmts.data); () })
@@ -238,33 +226,18 @@ object BankStatementList {
         }
 
     val accounts = localStmts.map(s => accountKeyOf(s) -> accountLabelOf(s)).distinctBy(_._1)
-    val accountView = accountFilter.nonEmpty
+    val selectedAccount = BankStatementsLogic.selectedAccountKey(accountFilter, localStmts)
 
-    val displayedStmts = {
-      val afterAccount =
-        if (accountFilter.isEmpty) localStmts else localStmts.filter(s => accountKeyOf(s) == accountFilter)
-      val afterType = if (typeFilter.isEmpty) afterAccount else afterAccount.filter(_.productType == typeFilter)
-      val afterShowAll =
-        if (showAll) afterType
-        else afterType.filter(s => !(s.totalRows > 0 && s.processedRows == s.totalRows))
-      val filtered =
-        if (stmtFilter.trim.isEmpty) afterShowAll
-        else afterShowAll.filter(_.documentFilename.toLowerCase.contains(stmtFilter.trim.toLowerCase))
-      // In the account view, order by statement period (newest first) so gaps between cycles are visible.
-      if (accountView) filtered.sortBy(s => s.periodStart.toEpochDay).reverse
-      else
-        sortBy match {
-          case "pending" => filtered.sortBy(s => -(s.totalRows - s.processedRows))
-          case "oldest" => filtered.reverse
-          case _ => filtered // newest first (server default)
-        }
-    }
+    // The selected account's timeline, ordered by statement period (newest first) so gaps between cycles are visible.
+    val accountStmts =
+      localStmts.filter(s => selectedAccount.contains(accountKeyOf(s))).sortBy(_.periodStart.toEpochDay).reverse
+    def matchesName(s: GetBankStatements.Response.BankStatement): Boolean =
+      stmtFilter.trim.isEmpty || s.documentFilename.toLowerCase.contains(stmtFilter.trim.toLowerCase)
+    val displayedStmts = accountStmts.filter(matchesName)
+    // Each statement's older neighbour in the full timeline, so the name filter can't fake a gap.
+    val olderNeighbour = accountStmts.zip(accountStmts.drop(1)).map { case (newer, older) => newer.id -> older }.toMap
 
-    val totalPages = math.max(1, (displayedStmts.size + PageSize - 1) / PageSize)
-    // The account view shows the whole timeline (no paging) so gap detection stays continuous.
-    val pagedStmts = if (accountView) displayedStmts else displayedStmts.slice(page * PageSize, (page + 1) * PageSize)
-
-    val cards: Seq[ReactElement] = pagedStmts.map { s =>
+    val cards: Seq[ReactElement] = displayedStmts.map { s =>
       val isPending = s.documentStatus == DocumentStatus.Ingested ||
         s.documentStatus == DocumentStatus.Processing ||
         s.documentStatus == DocumentStatus.Analyzed
@@ -353,14 +326,13 @@ object BankStatementList {
         .withKey(s.id.toString)
     }
 
-    // In the account view, interleave a warning wherever consecutive statements leave a gap in the period sequence.
+    // Interleave a warning wherever consecutive statements leave a gap in the period sequence; only between two
+    // visible statements that are also adjacent in the full timeline.
     val stmtItems: Seq[ReactElement] =
-      if (!accountView) cards
-      else
-        cards.zipWithIndex.flatMap { case (card, i) =>
-          val gap = if (i + 1 < pagedStmts.size) gapWarning(pagedStmts(i), pagedStmts(i + 1)).toSeq else Nil
-          card +: gap
-        }
+      displayedStmts.zip(cards).flatMap { case (s, card) =>
+        val gap = olderNeighbour.get(s.id).filter(matchesName).flatMap(gapWarning(s, _)).toSeq
+        card +: gap
+      }
 
     Fragment(
       mui.Box.sx(new CSSPropertiesUtils {
@@ -464,47 +436,21 @@ object BankStatementList {
             .select(true)
             .label("Account")
             .size("small")
-            .value(accountFilter)
-            .onChange(e => { setAccountFilter(e.target.asInstanceOf[dom.HTMLInputElement].value); setPage(0) })
+            .value(selectedAccount.getOrElse(""))
+            .onChange(e => setAccountFilter(e.target.asInstanceOf[dom.HTMLInputElement].value))
             .sx(new CSSPropertiesUtils { minWidth = "220px" })(
-              (("" -> "All accounts") +: accounts).map { case (k, label) =>
-                mui.MenuItem.normal()(label).value(k).withKey(if (k.isEmpty) "all" else k).build
+              accounts.map { case (k, label) =>
+                mui.MenuItem.normal()(label).value(k).withKey(k).build
               }*
             )
         else Fragment(),
         mui.TextField
           .outlined()
-          .select(true)
-          .label("Type")
-          .size("small")
-          .value(typeFilter)
-          .onChange(e => { setTypeFilter(e.target.asInstanceOf[dom.HTMLInputElement].value); setPage(0) })
-          .sx(new CSSPropertiesUtils { minWidth = "130px" })(
-            List("" -> "All types", "credit" -> "Credit", "debit" -> "Debit").map { case (k, label) =>
-              mui.MenuItem.normal()(label).value(k).withKey(if (k.isEmpty) "alltypes" else k).build
-            }*
-          ),
-        mui.TextField
-          .outlined()
           .label("Filter by name")
           .size("small")
           .value(stmtFilter)
-          .onChange(e => updateFilter(e.target.asInstanceOf[dom.HTMLInputElement].value))
-          .sx(new CSSPropertiesUtils { flex = "1"; minWidth = "160px" }),
-        mui.Button
-          .normal()(sortBy match {
-            case "pending" => "Most pending first"
-            case "newest" => "Newest first"
-            case _ => "Oldest first"
-          })
-          .size("small")
-          .variant("outlined")
-          .onClick(_ => cycleSortBy()),
-        mui.Button
-          .normal()(if (showAll) "Show pending only" else "Show all")
-          .size("small")
-          .variant("outlined")
-          .onClick(_ => { setShowAll(!showAll); setPage(0) })
+          .onChange(e => setStmtFilter(e.target.asInstanceOf[dom.HTMLInputElement].value))
+          .sx(new CSSPropertiesUtils { flex = "1"; minWidth = "160px" })
       ),
       if (error.nonEmpty)
         mui
@@ -512,20 +458,6 @@ object BankStatementList {
           .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px"; marginBottom = "8px" })
       else Fragment(),
       Fragment(stmtItems*),
-      if (accountView) Fragment()
-      else
-        mui.Box.sx(new CSSPropertiesUtils { marginTop = "8px" })(
-          mui.Pagination
-            .withProps(
-              js.Dynamic
-                .literal(
-                  count = totalPages,
-                  page = page + 1,
-                  onChange = ((e: js.Any, p: Double) => setPage(p.toInt - 1)): js.Function2[js.Any, Double, Unit]
-                )
-                .asInstanceOf[com.olvind.mui.muiMaterial.paginationPaginationMod.PaginationProps]
-            )
-        ),
       toast match {
         case None => Fragment()
         case Some(msg) =>

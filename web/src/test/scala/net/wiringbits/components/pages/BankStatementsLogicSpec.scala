@@ -55,4 +55,23 @@ class BankStatementsLogicSpec extends AnyWordSpec {
       BankStatementsLogic.defaultAccountKey(stmts) mustBe Some("BBVA~credit~1111")
     }
   }
+
+  "selectedAccountKey" should {
+    val stmts = List(
+      stmt(accountLast4 = "1111", createdAt = t0),
+      stmt(accountLast4 = "2222", createdAt = t0.plusSeconds(3600))
+    )
+
+    "keep the chosen account while it exists, even when another account is newer" in {
+      BankStatementsLogic.selectedAccountKey("BBVA~credit~1111", stmts) mustBe Some("BBVA~credit~1111")
+    }
+
+    "fall back to the newest account when the chosen one is gone" in {
+      BankStatementsLogic.selectedAccountKey("BBVA~credit~9999", stmts) mustBe Some("BBVA~credit~2222")
+    }
+
+    "return None when nothing is chosen and there are no statements" in {
+      BankStatementsLogic.selectedAccountKey("", Nil) mustBe None
+    }
+  }
 }
