@@ -393,10 +393,32 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       info.categoryName mustBe None
     }
 
-    "not mark an already linked or a positive row ready" in {
+    "not mark an already linked row ready" in {
       val rules = List(rule(ImportRuleActionKind.Ignore, "SUPERMARKET", None))
       rowInfo(rules, Nil, Nil, None, sampleRow().copy(expenseId = Some(UUID.randomUUID()))).isReady mustBe false
-      rowInfo(rules, Nil, Nil, None, sampleRow().copy(amount = BigDecimal("10.00"))).isReady mustBe false
+    }
+
+    "mark a positive row with an Ignore rule as ready, ignored by rule in one click" in {
+      val row = sampleRow().copy(amount = BigDecimal("10.00"))
+      val info = rowInfo(List(rule(ImportRuleActionKind.Ignore, "SUPERMARKET", None)), Nil, Nil, None, row)
+      info.isReady mustBe true
+      BankStatementReviewLogic.primaryActionFor(row, info.isReady, info.verdict) mustBe
+        BankStatementReviewLogic.PrimaryAction.IgnoreByRule
+    }
+
+    "keep the rule merchant as prefill for a SetMerchant debit row whose merchant has no default category" in {
+      val m = UUID.randomUUID()
+      val info = rowInfo(
+        List(rule(ImportRuleActionKind.SetMerchant, "SUPERMARKET", Some(m))),
+        List(merchant(m, "Walmart", None)),
+        Nil,
+        None,
+        sampleRow()
+      )
+      info.isReady mustBe false
+      info.resolved mustBe None
+      info.prefillMerchantId mustBe Some(m)
+      info.merchantName mustBe Some("Walmart")
     }
   }
 
@@ -494,6 +516,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         RowInfo(
           verdict = verdict,
           resolved = resolved,
+          prefillMerchantId = None,
           isReady = true,
           merchantName = None,
           categoryName = None,
@@ -561,6 +584,18 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       ) mustBe BulkRowDecision.Create(resolved)
     }
 
+    "ignore an ignore-matched credit row" in {
+      val credit = sampleRow().copy(amount = BigDecimal("10.00"))
+      val creditInfo = BankStatementReviewLogic.rowInfo(
+        List(ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "SUPERMARKET")),
+        Nil,
+        Nil,
+        None,
+        credit
+      )
+      BankStatementReviewLogic.bulkRowDecision(Some(creditInfo), None, Set.empty) mustBe BulkRowDecision.Ignore
+    }
+
     "fail with No category when the row resolves to nothing" in {
       BankStatementReviewLogic.bulkRowDecision(info(RowRuleVerdict.NoRule, None), None, Set.empty) mustBe
         BulkRowDecision.Fail("No category")
@@ -574,6 +609,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       RowInfo(
         verdict = verdict,
         resolved = None,
+        prefillMerchantId = None,
         isReady = isReady,
         merchantName = None,
         categoryName = None,
@@ -623,6 +659,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
     val readyInfo = RowInfo(
       verdict = RowRuleVerdict.NoRule,
       resolved = None,
+      prefillMerchantId = None,
       isReady = true,
       merchantName = None,
       categoryName = None,

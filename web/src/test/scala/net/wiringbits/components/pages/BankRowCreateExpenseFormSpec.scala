@@ -68,6 +68,14 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
         (Some(oxxo), Some(groceries.id))
     }
 
+    "prefill the merchant with no category for a SetMerchant rule whose merchant has no default category" in {
+      val bare = merchant("Bare", None)
+      val bareRule = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant(bare.id), "OXXO")
+      val ai = suggestion(Some(cafe.id), Some(dining.id))
+      BankRowCreateExpenseForm.initialSelection(row, List(bareRule), bare :: merchants, categories, Some(ai)) mustBe
+        (Some(bare), None)
+    }
+
     "fall through to the AI suggestion when the winning rule is an Ignore rule" in {
       val ignoreRule = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "OXXO")
       val ai = suggestion(Some(cafe.id), Some(dining.id))

@@ -103,11 +103,14 @@ object BankStatementReviewLogic {
     }
 
   /** Everything a table row derives from the rules, merchants, categories and AI suggestions, computed once per row so
-    * rendering does not re-run the rule matcher. The names are the display labels for the resolved import, if any.
+    * rendering does not re-run the rule matcher. The names are the display labels for the resolved import, if any;
+    * `merchantName` falls back to the prefill merchant's. `prefillMerchantId` is the rule-matched merchant, set even
+    * when it has no default category (so the row is not ready, but the merchant is still known).
     */
   final case class RowInfo(
       verdict: RowRuleVerdict.Verdict,
       resolved: Option[ResolvedImport],
+      prefillMerchantId: Option[UUID],
       isReady: Boolean,
       merchantName: Option[String],
       categoryName: Option[String],
@@ -125,13 +128,19 @@ object BankStatementReviewLogic {
   ): RowInfo = {
     val verdict = RowRuleVerdict.verdict(ruleList, row.description)
     val resolved = resolveImport(verdict, merchants, aiSuggestions, row)
-    val isReady = row.expenseId.isEmpty && row.refundId.isEmpty && row.ignoredAt.isEmpty && row.amount < 0 &&
-      (verdict == RowRuleVerdict.Ignore || resolved.isDefined)
+    val prefillMerchantId = RowRuleVerdict.merchantId(verdict)
+    val open = row.expenseId.isEmpty && row.refundId.isEmpty && row.ignoredAt.isEmpty
+    val isReady = open && (verdict == RowRuleVerdict.Ignore || (row.amount < 0 && resolved.isDefined))
     RowInfo(
       verdict = verdict,
       resolved = resolved,
+      prefillMerchantId = prefillMerchantId,
       isReady = isReady,
-      merchantName = resolved.flatMap(_.merchantId).flatMap(mid => merchants.find(_.id == mid)).map(_.name),
+      merchantName = resolved
+        .flatMap(_.merchantId)
+        .orElse(prefillMerchantId)
+        .flatMap(mid => merchants.find(_.id == mid))
+        .map(_.name),
       categoryName = resolved.flatMap(res => categories.find(_.id == res.categoryId)).map(_.name),
       linkedMerchantName = linkedMerchantName(row, merchants),
       linkedCategory = linkedCategoryDisplay(row, categories)

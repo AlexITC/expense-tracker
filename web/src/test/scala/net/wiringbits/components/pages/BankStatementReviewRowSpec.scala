@@ -51,6 +51,7 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
   private val readyInfo = RowInfo(
     verdict = RowRuleVerdict.NoRule,
     resolved = Some(ResolvedImport(None, UUID.randomUUID(), categoryFromAi = true)),
+    prefillMerchantId = None,
     isReady = true,
     merchantName = None,
     categoryName = Some("Groceries"),
@@ -58,7 +59,7 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
     linkedCategory = LinkedCategory.Unknown
   )
   private val ignoreInfo =
-    RowInfo(RowRuleVerdict.Ignore, None, isReady = true, None, None, None, LinkedCategory.Unknown)
+    RowInfo(RowRuleVerdict.Ignore, None, None, isReady = true, None, None, None, LinkedCategory.Unknown)
 
   private def props(
       r: GetBankStatement.StatementRowData,

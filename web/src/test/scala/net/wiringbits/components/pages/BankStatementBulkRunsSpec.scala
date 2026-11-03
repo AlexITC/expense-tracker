@@ -44,6 +44,7 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
     RowInfo(
       verdict = verdict,
       resolved = resolved,
+      prefillMerchantId = None,
       isReady = true,
       merchantName = None,
       categoryName = None,
