@@ -23,14 +23,14 @@ import org.mockito.Mockito.*
 import org.scalatestplus.mockito.MockitoSugar
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
-import utils.LoginUtils
+import utils.{ExpenseUtils, LoginUtils}
 import utils.RandomData.randomString
 
 import java.time.{Instant, LocalDate}
 import java.util.UUID
 import scala.concurrent.Future
 
-class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoSugar {
+class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUtils with MockitoSugar {
 
   private val tokenGenerator = mock[TokenGenerator]
   private val emailApi = mock[EmailApi]
@@ -279,7 +279,14 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
       val receiptId = client.uploadReceipt(sampleBytes, "Receipt", "test.jpg").futureValue.id
       setReceiptParsed(receiptId, loginResp.id)
 
-      val req = ConfirmReceipt.Request(Some(BigDecimal("50.00")), Some(sampleDate), None, None, None, Nil)
+      val req = ConfirmReceipt.Request(
+        Some(BigDecimal("50.00")),
+        Some(sampleDate),
+        None,
+        None,
+        None,
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
       val resp = client.confirmReceipt(receiptId, req).futureValue
       resp.expenseId must not be None
 
@@ -294,8 +301,22 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
       setReceiptParsed(id1, loginResp.id, BigDecimal("50.00"))
       setReceiptParsed(id2, loginResp.id, BigDecimal("75.00"))
 
-      val req1 = ConfirmReceipt.Request(Some(BigDecimal("50.00")), Some(sampleDate), None, None, None, Nil)
-      val req2 = ConfirmReceipt.Request(Some(BigDecimal("75.00")), Some(sampleDate), None, None, None, Nil)
+      val req1 = ConfirmReceipt.Request(
+        Some(BigDecimal("50.00")),
+        Some(sampleDate),
+        None,
+        None,
+        None,
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
+      val req2 = ConfirmReceipt.Request(
+        Some(BigDecimal("75.00")),
+        Some(sampleDate),
+        None,
+        None,
+        None,
+        fullSplit(BigDecimal("75.00")).futureValue
+      )
       client.confirmReceipt(id1, req1).futureValue
       client.confirmReceipt(id2, req2).futureValue
 
@@ -311,7 +332,14 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
       createVerifyLoginUser(tokenGenerator).futureValue
       val receiptId = client.uploadReceipt(sampleBytes, "Receipt", "test.jpg").futureValue.id
 
-      val req = ConfirmReceipt.Request(Some(BigDecimal("50.00")), Some(sampleDate), None, None, None, Nil)
+      val req = ConfirmReceipt.Request(
+        Some(BigDecimal("50.00")),
+        Some(sampleDate),
+        None,
+        None,
+        None,
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
       val error = client.confirmReceipt(receiptId, req).expectError
       error must be("Receipt is not in Parsed status")
     }
@@ -321,7 +349,14 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
       val receiptId = client.uploadReceipt(sampleBytes, "Receipt", "test.jpg").futureValue.id
       setReceiptParsed(receiptId, loginResp.id)
 
-      val req = ConfirmReceipt.Request(Some(BigDecimal("50.00")), Some(sampleDate), None, None, None, Nil)
+      val req = ConfirmReceipt.Request(
+        Some(BigDecimal("50.00")),
+        Some(sampleDate),
+        None,
+        None,
+        None,
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
       client.confirmReceipt(receiptId, req).futureValue
 
       val error = client.confirmReceipt(receiptId, req).expectError
@@ -335,7 +370,14 @@ class ReceiptsControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
-      val req = ConfirmReceipt.Request(Some(BigDecimal("50.00")), Some(sampleDate), None, None, None, Nil)
+      val req = ConfirmReceipt.Request(
+        Some(BigDecimal("50.00")),
+        Some(sampleDate),
+        None,
+        None,
+        None,
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
       val error = client2.confirmReceipt(receiptId, req).expectError
       error must be("Receipt not found")
     }

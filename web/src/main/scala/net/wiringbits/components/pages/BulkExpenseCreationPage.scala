@@ -172,13 +172,15 @@ object BulkExpenseCreationContent {
     def handleImport(): Unit = {
       val ids = effectiveSelected.toList
       if (ids.isEmpty) { setSave(SaveState.Failed("No rows selected")) }
+      else if (categoryInput.trim.isEmpty) { setSave(SaveState.Failed("Choose a category")) }
       else {
         setSave(SaveState.Saving)
         val notesVal = notes.trim
 
         (for {
           catIdOpt <- resolveCatId()
-          midOpt <- resolveMerchantId(catIdOpt)
+          catId = catIdOpt.getOrElse(throw new RuntimeException("Choose a category"))
+          midOpt <- resolveMerchantId(Some(catId))
           processed <- ids.foldLeft(Future.successful(List.empty[UUID])) { (accF, rowId) =>
             accF.flatMap { acc =>
               filteredRows.find(_.id == rowId) match {
@@ -190,7 +192,7 @@ object BulkExpenseCreationContent {
                     time = None,
                     merchantId = midOpt,
                     notes = Some(notesVal).filter(_.nonEmpty),
-                    splits = catIdOpt.map(c => List(CreateExpenseFromRow.Split(c, row.amount.abs))).getOrElse(Nil),
+                    splits = List(CreateExpenseFromRow.Split(catId, row.amount.abs)),
                     receiptId = None
                   )
                   props.ctx.api.client.createExpenseFromRow(row.bankStatementId, rowId, req).map(_ => acc :+ rowId)
@@ -266,7 +268,7 @@ object BulkExpenseCreationContent {
 
     val categoryAcProps = AutocompleteProps[GetCategories.Response.Category, Boolean, Boolean, Boolean, "div"](
       options = categories.toJSArray,
-      renderInput = renderTextField("Category (optional)")
+      renderInput = renderTextField("Category")
     )
     val categoryDyn = categoryAcProps.asInstanceOf[js.Dynamic]
     categoryDyn.freeSolo = true

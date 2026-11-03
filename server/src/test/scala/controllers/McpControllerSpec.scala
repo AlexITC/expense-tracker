@@ -13,12 +13,12 @@ import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
 import play.api.libs.json.{JsValue, Json}
 import play.api.test.Helpers.*
-import utils.LoginUtils
+import utils.{ExpenseUtils, LoginUtils}
 
 import java.time.{Instant, LocalDate}
 import java.util.UUID
 
-class McpControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoSugar {
+class McpControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUtils with MockitoSugar {
   private val tokenGenerator = mock[TokenGenerator]
 
   override def guiceApplicationBuilder(container: PostgreSQLContainer): GuiceApplicationBuilder =
@@ -154,12 +154,15 @@ class McpControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoSug
 
     "return only the authenticated user's expenses via list_expenses" in withApiClient { implicit clientA =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      clientA.createExpense(CreateExpense.Request(42.0, LocalDate.now(), None, None, None, Nil)).futureValue
+      clientA
+        .createExpense(CreateExpense.Request(42.0, LocalDate.now(), None, None, None, fullSplit(42.0).futureValue))
+        .futureValue
       val tokenA = clientA.createMcpToken.futureValue.token.value
 
       withApiClient { implicit clientB =>
         createVerifyLoginUser(tokenGenerator).futureValue
-        clientB.createExpense(CreateExpense.Request(99.0, LocalDate.now(), None, None, None, Nil)).futureValue
+        val splitsB = fullSplit(99.0)(using executionContext, clientB).futureValue
+        clientB.createExpense(CreateExpense.Request(99.0, LocalDate.now(), None, None, None, splitsB)).futureValue
 
         val params = Json.obj("name" -> "list_expenses")
         val response = POST("/mcp", rpc("tools/call", params = params), bearer(tokenA))

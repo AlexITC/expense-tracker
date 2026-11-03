@@ -28,8 +28,8 @@ class ExpenseValidator @Inject() (
         Future.failed(new RuntimeException("Duplicate category in splits"))
       else if (splits.exists(_._2 <= 0))
         Future.failed(new RuntimeException("Split amount must be greater than 0"))
-      else if (splits.map(_._2).sum > amount)
-        Future.failed(new RuntimeException("Sum of split amounts exceeds expense amount"))
+      else if (splits.map(_._2).sum != amount)
+        Future.failed(new RuntimeException("Split amounts must add up to the expense amount"))
       else
         for {
           _ <- merchantId match {

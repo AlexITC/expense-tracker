@@ -2,6 +2,7 @@ package controllers
 
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
+import net.wiringbits.api.ApiClient
 import net.wiringbits.api.models.bankstatements.LinkRowToExpense
 import net.wiringbits.api.models.expenses.{CreateExpense, UpdateExpense}
 import net.wiringbits.apis.models.EmailRequest
@@ -14,13 +15,13 @@ import org.mockito.Mockito.*
 import org.scalatestplus.mockito.MockitoSugar
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
-import utils.LoginUtils
+import utils.{ExpenseUtils, LoginUtils}
 
 import java.time.{Instant, LocalDate}
 import java.util.UUID
 import scala.concurrent.Future
 
-class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoSugar {
+class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUtils with MockitoSugar {
 
   private val tokenGenerator = mock[TokenGenerator]
   private val emailApi = mock[EmailApi]
@@ -42,14 +43,14 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
   private def createRequest(
       amount: BigDecimal = BigDecimal("50.00"),
       date: LocalDate = sampleDate,
-      splits: List[CreateExpense.Split] = Nil
-  ) = CreateExpense.Request(
+      splits: Option[List[CreateExpense.Split]] = None
+  )(using client: ApiClient) = CreateExpense.Request(
     amount = amount,
     date = date,
     time = None,
     merchantId = None,
     notes = None,
-    splits = splits
+    splits = splits.getOrElse(fullSplit(amount).futureValue)
   )
 
   "GET /expenses" should {
@@ -129,21 +130,20 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
   }
 
   "POST /expenses" should {
-    "create an expense with no splits" in withApiClient { implicit client =>
+    "fail when there are no splits" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
 
-      val response = client.createExpense(createRequest(BigDecimal("75.00"))).futureValue
-      response.amount must be(BigDecimal("75.00"))
-      response.date must be(sampleDate)
+      val error = client.createExpense(createRequest(BigDecimal("75.00"), splits = Some(Nil))).expectError
+      error must be("Split amounts must add up to the expense amount")
     }
 
-    "create an expense with splits summing to less than total" in withApiClient { implicit client =>
+    "fail when split sum is less than expense amount" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val cat = client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Food")).futureValue
 
       val splits = List(CreateExpense.Split(cat.id, BigDecimal("30.00")))
-      val response = client.createExpense(createRequest(BigDecimal("50.00"), splits = splits)).futureValue
-      response.amount must be(BigDecimal("50.00"))
+      val error = client.createExpense(createRequest(BigDecimal("50.00"), splits = Some(splits))).expectError
+      error must be("Split amounts must add up to the expense amount")
     }
 
     "create an expense with splits summing exactly to total" in withApiClient { implicit client =>
@@ -151,7 +151,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
       val cat = client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Food")).futureValue
 
       val splits = List(CreateExpense.Split(cat.id, BigDecimal("50.00")))
-      client.createExpense(createRequest(BigDecimal("50.00"), splits = splits)).futureValue
+      client.createExpense(createRequest(BigDecimal("50.00"), splits = Some(splits))).futureValue
     }
 
     "create an expense with a merchant" in withApiClient { implicit client =>
@@ -161,7 +161,14 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
           .createMerchant(net.wiringbits.api.models.merchants.CreateMerchant.Request("Amazon", None, None))
           .futureValue
 
-      val req = CreateExpense.Request(BigDecimal("50.00"), sampleDate, None, Some(merchant.id), None, Nil)
+      val req = CreateExpense.Request(
+        BigDecimal("50.00"),
+        sampleDate,
+        None,
+        Some(merchant.id),
+        None,
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
       val response = client.createExpense(req).futureValue
       val expenses = client.getExpenses.futureValue
       expenses.data.head.merchantName must be(Some("Amazon"))
@@ -177,7 +184,14 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
     "fail when notes exceed 255 characters" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
 
-      val req = CreateExpense.Request(BigDecimal("50.00"), sampleDate, None, None, Some("a" * 256), Nil)
+      val req = CreateExpense.Request(
+        BigDecimal("50.00"),
+        sampleDate,
+        None,
+        None,
+        Some("a" * 256),
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
       val error = client.createExpense(req).expectError
       error must be("Notes must be 255 characters or less")
     }
@@ -194,7 +208,9 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
       val cat = client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Food")).futureValue
 
       val error = client
-        .createExpense(createRequest(BigDecimal("50.00"), splits = List(CreateExpense.Split(cat.id, BigDecimal("0")))))
+        .createExpense(
+          createRequest(BigDecimal("50.00"), splits = Some(List(CreateExpense.Split(cat.id, BigDecimal("0")))))
+        )
         .expectError
       error must be("Split amount must be greater than 0")
     }
@@ -205,10 +221,10 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
 
       val error = client
         .createExpense(
-          createRequest(BigDecimal("50.00"), splits = List(CreateExpense.Split(cat.id, BigDecimal("60.00"))))
+          createRequest(BigDecimal("50.00"), splits = Some(List(CreateExpense.Split(cat.id, BigDecimal("60.00")))))
         )
         .expectError
-      error must be("Sum of split amounts exceeds expense amount")
+      error must be("Split amounts must add up to the expense amount")
     }
 
     "fail when duplicate category in splits" in withApiClient { implicit client =>
@@ -217,7 +233,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
 
       val splits =
         List(CreateExpense.Split(cat.id, BigDecimal("20.00")), CreateExpense.Split(cat.id, BigDecimal("10.00")))
-      val error = client.createExpense(createRequest(BigDecimal("50.00"), splits = splits)).expectError
+      val error = client.createExpense(createRequest(BigDecimal("50.00"), splits = Some(splits))).expectError
       error must be("Duplicate category in splits")
     }
 
@@ -231,7 +247,14 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
           .createMerchant(net.wiringbits.api.models.merchants.CreateMerchant.Request("Shop", None, None))
           .futureValue
 
-      val req = CreateExpense.Request(BigDecimal("50.00"), sampleDate, None, Some(merchant.id), None, Nil)
+      val req = CreateExpense.Request(
+        BigDecimal("50.00"),
+        sampleDate,
+        None,
+        Some(merchant.id),
+        None,
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
       val error = client.createExpense(req).expectError
       error must be("Merchant not found")
     }
@@ -245,7 +268,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
 
       val error = client
         .createExpense(
-          createRequest(BigDecimal("50.00"), splits = List(CreateExpense.Split(cat.id, BigDecimal("10.00"))))
+          createRequest(BigDecimal("50.00"), splits = Some(List(CreateExpense.Split(cat.id, BigDecimal("50.00")))))
         )
         .expectError
       error must be("Category not found")
@@ -259,7 +282,11 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
 
       val newDate = LocalDate.of(2024, 6, 1)
       client
-        .updateExpense(created.id, UpdateExpense.Request(BigDecimal("99.00"), newDate, None, None, Some("lunch"), Nil))
+        .updateExpense(
+          created.id,
+          UpdateExpense
+            .Request(BigDecimal("99.00"), newDate, None, None, Some("lunch"), fullUpdateSplit(BigDecimal("99.00")))
+        )
         .futureValue
       val expenses = client.getExpenses.futureValue
       val updated = expenses.data.find(_.id == created.id).get
@@ -275,7 +302,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
         client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Transport")).futureValue
       val created = client
         .createExpense(
-          createRequest(BigDecimal("50.00"), splits = List(CreateExpense.Split(cat1.id, BigDecimal("30.00"))))
+          createRequest(BigDecimal("50.00"), splits = Some(List(CreateExpense.Split(cat1.id, BigDecimal("50.00")))))
         )
         .futureValue
 
@@ -288,7 +315,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
             None,
             None,
             None,
-            List(UpdateExpense.Split(cat2.id, BigDecimal("20.00")))
+            List(UpdateExpense.Split(cat2.id, BigDecimal("50.00")))
           )
         )
         .futureValue
@@ -299,20 +326,14 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
       updated.splits.head.categoryId must be(cat2.id)
     }
 
-    "clear splits on update with empty list" in withApiClient { implicit client =>
+    "fail when clearing splits with an empty list" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Food")).futureValue
-      val created = client
-        .createExpense(
-          createRequest(BigDecimal("50.00"), splits = List(CreateExpense.Split(cat.id, BigDecimal("30.00"))))
-        )
-        .futureValue
+      val created = client.createExpense(createRequest(BigDecimal("50.00"))).futureValue
 
-      client
+      val error = client
         .updateExpense(created.id, UpdateExpense.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil))
-        .futureValue
-      val expenses = client.getExpenses.futureValue
-      expenses.data.find(_.id == created.id).get.splits must be(empty)
+        .expectError
+      error must be("Split amounts must add up to the expense amount")
     }
 
     "fail when split sum exceeds new amount" in withApiClient { implicit client =>
@@ -333,7 +354,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
           )
         )
         .expectError
-      error must be("Sum of split amounts exceeds expense amount")
+      error must be("Split amounts must add up to the expense amount")
     }
 
     "fail when expense belongs to another user" in withApiClient { implicit client =>
@@ -382,7 +403,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
       val cat = client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Food")).futureValue
       client
         .createExpense(
-          createRequest(BigDecimal("50.00"), splits = List(CreateExpense.Split(cat.id, BigDecimal("30.00"))))
+          createRequest(BigDecimal("50.00"), splits = Some(List(CreateExpense.Split(cat.id, BigDecimal("50.00")))))
         )
         .futureValue
 
@@ -401,7 +422,14 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
         client
           .createMerchant(net.wiringbits.api.models.merchants.CreateMerchant.Request("Amazon", None, None))
           .futureValue
-      val req = CreateExpense.Request(BigDecimal("50.00"), sampleDate, None, Some(merchant.id), None, Nil)
+      val req = CreateExpense.Request(
+        BigDecimal("50.00"),
+        sampleDate,
+        None,
+        Some(merchant.id),
+        None,
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
       client.createExpense(req).futureValue
 
       client.deleteMerchant(merchant.id).futureValue
@@ -419,9 +447,11 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Mocki
     }
   }
 
+  private def fullUpdateSplit(amount: BigDecimal)(using client: ApiClient): List[UpdateExpense.Split] =
+    fullSplit(amount).futureValue.map(s => UpdateExpense.Split(s.categoryId, s.amount))
+
   private def buildClient() = {
     import sttp.client3.HttpClientFutureBackend
-    import net.wiringbits.api.ApiClient
     implicit val sttpBackend: sttp.client3.SttpBackend[scala.concurrent.Future, ?] = HttpClientFutureBackend()
     new ApiClient(ApiClient.Config(s"http://localhost:$port"))
   }
