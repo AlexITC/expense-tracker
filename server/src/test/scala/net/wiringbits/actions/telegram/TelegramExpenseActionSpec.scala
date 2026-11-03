@@ -169,19 +169,18 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
       repositories.expenses.all(user.id, None, None, false).futureValue.length must be(500)
     }
 
-    // Merchant with no categoryId and no category in message → Right, no splits
-    "create expense without splits when merchant has no category and none is given" in withRepositories() {
-      implicit repositories =>
-        val user = createUser().futureValue
-        val merchant = createMerchant(user.id, name = "Petrol", categoryId = None).futureValue
+    // Merchant with no categoryId and no category in message → Left, nothing created
+    "return Left when merchant has no category and none is given" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      createMerchant(user.id, name = "Petrol", categoryId = None).futureValue
 
-        val msg = ParsedMessage(BigDecimal("40.00"), "Petrol", None, None)
-        val result = newAction().apply(user.id, msg).futureValue
+      val msg = ParsedMessage(BigDecimal("40.00"), "Petrol", None, None)
+      val result = newAction().apply(user.id, msg).futureValue
 
-        result mustBe a[Right[?, ?]]
-        val expense = repositories.expenses.all(user.id, None, None, false).futureValue.headOption.value
-        expense.merchantId must be(Some(merchant.id))
-        repositories.expenses.allSplits(user.id).futureValue mustBe empty
+      result mustBe a[Left[?, ?]]
+      result.left.getOrElse("") must include("Petrol")
+      repositories.expenses.all(user.id, None, None, false).futureValue mustBe empty
+      repositories.expenses.allSplits(user.id).futureValue mustBe empty
     }
   }
 }

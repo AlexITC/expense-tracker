@@ -102,7 +102,7 @@ class TelegramExpenseAction @Inject() (
                                   updatedAt = now
                                 )
                               )
-                              expenseId <- buildExpense(userId, msg.amount, merchantId, Some(catId), date, msg.notes)
+                              expenseId <- buildExpense(userId, msg.amount, merchantId, catId, date, msg.notes)
                             } yield Right(expenseId)
                         }
                   }
@@ -117,8 +117,17 @@ class TelegramExpenseAction @Inject() (
                           case Some(catName) => categoriesRepository.getOrCreate(userId, catName).map(c => Some(c.id))
                           case None => Future.successful(merchant.categoryId)
                         }
-                        expenseId <- buildExpense(userId, msg.amount, merchant.id, catIdOpt, date, msg.notes)
-                      } yield Right(expenseId)
+                        outcome <- catIdOpt match {
+                          case None =>
+                            Future.successful(
+                              Left(
+                                s"Cannot create expense: merchant '${msg.merchantName}' has no default category, please provide one"
+                              )
+                            )
+                          case Some(catId) =>
+                            buildExpense(userId, msg.amount, merchant.id, catId, date, msg.notes).map(Right(_))
+                        }
+                      } yield outcome
                   }
               }
           }
@@ -130,7 +139,7 @@ class TelegramExpenseAction @Inject() (
       userId: UUID,
       amount: BigDecimal,
       merchantId: UUID,
-      catIdOpt: Option[UUID],
+      categoryId: UUID,
       date: LocalDate,
       notes: Option[String]
   ): Future[UUID] = {
@@ -147,9 +156,9 @@ class TelegramExpenseAction @Inject() (
       createdAt = now,
       updatedAt = now
     )
-    val splits = catIdOpt.toList.map { catId =>
-      ExpenseCategorySplit.Create(UuidCreator.getTimeOrderedEpoch(), userId, expenseId, catId, amount)
-    }
+    val splits = List(
+      ExpenseCategorySplit.Create(UuidCreator.getTimeOrderedEpoch(), userId, expenseId, categoryId, amount)
+    )
     expensesRepository.create(expense, splits).map(_ => expenseId)
   }
 }

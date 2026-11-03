@@ -145,7 +145,7 @@ object BankStatementReviewRow {
         }
 
       // Linked rows show the linked expense's category; other rows the category the expense will get on import, tagged
-      // "AI" when it came from a suggestion rather than a rule.
+      // "AI" when it came from a suggestion rather than a rule; rule-matched credits show their refund's category.
       def categoryCell: ReactElement =
         if (row.expenseId.isDefined || row.refundId.isDefined)
           info.linkedCategory match {
@@ -167,7 +167,10 @@ object BankStatementReviewRow {
                     }): ReactElement)
                 else Fragment()
               )
-            case None => suggestingOrDash
+            case None =>
+              info.refund
+                .flatMap(_.categoryId)
+                .fold(suggestingOrDash)(_ => tintChip(info.categoryName.getOrElse(""), "var(--lc-brand-dark)"))
           }
 
       def menu: ReactElement =

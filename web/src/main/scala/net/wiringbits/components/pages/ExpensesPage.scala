@@ -7,6 +7,7 @@ import net.wiringbits.components.widgets.Loader
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.expenses.{CreateExpense, GetExpenses, UpdateExpense}
 import net.wiringbits.api.models.merchants.GetMerchants
+import net.wiringbits.common.ExpenseSplits
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
@@ -123,6 +124,57 @@ object ExpenseList {
   ): List[GetExpenses.Response.Expense] =
     if (deletedIds.isEmpty) expenses else expenses.filterNot(e => deletedIds.contains(e.id))
 
+  def splitsError(amount: BigDecimal, splits: List[BigDecimal]): Option[String] =
+    Option.when(!ExpenseSplits.isFullyAllocated(amount, splits))(ExpenseSplits.NotFullyAllocatedError)
+
+  def parseSplits(splits: List[(String, String)]): List[CreateExpense.Split] =
+    splits.flatMap { case (catId, amt) =>
+      if (catId.nonEmpty && amt.nonEmpty)
+        Try(CreateExpense.Split(UUID.fromString(catId), BigDecimal(amt))).toOption
+      else None
+    }
+
+  def toUpdateSplits(splits: List[(String, String)]): List[UpdateExpense.Split] =
+    splits.flatMap { case (catId, amt) =>
+      if (catId.nonEmpty && amt.nonEmpty)
+        Try(UpdateExpense.Split(UUID.fromString(catId), BigDecimal(amt))).toOption
+      else None
+    }
+
+  def merchantDefaultSplits(
+      merchants: List[GetMerchants.Response.Merchant],
+      merchantIdStr: String,
+      amount: BigDecimal
+  ): List[CreateExpense.Split] =
+    Try(UUID.fromString(merchantIdStr)).toOption
+      .flatMap(id => merchants.find(_.id == id))
+      .flatMap(_.categoryId)
+      .map(catId => List(CreateExpense.Split(catId, amount)))
+      .getOrElse(Nil)
+
+  /** The splits the create form sends: the explicit ones, else the merchant's default category for the full amount.
+    * Fails when they don't cover the amount exactly.
+    */
+  def createSplits(
+      amount: BigDecimal,
+      formSplits: List[(String, String)],
+      merchants: List[GetMerchants.Response.Merchant],
+      merchantIdStr: String
+  ): Either[String, List[CreateExpense.Split]] = {
+    val explicit = parseSplits(formSplits)
+    val splits = if (explicit.nonEmpty) explicit else merchantDefaultSplits(merchants, merchantIdStr, amount)
+    splitsError(amount, splits.map(_.amount)).toLeft(splits)
+  }
+
+  /** The splits the edit form sends. Fails when they don't cover the amount exactly. */
+  def updateSplits(
+      amount: BigDecimal,
+      formSplits: List[(String, String)]
+  ): Either[String, List[UpdateExpense.Split]] = {
+    val splits = toUpdateSplits(formSplits)
+    splitsError(amount, splits.map(_.amount)).toLeft(splits)
+  }
+
   def isFilterActive(dateFilter: String, filterText: String): Boolean =
     dateFilter != DateFilter.Month || filterText.trim.nonEmpty
 
@@ -178,27 +230,6 @@ object ExpenseList {
     val (editSplits, setEditSplits) = Hooks.useState[List[(String, String)]](Nil)
     val (hoveredId, setHoveredId) = Hooks.useState[Option[UUID]](None)
 
-    def parseSplits(splits: List[(String, String)]): List[CreateExpense.Split] =
-      splits.flatMap { case (catId, amt) =>
-        if (catId.nonEmpty && amt.nonEmpty)
-          Try(CreateExpense.Split(UUID.fromString(catId), BigDecimal(amt))).toOption
-        else None
-      }
-
-    def toUpdateSplits(splits: List[(String, String)]): List[UpdateExpense.Split] =
-      splits.flatMap { case (catId, amt) =>
-        if (catId.nonEmpty && amt.nonEmpty)
-          Try(UpdateExpense.Split(UUID.fromString(catId), BigDecimal(amt))).toOption
-        else None
-      }
-
-    def merchantDefaultSplits(merchantIdStr: String, amount: BigDecimal): List[CreateExpense.Split] =
-      Try(UUID.fromString(merchantIdStr)).toOption
-        .flatMap(id => props.merchants.data.find(_.id == id))
-        .flatMap(_.categoryId)
-        .map(catId => List(CreateExpense.Split(catId, amount)))
-        .getOrElse(Nil)
-
     def handleCreate(): Unit = {
       (Try(BigDecimal(newAmount)).toOption, Try(LocalDate.parse(newDate)).toOption) match {
         case (None, _) => setError("Invalid amount")
@@ -207,18 +238,20 @@ object ExpenseList {
           val time = if (newTime.isEmpty) None else Try(LocalTime.parse(newTime)).toOption
           val merchantId = if (newMerchantId.isEmpty) None else Try(UUID.fromString(newMerchantId)).toOption
           val notes = Option(newNotes.trim).filter(_.nonEmpty)
-          val explicit = parseSplits(newSplits)
-          val splits = if (explicit.nonEmpty) explicit else merchantDefaultSplits(newMerchantId, amount)
-          props.ctx.api.client
-            .createExpense(CreateExpense.Request(amount, date, time, merchantId, notes, splits))
-            .onComplete {
-              case Success(_) =>
-                setNewAmount(""); setNewDate(""); setNewTime(""); setNewMerchantId("")
-                setNewNotes(""); setNewSplits(Nil); setError("")
-                setShowCreateForm(false)
-                props.onRefresh()
-              case Failure(ex) => setError(ex.getMessage)
-            }
+          createSplits(amount, newSplits, props.merchants.data, newMerchantId) match {
+            case Left(msg) => setError(msg)
+            case Right(splits) =>
+              props.ctx.api.client
+                .createExpense(CreateExpense.Request(amount, date, time, merchantId, notes, splits))
+                .onComplete {
+                  case Success(_) =>
+                    setNewAmount(""); setNewDate(""); setNewTime(""); setNewMerchantId("")
+                    setNewNotes(""); setNewSplits(Nil); setError("")
+                    setShowCreateForm(false)
+                    props.onRefresh()
+                  case Failure(ex) => setError(ex.getMessage)
+                }
+          }
       }
     }
 
@@ -238,18 +271,22 @@ object ExpenseList {
           val time = if (editTime.isEmpty) None else Try(LocalTime.parse(editTime)).toOption
           val merchantId = if (editMerchantId.isEmpty) None else Try(UUID.fromString(editMerchantId)).toOption
           val notes = Option(editNotes.trim).filter(_.nonEmpty)
-          props.ctx.api.client
-            .updateExpense(
-              expenseId,
-              UpdateExpense.Request(amount, date, time, merchantId, notes, toUpdateSplits(editSplits))
-            )
-            .onComplete {
-              case Success(_) =>
-                setEditingId(None); setEditAmount(""); setEditDate(""); setEditTime("")
-                setEditMerchantId(""); setEditNotes(""); setEditSplits(Nil); setError("")
-                props.onRefresh()
-              case Failure(ex) => setError(ex.getMessage)
-            }
+          updateSplits(amount, editSplits) match {
+            case Left(msg) => setError(msg)
+            case Right(splits) =>
+              props.ctx.api.client
+                .updateExpense(
+                  expenseId,
+                  UpdateExpense.Request(amount, date, time, merchantId, notes, splits)
+                )
+                .onComplete {
+                  case Success(_) =>
+                    setEditingId(None); setEditAmount(""); setEditDate(""); setEditTime("")
+                    setEditMerchantId(""); setEditNotes(""); setEditSplits(Nil); setError("")
+                    props.onRefresh()
+                  case Failure(ex) => setError(ex.getMessage)
+                }
+          }
       }
     }
 

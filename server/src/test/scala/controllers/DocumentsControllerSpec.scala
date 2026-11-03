@@ -1,5 +1,6 @@
 package controllers
 
+import net.wiringbits.common.ExpenseSplits
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
 import net.wiringbits.actions.documents.{ParseReceiptAction, PollReceiptAction, ProcessDocumentAction}
@@ -21,13 +22,13 @@ import org.mockito.Mockito.*
 import org.scalatestplus.mockito.MockitoSugar
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
-import utils.LoginUtils
+import utils.{ExpenseUtils, LoginUtils}
 
 import java.time.{Instant, LocalDate}
 import java.util.UUID
 import scala.concurrent.Future
 
-class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoSugar {
+class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUtils with MockitoSugar {
 
   private val tokenGenerator = mock[TokenGenerator]
   private val emailApi = mock[EmailApi]
@@ -148,7 +149,14 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
       driveReceiptToCompletion(documentId)
 
-      val req = ConfirmReceipt.Request(Some(BigDecimal("50.00")), Some(sampleDate), None, None, None, Nil)
+      val req = ConfirmReceipt.Request(
+        Some(BigDecimal("50.00")),
+        Some(sampleDate),
+        None,
+        None,
+        None,
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
       val confirmed = client.confirmReceipt(uploaded.id, req).futureValue
       confirmed.expenseId must not be empty
 
@@ -160,7 +168,14 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       createVerifyLoginUser(tokenGenerator).futureValue
       val uploaded = client.uploadReceipt(sampleBytes, "Receipt", "test.pdf").futureValue
 
-      val req = ConfirmReceipt.Request(Some(BigDecimal("50.00")), Some(sampleDate), None, None, None, Nil)
+      val req = ConfirmReceipt.Request(
+        Some(BigDecimal("50.00")),
+        Some(sampleDate),
+        None,
+        None,
+        None,
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
       val error = client.confirmReceipt(uploaded.id, req).expectError
       error must be("Receipt is not in Parsed status")
     }
@@ -172,7 +187,14 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
       driveReceiptToCompletion(documentId)
 
-      val req = ConfirmReceipt.Request(Some(BigDecimal("50.00")), Some(sampleDate), None, None, None, Nil)
+      val req = ConfirmReceipt.Request(
+        Some(BigDecimal("50.00")),
+        Some(sampleDate),
+        None,
+        None,
+        None,
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
       client.confirmReceipt(uploaded.id, req).futureValue
       val error = client.confirmReceipt(uploaded.id, req).expectError
       error must be("Receipt is already linked to an expense — unlink first")
@@ -184,14 +206,21 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
-      val req = ConfirmReceipt.Request(Some(BigDecimal("50.00")), Some(sampleDate), None, None, None, Nil)
+      val req = ConfirmReceipt.Request(
+        Some(BigDecimal("50.00")),
+        Some(sampleDate),
+        None,
+        None,
+        None,
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
       val error = client2.confirmReceipt(uploaded.id, req).expectError
       error must be("Receipt not found")
     }
   }
 
   "POST /receipts/:id/confirm splits" should {
-    "create expense with partial splits (sum < amount)" in withApiClient { implicit client =>
+    "reject partial splits (sum < amount)" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val cat = client.createCategory(CreateCategory.Request("Groceries")).futureValue
       val receiptId = setupParsedReceipt()
@@ -204,12 +233,8 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
         None,
         List(CreateExpense.Split(cat.id, BigDecimal("40.00")))
       )
-      val confirmed = client.confirmReceipt(receiptId, req).futureValue
-      confirmed.expenseId must not be empty
-
-      val expense = client.getExpenses.futureValue.data.find(_.id == confirmed.expenseId.get).get
-      expense.splits must have size 1
-      expense.splits.head.amount must be(BigDecimal("40.00"))
+      val error = client.confirmReceipt(receiptId, req).expectError
+      error must be(ExpenseSplits.NotFullyAllocatedError)
     }
 
     "create expense with splits summing exactly to amount" in withApiClient { implicit client =>
@@ -269,27 +294,6 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       error must be("Split amount must be greater than 0")
     }
 
-    "reject splits summing to more than expense amount" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-      val cat1 = client.createCategory(CreateCategory.Request("Groceries")).futureValue
-      val cat2 = client.createCategory(CreateCategory.Request("Transport")).futureValue
-      val receiptId = setupParsedReceipt()
-
-      val req = ConfirmReceipt.Request(
-        Some(BigDecimal("50.00")),
-        Some(sampleDate),
-        None,
-        None,
-        None,
-        List(
-          CreateExpense.Split(cat1.id, BigDecimal("30.00")),
-          CreateExpense.Split(cat2.id, BigDecimal("30.00"))
-        )
-      )
-      val error = client.confirmReceipt(receiptId, req).expectError
-      error must be("Sum of split amounts exceeds expense amount")
-    }
-
     "reject split category belonging to another user" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val receiptId = setupParsedReceipt()
@@ -304,7 +308,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
         None,
         None,
         None,
-        List(CreateExpense.Split(otherCat.id, BigDecimal("20.00")))
+        List(CreateExpense.Split(otherCat.id, BigDecimal("50.00")))
       )
       val error = client.confirmReceipt(receiptId, req).expectError
       error must be("Category not found")
@@ -342,7 +346,14 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
       driveReceiptToCompletion(documentId)
 
-      val req = ConfirmReceipt.Request(Some(BigDecimal("50.00")), Some(sampleDate), None, None, None, Nil)
+      val req = ConfirmReceipt.Request(
+        Some(BigDecimal("50.00")),
+        Some(sampleDate),
+        None,
+        None,
+        None,
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
       val confirmed = client.confirmReceipt(uploaded.id, req).futureValue
       client.deleteReceipt(uploaded.id).futureValue
 
@@ -359,7 +370,14 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
       driveReceiptToCompletion(documentId)
 
-      val req = ConfirmReceipt.Request(Some(BigDecimal("50.00")), Some(sampleDate), None, None, None, Nil)
+      val req = ConfirmReceipt.Request(
+        Some(BigDecimal("50.00")),
+        Some(sampleDate),
+        None,
+        None,
+        None,
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
       val confirmed = client.confirmReceipt(uploaded.id, req).futureValue
       client.deleteExpense(confirmed.expenseId.get).futureValue
 
@@ -458,7 +476,10 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val receiptId = setupParsedReceipt()
 
       val expenseId = client
-        .createExpense(CreateExpense.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense
+            .Request(BigDecimal("50.00"), sampleDate, None, None, None, fullSplit(BigDecimal("50.00")).futureValue)
+        )
         .futureValue
         .id
       client.linkReceiptToExpense(receiptId, LinkReceiptToExpense.Request(expenseId)).futureValue
@@ -473,7 +494,10 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val receiptId = setupParsedReceipt()
 
       val expenseId = client
-        .createExpense(CreateExpense.Request(BigDecimal("99.99"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense
+            .Request(BigDecimal("99.99"), sampleDate, None, None, None, fullSplit(BigDecimal("99.99")).futureValue)
+        )
         .futureValue
         .id
       client.linkReceiptToExpense(receiptId, LinkReceiptToExpense.Request(expenseId)).futureValue
@@ -487,7 +511,10 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val receiptId = setupParsedReceipt()
 
       val expenseId = client
-        .createExpense(CreateExpense.Request(BigDecimal("100.00"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense
+            .Request(BigDecimal("100.00"), sampleDate, None, None, None, fullSplit(BigDecimal("100.00")).futureValue)
+        )
         .futureValue
         .id
       client.linkReceiptToExpense(receiptId, LinkReceiptToExpense.Request(expenseId)).futureValue
@@ -508,7 +535,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
             None,
             None,
             None,
-            List(CreateExpense.Split(cat.id, BigDecimal("30.00")))
+            List(CreateExpense.Split(cat.id, BigDecimal("50.00")))
           )
         )
         .futureValue
@@ -517,7 +544,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
       val expense = client.getExpenses.futureValue.data.find(_.id == expenseId).get
       expense.splits must have size 1
-      expense.splits.head.amount must be(BigDecimal("30.00"))
+      expense.splits.head.amount must be(BigDecimal("50.00"))
     }
 
     "link-existing: rejects another user's expense" in withApiClient { implicit client =>
@@ -527,7 +554,16 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
       val expenseId = client2
-        .createExpense(CreateExpense.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense.Request(
+            BigDecimal("50.00"),
+            sampleDate,
+            None,
+            None,
+            None,
+            fullSplit(BigDecimal("50.00"))(using executionContext, client2).futureValue
+          )
+        )
         .futureValue
         .id
 
@@ -540,7 +576,10 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val receiptId = setupParsedReceipt()
 
       val expenseId = client
-        .createExpense(CreateExpense.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense
+            .Request(BigDecimal("50.00"), sampleDate, None, None, None, fullSplit(BigDecimal("50.00")).futureValue)
+        )
         .futureValue
         .id
 
@@ -556,7 +595,10 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val (stmtId, rowId) = setupStmtWithRow()
 
       val expenseId = client
-        .createExpense(CreateExpense.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense
+            .Request(BigDecimal("50.00"), sampleDate, None, None, None, fullSplit(BigDecimal("50.00")).futureValue)
+        )
         .futureValue
         .id
 
@@ -573,7 +615,10 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val receiptId = setupParsedReceipt()
 
       val expenseId = client
-        .createExpense(CreateExpense.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense
+            .Request(BigDecimal("50.00"), sampleDate, None, None, None, fullSplit(BigDecimal("50.00")).futureValue)
+        )
         .futureValue
         .id
       client.linkReceiptToExpense(receiptId, LinkReceiptToExpense.Request(expenseId)).futureValue
@@ -598,7 +643,10 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val receiptId = setupParsedReceipt()
 
       val expenseId = client
-        .createExpense(CreateExpense.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense
+            .Request(BigDecimal("50.00"), sampleDate, None, None, None, fullSplit(BigDecimal("50.00")).futureValue)
+        )
         .futureValue
         .id
       client.linkReceiptToExpense(receiptId, LinkReceiptToExpense.Request(expenseId)).futureValue
@@ -642,7 +690,14 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       createVerifyLoginUser(tokenGenerator).futureValue
       val (stmtId, rowId) = setupStmtWithRow()
 
-      val req = CreateExpenseFromRow.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil)
+      val req = CreateExpenseFromRow.Request(
+        BigDecimal("50.00"),
+        sampleDate,
+        None,
+        None,
+        None,
+        fullRowSplit(BigDecimal("50.00")).futureValue
+      )
       val resp = client.createExpenseFromRow(stmtId, rowId, req).futureValue
 
       val stmt = client.getBankStatement(stmtId).futureValue
@@ -653,7 +708,14 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       createVerifyLoginUser(tokenGenerator).futureValue
       val (stmtId, rowId) = setupStmtWithRow()
 
-      val req = CreateExpenseFromRow.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil)
+      val req = CreateExpenseFromRow.Request(
+        BigDecimal("50.00"),
+        sampleDate,
+        None,
+        None,
+        None,
+        fullRowSplit(BigDecimal("50.00")).futureValue
+      )
       val resp = client.createExpenseFromRow(stmtId, rowId, req).futureValue
 
       val expenses = client.getExpenses.futureValue
@@ -664,7 +726,14 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       createVerifyLoginUser(tokenGenerator).futureValue
       val (stmtId, rowId) = setupStmtWithRow(amount = BigDecimal("50.00"))
 
-      val req = CreateExpenseFromRow.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil)
+      val req = CreateExpenseFromRow.Request(
+        BigDecimal("50.00"),
+        sampleDate,
+        None,
+        None,
+        None,
+        fullRowSplit(BigDecimal("50.00")).futureValue
+      )
       val error = client.createExpenseFromRow(stmtId, rowId, req).expectError
       error must include("debit")
     }
@@ -675,7 +744,14 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
-      val req = CreateExpenseFromRow.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil)
+      val req = CreateExpenseFromRow.Request(
+        BigDecimal("50.00"),
+        sampleDate,
+        None,
+        None,
+        None,
+        fullRowSplit(BigDecimal("50.00")).futureValue
+      )
       val error = client2.createExpenseFromRow(stmtId, rowId, req).expectError
       error must be("Bank statement not found")
     }
@@ -685,7 +761,10 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val (stmtId, rowId) = setupStmtWithRow()
 
       val expenseId = client
-        .createExpense(CreateExpense.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense
+            .Request(BigDecimal("50.00"), sampleDate, None, None, None, fullSplit(BigDecimal("50.00")).futureValue)
+        )
         .futureValue
         .id
       client.linkRowToExpense(stmtId, rowId, LinkRowToExpense.Request(expenseId)).futureValue
@@ -702,7 +781,10 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val (stmtId, rowId) = setupStmtWithRow(amount = BigDecimal("50.00"))
 
       val expenseId = client
-        .createExpense(CreateExpense.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense
+            .Request(BigDecimal("50.00"), sampleDate, None, None, None, fullSplit(BigDecimal("50.00")).futureValue)
+        )
         .futureValue
         .id
       val error = client.linkRowToExpense(stmtId, rowId, LinkRowToExpense.Request(expenseId)).expectError
@@ -716,7 +798,16 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
       val expenseId = client2
-        .createExpense(CreateExpense.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense.Request(
+            BigDecimal("50.00"),
+            sampleDate,
+            None,
+            None,
+            None,
+            fullSplit(BigDecimal("50.00"))(using executionContext, client2).futureValue
+          )
+        )
         .futureValue
         .id
 
@@ -733,7 +824,14 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val documentId = client.getReceipt(uploadedReceipt.id).futureValue.documentId
       driveReceiptToCompletion(documentId)
 
-      val confirmReq = ConfirmReceipt.Request(Some(BigDecimal("50.00")), Some(sampleDate), None, None, None, Nil)
+      val confirmReq = ConfirmReceipt.Request(
+        Some(BigDecimal("50.00")),
+        Some(sampleDate),
+        None,
+        None,
+        None,
+        fullSplit(BigDecimal("50.00")).futureValue
+      )
       val receiptConfirmed = client.confirmReceipt(uploadedReceipt.id, confirmReq).futureValue
       val expenseId = receiptConfirmed.expenseId.get
 
@@ -748,7 +846,10 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val (stmtId, rowId) = setupStmtWithRow()
 
       val expenseId = client
-        .createExpense(CreateExpense.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense
+            .Request(BigDecimal("50.00"), sampleDate, None, None, None, fullSplit(BigDecimal("50.00")).futureValue)
+        )
         .futureValue
         .id
       client.linkRowToExpense(stmtId, rowId, LinkRowToExpense.Request(expenseId)).futureValue
@@ -776,7 +877,10 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val (stmtId, rowId) = setupStmtWithRow()
 
       val expenseId = client
-        .createExpense(CreateExpense.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense
+            .Request(BigDecimal("50.00"), sampleDate, None, None, None, fullSplit(BigDecimal("50.00")).futureValue)
+        )
         .futureValue
         .id
       client.linkRowToExpense(stmtId, rowId, LinkRowToExpense.Request(expenseId)).futureValue
@@ -800,7 +904,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
           None,
           Some(merchantId),
           None,
-          Nil,
+          fullSplit(BigDecimal("50.00")).futureValue,
           Some("AMZN")
         )
         client.confirmReceipt(receiptId, req).futureValue
@@ -826,12 +930,15 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
         None,
         Some(merchantId),
         None,
-        Nil,
+        fullSplit(BigDecimal("50.00")).futureValue,
         Some("AMZN")
       )
       client.confirmReceipt(receiptId1, req).futureValue
       client
-        .confirmReceipt(receiptId2, req.copy(amount = Some(BigDecimal("75.00"))))
+        .confirmReceipt(
+          receiptId2,
+          req.copy(amount = Some(BigDecimal("75.00")), splits = fullSplit(BigDecimal("75.00")).futureValue)
+        )
         .futureValue
 
       val rules = client.getImportRules.futureValue.data.filter(r => r.pattern == "AMZN")
@@ -844,7 +951,15 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val merchantId = client.createMerchant(CreateMerchant.Request("Amazon", None, None)).futureValue.id
 
       val req =
-        ConfirmReceipt.Request(Some(BigDecimal("50.00")), Some(sampleDate), None, Some(merchantId), None, Nil, None)
+        ConfirmReceipt.Request(
+          Some(BigDecimal("50.00")),
+          Some(sampleDate),
+          None,
+          Some(merchantId),
+          None,
+          fullSplit(BigDecimal("50.00")).futureValue,
+          None
+        )
       client.confirmReceipt(receiptId, req).futureValue
 
       client.getImportRules.futureValue.data must be(empty)
@@ -855,7 +970,15 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
       val receiptId = setupParsedReceipt()
 
       val req =
-        ConfirmReceipt.Request(Some(BigDecimal("50.00")), Some(sampleDate), None, None, None, Nil, Some("AMZN"))
+        ConfirmReceipt.Request(
+          Some(BigDecimal("50.00")),
+          Some(sampleDate),
+          None,
+          None,
+          None,
+          fullSplit(BigDecimal("50.00")).futureValue,
+          Some("AMZN")
+        )
       client.confirmReceipt(receiptId, req).futureValue
 
       client.getImportRules.futureValue.data must be(empty)

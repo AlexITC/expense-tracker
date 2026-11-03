@@ -17,13 +17,13 @@ import org.mockito.Mockito.*
 import org.scalatestplus.mockito.MockitoSugar
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
-import utils.LoginUtils
+import utils.{ExpenseUtils, LoginUtils}
 
 import java.time.{Instant, LocalDate}
 import java.util.UUID
 import scala.concurrent.Future
 
-class RefundsControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoSugar {
+class RefundsControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUtils with MockitoSugar {
 
   private val tokenGenerator = mock[TokenGenerator]
   private val emailApi = mock[EmailApi]
@@ -196,7 +196,10 @@ class RefundsControllerSpec extends PlayPostgresSpec with LoginUtils with Mockit
       createVerifyLoginUser(tokenGenerator).futureValue
       val refund = client.createRefund(createRefundRequest()).futureValue
       val expense = client
-        .createExpense(CreateExpense.Request(BigDecimal("100.00"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense
+            .Request(BigDecimal("100.00"), sampleDate, None, None, None, fullSplit(BigDecimal("100.00")).futureValue)
+        )
         .futureValue
 
       client.linkRefundToExpense(refund.id, LinkRefundToExpense.Request(expense.id)).futureValue
@@ -208,7 +211,10 @@ class RefundsControllerSpec extends PlayPostgresSpec with LoginUtils with Mockit
     "fail when the refund does not exist" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val expense = client
-        .createExpense(CreateExpense.Request(BigDecimal("100.00"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense
+            .Request(BigDecimal("100.00"), sampleDate, None, None, None, fullSplit(BigDecimal("100.00")).futureValue)
+        )
         .futureValue
       val error = client.linkRefundToExpense(UUID.randomUUID(), LinkRefundToExpense.Request(expense.id)).expectError
       error must be("Refund not found")
@@ -222,7 +228,10 @@ class RefundsControllerSpec extends PlayPostgresSpec with LoginUtils with Mockit
       createVerifyLoginUser(tokenGenerator).futureValue
       val refund = client.createRefund(createRefundRequest()).futureValue
       val expense = client
-        .createExpense(CreateExpense.Request(BigDecimal("100.00"), sampleDate, None, None, None, Nil))
+        .createExpense(
+          CreateExpense
+            .Request(BigDecimal("100.00"), sampleDate, None, None, None, fullSplit(BigDecimal("100.00")).futureValue)
+        )
         .futureValue
 
       client.linkRefundToExpense(refund.id, LinkRefundToExpense.Request(expense.id)).futureValue

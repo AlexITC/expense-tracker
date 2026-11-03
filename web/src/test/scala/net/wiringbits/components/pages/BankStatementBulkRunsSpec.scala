@@ -1,7 +1,13 @@
 package net.wiringbits.components.pages
 
 import net.wiringbits.api.ApiClient
-import net.wiringbits.api.models.bankstatements.{CreateExpenseFromRow, GetBankStatement, IgnoreRow, LinkRowToExpense}
+import net.wiringbits.api.models.bankstatements.{
+  CreateExpenseFromRow,
+  CreateRefundFromRow,
+  GetBankStatement,
+  IgnoreRow,
+  LinkRowToExpense
+}
 import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.utils.RowRuleVerdict
 import net.wiringbits.components.pages.BankStatementReviewLogic.*
@@ -40,10 +46,16 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
       expenseCategoryId = None
     )
 
-  private def info(verdict: RowRuleVerdict.Verdict, resolved: Option[ResolvedImport] = None): RowInfo =
+  private def info(
+      verdict: RowRuleVerdict.Verdict,
+      resolved: Option[ResolvedImport] = None,
+      refund: Option[RefundPrefill] = None
+  ): RowInfo =
     RowInfo(
       verdict = verdict,
       resolved = resolved,
+      refund = refund,
+      prefillMerchantId = None,
       isReady = true,
       merchantName = None,
       categoryName = None,
@@ -64,8 +76,12 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
   }
 
   /** Answers the bulk calls from the given outcomes and records the calls in order. */
-  private final class StubClient(failIgnoreFor: Set[UUID] = Set.empty, createdExpenseId: UUID = UUID.randomUUID())
-      extends ApiClient(ApiClient.Config("http://localhost"))(using
+  private final class StubClient(
+      failIgnoreFor: Set[UUID] = Set.empty,
+      failRefundFor: Set[UUID] = Set.empty,
+      createdExpenseId: UUID = UUID.randomUUID(),
+      createdRefundId: UUID = UUID.randomUUID()
+  ) extends ApiClient(ApiClient.Config("http://localhost"))(using
         ExecutionContext.parasitic,
         SttpBackendStub.asynchronousFuture
       ) {
@@ -93,6 +109,16 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
     ): Future[CreateExpenseFromRow.Response] = {
       calls += s"create:$rowId"
       Future.successful(CreateExpenseFromRow.Response(createdExpenseId))
+    }
+
+    override def createRefundFromRow(
+        bankStatementId: UUID,
+        rowId: UUID,
+        request: CreateRefundFromRow.Request
+    ): Future[CreateRefundFromRow.Response] = {
+      calls += s"refund:$rowId:${request.amount}:${request.merchantId}:${request.categoryId}:${request.notes}"
+      if (failRefundFor.contains(rowId)) Future.failed(new RuntimeException("refund boom"))
+      else Future.successful(CreateRefundFromRow.Response(createdRefundId))
     }
   }
 
@@ -228,6 +254,77 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
       rows.value.find(_.id == toIgnore.id).flatMap(_.ignoredAt) must not be empty
       val done = BulkRun.Done(List(toCreate.id -> Right(()), toIgnore.id -> Right(())))
       events.toList mustBe List(s"toast:${bulkImportSummary(0, 1, 1, 0)}:$done:Set()", "refresh")
+    }
+
+    "create a refund for a rule-matched credit and count it as created" in {
+      val merchantId = UUID.randomUUID()
+      val categoryId = UUID.randomUUID()
+      val createdRefundId = UUID.randomUUID()
+      val credit = sampleRow("REFUND").copy(amount = BigDecimal("30.00"))
+      val client = new StubClient(createdRefundId = createdRefundId)
+      val rows = new Recorder(List(credit))
+      val run = new Recorder[BulkRun](BulkRun.Idle)
+      val selected = new Recorder[Set[UUID]](Set(credit.id))
+      val toasts = ListBuffer.empty[String]
+
+      BankStatementBulkRuns.handleBulkImport(
+        client = client,
+        stmtId = stmtId,
+        ids = List(credit.id),
+        statementRows = List(credit),
+        rowInfoById = Map(
+          credit.id -> info(
+            RowRuleVerdict.SetMerchant(merchantId),
+            refund = Some(RefundPrefill(Some(merchantId), Some(categoryId)))
+          )
+        ),
+        expenseMatchById = Map.empty,
+        expenseList = Nil,
+        setStatementRows = rows.callback,
+        setBulkImport = run.callback,
+        setSelectedRowIds = selected.callback,
+        showToast = msg => toasts += msg,
+        onRefresh = () => ()
+      )
+
+      client.calls.toList mustBe List(s"refund:${credit.id}:30.00:Some($merchantId):Some($categoryId):Some(REFUND)")
+      rows.value.find(_.id == credit.id).flatMap(_.refundId) mustBe Some(createdRefundId)
+      toasts.toList mustBe List(bulkImportSummary(0, 1, 0, 0))
+    }
+
+    "record a failed refund, leave its row unlinked and keep going" in {
+      val bad = sampleRow("BAD").copy(amount = BigDecimal("30.00"))
+      val ok = sampleRow("OK").copy(amount = BigDecimal("20.00"))
+      val createdRefundId = UUID.randomUUID()
+      val client = new StubClient(failRefundFor = Set(bad.id), createdRefundId = createdRefundId)
+      val rows = new Recorder(List(bad, ok))
+      val run = new Recorder[BulkRun](BulkRun.Idle)
+      val selected = new Recorder[Set[UUID]](Set(bad.id, ok.id))
+      val toasts = ListBuffer.empty[String]
+      val prefill = Some(RefundPrefill(None, Some(UUID.randomUUID())))
+
+      BankStatementBulkRuns.handleBulkImport(
+        client = client,
+        stmtId = stmtId,
+        ids = List(bad.id, ok.id),
+        statementRows = List(bad, ok),
+        rowInfoById = Map(
+          bad.id -> info(RowRuleVerdict.NoRule, refund = prefill),
+          ok.id -> info(RowRuleVerdict.NoRule, refund = prefill)
+        ),
+        expenseMatchById = Map.empty,
+        expenseList = Nil,
+        setStatementRows = rows.callback,
+        setBulkImport = run.callback,
+        setSelectedRowIds = selected.callback,
+        showToast = msg => toasts += msg,
+        onRefresh = () => ()
+      )
+
+      rows.value.find(_.id == bad.id).flatMap(_.refundId) mustBe None
+      rows.value.find(_.id == ok.id).flatMap(_.refundId) mustBe Some(createdRefundId)
+      run.value mustBe BulkRun.Done(List(bad.id -> Left("refund boom"), ok.id -> Right(())))
+      toasts.toList mustBe List(bulkImportSummary(0, 1, 0, 1))
     }
   }
 }

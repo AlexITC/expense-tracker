@@ -345,55 +345,56 @@ object ReceiptList {
           case Failure(ex) => setError(ex.getMessage)
         }
 
-    def merchantDefaultSplits(merchantIdStr: String, amount: BigDecimal): List[CreateExpense.Split] =
-      Try(UUID.fromString(merchantIdStr)).toOption
-        .flatMap(id => props.merchants.data.find(_.id == id))
-        .flatMap(_.categoryId)
-        .map(catId => List(CreateExpense.Split(catId, amount)))
-        .getOrElse(Nil)
-
     def handleConfirm(receiptId: UUID, form: ConfirmForm): Unit =
       (Try(BigDecimal(form.amount)).toOption, Try(LocalDate.parse(form.date)).toOption) match {
         case (None, _) => setError("Invalid amount")
         case (_, None) => setError("Invalid date (use YYYY-MM-DD)")
         case (Some(amount), Some(date)) =>
-          val time = if (form.time.isEmpty) None else Try(LocalTime.parse(form.time)).toOption
-          val merchantId = if (form.merchantId.isEmpty) None else Try(UUID.fromString(form.merchantId)).toOption
-          val notes = Option(form.notes.trim).filter(_.nonEmpty)
-          val explicit = form.splits.flatMap { case (catId, _, amt) =>
-            if (catId.nonEmpty && amt.nonEmpty)
-              Try(CreateExpense.Split(UUID.fromString(catId), BigDecimal(amt))).toOption
-            else None
+          val formSplits = form.splits.map { case (catId, _, amt) => (catId, amt) }
+          ExpenseList.createSplits(amount, formSplits, props.merchants.data, form.merchantId) match {
+            case Left(msg) => setError(msg)
+            case Right(splits) => confirm(receiptId, form, amount, date, splits)
           }
-          val splits = if (explicit.nonEmpty) explicit else merchantDefaultSplits(form.merchantId, amount)
-          props.ctx.api.client
-            .confirmReceipt(
-              receiptId,
-              ConfirmReceipt
-                .Request(
-                  Some(amount),
-                  Some(date),
-                  time,
-                  merchantId,
-                  notes,
-                  splits,
-                  form.parsedMerchantName,
-                  form.rowId
-                )
-            )
-            .onComplete {
-              case Success(_) =>
-                setMode(_.confirmed(receiptId))
-                setError("")
-                showToast("Expense created")
-                props.ctx.api.client.getReceipt(receiptId).onComplete {
-                  case Success(updated) =>
-                    setLocalReceipts(cur => cur.map(r => if (r.id == updated.id) toListReceipt(updated) else r))
-                  case Failure(_) => ()
-                }
-              case Failure(ex) => setError(ex.getMessage)
-            }
       }
+
+    def confirm(
+        receiptId: UUID,
+        form: ConfirmForm,
+        amount: BigDecimal,
+        date: LocalDate,
+        splits: List[CreateExpense.Split]
+    ): Unit = {
+      val time = if (form.time.isEmpty) None else Try(LocalTime.parse(form.time)).toOption
+      val merchantId = if (form.merchantId.isEmpty) None else Try(UUID.fromString(form.merchantId)).toOption
+      val notes = Option(form.notes.trim).filter(_.nonEmpty)
+      props.ctx.api.client
+        .confirmReceipt(
+          receiptId,
+          ConfirmReceipt
+            .Request(
+              Some(amount),
+              Some(date),
+              time,
+              merchantId,
+              notes,
+              splits,
+              form.parsedMerchantName,
+              form.rowId
+            )
+        )
+        .onComplete {
+          case Success(_) =>
+            setMode(_.confirmed(receiptId))
+            setError("")
+            showToast("Expense created")
+            props.ctx.api.client.getReceipt(receiptId).onComplete {
+              case Success(updated) =>
+                setLocalReceipts(cur => cur.map(r => if (r.id == updated.id) toListReceipt(updated) else r))
+              case Failure(_) => ()
+            }
+          case Failure(ex) => setError(ex.getMessage)
+        }
+    }
 
     def openLinkMode(receiptId: UUID): Unit = {
       setMode(ReceiptMode.Linking(receiptId))

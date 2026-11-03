@@ -26,7 +26,7 @@ import org.scalatestplus.mockito.MockitoSugar
 import play.api.db.Database
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
-import utils.LoginUtils
+import utils.{ExpenseUtils, LoginUtils}
 
 import org.scalatest.OptionValues.*
 
@@ -34,7 +34,7 @@ import java.time.{Instant, LocalDate}
 import java.util.UUID
 import scala.concurrent.Future
 
-class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoSugar {
+class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUtils with MockitoSugar {
 
   private val tokenGenerator = mock[TokenGenerator]
   private val emailApi = mock[EmailApi]
@@ -133,7 +133,14 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
       createVerifyLoginUser(tokenGenerator).futureValue
       val (stmtId, rowId) = setupStmtWithRow()
 
-      val req = CreateExpenseFromRow.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil)
+      val req = CreateExpenseFromRow.Request(
+        BigDecimal("50.00"),
+        sampleDate,
+        None,
+        None,
+        None,
+        fullRowSplit(BigDecimal("50.00")).futureValue
+      )
       client.createExpenseFromRow(stmtId, rowId, req).futureValue
 
       val list = client.getBankStatements.futureValue
@@ -187,7 +194,14 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
       createVerifyLoginUser(tokenGenerator).futureValue
       val (stmtId, rowId) = setupStmtWithRow()
 
-      val req = CreateExpenseFromRow.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil)
+      val req = CreateExpenseFromRow.Request(
+        BigDecimal("50.00"),
+        sampleDate,
+        None,
+        None,
+        None,
+        fullRowSplit(BigDecimal("50.00")).futureValue
+      )
       client.createExpenseFromRow(stmtId, rowId, req).futureValue
 
       val error = client.ignoreRow(stmtId, rowId).expectError
@@ -242,7 +256,14 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
             makeRow(secondRowId, sid, BigDecimal("-50.00")).copy(index = 1)
           )
       )
-      val req = CreateExpenseFromRow.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil)
+      val req = CreateExpenseFromRow.Request(
+        BigDecimal("50.00"),
+        sampleDate,
+        None,
+        None,
+        None,
+        fullRowSplit(BigDecimal("50.00")).futureValue
+      )
       val expenseId = client.createExpenseFromRow(stmtId, firstRowId, req).futureValue.expenseId
 
       val error = client.linkRowToExpense(stmtId, secondRowId, LinkRowToExpense.Request(expenseId)).expectError
@@ -259,7 +280,14 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
       val ignored = client.getBankStatement(stmtId).futureValue
       ignored.statementRows.head.ignoredAt must not be None
 
-      val req = CreateExpenseFromRow.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil)
+      val req = CreateExpenseFromRow.Request(
+        BigDecimal("50.00"),
+        sampleDate,
+        None,
+        None,
+        None,
+        fullRowSplit(BigDecimal("50.00")).futureValue
+      )
       client.createExpenseFromRow(stmtId, rowId, req).futureValue
 
       val linked = client.getBankStatement(stmtId).futureValue

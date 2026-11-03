@@ -19,13 +19,13 @@ import org.mockito.Mockito.*
 import org.scalatestplus.mockito.MockitoSugar
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
-import utils.LoginUtils
+import utils.{ExpenseUtils, LoginUtils}
 
 import java.time.LocalDate
 import java.util.UUID
 import scala.concurrent.Future
 
-class SavingsControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoSugar {
+class SavingsControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUtils with MockitoSugar {
 
   private val tokenGenerator = mock[TokenGenerator]
   private val emailApi = mock[EmailApi]
@@ -212,13 +212,40 @@ class SavingsControllerSpec extends PlayPostgresSpec with LoginUtils with Mockit
       val merchantId = merchant.id
 
       client
-        .createExpense(CreateExpense.Request(BigDecimal("100"), sampleDate, None, Some(merchantId), None, Nil))
+        .createExpense(
+          CreateExpense.Request(
+            BigDecimal("100"),
+            sampleDate,
+            None,
+            Some(merchantId),
+            None,
+            fullSplit(BigDecimal("100")).futureValue
+          )
+        )
         .futureValue
       client
-        .createExpense(CreateExpense.Request(BigDecimal("200"), sampleDate, None, Some(merchantId), None, Nil))
+        .createExpense(
+          CreateExpense.Request(
+            BigDecimal("200"),
+            sampleDate,
+            None,
+            Some(merchantId),
+            None,
+            fullSplit(BigDecimal("200")).futureValue
+          )
+        )
         .futureValue
       client
-        .createExpense(CreateExpense.Request(BigDecimal("300"), sampleDate, None, Some(merchantId), None, Nil))
+        .createExpense(
+          CreateExpense.Request(
+            BigDecimal("300"),
+            sampleDate,
+            None,
+            Some(merchantId),
+            None,
+            fullSplit(BigDecimal("300")).futureValue
+          )
+        )
         .futureValue
 
       val estimate = client.getSavingsEstimate(merchantId).futureValue
