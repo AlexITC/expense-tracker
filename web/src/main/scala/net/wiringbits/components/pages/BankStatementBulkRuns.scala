@@ -1,7 +1,12 @@
 package net.wiringbits.components.pages
 
 import net.wiringbits.api.ApiClient
-import net.wiringbits.api.models.bankstatements.{CreateExpenseFromRow, GetBankStatement, LinkRowToExpense}
+import net.wiringbits.api.models.bankstatements.{
+  CreateExpenseFromRow,
+  CreateRefundFromRow,
+  GetBankStatement,
+  LinkRowToExpense
+}
 import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.utils.ReconciliationMatcher
 import slinky.core.facade.SetStateHookCallback
@@ -136,6 +141,23 @@ object BankStatementBulkRuns {
                             )
                           else r
                         )
+                      )
+                      succeed(counts.copy(created = counts.created + 1))
+                    case Failure(ex) => fail(ex.getMessage)
+                  }
+                case BulkRowDecision.CreateRefund(prefill) =>
+                  val req = CreateRefundFromRow.Request(
+                    amount = row.amount.abs,
+                    date = row.date,
+                    merchantId = prefill.merchantId,
+                    categoryId = prefill.categoryId,
+                    expenseId = None,
+                    notes = Some(row.description).filter(_.nonEmpty)
+                  )
+                  client.createRefundFromRow(stmtId, rowId, req).onComplete {
+                    case Success(resp) =>
+                      setStatementRows(cur =>
+                        cur.map(r => if (r.id == rowId) r.copy(refundId = Some(resp.refundId)) else r)
                       )
                       succeed(counts.copy(created = counts.created + 1))
                     case Failure(ex) => fail(ex.getMessage)

@@ -1,0 +1,83 @@
+package net.wiringbits.components.pages
+
+import net.wiringbits.api.models.bankstatements.GetBankStatement
+import net.wiringbits.api.models.categories.GetCategories
+import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction}
+import net.wiringbits.api.utils.ImportRuleMatcher
+import org.scalatest.matchers.must.Matchers.*
+import org.scalatest.wordspec.AnyWordSpec
+
+import java.time.{Instant, LocalDate}
+import java.util.UUID
+
+class BankRowCreateRefundFormSpec extends AnyWordSpec {
+
+  private val row = GetBankStatement.StatementRowData(
+    id = UUID.randomUUID(),
+    index = 0,
+    date = LocalDate.parse("2026-01-15"),
+    amount = BigDecimal("12.50"),
+    description = "OXXO STORE 123",
+    manuallyEdited = false,
+    confirmedAt = None,
+    expenseId = None,
+    refundId = None,
+    ignoredAt = None,
+    txnType = "credit",
+    expenseMerchantId = None,
+    expenseCategoryId = None
+  )
+
+  private val groceries = GetCategories.Response.Category(UUID.randomUUID(), "Groceries", Instant.now())
+  private val categories = List(groceries)
+
+  private def merchant(name: String, categoryId: Option[UUID]): GetMerchants.Response.Merchant =
+    GetMerchants.Response.Merchant(UUID.randomUUID(), name, None, categoryId, None, reviewed = true, Instant.EPOCH)
+
+  private def rule(action: ImportRuleAction): ImportRuleMatcher.Rule =
+    ImportRuleMatcher.Rule(UUID.randomUUID(), action, "OXXO")
+
+  "initialSelection" should {
+    "prefill a SetMerchant rule's merchant and its default category" in {
+      val oxxo = merchant("Oxxo", Some(groceries.id))
+      BankRowCreateRefundForm.initialSelection(
+        row,
+        List(rule(ImportRuleAction.SetMerchant(oxxo.id))),
+        List(oxxo),
+        categories
+      ) mustBe (Some(oxxo), Some(groceries.id))
+    }
+
+    "prefill a SetMerchant rule's merchant without a category when it has no default" in {
+      val oxxo = merchant("Oxxo", None)
+      BankRowCreateRefundForm.initialSelection(
+        row,
+        List(rule(ImportRuleAction.SetMerchant(oxxo.id))),
+        List(oxxo),
+        categories
+      ) mustBe (Some(oxxo), None)
+    }
+
+    "prefill a SetCategory rule's category with no merchant" in {
+      BankRowCreateRefundForm.initialSelection(
+        row,
+        List(rule(ImportRuleAction.SetCategory(groceries.id))),
+        Nil,
+        categories
+      ) mustBe (None, Some(groceries.id))
+    }
+
+    "prefill nothing when no rule matches" in {
+      BankRowCreateRefundForm.initialSelection(row, Nil, Nil, categories) mustBe (None, None)
+    }
+
+    "drop a SetCategory rule's category that is not among the user's categories" in {
+      BankRowCreateRefundForm.initialSelection(
+        row,
+        List(rule(ImportRuleAction.SetCategory(UUID.randomUUID()))),
+        Nil,
+        categories
+      ) mustBe (None, None)
+    }
+  }
+}

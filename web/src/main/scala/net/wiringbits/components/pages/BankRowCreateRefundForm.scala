@@ -32,19 +32,35 @@ object BankRowCreateRefundForm {
       onCancel: () => Unit
   )
 
+  /** The merchant and category the form starts with: the row's resolved refund
+    * (`BankStatementReviewLogic.resolveRefund` over the effective rules, the same verdict the review table uses). Ids
+    * that are not among the user's merchants/categories are dropped.
+    */
+  def initialSelection(
+      row: GetBankStatement.StatementRowData,
+      ruleList: List[ImportRuleMatcher.Rule],
+      merchants: List[GetMerchants.Response.Merchant],
+      categories: List[GetCategories.Response.Category]
+  ): (Option[GetMerchants.Response.Merchant], Option[UUID]) = {
+    val verdict = RowRuleVerdict.verdict(
+      ImportRuleMatcher.effectiveRules(ruleList, merchants.map(m => m.id -> m.name)),
+      row.description
+    )
+    val prefill = BankStatementReviewLogic.resolveRefund(verdict, merchants, row)
+    (
+      prefill.flatMap(_.merchantId).flatMap(mid => merchants.find(_.id == mid)),
+      prefill.flatMap(_.categoryId).filter(cid => categories.exists(_.id == cid))
+    )
+  }
+
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
-    val matchedMerchant = RowRuleVerdict
-      .ruleMerchantId(
-        ImportRuleMatcher.effectiveRules(props.ruleList, props.merchants.map(m => m.id -> m.name)),
-        props.row.description
-      )
-      .flatMap(mid => props.merchants.find(_.id == mid))
+    val (matchedMerchant, initCategoryIdOpt) =
+      initialSelection(props.row, props.ruleList, props.merchants, props.categories)
 
     val initMerchantName = matchedMerchant.map(_.name).getOrElse("")
     val initMerchantIdOpt = matchedMerchant.map(_.id)
-    val initCategoryIdOpt = matchedMerchant.flatMap(_.categoryId)
     val initCategoryName =
       initCategoryIdOpt.flatMap(cid => props.categories.find(_.id == cid)).map(_.name).getOrElse("")
 

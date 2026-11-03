@@ -3,7 +3,7 @@ package net.wiringbits.components.pages
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.api.models.bankstatements.GetBankStatement
 import net.wiringbits.api.utils.RowRuleVerdict
-import net.wiringbits.components.pages.BankStatementReviewLogic.{LinkedCategory, ResolvedImport, RowInfo}
+import net.wiringbits.components.pages.BankStatementReviewLogic.{LinkedCategory, RefundPrefill, ResolvedImport, RowInfo}
 import net.wiringbits.components.pages.BankStatementReviewRow.RowAction
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.BrowserRouter
 import org.scalajs.dom
@@ -51,6 +51,7 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
   private val readyInfo = RowInfo(
     verdict = RowRuleVerdict.NoRule,
     resolved = Some(ResolvedImport(None, UUID.randomUUID(), categoryFromAi = true)),
+    refund = None,
     prefillMerchantId = None,
     isReady = true,
     merchantName = None,
@@ -59,7 +60,7 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
     linkedCategory = LinkedCategory.Unknown
   )
   private val ignoreInfo =
-    RowInfo(RowRuleVerdict.Ignore, None, None, isReady = true, None, None, None, LinkedCategory.Unknown)
+    RowInfo(RowRuleVerdict.Ignore, None, None, None, isReady = true, None, None, None, LinkedCategory.Unknown)
 
   private def props(
       r: GetBankStatement.StatementRowData,
@@ -183,6 +184,30 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
         received mustBe List(r.id -> expected)
         ReactDOM.unmountComponentAtNode(container)
       }
+    }
+
+    "show a rule-matched credit's refund category" in {
+      val r = row("REFUND").copy(amount = BigDecimal("45.00"))
+      val info = readyInfo.copy(
+        verdict = RowRuleVerdict.SetCategory(UUID.randomUUID()),
+        resolved = None,
+        refund = Some(RefundPrefill(None, Some(UUID.randomUUID()))),
+        categoryName = Some("Groceries")
+      )
+      render(List(r -> info), (_, _) => ())
+      container.querySelectorAll("td")(4).textContent mustBe "Groceries"
+    }
+
+    "show a dash for a credit whose refund has no category" in {
+      val r = row("REFUND").copy(amount = BigDecimal("45.00"))
+      val info = readyInfo.copy(
+        verdict = RowRuleVerdict.SetMerchant(UUID.randomUUID()),
+        resolved = None,
+        refund = Some(RefundPrefill(Some(UUID.randomUUID()), None)),
+        categoryName = None
+      )
+      render(List(r -> info), (_, _) => ())
+      container.querySelectorAll("td")(4).textContent mustBe "—"
     }
 
     "show the linked expense's category and merchant names" in {

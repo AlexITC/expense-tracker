@@ -102,14 +102,38 @@ object BankStatementReviewLogic {
           .orElse(ai.flatMap(_.categoryId).map(c => ResolvedImport(merchantId, c, categoryFromAi = true)))
     }
 
+  /** What a rule-matched credit row prefills on its refund: the rule's merchant and that merchant's default category,
+    * or a SetCategory rule's category with no merchant.
+    */
+  final case class RefundPrefill(merchantId: Option[UUID], categoryId: Option[UUID])
+
+  /** Resolve the refund a credit row would create from its rule verdict alone; AI suggestions are not consulted. None
+    * for debits, Ignore verdicts and rows no rule matches.
+    */
+  def resolveRefund(
+      verdict: RowRuleVerdict.Verdict,
+      merchants: List[GetMerchants.Response.Merchant],
+      row: GetBankStatement.StatementRowData
+  ): Option[RefundPrefill] =
+    if (row.amount <= 0) None
+    else
+      verdict match {
+        case RowRuleVerdict.SetMerchant(merchantId) =>
+          Some(RefundPrefill(Some(merchantId), merchants.find(_.id == merchantId).flatMap(_.categoryId)))
+        case RowRuleVerdict.SetCategory(categoryId) => Some(RefundPrefill(None, Some(categoryId)))
+        case RowRuleVerdict.Ignore | RowRuleVerdict.NoRule => None
+      }
+
   /** Everything a table row derives from the rules, merchants, categories and AI suggestions, computed once per row so
-    * rendering does not re-run the rule matcher. The names are the display labels for the resolved import, if any;
+    * rendering does not re-run the rule matcher. Debits may have a `resolved` expense import, credits a `refund`
+    * prefill, never the other. The names are the display labels for the resolved import or refund, if any;
     * `merchantName` falls back to the prefill merchant's. `prefillMerchantId` is the rule-matched merchant, set even
     * when it has no default category (so the row is not ready, but the merchant is still known).
     */
   final case class RowInfo(
       verdict: RowRuleVerdict.Verdict,
       resolved: Option[ResolvedImport],
+      refund: Option[RefundPrefill],
       prefillMerchantId: Option[UUID],
       isReady: Boolean,
       merchantName: Option[String],
@@ -127,13 +151,16 @@ object BankStatementReviewLogic {
       row: GetBankStatement.StatementRowData
   ): RowInfo = {
     val verdict = RowRuleVerdict.verdict(ruleList, row.description)
-    val resolved = resolveImport(verdict, merchants, aiSuggestions, row)
+    val resolved = if (row.amount < 0) resolveImport(verdict, merchants, aiSuggestions, row) else None
+    val refund = resolveRefund(verdict, merchants, row)
     val prefillMerchantId = RowRuleVerdict.merchantId(verdict)
     val open = row.expenseId.isEmpty && row.refundId.isEmpty && row.ignoredAt.isEmpty
-    val isReady = open && (verdict == RowRuleVerdict.Ignore || (row.amount < 0 && resolved.isDefined))
+    val isReady =
+      open && (verdict == RowRuleVerdict.Ignore || (row.amount < 0 && resolved.isDefined) || (row.amount > 0 && refund.isDefined))
     RowInfo(
       verdict = verdict,
       resolved = resolved,
+      refund = refund,
       prefillMerchantId = prefillMerchantId,
       isReady = isReady,
       merchantName = resolved
@@ -141,7 +168,11 @@ object BankStatementReviewLogic {
         .orElse(prefillMerchantId)
         .flatMap(mid => merchants.find(_.id == mid))
         .map(_.name),
-      categoryName = resolved.flatMap(res => categories.find(_.id == res.categoryId)).map(_.name),
+      categoryName = resolved
+        .map(_.categoryId)
+        .orElse(refund.flatMap(_.categoryId))
+        .flatMap(cid => categories.find(_.id == cid))
+        .map(_.name),
       linkedMerchantName = linkedMerchantName(row, merchants),
       linkedCategory = linkedCategoryDisplay(row, categories)
     )
@@ -212,6 +243,7 @@ object BankStatementReviewLogic {
     case Ignore
     case Link(expenseId: UUID)
     case Create(resolved: ResolvedImport)
+    case CreateRefund(prefill: RefundPrefill)
     case Fail(message: String)
   }
 
@@ -271,9 +303,10 @@ object BankStatementReviewLogic {
 
   private val manualLinkHint = "link it manually via … → Link to existing expense"
 
-  /** Decide a selected row's bulk action from its info and its expense match. An Ignore verdict wins; a unique match is
-    * linked unless an earlier row in this run already took that expense; an ambiguous match fails so the user picks
-    * manually; otherwise a new expense is created when the row resolves to a category.
+  /** Decide a selected row's bulk action from its info and its expense match. An Ignore verdict wins; a credit with a
+    * refund prefill becomes a refund; otherwise a unique match is linked unless an earlier row in this run already took
+    * that expense; an ambiguous match fails so the user picks manually; otherwise a new expense is created when the row
+    * resolves to a category.
     */
   def bulkRowDecision(
       info: Option[RowInfo],
@@ -282,14 +315,17 @@ object BankStatementReviewLogic {
   ): BulkRowDecision =
     if (info.exists(_.verdict == RowRuleVerdict.Ignore)) BulkRowDecision.Ignore
     else
-      expenseMatch match {
-        case Some(ReconciliationMatcher.AutoLink(expenseId)) if linkedThisRun.contains(expenseId) =>
-          BulkRowDecision.Fail(s"Its matching expense was already linked to another row in this run — $manualLinkHint")
-        case Some(ReconciliationMatcher.AutoLink(expenseId)) => BulkRowDecision.Link(expenseId)
-        case Some(ReconciliationMatcher.NeedsReview(ids)) =>
-          BulkRowDecision.Fail(s"Matches ${ids.size} existing expenses — $manualLinkHint")
-        case None | Some(ReconciliationMatcher.CreateNew) =>
-          info.flatMap(_.resolved).fold(BulkRowDecision.Fail("No category"))(BulkRowDecision.Create(_))
+      info.flatMap(_.refund).map(BulkRowDecision.CreateRefund(_)).getOrElse {
+        expenseMatch match {
+          case Some(ReconciliationMatcher.AutoLink(expenseId)) if linkedThisRun.contains(expenseId) =>
+            BulkRowDecision
+              .Fail(s"Its matching expense was already linked to another row in this run — $manualLinkHint")
+          case Some(ReconciliationMatcher.AutoLink(expenseId)) => BulkRowDecision.Link(expenseId)
+          case Some(ReconciliationMatcher.NeedsReview(ids)) =>
+            BulkRowDecision.Fail(s"Matches ${ids.size} existing expenses — $manualLinkHint")
+          case None | Some(ReconciliationMatcher.CreateNew) =>
+            info.flatMap(_.resolved).fold(BulkRowDecision.Fail("No category"))(BulkRowDecision.Create(_))
+        }
       }
 
   /** Matches only ready debit rows that would become an expense (not Ignore-verdict rows) against the unlinked
