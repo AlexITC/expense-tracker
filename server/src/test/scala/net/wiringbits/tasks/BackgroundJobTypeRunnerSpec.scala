@@ -9,7 +9,7 @@ import net.wiringbits.repositories.models.BackgroundJobData
 import org.apache.pekko.actor.ActorSystem
 import org.apache.pekko.stream.scaladsl.{Keep, Sink}
 import org.apache.pekko.stream.{KillSwitches, UniqueKillSwitch}
-import org.scalatest.BeforeAndAfterAll
+import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach}
 import org.scalatest.concurrent.Eventually
 import org.scalatest.concurrent.Eventually.*
 import org.scalatest.concurrent.ScalaFutures.*
@@ -27,13 +27,23 @@ class BackgroundJobTypeRunnerSpec
     extends RepositorySpec
     with RepositoryUtils
     with IsolatedPostgresSpec
-    with BeforeAndAfterAll {
+    with BeforeAndAfterAll
+    with BeforeAndAfterEach {
 
-  private implicit lazy val system: ActorSystem = ActorSystem("BackgroundJobTypeRunnerSpec")
+  // A fresh ActorSystem per test, terminated (and awaited) in afterEach. The suite shares one database across tests, so
+  // a stream left running by an earlier test would otherwise keep claiming the next test's jobs through SKIP LOCKED
+  // before that test's own runner does — the source of the cross-test flakiness.
+  private implicit var system: ActorSystem = scala.compiletime.uninitialized
 
-  override def afterAll(): Unit = {
-    system.terminate().futureValue
-    super.afterAll()
+  override def beforeEach(): Unit = {
+    super.beforeEach()
+    system = ActorSystem("BackgroundJobTypeRunnerSpec")
+  }
+
+  override def afterEach(): Unit = {
+    system.terminate()
+    system.whenTerminated.futureValue
+    super.afterEach()
   }
 
   private given Eventually.PatienceConfig = Eventually.PatienceConfig(timeout = 30.seconds, interval = 50.millis)
