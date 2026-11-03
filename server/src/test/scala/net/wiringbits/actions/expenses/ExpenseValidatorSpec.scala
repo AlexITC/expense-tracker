@@ -1,5 +1,6 @@
 package net.wiringbits.actions.expenses
 
+import net.wiringbits.common.ExpenseSplits
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
@@ -14,7 +15,7 @@ class ExpenseValidatorSpec extends RepositorySpec with RepositoryUtils {
     "fail when there are no splits" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val error = intercept[RuntimeException](validator.validate(user.id, BigDecimal(100), None, None, Nil).futureValue)
-      error.getCause.getMessage must be("Split amounts must add up to the expense amount")
+      error.getCause.getMessage must be(ExpenseSplits.NotFullyAllocatedError)
     }
 
     "fail when the splits add up to less than the amount" in withRepositories() { implicit repositories =>
@@ -23,7 +24,7 @@ class ExpenseValidatorSpec extends RepositorySpec with RepositoryUtils {
       val splits = List(category.id -> BigDecimal(60))
       val error =
         intercept[RuntimeException](validator.validate(user.id, BigDecimal(100), None, None, splits).futureValue)
-      error.getCause.getMessage must be("Split amounts must add up to the expense amount")
+      error.getCause.getMessage must be(ExpenseSplits.NotFullyAllocatedError)
     }
 
     "fail when the splits add up to more than the amount" in withRepositories() { implicit repositories =>
@@ -32,7 +33,7 @@ class ExpenseValidatorSpec extends RepositorySpec with RepositoryUtils {
       val splits = List(category.id -> BigDecimal(150))
       val error =
         intercept[RuntimeException](validator.validate(user.id, BigDecimal(100), None, None, splits).futureValue)
-      error.getCause.getMessage must be("Split amounts must add up to the expense amount")
+      error.getCause.getMessage must be(ExpenseSplits.NotFullyAllocatedError)
     }
 
     "succeed when the splits add up to exactly the amount" in withRepositories() { implicit repositories =>

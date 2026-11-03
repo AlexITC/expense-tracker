@@ -1,6 +1,8 @@
 package net.wiringbits.components.pages
 
-import net.wiringbits.api.models.expenses.GetExpenses
+import net.wiringbits.api.models.expenses.{CreateExpense, GetExpenses, UpdateExpense}
+import net.wiringbits.api.models.merchants.GetMerchants
+import net.wiringbits.common.ExpenseSplits
 import net.wiringbits.api.models.expenses.GetExpenses.Response.Split
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
@@ -144,6 +146,97 @@ class ExpensesPageSpec extends AnyWordSpec {
 
     "filter out multiple deleted ids" in {
       ExpenseList.applyDeletedIds(all, Set(idA, idC)) must be(List(all(1)))
+    }
+  }
+
+  "splitsError" should {
+    val msg = Some(ExpenseSplits.NotFullyAllocatedError)
+
+    "return an error when there are no splits" in {
+      ExpenseList.splitsError(BigDecimal("10"), Nil) must be(msg)
+    }
+
+    "return an error when the splits leave a remainder" in {
+      ExpenseList.splitsError(BigDecimal("10"), List(BigDecimal("4"), BigDecimal("5"))) must be(msg)
+    }
+
+    "return an error when the splits exceed the amount" in {
+      ExpenseList.splitsError(BigDecimal("10"), List(BigDecimal("6"), BigDecimal("5"))) must be(msg)
+    }
+
+    "return None when a single split covers the amount" in {
+      ExpenseList.splitsError(BigDecimal("10"), List(BigDecimal("10.00"))) must be(None)
+    }
+
+    "return None when multiple splits sum to the amount" in {
+      ExpenseList.splitsError(BigDecimal("10"), List(BigDecimal("3.50"), BigDecimal("6.50"))) must be(None)
+    }
+  }
+
+  "createSplits" should {
+    val catA = UUID.randomUUID()
+    val catB = UUID.randomUUID()
+    val merchant = GetMerchants.Response.Merchant(
+      id = UUID.randomUUID(),
+      name = "Shop",
+      notes = None,
+      categoryId = Some(catA),
+      reviewed = true,
+      createdAt = Instant.now()
+    )
+    val uncategorized = merchant.copy(id = UUID.randomUUID(), categoryId = None)
+    val merchants = List(merchant, uncategorized)
+
+    "fail when there are no splits and no merchant" in {
+      ExpenseList.createSplits(BigDecimal("10"), Nil, merchants, "") must be(
+        Left(ExpenseSplits.NotFullyAllocatedError)
+      )
+    }
+
+    "fail when there are no splits and the merchant has no default category" in {
+      ExpenseList.createSplits(BigDecimal("10"), Nil, merchants, uncategorized.id.toString) must be(
+        Left(ExpenseSplits.NotFullyAllocatedError)
+      )
+    }
+
+    "fail when the explicit splits leave a remainder, even if the merchant has a default category" in {
+      ExpenseList.createSplits(BigDecimal("10"), List(catB.toString -> "4"), merchants, merchant.id.toString) must be(
+        Left(ExpenseSplits.NotFullyAllocatedError)
+      )
+    }
+
+    "use the merchant default category for the full amount when there are no splits" in {
+      ExpenseList.createSplits(BigDecimal("10"), Nil, merchants, merchant.id.toString) must be(
+        Right(List(CreateExpense.Split(catA, BigDecimal("10"))))
+      )
+    }
+
+    "send the explicit splits when they cover the amount" in {
+      val form = List(catA.toString -> "3.50", catB.toString -> "6.50")
+      ExpenseList.createSplits(BigDecimal("10"), form, merchants, merchant.id.toString) must be(
+        Right(List(CreateExpense.Split(catA, BigDecimal("3.50")), CreateExpense.Split(catB, BigDecimal("6.50"))))
+      )
+    }
+  }
+
+  "updateSplits" should {
+    val catA = UUID.randomUUID()
+    val catB = UUID.randomUUID()
+
+    "fail when there are no splits" in {
+      ExpenseList.updateSplits(BigDecimal("10"), Nil) must be(Left(ExpenseSplits.NotFullyAllocatedError))
+    }
+
+    "fail when the splits leave a remainder" in {
+      ExpenseList.updateSplits(BigDecimal("10"), List(catA.toString -> "4")) must be(
+        Left(ExpenseSplits.NotFullyAllocatedError)
+      )
+    }
+
+    "send the splits when they cover the amount" in {
+      ExpenseList.updateSplits(BigDecimal("10"), List(catA.toString -> "4", catB.toString -> "6")) must be(
+        Right(List(UpdateExpense.Split(catA, BigDecimal("4")), UpdateExpense.Split(catB, BigDecimal("6"))))
+      )
     }
   }
 }

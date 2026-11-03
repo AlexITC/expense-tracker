@@ -1,5 +1,6 @@
 package net.wiringbits.actions.expenses
 
+import net.wiringbits.common.ExpenseSplits
 import net.wiringbits.repositories.{CategoriesRepository, MerchantsRepository}
 
 import java.util.UUID
@@ -28,8 +29,8 @@ class ExpenseValidator @Inject() (
         Future.failed(new RuntimeException("Duplicate category in splits"))
       else if (splits.exists(_._2 <= 0))
         Future.failed(new RuntimeException("Split amount must be greater than 0"))
-      else if (splits.map(_._2).sum != amount)
-        Future.failed(new RuntimeException("Split amounts must add up to the expense amount"))
+      else if (!ExpenseSplits.isFullyAllocated(amount, splits.map(_._2)))
+        Future.failed(new RuntimeException(ExpenseSplits.NotFullyAllocatedError))
       else
         for {
           _ <- merchantId match {

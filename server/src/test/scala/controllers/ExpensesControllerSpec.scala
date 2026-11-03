@@ -1,5 +1,6 @@
 package controllers
 
+import net.wiringbits.common.ExpenseSplits
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
 import net.wiringbits.api.ApiClient
@@ -134,7 +135,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       createVerifyLoginUser(tokenGenerator).futureValue
 
       val error = client.createExpense(createRequest(BigDecimal("75.00"), splits = Some(Nil))).expectError
-      error must be("Split amounts must add up to the expense amount")
+      error must be(ExpenseSplits.NotFullyAllocatedError)
     }
 
     "fail when split sum is less than expense amount" in withApiClient { implicit client =>
@@ -143,7 +144,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
 
       val splits = List(CreateExpense.Split(cat.id, BigDecimal("30.00")))
       val error = client.createExpense(createRequest(BigDecimal("50.00"), splits = Some(splits))).expectError
-      error must be("Split amounts must add up to the expense amount")
+      error must be(ExpenseSplits.NotFullyAllocatedError)
     }
 
     "create an expense with splits summing exactly to total" in withApiClient { implicit client =>
@@ -224,7 +225,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
           createRequest(BigDecimal("50.00"), splits = Some(List(CreateExpense.Split(cat.id, BigDecimal("60.00")))))
         )
         .expectError
-      error must be("Split amounts must add up to the expense amount")
+      error must be(ExpenseSplits.NotFullyAllocatedError)
     }
 
     "fail when duplicate category in splits" in withApiClient { implicit client =>
@@ -333,7 +334,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       val error = client
         .updateExpense(created.id, UpdateExpense.Request(BigDecimal("50.00"), sampleDate, None, None, None, Nil))
         .expectError
-      error must be("Split amounts must add up to the expense amount")
+      error must be(ExpenseSplits.NotFullyAllocatedError)
     }
 
     "fail when split sum exceeds new amount" in withApiClient { implicit client =>
@@ -354,7 +355,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
           )
         )
         .expectError
-      error must be("Split amounts must add up to the expense amount")
+      error must be(ExpenseSplits.NotFullyAllocatedError)
     }
 
     "fail when expense belongs to another user" in withApiClient { implicit client =>

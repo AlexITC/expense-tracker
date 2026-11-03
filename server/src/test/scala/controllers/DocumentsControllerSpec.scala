@@ -1,5 +1,6 @@
 package controllers
 
+import net.wiringbits.common.ExpenseSplits
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
 import net.wiringbits.actions.documents.{ParseReceiptAction, PollReceiptAction, ProcessDocumentAction}
@@ -233,7 +234,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Expe
         List(CreateExpense.Split(cat.id, BigDecimal("40.00")))
       )
       val error = client.confirmReceipt(receiptId, req).expectError
-      error must be("Split amounts must add up to the expense amount")
+      error must be(ExpenseSplits.NotFullyAllocatedError)
     }
 
     "create expense with splits summing exactly to amount" in withApiClient { implicit client =>
@@ -311,7 +312,7 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Expe
         )
       )
       val error = client.confirmReceipt(receiptId, req).expectError
-      error must be("Split amounts must add up to the expense amount")
+      error must be(ExpenseSplits.NotFullyAllocatedError)
     }
 
     "reject split category belonging to another user" in withApiClient { implicit client =>
