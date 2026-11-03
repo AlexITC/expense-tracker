@@ -67,6 +67,21 @@ class BankRowCreateRefundFormSpec extends AnyWordSpec {
       ) mustBe (None, Some(groceries.id))
     }
 
+    "prefill the merchant whose name matches the description without an explicit rule" in {
+      val oxxo = merchant("Oxxo", Some(groceries.id))
+      BankRowCreateRefundForm.initialSelection(row, Nil, List(oxxo), categories) mustBe
+        (Some(oxxo), Some(groceries.id))
+    }
+
+    "prefill nothing when the winning rule is an Ignore rule" in {
+      BankRowCreateRefundForm.initialSelection(
+        row,
+        List(rule(ImportRuleAction.Ignore)),
+        Nil,
+        categories
+      ) mustBe (None, None)
+    }
+
     "prefill nothing when no rule matches" in {
       BankRowCreateRefundForm.initialSelection(row, Nil, Nil, categories) mustBe (None, None)
     }
