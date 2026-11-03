@@ -229,15 +229,9 @@ object BankStatementList {
     val selectedAccount = BankStatementsLogic.selectedAccountKey(accountFilter, localStmts)
 
     // The selected account's timeline, ordered by statement period (newest first) so gaps between cycles are visible.
-    val accountStmts =
-      localStmts.filter(s => selectedAccount.contains(accountKeyOf(s))).sortBy(_.periodStart.toEpochDay).reverse
-    def matchesName(s: GetBankStatements.Response.BankStatement): Boolean =
-      stmtFilter.trim.isEmpty || s.documentFilename.toLowerCase.contains(stmtFilter.trim.toLowerCase)
-    val displayedStmts = accountStmts.filter(matchesName)
-    // Each statement's older neighbour in the full timeline, so the name filter can't fake a gap.
-    val olderNeighbour = accountStmts.zip(accountStmts.drop(1)).map { case (newer, older) => newer.id -> older }.toMap
+    val timeline = BankStatementsLogic.timeline(localStmts, selectedAccount, stmtFilter)
 
-    val cards: Seq[ReactElement] = displayedStmts.map { s =>
+    val cards: Seq[ReactElement] = timeline.map { case (s, _) =>
       val isPending = s.documentStatus == DocumentStatus.Ingested ||
         s.documentStatus == DocumentStatus.Processing ||
         s.documentStatus == DocumentStatus.Analyzed
@@ -329,8 +323,8 @@ object BankStatementList {
     // Interleave a warning wherever consecutive statements leave a gap in the period sequence; only between two
     // visible statements that are also adjacent in the full timeline.
     val stmtItems: Seq[ReactElement] =
-      displayedStmts.zip(cards).flatMap { case (s, card) =>
-        val gap = olderNeighbour.get(s.id).filter(matchesName).flatMap(gapWarning(s, _)).toSeq
+      timeline.zip(cards).flatMap { case ((s, older), card) =>
+        val gap = older.flatMap(gapWarning(s, _)).toSeq
         card +: gap
       }
 
