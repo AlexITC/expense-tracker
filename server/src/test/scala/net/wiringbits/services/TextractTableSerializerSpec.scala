@@ -24,7 +24,7 @@ class TextractTableSerializerSpec extends AnyWordSpec {
       "Relationships" -> Json.arr(Json.obj("Type" -> "CHILD", "Ids" -> cellIds))
     )
 
-  "TextractTableSerializer.serialize" should {
+  "serialize" should {
     "render a table with its columns preserved" in {
       val blocks = Seq(
         table("t1", Seq("c1", "c2", "c3", "c4")),

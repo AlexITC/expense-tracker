@@ -5,7 +5,7 @@ import org.scalatest.wordspec.AnyWordSpec
 
 class RouterCompatSpec extends AnyWordSpec {
 
-  "RouterCompat.Location" should {
+  "Location" should {
     "hold the provided pathname and search" in {
       val loc = RouterCompat.Location(pathname = "/foo", search = "?bar=1")
       loc.pathname must be("/foo")

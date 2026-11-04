@@ -8,7 +8,7 @@ import java.time.LocalDate
 
 class BankStatementTemplatePageSpec extends AnyWordSpec {
 
-  "BankStatementTemplatePage.amountColor" should {
+  "amountColor" should {
     "return brand color for zero" in {
       BankStatementTemplatePage.amountColor(BigDecimal(0)) mustBe "var(--lc-brand)"
     }
@@ -20,7 +20,7 @@ class BankStatementTemplatePageSpec extends AnyWordSpec {
     }
   }
 
-  "BankStatementTemplatePage.metaComplete" should {
+  "metaComplete" should {
     val full = BankStatementDraft.Metadata(
       bankName = Some("BBVA"),
       productType = Some("debit"),

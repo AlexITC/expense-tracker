@@ -5,7 +5,7 @@ import org.scalatest.wordspec.AnyWordSpec
 
 class PdfTextExtractorSpec extends AnyWordSpec {
 
-  "PdfTextExtractor.usableText" should {
+  "usableText" should {
     "reject empty or near-empty text (a scanned/image-only PDF)" in {
       PdfTextExtractor.usableText("").isLeft mustBe true
       PdfTextExtractor.usableText("   \n  ").isLeft mustBe true

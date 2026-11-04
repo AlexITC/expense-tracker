@@ -141,7 +141,7 @@ class BulkMerchantSetupPageSpec extends AnyWordSpec with BeforeAndAfterEach {
     }
   }
 
-  "DescriptionRow.merchantOptionLabel" should {
+  "merchantOptionLabel" should {
     "return name from a Merchant instance" in {
       val m = sampleMerchants.head
       DescriptionRow.merchantOptionLabel(m.asInstanceOf[js.Any]) mustBe "Carniceria El Riscu"
@@ -162,7 +162,7 @@ class BulkMerchantSetupPageSpec extends AnyWordSpec with BeforeAndAfterEach {
     }
   }
 
-  "DescriptionRow.categoryOptionLabel" should {
+  "categoryOptionLabel" should {
     "return name from a Category instance" in {
       val c = sampleCategories.head
       DescriptionRow.categoryOptionLabel(c.asInstanceOf[js.Any]) mustBe "Food"

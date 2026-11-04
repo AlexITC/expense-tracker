@@ -38,7 +38,7 @@ class SafeHooksSpec extends AnyWordSpec with BeforeAndAfterEach {
     dom.document.body.removeChild(container)
   }
 
-  "SafeHooks.useMemo" should {
+  "useMemo" should {
     "recompute once when the String key is constant across renders" in {
       (0 until 3).foreach(n => ReactDOM.render(probe(Props("k", n)), container))
       computes must be(1)

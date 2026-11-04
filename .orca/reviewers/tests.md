@@ -16,8 +16,10 @@ Review changes under test sources. Flag:
   that same action — don't duplicate; the controller test covers it.
 - A single-line JSON payload — JSON in tests must be multi-line and
   human-readable.
-- A test description that includes the spec/class name
-  (`"DocumentParserSpec.parse"`) — name the method only (`"parse"`).
+- A test description qualified with a type name (`"DocumentParser.parse"`,
+  `"BankStatementList.accountLabelOf"`) — name the method only (`"parse"`,
+  `"accountLabelOf"`). A spec exercises one object's methods, so the type prefix is
+  redundant; scalatest already prints the spec class.
 - A test that reaches the database with hand-written SQL via
   `anorm.SQL("...").on("p" -> v)`. Match how the DAOs query: use the
   `SQL"""... ${param}"""` string interpolator (same binding, one consistent

@@ -120,7 +120,7 @@ class ReceiptsLogicSpec extends AnyWordSpec {
     }
   }
 
-  "ConfirmForm.fromReceipt" should {
+  "fromReceipt" should {
     val acme = GetMerchants.Response.Merchant(
       UUID.randomUUID(),
       "Acme",
