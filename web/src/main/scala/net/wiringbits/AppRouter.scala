@@ -2,33 +2,33 @@ package net.wiringbits
 
 import net.wiringbits.components.pages.{
   AboutPage,
-  BankStatementAutoReconcilePage,
-  BankStatementReviewPage,
-  BankStatementTemplatePage,
-  BankStatementsPage,
-  BulkExpenseCreationPage,
-  BulkMerchantSetupPage,
   CategoriesPage,
   ChartsPage,
   DashboardPage,
-  ExpensesPage,
-  ForgotPasswordPage,
   HomePage,
-  ImportRulesPage,
-  MerchantReviewPage,
-  MerchantsPage,
-  ReceiptsPage,
-  RefundsPage,
   ReportsPage,
+  SavingsPage,
+  UserEditPage
+}
+import net.wiringbits.components.pages.auth.{
+  ForgotPasswordPage,
   ResendVerifyEmailPage,
   ResetPasswordPage,
-  SavingsPage,
   SignInPage,
   SignUpPage,
-  UserEditPage,
   VerifyEmailPage,
   VerifyEmailWithTokenPage
 }
+import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewPage
+import net.wiringbits.components.pages.bankstatements.{
+  BankStatementAutoReconcilePage,
+  BankStatementTemplatePage,
+  BankStatementsPage
+}
+import net.wiringbits.components.pages.expenses.{BulkExpenseCreationPage, ExpensesPage, RefundsPage}
+import net.wiringbits.components.pages.importrules.ImportRulesPage
+import net.wiringbits.components.pages.merchants.{BulkMerchantSetupPage, MerchantReviewPage, MerchantsPage}
+import net.wiringbits.components.pages.receipts.ReceiptsPage
 import net.wiringbits.components.widgets.{AppBar, AuthenticatedLayout, Footer}
 import net.wiringbits.core.ReactiveHooks
 import net.wiringbits.models.{AuthState, User}
