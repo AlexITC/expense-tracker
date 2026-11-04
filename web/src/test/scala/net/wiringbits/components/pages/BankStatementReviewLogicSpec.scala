@@ -970,4 +970,25 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       (Loadable.Failed("boom"): Loadable[Int]).map(_ + 1) mustBe Loadable.Failed("boom")
     }
   }
+
+  "bulkActionsEnabled" should {
+    import BankStatementReviewLogic.{BulkRun, bulkActionsEnabled}
+
+    "allow bulk actions once support is loaded and rows are selected" in {
+      bulkActionsEnabled(supportLoaded = true, selectedCount = 2, BulkRun.Idle, BulkRun.Idle) mustBe true
+    }
+
+    "block bulk actions while the support lists are not loaded" in {
+      bulkActionsEnabled(supportLoaded = false, selectedCount = 2, BulkRun.Idle, BulkRun.Idle) mustBe false
+    }
+
+    "block bulk actions when nothing is selected" in {
+      bulkActionsEnabled(supportLoaded = true, selectedCount = 0, BulkRun.Idle, BulkRun.Idle) mustBe false
+    }
+
+    "block bulk actions while either run is in progress" in {
+      bulkActionsEnabled(supportLoaded = true, 2, BulkRun.Running(1, Nil), BulkRun.Idle) mustBe false
+      bulkActionsEnabled(supportLoaded = true, 2, BulkRun.Idle, BulkRun.Running(1, Nil)) mustBe false
+    }
+  }
 }

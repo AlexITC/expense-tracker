@@ -14,16 +14,6 @@ import java.util.UUID
 object BankStatementReviewLogic {
 
   type BulkResults = List[(UUID, Either[String, Unit])]
-  type RowEdits = Map[UUID, (String, String, String)]
-
-  /** Everything the review page loads up front; re-fetched as a whole on every refresh. */
-  final case class ReviewData(
-      statement: GetBankStatement.Response,
-      merchants: List[GetMerchants.Response.Merchant],
-      categories: List[GetCategories.Response.Category],
-      rules: List[ImportRuleMatcher.Rule],
-      expenses: List[GetExpenses.Response.Expense]
-  )
 
   /** A value fetched asynchronously: still loading, loaded, or failed with the error to show. */
   enum Loadable[+T] {
@@ -323,6 +313,17 @@ object BankStatementReviewLogic {
       def failed: Int = r.results.count(_._2.isLeft)
     }
   }
+
+  /** Bulk Process/Ignore need the support lists: without expense matching, a row ready by AI would get a duplicate
+    * expense.
+    */
+  def bulkActionsEnabled(
+      supportLoaded: Boolean,
+      selectedCount: Int,
+      bulkIgnore: BulkRun,
+      bulkImport: BulkRun
+  ): Boolean =
+    supportLoaded && selectedCount > 0 && !bulkIgnore.isRunning && !bulkImport.isRunning
 
   /** Which per-row form the side drawer shows, if any. */
   enum DrawerState {

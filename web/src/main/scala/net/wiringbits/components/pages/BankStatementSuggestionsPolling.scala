@@ -20,10 +20,13 @@ object BankStatementSuggestionsPolling {
 
   final case class State(polling: Boolean, regenerateDisabled: Boolean, regenerate: () => Unit)
 
-  /** A hook: call it unconditionally from the component body. */
+  /** A hook: call it unconditionally from the component body. Nothing is polled until `enabled`, so the attempts are
+    * not spent before the statement (and its real suggestions) has loaded.
+    */
   def useSuggestionsPolling(
       client: ApiClient,
       stmtId: UUID,
+      enabled: Boolean,
       aiSuggestions: Option[AiSuggestions],
       setAiSuggestions: Option[AiSuggestions] => Unit,
       setError: SetStateHookCallback[String],
@@ -34,7 +37,7 @@ object BankStatementSuggestionsPolling {
     val regenerateSuggestionsDisabled = regeneratingSuggestions ||
       !canRegenerateSuggestions(aiSuggestions, suggestionsPollAttempts >= SuggestionsPollMaxAttempts)
     val pollingSuggestions =
-      suggestionsPending(aiSuggestions) && suggestionsPollAttempts < SuggestionsPollMaxAttempts
+      enabled && suggestionsPending(aiSuggestions) && suggestionsPollAttempts < SuggestionsPollMaxAttempts
     val suggestionsPollKey = s"$stmtId:$pollingSuggestions"
     SafeHooks.useEffect(suggestionsPollKey)(() => {
       if (pollingSuggestions) {
