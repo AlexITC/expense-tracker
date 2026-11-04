@@ -63,7 +63,8 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
       linkedCategory = LinkedCategory.Unknown
     )
 
-  /** Records every state a setter produces, applying updater functions to the current value like React does. */
+  /** Records every state a setter or updater produces, applying updater functions to the current value like React does.
+    */
   private final class Recorder[T](initial: T) {
     var value: T = initial
     val states: ListBuffer[T] = ListBuffer.empty
@@ -73,6 +74,10 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
         else arg.asInstanceOf[T]
       states += value
     })
+    val update: (T => T) => Unit = f => {
+      value = f(value)
+      states += value
+    }
   }
 
   /** Answers the bulk calls from the given outcomes and records the calls in order. */
@@ -135,7 +140,7 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
         client = client,
         stmtId = stmtId,
         ids = List(ok.id, bad.id),
-        setStatementRows = rows.callback,
+        updateRows = rows.update,
         setBulkIgnore = run.callback,
         setSelectedRowIds = selected.callback
       )
@@ -190,11 +195,11 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
           second.id -> ReconciliationMatcher.AutoLink(exp.id)
         ),
         expenseList = List(exp),
-        setStatementRows = rows.callback,
+        updateRows = rows.update,
         setBulkImport = run.callback,
         setSelectedRowIds = new Recorder[Set[UUID]](Set.empty).callback,
         showToast = _ => (),
-        onRefresh = () => ()
+        onFinished = () => ()
       )
 
       client.calls.toList mustBe List(s"link:${first.id}:${exp.id}")
@@ -215,7 +220,7 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
       rows.value.find(_.id == second.id).get.expenseId mustBe None
     }
 
-    "create, ignore, then finish the run, clear the selection, toast the summary and refresh once" in {
+    "create, ignore, then finish the run, clear the selection, toast the summary and call the finish callback once" in {
       val categoryId = UUID.randomUUID()
       val merchantId = UUID.randomUUID()
       val createdExpenseId = UUID.randomUUID()
@@ -239,11 +244,11 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
         ),
         expenseMatchById = Map.empty,
         expenseList = Nil,
-        setStatementRows = rows.callback,
+        updateRows = rows.update,
         setBulkImport = run.callback,
         setSelectedRowIds = selected.callback,
         showToast = msg => events += s"toast:$msg:${run.value}:${selected.value}",
-        onRefresh = () => events += "refresh"
+        onFinished = () => events += "finished"
       )
 
       client.calls.toList mustBe List(s"create:${toCreate.id}", s"ignore:${toIgnore.id}")
@@ -253,7 +258,7 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
       created.expenseCategoryId mustBe Some(categoryId)
       rows.value.find(_.id == toIgnore.id).flatMap(_.ignoredAt) must not be empty
       val done = BulkRun.Done(List(toCreate.id -> Right(()), toIgnore.id -> Right(())))
-      events.toList mustBe List(s"toast:${bulkImportSummary(0, 1, 1, 0)}:$done:Set()", "refresh")
+      events.toList mustBe List(s"toast:${bulkImportSummary(0, 1, 1, 0)}:$done:Set()", "finished")
     }
 
     "create a refund for a rule-matched credit and count it as created" in {
@@ -280,11 +285,11 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
         ),
         expenseMatchById = Map.empty,
         expenseList = Nil,
-        setStatementRows = rows.callback,
+        updateRows = rows.update,
         setBulkImport = run.callback,
         setSelectedRowIds = selected.callback,
         showToast = msg => toasts += msg,
-        onRefresh = () => ()
+        onFinished = () => ()
       )
 
       client.calls.toList mustBe List(s"refund:${credit.id}:30.00:Some($merchantId):Some($categoryId):Some(REFUND)")
@@ -314,11 +319,11 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
         ),
         expenseMatchById = Map.empty,
         expenseList = Nil,
-        setStatementRows = rows.callback,
+        updateRows = rows.update,
         setBulkImport = run.callback,
         setSelectedRowIds = selected.callback,
         showToast = msg => toasts += msg,
-        onRefresh = () => ()
+        onFinished = () => ()
       )
 
       rows.value.find(_.id == bad.id).flatMap(_.refundId) mustBe None

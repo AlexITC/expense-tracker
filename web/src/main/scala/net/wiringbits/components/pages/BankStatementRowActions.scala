@@ -15,19 +15,20 @@ final case class BankStatementRowActions(
     client: ApiClient,
     stmtId: UUID,
     expenseWindow: (LocalDate, LocalDate),
-    setStatementRows: SetStateHookCallback[List[GetBankStatement.StatementRowData]],
+    updateRows: (List[GetBankStatement.StatementRowData] => List[GetBankStatement.StatementRowData]) => Unit,
     setSelectedRowIds: SetStateHookCallback[Set[UUID]],
-    setExpenseList: SetStateHookCallback[List[GetExpenses.Response.Expense]],
+    setExpenses: List[GetExpenses.Response.Expense] => Unit,
     setError: SetStateHookCallback[String],
     showToast: String => Unit
 )(implicit ec: ExecutionContext) {
+  import BankStatementReviewLogic.{patchRow, replaceRow}
 
   def ignore(rowId: UUID): Unit =
     client.ignoreRow(stmtId, rowId).onComplete {
       case Success(_) =>
         setError("")
         setSelectedRowIds(cur => cur - rowId)
-        setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(ignoredAt = Some(Instant.now())) else r))
+        updateRows(patchRow(_, rowId)(_.copy(ignoredAt = Some(Instant.now()))))
         showToast("Row ignored")
       case Failure(ex) => setError(ex.getMessage)
     }
@@ -36,7 +37,7 @@ final case class BankStatementRowActions(
     client.unignoreRow(stmtId, rowId).onComplete {
       case Success(_) =>
         setError("")
-        setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(ignoredAt = None) else r))
+        updateRows(patchRow(_, rowId)(_.copy(ignoredAt = None)))
       case Failure(ex) => setError(ex.getMessage)
     }
 
@@ -44,11 +45,7 @@ final case class BankStatementRowActions(
     client.unlinkRow(stmtId, rowId).onComplete {
       case Success(_) =>
         setError("")
-        setStatementRows(cur =>
-          cur.map(r =>
-            if (r.id == rowId) r.copy(expenseId = None, expenseMerchantId = None, expenseCategoryId = None) else r
-          )
-        )
+        updateRows(patchRow(_, rowId)(_.copy(expenseId = None, expenseMerchantId = None, expenseCategoryId = None)))
         // The expense is unlinked again, so keep the expense list current.
         refreshExpenses()
       case Failure(ex) => setError(ex.getMessage)
@@ -58,7 +55,7 @@ final case class BankStatementRowActions(
     client.unlinkRowRefund(stmtId, rowId).onComplete {
       case Success(_) =>
         setError("")
-        setStatementRows(cur => cur.map(r => if (r.id == rowId) r.copy(refundId = None) else r))
+        updateRows(patchRow(_, rowId)(_.copy(refundId = None)))
       case Failure(ex) => setError(ex.getMessage)
     }
 
@@ -67,9 +64,7 @@ final case class BankStatementRowActions(
   def refreshRow(rowId: UUID): Unit = {
     client.getBankStatement(stmtId).onComplete {
       case Success(full) =>
-        full.statementRows.find(_.id == rowId).foreach { fresh =>
-          setStatementRows(cur => cur.map(r => if (r.id == rowId) fresh else r))
-        }
+        full.statementRows.find(_.id == rowId).foreach(fresh => updateRows(replaceRow(_, fresh)))
       case Failure(ex) => setError(ex.getMessage)
     }
     refreshExpenses()
@@ -78,7 +73,7 @@ final case class BankStatementRowActions(
   def refreshExpenses(): Unit = {
     val (from, to) = expenseWindow
     client.getExpensesFiltered(Some(from), Some(to), unlinkedOnly = true).onComplete {
-      case Success(resp) => setExpenseList(resp.data)
+      case Success(resp) => setExpenses(resp.data)
       case Failure(ex) => setError(ex.getMessage)
     }
   }

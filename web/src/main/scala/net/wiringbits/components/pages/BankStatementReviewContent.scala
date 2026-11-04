@@ -106,9 +106,9 @@ object BankStatementReviewContent {
       // Computed once from the loaded rows: no action on this page changes a row's date or the statement period
       // (row confirmation/editing is not exposed here), and a full refresh remounts with a fresh window.
       expenseWindow = candidateExpenseWindow(props.data.statement),
-      setStatementRows = setStatementRows,
+      updateRows = f => setStatementRows(cur => f(cur)),
       setSelectedRowIds = setSelectedRowIds,
-      setExpenseList = setExpenseList,
+      setExpenses = setExpenseList(_),
       setError = setError,
       showToast = showToast
     )
@@ -195,18 +195,18 @@ object BankStatementReviewContent {
                 rowInfoById = rowInfoById,
                 expenseMatchById = expenseMatchById,
                 expenseList = expenseList,
-                setStatementRows = setStatementRows,
+                updateRows = f => setStatementRows(cur => f(cur)),
                 setBulkImport = setBulkImport,
                 setSelectedRowIds = setSelectedRowIds,
                 showToast = showToast,
-                onRefresh = props.onRefresh
+                onFinished = props.onRefresh
               ),
             onIgnore = () =>
               BankStatementBulkRuns.handleBulkIgnore(
                 client = props.ctx.api.client,
                 stmtId = stmt.id,
                 ids = selectedInView.toList,
-                setStatementRows = setStatementRows,
+                updateRows = f => setStatementRows(cur => f(cur)),
                 setBulkIgnore = setBulkIgnore,
                 setSelectedRowIds = setSelectedRowIds
               ),
