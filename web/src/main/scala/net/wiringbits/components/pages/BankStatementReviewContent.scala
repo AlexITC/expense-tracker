@@ -71,8 +71,9 @@ object BankStatementReviewContent {
 
     val suggestions = BankStatementSuggestionsPolling.useSuggestionsPolling(
       client = props.ctx.api.client,
-      statement = statement,
-      setStatement = setStatement,
+      stmtId = statement.id,
+      aiSuggestions = statement.aiSuggestions,
+      setAiSuggestions = s => setStatement(cur => cur.copy(aiSuggestions = s)),
       setError = setError,
       showToast = showToast
     )
