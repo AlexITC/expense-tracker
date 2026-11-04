@@ -33,14 +33,14 @@ class BankStatementListSpec extends AnyWordSpec {
       processedRows = 0
     )
 
-  "BankStatementList.accountKeyOf" should {
+  "accountKeyOf" should {
     "build a key from bank + product type + last 4" in {
       BankStatementList.accountKeyOf(stmt(bankName = "BBVA", productType = "credit", accountLast4 = "1234")) mustBe
         "BBVA~credit~1234"
     }
   }
 
-  "BankStatementList.accountLabelOf" should {
+  "accountLabelOf" should {
     "render bank, product label in parentheses and last 4" in {
       BankStatementList.accountLabelOf(stmt(bankName = "BBVA", productType = "credit", accountLast4 = "8927")) mustBe
         "BBVA (Credit) ••••8927"
@@ -52,7 +52,7 @@ class BankStatementListSpec extends AnyWordSpec {
     }
   }
 
-  "BankStatementList.metadataLine" should {
+  "metadataLine" should {
     "join the metadata fields" in {
       BankStatementList.metadataLine(
         stmt(
@@ -67,7 +67,7 @@ class BankStatementListSpec extends AnyWordSpec {
     }
   }
 
-  "BankStatementList.gapWarning" should {
+  "gapWarning" should {
     "warn when more than 20 days separate the newer start from the older end" in {
       val older = stmt(periodStart = LocalDate.of(2026, 2, 1), periodEnd = LocalDate.of(2026, 2, 28))
       val newer = stmt(periodStart = LocalDate.of(2026, 4, 1), periodEnd = LocalDate.of(2026, 4, 30))

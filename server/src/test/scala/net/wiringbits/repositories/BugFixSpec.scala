@@ -21,7 +21,7 @@ class BugFixSpec extends RepositorySpec with RepositoryUtils {
   }
 
   // Bug 1: ReceiptDAO.setExpenseId TOCTOU — second link should be rejected at the DB layer
-  "ReceiptDAO.setExpenseId" should {
+  "setExpenseId" should {
     "fail when the receipt already has an expense linked" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val doc = createDocument(user.id).futureValue
@@ -60,7 +60,7 @@ class BugFixSpec extends RepositorySpec with RepositoryUtils {
   }
 
   // Bug 2b: ReceiptDAO.updateParsed silently ignores a non-existent ID
-  "ReceiptDAO.updateParsed" should {
+  "updateParsed" should {
     "fail when the receipt does not exist" in withRepositories() { implicit repositories =>
       val error = Future {
         repositories.database.withConnection { implicit conn =>

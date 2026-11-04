@@ -29,7 +29,7 @@ class ChartsPageSpec extends AnyWordSpec {
       createdAt = Instant.now()
     )
 
-  "ChartsData.monthly" should {
+  "monthly" should {
     "return 6 labels and 6 values" in {
       val response = GetExpenses.Response(data = Nil)
       val result = ChartsData.monthly(response, noRefunds)
@@ -65,7 +65,7 @@ class ChartsPageSpec extends AnyWordSpec {
     }
   }
 
-  "ChartsData.topMerchants" should {
+  "topMerchants" should {
     "return empty lists when there are no debits" in {
       val response = GetExpenses.Response(
         data = List(expense(BigDecimal("100.00"), LocalDate.now()))

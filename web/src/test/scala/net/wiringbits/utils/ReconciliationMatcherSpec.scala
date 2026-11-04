@@ -73,7 +73,7 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       rowIds = rowIds
     )
 
-  "ReconciliationMatcher.qualifyingCreateRequests" should {
+  "qualifyingCreateRequests" should {
 
     "build a request when the winner is SetMerchant and the merchant has a categoryId" in {
       val row = makeRow()

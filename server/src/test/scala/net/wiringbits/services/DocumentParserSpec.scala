@@ -13,7 +13,7 @@ class DocumentParserSpec extends AnyWordSpec {
     Json.parse(stream)
   }
 
-  "DocumentParser.parse" should {
+  "parse" should {
     // Fixture-driven case. The real receipt dataset was removed before open-sourcing (PII); a single
     // synthetic textract/ticket pair keeps this path covered. Re-add pairs under fixtures/textract +
     // fixtures/tickets (indexed 1..N) and widen this loop to restore the full dataset.
