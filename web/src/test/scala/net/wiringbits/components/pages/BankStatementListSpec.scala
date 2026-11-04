@@ -40,6 +40,18 @@ class BankStatementListSpec extends AnyWordSpec {
     }
   }
 
+  "BankStatementList.accountLabelOf" should {
+    "render bank, product label in parentheses and last 4" in {
+      BankStatementList.accountLabelOf(stmt(bankName = "BBVA", productType = "credit", accountLast4 = "8927")) mustBe
+        "BBVA (Credit) ••••8927"
+    }
+
+    "pass through unknown product types" in {
+      BankStatementList.accountLabelOf(stmt(bankName = "BBVA", productType = "savings", accountLast4 = "8927")) mustBe
+        "BBVA (savings) ••••8927"
+    }
+  }
+
   "BankStatementList.metadataLine" should {
     "join the metadata fields" in {
       BankStatementList.metadataLine(
@@ -55,4 +67,17 @@ class BankStatementListSpec extends AnyWordSpec {
     }
   }
 
+  "BankStatementList.gapWarning" should {
+    "warn when more than 20 days separate the newer start from the older end" in {
+      val older = stmt(periodStart = LocalDate.of(2026, 2, 1), periodEnd = LocalDate.of(2026, 2, 28))
+      val newer = stmt(periodStart = LocalDate.of(2026, 4, 1), periodEnd = LocalDate.of(2026, 4, 30))
+      BankStatementList.gapWarning(newer, older).isDefined mustBe true
+    }
+
+    "not warn for consecutive cycles" in {
+      val older = stmt(periodStart = LocalDate.of(2026, 3, 1), periodEnd = LocalDate.of(2026, 3, 31))
+      val newer = stmt(periodStart = LocalDate.of(2026, 4, 1), periodEnd = LocalDate.of(2026, 4, 30))
+      BankStatementList.gapWarning(newer, older) mustBe None
+    }
+  }
 }
