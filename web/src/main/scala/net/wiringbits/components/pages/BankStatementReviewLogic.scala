@@ -25,6 +25,49 @@ object BankStatementReviewLogic {
       expenses: List[GetExpenses.Response.Expense]
   )
 
+  /** A value fetched asynchronously: still loading, loaded, or failed with the error to show. */
+  enum Loadable[+T] {
+    case Loading
+    case Loaded(value: T)
+    case Failed(message: String)
+
+    def toOption: Option[T] = this match {
+      case Loaded(v) => Some(v)
+      case _ => None
+    }
+
+    def map[U](f: T => U): Loadable[U] = this match {
+      case Loaded(v) => Loaded(f(v))
+      case Loading => Loading
+      case Failed(m) => Failed(m)
+    }
+  }
+
+  /** The lists the review page loads after the statement itself; kept up to date locally as the user adds entities. */
+  final case class ReviewSupport(
+      merchants: List[GetMerchants.Response.Merchant],
+      categories: List[GetCategories.Response.Category],
+      rules: List[ImportRuleMatcher.Rule],
+      expenses: List[GetExpenses.Response.Expense]
+  ) {
+    def withRule(rule: ImportRuleMatcher.Rule): ReviewSupport = copy(rules = rules :+ rule)
+    def withMerchant(m: GetMerchants.Response.Merchant): ReviewSupport = copy(merchants = merchants :+ m)
+    def withExpenses(list: List[GetExpenses.Response.Expense]): ReviewSupport = copy(expenses = list)
+  }
+
+  /** Apply `f` to the row with `rowId`, leaving the others untouched. */
+  def patchRow(rows: List[GetBankStatement.StatementRowData], rowId: UUID)(
+      f: GetBankStatement.StatementRowData => GetBankStatement.StatementRowData
+  ): List[GetBankStatement.StatementRowData] =
+    rows.map(r => if (r.id == rowId) f(r) else r)
+
+  /** Swap in a freshly fetched copy of a row, matched by id. */
+  def replaceRow(
+      rows: List[GetBankStatement.StatementRowData],
+      fresh: GetBankStatement.StatementRowData
+  ): List[GetBankStatement.StatementRowData] =
+    patchRow(rows, fresh.id)(_ => fresh)
+
   /** The expense dates (from, to) that can match the statement's rows: a row matches expenses up to
     * `MaxDateDifferenceDays` before it. Rows outside the statement period widen the window.
     */

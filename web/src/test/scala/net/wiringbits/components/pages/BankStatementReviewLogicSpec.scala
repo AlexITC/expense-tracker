@@ -888,4 +888,86 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       BulkRun.Idle.finished mustBe BulkRun.Idle
     }
   }
+
+  "patchRow" should {
+    "change only the row with the given id" in {
+      val a = sampleRow("A")
+      val b = sampleRow("B")
+      val now = Instant.now()
+      BankStatementReviewLogic.patchRow(List(a, b), b.id)(_.copy(ignoredAt = Some(now))) mustBe
+        List(a, b.copy(ignoredAt = Some(now)))
+    }
+
+    "leave the rows unchanged when no row has the id" in {
+      val rows = List(sampleRow("A"), sampleRow("B"))
+      BankStatementReviewLogic.patchRow(rows, UUID.randomUUID())(_.copy(description = "X")) mustBe rows
+    }
+  }
+
+  "replaceRow" should {
+    "swap in the fresh copy at the same position" in {
+      val a = sampleRow("A")
+      val b = sampleRow("B")
+      val c = sampleRow("C")
+      val fresh = b.copy(description = "B2", expenseId = Some(UUID.randomUUID()))
+      BankStatementReviewLogic.replaceRow(List(a, b, c), fresh) mustBe List(a, fresh, c)
+    }
+
+    "not add a row whose id is not in the list" in {
+      val rows = List(sampleRow("A"))
+      BankStatementReviewLogic.replaceRow(rows, sampleRow("B")) mustBe rows
+    }
+  }
+
+  "ReviewSupport" should {
+    import BankStatementReviewLogic.ReviewSupport
+    def merchant(name: String) =
+      GetMerchants.Response.Merchant(UUID.randomUUID(), name, None, None, None, reviewed = true, Instant.EPOCH)
+    def rule(pattern: String) =
+      ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory(UUID.randomUUID()), pattern)
+    def expense() = GetExpenses.Response.Expense(
+      id = UUID.randomUUID(),
+      amount = BigDecimal("10.00"),
+      date = LocalDate.of(2024, 3, 7),
+      time = None,
+      merchantId = None,
+      merchantName = None,
+      notes = None,
+      splits = Nil,
+      createdAt = Instant.EPOCH
+    )
+    val category = GetCategories.Response.Category(UUID.randomUUID(), "Food", Instant.EPOCH)
+    val base = ReviewSupport(List(merchant("M1")), List(category), List(rule("R1")), List(expense()))
+
+    "append a rule, keeping the other lists" in {
+      val r = rule("R2")
+      base.withRule(r) mustBe base.copy(rules = base.rules :+ r)
+    }
+
+    "append a merchant, keeping the other lists" in {
+      val m = merchant("M2")
+      base.withMerchant(m) mustBe base.copy(merchants = base.merchants :+ m)
+    }
+
+    "replace the expenses, keeping the other lists" in {
+      val fresh = List(expense(), expense())
+      base.withExpenses(fresh) mustBe base.copy(expenses = fresh)
+    }
+  }
+
+  "Loadable" should {
+    import BankStatementReviewLogic.Loadable
+
+    "expose the value only when loaded" in {
+      Loadable.Loaded(1).toOption mustBe Some(1)
+      Loadable.Loading.toOption mustBe None
+      Loadable.Failed("boom").toOption mustBe None
+    }
+
+    "map only a loaded value, keeping loading and failures as they are" in {
+      Loadable.Loaded(1).map(_ + 1) mustBe Loadable.Loaded(2)
+      (Loadable.Loading: Loadable[Int]).map(_ + 1) mustBe Loadable.Loading
+      (Loadable.Failed("boom"): Loadable[Int]).map(_ + 1) mustBe Loadable.Failed("boom")
+    }
+  }
 }
