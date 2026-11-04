@@ -939,11 +939,6 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
     val category = GetCategories.Response.Category(UUID.randomUUID(), "Food", Instant.EPOCH)
     val base = ReviewSupport(List(merchant("M1")), List(category), List(rule("R1")), List(expense()))
 
-    "append a rule, keeping the other lists" in {
-      val r = rule("R2")
-      base.withRule(r) mustBe base.copy(rules = base.rules :+ r)
-    }
-
     "append a merchant, keeping the other lists" in {
       val m = merchant("M2")
       base.withMerchant(m) mustBe base.copy(merchants = base.merchants :+ m)

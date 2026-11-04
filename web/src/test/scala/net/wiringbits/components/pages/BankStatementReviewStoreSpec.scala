@@ -1,16 +1,22 @@
 package net.wiringbits.components.pages
 
 import monix.execution.Scheduler
+import net.wiringbits.api.ApiClient
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsStatus, GetBankStatement}
+import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.documents.DocumentStatus
-import net.wiringbits.api.models.merchants.ImportRuleAction
+import net.wiringbits.api.models.expenses.GetExpenses
+import net.wiringbits.api.models.merchants.{GetImportRules, GetMerchants, ImportRuleAction}
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.components.pages.BankStatementReviewLogic.{Loadable, ReviewSupport}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
+import sttp.client3.testing.SttpBackendStub
 
 import java.time.{Instant, LocalDate}
 import java.util.UUID
+import scala.collection.mutable.ListBuffer
+import scala.concurrent.{ExecutionContext, Future}
 
 class BankStatementReviewStoreSpec extends AnyWordSpec {
 
@@ -54,6 +60,88 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
     )
 
   private val emptySupport = ReviewSupport(Nil, Nil, Nil, Nil)
+
+  /** Answers the load calls from the given values; a missing statement or a set `failMerchants` fails that call. */
+  private final class StubClient(
+      stmt: Option[GetBankStatement.Response],
+      failMerchants: Boolean = false,
+      merchants: List[GetMerchants.Response.Merchant] = Nil,
+      rules: List[GetImportRules.Rule] = Nil,
+      expenses: List[GetExpenses.Response.Expense] = Nil
+  ) extends ApiClient(ApiClient.Config("http://localhost"))(using
+        ExecutionContext.parasitic,
+        SttpBackendStub.asynchronousFuture
+      ) {
+    val calls: ListBuffer[String] = ListBuffer.empty
+
+    override def getBankStatement(bankStatementId: UUID): Future[GetBankStatement.Response] =
+      stmt.fold(Future.failed(new RuntimeException("no statement")))(Future.successful)
+
+    override def getMerchants: Future[GetMerchants.Response] =
+      if (failMerchants) Future.failed(new RuntimeException("no merchants"))
+      else Future.successful(GetMerchants.Response(merchants))
+
+    override def getCategories: Future[GetCategories.Response] = Future.successful(GetCategories.Response(Nil))
+
+    override def getImportRules: Future[GetImportRules.Response] = Future.successful(GetImportRules.Response(rules))
+
+    override def getExpensesFiltered(
+        from: Option[LocalDate],
+        to: Option[LocalDate],
+        unlinkedOnly: Boolean
+    ): Future[GetExpenses.Response] = {
+      calls += s"expenses:$from:$to:$unlinkedOnly"
+      Future.successful(GetExpenses.Response(expenses))
+    }
+  }
+
+  "load" should {
+    // Stubbed futures are already completed, so the parasitic context runs both stages synchronously.
+    given ExecutionContext = ExecutionContext.parasitic
+
+    "seed the statement, then the support lists with rules mapped and expenses from the candidate window" in {
+      val resp = statement(List(sampleRow("A")))
+      val apiRule = GetImportRules.Rule(
+        UUID.randomUUID(),
+        ImportRuleAction.SetCategory(UUID.randomUUID()),
+        "SUPERMARKET",
+        None,
+        None,
+        autoCreated = false,
+        Instant.EPOCH,
+        Instant.EPOCH
+      )
+      val merchant =
+        GetMerchants.Response.Merchant(UUID.randomUUID(), "Shop", None, None, None, reviewed = true, Instant.EPOCH)
+      val client = new StubClient(Some(resp), merchants = List(merchant), rules = List(apiRule))
+      val store = new BankStatementReviewStore
+      store.load(client, resp.id)
+      store.$statement() mustBe Loadable.Loaded(resp)
+      store.$rows() mustBe resp.statementRows
+      store.$support() mustBe Loadable.Loaded(
+        ReviewSupport(List(merchant), Nil, List(ImportRuleMatcher.Rule.fromApi(apiRule)), Nil)
+      )
+      val (from, to) = BankStatementReviewLogic.candidateExpenseWindow(resp)
+      client.calls.toList mustBe List(s"expenses:${Some(from)}:${Some(to)}:true")
+    }
+
+    "keep the statement loaded and mark only the support lists failed when one of them fails" in {
+      val resp = statement(List(sampleRow("A")))
+      val store = new BankStatementReviewStore
+      store.load(new StubClient(Some(resp), failMerchants = true), resp.id)
+      store.$statement() mustBe Loadable.Loaded(resp)
+      store.$support() mustBe Loadable.Failed("no merchants")
+    }
+
+    "mark the statement failed and not load the support lists when the statement fails" in {
+      val client = new StubClient(None)
+      val store = new BankStatementReviewStore
+      store.load(client, UUID.randomUUID())
+      store.$statement() mustBe Loadable.Failed("no statement")
+      store.$support() mustBe Loadable.Loading
+      client.calls mustBe empty
+    }
+  }
 
   "statementLoaded" should {
     "seed the statement, rows and suggestions together" in {

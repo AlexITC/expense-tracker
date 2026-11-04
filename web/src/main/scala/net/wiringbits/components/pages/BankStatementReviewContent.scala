@@ -18,7 +18,6 @@ import slinky.core.{FunctionalComponent, KeyAddingStage}
 
 import java.util.UUID
 import scala.concurrent.ExecutionContext
-import scala.util.{Failure, Success}
 
 /** The review page body for one statement. It loads the statement first and the support lists (merchants, categories,
   * rules, candidate expenses) after it, into a store that lives as long as this component; its parent keys it by
@@ -53,34 +52,7 @@ object BankStatementReviewContent {
     val store = SafeHooks.useMemo(stmtId.toString)(() => new BankStatementReviewStore(using Scheduler.global))
     val (error, setError) = Hooks.useState("")
 
-    SafeHooks.useEffect(stmtId.toString)(() => {
-      val client = props.ctx.api.client
-      client.getBankStatement(stmtId).onComplete {
-        case Success(stmt) =>
-          store.statementLoaded(stmt)
-          val (from, to) = candidateExpenseWindow(stmt)
-          val merchantsF = client.getMerchants
-          val categoriesF = client.getCategories
-          val rulesF = client.getImportRules
-          val expensesF = client.getExpensesFiltered(Some(from), Some(to), unlinkedOnly = true)
-          val supportF = for {
-            merchants <- merchantsF
-            categories <- categoriesF
-            rules <- rulesF
-            expenses <- expensesF
-          } yield ReviewSupport(
-            merchants = merchants.data,
-            categories = categories.data,
-            rules = rules.data.map(ImportRuleMatcher.Rule.fromApi),
-            expenses = expenses.data
-          )
-          supportF.onComplete {
-            case Success(support) => store.supportLoaded(support)
-            case Failure(ex) => store.supportFailed(ex.getMessage)
-          }
-        case Failure(ex) => store.statementFailed(ex.getMessage)
-      }
-    })
+    SafeHooks.useEffect(stmtId.toString)(() => store.load(props.ctx.api.client, stmtId))
 
     val statementState = ReactiveHooks.useValue(store.$statement)
     val statementRows = ReactiveHooks.useValue(store.$rows)
@@ -157,22 +129,24 @@ object BankStatementReviewContent {
     )
 
     // Stable across renders so the memoized rows only re-render when their own props change. They may only use setters
-    // and values that never change for this statement; `onRowAction` changes once, when the statement loads.
+    // and values that never change for this statement; `onRowAction` changes when the statement and the support lists
+    // load. The forms need the support lists, so they don't open before those are loaded.
     val onToggleSelected: (UUID, Boolean) => Unit = SafeHooks.useCallback()((rowId: UUID, checked: Boolean) =>
       if (checked) setSelectedRowIds(cur => cur + rowId) else setSelectedRowIds(cur => cur - rowId)
     )
     val onRowAction: (UUID, RowAction) => Unit =
-      SafeHooks.useCallback(s"$stmtId:${rowActionsOpt.isDefined}")((rowId: UUID, action: RowAction) =>
-        action match {
-          case RowAction.OpenExpenseForm => setDrawerState(DrawerState.CreateExpense(rowId))
-          case RowAction.OpenRefundForm => setDrawerState(DrawerState.CreateRefund(rowId))
-          case RowAction.OpenLinkPicker => setDrawerState(DrawerState.LinkExpense(rowId))
-          case RowAction.OpenRuleForm => setDrawerState(DrawerState.CreateRule(rowId))
-          case RowAction.Ignore => rowActionsOpt.foreach(_.ignore(rowId))
-          case RowAction.Unignore => rowActionsOpt.foreach(_.unignore(rowId))
-          case RowAction.Unlink => rowActionsOpt.foreach(_.unlink(rowId))
-          case RowAction.UnlinkRefund => rowActionsOpt.foreach(_.unlinkRefund(rowId))
-        }
+      SafeHooks.useCallback(s"$stmtId:${rowActionsOpt.isDefined}:${support.isDefined}")(
+        (rowId: UUID, action: RowAction) =>
+          action match {
+            case RowAction.OpenExpenseForm => if (support.isDefined) setDrawerState(DrawerState.CreateExpense(rowId))
+            case RowAction.OpenRefundForm => if (support.isDefined) setDrawerState(DrawerState.CreateRefund(rowId))
+            case RowAction.OpenLinkPicker => if (support.isDefined) setDrawerState(DrawerState.LinkExpense(rowId))
+            case RowAction.OpenRuleForm => if (support.isDefined) setDrawerState(DrawerState.CreateRule(rowId))
+            case RowAction.Ignore => rowActionsOpt.foreach(_.ignore(rowId))
+            case RowAction.Unignore => rowActionsOpt.foreach(_.unignore(rowId))
+            case RowAction.Unlink => rowActionsOpt.foreach(_.unlink(rowId))
+            case RowAction.UnlinkRefund => rowActionsOpt.foreach(_.unlinkRefund(rowId))
+          }
       )
 
     val drawerTarget =
