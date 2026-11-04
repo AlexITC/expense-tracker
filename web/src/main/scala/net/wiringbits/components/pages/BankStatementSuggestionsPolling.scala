@@ -1,7 +1,7 @@
 package net.wiringbits.components.pages
 
 import net.wiringbits.api.ApiClient
-import net.wiringbits.api.models.bankstatements.GetBankStatement
+import net.wiringbits.api.models.bankstatements.AiSuggestions
 import net.wiringbits.core.SafeHooks
 import org.scalajs.dom
 import slinky.core.facade.{Hooks, SetStateHookCallback}
@@ -20,21 +20,24 @@ object BankStatementSuggestionsPolling {
 
   final case class State(polling: Boolean, regenerateDisabled: Boolean, regenerate: () => Unit)
 
-  /** A hook: call it unconditionally from the component body. */
+  /** A hook: call it unconditionally from the component body. Nothing is polled until `enabled`, so the attempts are
+    * not spent before the statement (and its real suggestions) has loaded.
+    */
   def useSuggestionsPolling(
       client: ApiClient,
-      statement: GetBankStatement.Response,
-      setStatement: SetStateHookCallback[GetBankStatement.Response],
+      stmtId: UUID,
+      enabled: Boolean,
+      aiSuggestions: Option[AiSuggestions],
+      setAiSuggestions: Option[AiSuggestions] => Unit,
       setError: SetStateHookCallback[String],
       showToast: String => Unit
   )(implicit ec: ExecutionContext): State = {
-    val stmtId = statement.id
     val (suggestionsPollAttempts, setSuggestionsPollAttempts) = Hooks.useState(0)
     val (regeneratingSuggestions, setRegeneratingSuggestions) = Hooks.useState(false)
     val regenerateSuggestionsDisabled = regeneratingSuggestions ||
-      !canRegenerateSuggestions(statement.aiSuggestions, suggestionsPollAttempts >= SuggestionsPollMaxAttempts)
+      !canRegenerateSuggestions(aiSuggestions, suggestionsPollAttempts >= SuggestionsPollMaxAttempts)
     val pollingSuggestions =
-      suggestionsPending(statement.aiSuggestions) && suggestionsPollAttempts < SuggestionsPollMaxAttempts
+      enabled && suggestionsPending(aiSuggestions) && suggestionsPollAttempts < SuggestionsPollMaxAttempts
     val suggestionsPollKey = s"$stmtId:$pollingSuggestions"
     SafeHooks.useEffect(suggestionsPollKey)(() => {
       if (pollingSuggestions) {
@@ -42,7 +45,7 @@ object BankStatementSuggestionsPolling {
           () => {
             setSuggestionsPollAttempts(_ + 1)
             client.getBankStatement(stmtId).onComplete {
-              case Success(full) => setStatement(cur => cur.copy(aiSuggestions = full.aiSuggestions))
+              case Success(full) => setAiSuggestions(full.aiSuggestions)
               case Failure(_) => ()
             }
           },
@@ -58,7 +61,7 @@ object BankStatementSuggestionsPolling {
       client.regenerateBankStatementAiSuggestions(stmtId).onComplete {
         case Success(resp) =>
           setError("")
-          setStatement(cur => cur.copy(aiSuggestions = Some(resp.aiSuggestions)))
+          setAiSuggestions(Some(resp.aiSuggestions))
           setSuggestionsPollAttempts(0)
           setRegeneratingSuggestions(false)
           showToast("Regenerating AI suggestions…")
