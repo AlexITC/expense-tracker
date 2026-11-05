@@ -426,6 +426,13 @@ object BankStatementReviewLogic {
     }.toMap
   }
 
+  /** The receipt id each row attaches when processed: its matched receipt, unless the user detached it. */
+  def effectiveReceiptIds(
+      matches: Map[UUID, GetReceipts.Response.Receipt],
+      detached: Set[UUID]
+  ): Map[UUID, UUID] =
+    (matches -- detached).view.mapValues(_.id).toMap
+
   /** The toast shown after "Process ready", listing only the non-zero counts. */
   def bulkImportSummary(linked: Int, created: Int, ignored: Int, failed: Int): String = {
     val parts = List(linked -> "linked", created -> "created", ignored -> "ignored", failed -> "failed")

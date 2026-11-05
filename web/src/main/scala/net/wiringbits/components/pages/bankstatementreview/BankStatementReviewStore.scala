@@ -74,7 +74,8 @@ final class BankStatementReviewStore(using Scheduler) {
 object BankStatementReviewStore {
 
   /** Fetches the merchants, categories, rules, the statement's candidate expenses and the unlinked receipts that have
-    * an amount, in parallel.
+    * an amount, in parallel. Receipts only feed the optional auto-match, so a failed receipts fetch yields no receipts
+    * instead of failing the support lists.
     */
   def loadSupport(client: ApiClient, stmt: GetBankStatement.Response)(using ExecutionContext): Future[ReviewSupport] = {
     val (from, to) = BankStatementReviewLogic.candidateExpenseWindow(stmt)
@@ -82,7 +83,7 @@ object BankStatementReviewStore {
     val categoriesF = client.getCategories
     val rulesF = client.getImportRules
     val expensesF = client.getExpensesFiltered(Some(from), Some(to), unlinkedOnly = true)
-    val receiptsF = client.getReceipts
+    val receiptsF = client.getReceipts.map(r => matchableReceipts(r.data)).recover { case _ => Nil }
     for {
       merchants <- merchantsF
       categories <- categoriesF
@@ -94,7 +95,7 @@ object BankStatementReviewStore {
       categories = categories.data,
       rules = rules.data.map(ImportRuleMatcher.Rule.fromApi),
       expenses = expenses.data,
-      receipts = matchableReceipts(receipts.data)
+      receipts = receipts
     )
   }
 

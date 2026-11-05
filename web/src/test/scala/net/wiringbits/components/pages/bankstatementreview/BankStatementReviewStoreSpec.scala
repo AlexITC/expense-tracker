@@ -163,12 +163,12 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
       store.$support() mustBe Loadable.Failed("no merchants")
     }
 
-    "keep the statement loaded and mark the support lists failed when the receipts fail" in {
+    "load the support lists without receipts when the receipts fail" in {
       val resp = statement(List(sampleRow("A")))
       val store = new BankStatementReviewStore
       store.load(new StubClient(Some(resp), failReceipts = true), resp.id)
       store.$statement() mustBe Loadable.Loaded(resp)
-      store.$support() mustBe Loadable.Failed("no receipts")
+      store.$support() mustBe Loadable.Loaded(emptySupport)
     }
 
     "mark the statement failed and not load the support lists when the statement fails" in {

@@ -121,7 +121,6 @@ object BankStatementReviewContent {
       )
     // Rows the user opted out of attaching their matched receipt to; processing creates them without one.
     val (detachedReceiptRowIds, setDetached) = Hooks.useState[Set[UUID]](Set.empty)
-    val effectiveReceiptMatchById = receiptMatchById -- detachedReceiptRowIds
 
     val rowActionsOpt = statementState.toOption.map(stmt =>
       BankStatementRowActions(
@@ -235,7 +234,7 @@ object BankStatementReviewContent {
                   statementRows = statementRows,
                   rowInfoById = rowInfoById,
                   expenseMatchById = expenseMatchById,
-                  receiptMatchById = effectiveReceiptMatchById.view.mapValues(_.id).toMap,
+                  receiptMatchById = effectiveReceiptIds(receiptMatchById, detachedReceiptRowIds),
                   expenseList = expenseList,
                   updateRows = store.updateRows,
                   setBulkImport = setBulkImport,

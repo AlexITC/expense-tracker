@@ -856,6 +856,31 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
     }
   }
 
+  "effectiveReceiptIds" should {
+    def receipt() = GetReceipts.Response.Receipt(
+      id = UUID.randomUUID(),
+      documentFilename = "receipt.jpg",
+      documentStatus = DocumentStatus.Parsed,
+      amount = Some(BigDecimal("10.00")),
+      date = Some(LocalDate.of(2024, 3, 7)),
+      merchantName = None,
+      expenseId = None,
+      ignoredAt = None,
+      createdAt = Instant.EPOCH
+    )
+
+    "drop a detached row and keep the others" in {
+      val detachedRow = UUID.randomUUID()
+      val keptRow = UUID.randomUUID()
+      val detachedReceipt = receipt()
+      val keptReceipt = receipt()
+      BankStatementReviewLogic.effectiveReceiptIds(
+        Map(detachedRow -> detachedReceipt, keptRow -> keptReceipt),
+        Set(detachedRow)
+      ) mustBe Map(keptRow -> keptReceipt.id)
+    }
+  }
+
   "expenseMatches" should {
     import BankStatementReviewLogic.{LinkedCategory, RowInfo}
 
