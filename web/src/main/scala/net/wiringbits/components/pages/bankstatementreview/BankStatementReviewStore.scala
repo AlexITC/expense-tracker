@@ -61,23 +61,28 @@ final class BankStatementReviewStore(using Scheduler) {
 
 object BankStatementReviewStore {
 
-  /** Fetches the merchants, categories, rules and the statement's candidate expenses in parallel. */
+  /** Fetches the merchants, categories, rules, the statement's candidate expenses and the unlinked receipts that have
+    * an amount, in parallel.
+    */
   def loadSupport(client: ApiClient, stmt: GetBankStatement.Response)(using ExecutionContext): Future[ReviewSupport] = {
     val (from, to) = BankStatementReviewLogic.candidateExpenseWindow(stmt)
     val merchantsF = client.getMerchants
     val categoriesF = client.getCategories
     val rulesF = client.getImportRules
     val expensesF = client.getExpensesFiltered(Some(from), Some(to), unlinkedOnly = true)
+    val receiptsF = client.getReceipts
     for {
       merchants <- merchantsF
       categories <- categoriesF
       rules <- rulesF
       expenses <- expensesF
+      receipts <- receiptsF
     } yield ReviewSupport(
       merchants = merchants.data,
       categories = categories.data,
       rules = rules.data.map(ImportRuleMatcher.Rule.fromApi),
-      expenses = expenses.data
+      expenses = expenses.data,
+      receipts = receipts.data.filter(r => r.expenseId.isEmpty && r.amount.isDefined)
     )
   }
 }

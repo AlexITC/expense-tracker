@@ -4,6 +4,7 @@ import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsSta
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.models.merchants.GetMerchants
+import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.utils.ReconciliationMatcher
 
@@ -38,11 +39,13 @@ object BankStatementReviewLogic {
       merchants: List[GetMerchants.Response.Merchant],
       categories: List[GetCategories.Response.Category],
       rules: List[ImportRuleMatcher.Rule],
-      expenses: List[GetExpenses.Response.Expense]
+      expenses: List[GetExpenses.Response.Expense],
+      receipts: List[GetReceipts.Response.Receipt]
   ) {
     def withRule(rule: ImportRuleMatcher.Rule): ReviewSupport = copy(rules = rules :+ rule)
     def withMerchant(m: GetMerchants.Response.Merchant): ReviewSupport = copy(merchants = merchants :+ m)
     def withExpenses(list: List[GetExpenses.Response.Expense]): ReviewSupport = copy(expenses = list)
+    def withoutReceipt(id: UUID): ReviewSupport = copy(receipts = receipts.filterNot(_.id == id))
   }
 
   /** Apply `f` to the row with `rowId`, leaving the others untouched. */

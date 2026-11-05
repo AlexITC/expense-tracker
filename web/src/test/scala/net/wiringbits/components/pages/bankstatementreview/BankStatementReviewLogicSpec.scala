@@ -5,6 +5,7 @@ import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.models.documents.DocumentStatus
 import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction, ImportRuleActionKind}
+import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.utils.ReconciliationMatcher
 import org.scalatest.matchers.must.Matchers.*
@@ -936,8 +937,27 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       splits = Nil,
       createdAt = Instant.EPOCH
     )
+    def receipt() = GetReceipts.Response.Receipt(
+      id = UUID.randomUUID(),
+      documentFilename = "receipt.jpg",
+      documentStatus = DocumentStatus.Parsed,
+      amount = Some(BigDecimal("10.00")),
+      date = Some(LocalDate.of(2024, 3, 7)),
+      merchantName = None,
+      expenseId = None,
+      ignoredAt = None,
+      createdAt = Instant.EPOCH
+    )
     val category = GetCategories.Response.Category(UUID.randomUUID(), "Food", Instant.EPOCH)
-    val base = ReviewSupport(List(merchant("M1")), List(category), List(rule("R1")), List(expense()))
+    val keptReceipt = receipt()
+    val droppedReceipt = receipt()
+    val base = ReviewSupport(
+      List(merchant("M1")),
+      List(category),
+      List(rule("R1")),
+      List(expense()),
+      List(keptReceipt, droppedReceipt)
+    )
 
     "append a merchant, keeping the other lists" in {
       val m = merchant("M2")
@@ -947,6 +967,14 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
     "replace the expenses, keeping the other lists" in {
       val fresh = List(expense(), expense())
       base.withExpenses(fresh) mustBe base.copy(expenses = fresh)
+    }
+
+    "drop only the receipt with the given id, keeping the other lists" in {
+      base.withoutReceipt(droppedReceipt.id) mustBe base.copy(receipts = List(keptReceipt))
+    }
+
+    "be unchanged when no receipt has the given id" in {
+      base.withoutReceipt(UUID.randomUUID()) mustBe base
     }
   }
 

@@ -20,8 +20,8 @@ import java.util.UUID
 import scala.concurrent.ExecutionContext
 
 /** The review page body for one statement. It loads the statement first and the support lists (merchants, categories,
-  * rules, candidate expenses) after it, into a store that lives as long as this component; its parent keys it by
-  * statement id, so another statement gets a fresh store.
+  * rules, candidate expenses, unlinked receipts) after it, into a store that lives as long as this component; its
+  * parent keys it by statement id, so another statement gets a fresh store.
   */
 object BankStatementReviewContent {
   import BankStatementReviewLogic.*
