@@ -4,6 +4,7 @@ import com.olvind.mui.muiMaterial.components as mui
 import monix.execution.Scheduler
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.GetBankStatement
+import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewRow.RowAction
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.components.widgets.Loader
@@ -112,6 +113,12 @@ object BankStatementReviewContent {
       SafeHooks.useMemo(rowsKey, rowInfoKey, expensesKey)(() =>
         expenseMatches(statementRows, rowInfoById, unlinkedExpensesByDate)
       )
+    val receiptList = support.fold(Nil)(_.receipts)
+    val receiptsKey = receiptList.toString
+    val receiptMatchById: Map[UUID, GetReceipts.Response.Receipt] =
+      SafeHooks.useMemo(rowsKey, rowInfoKey, expensesKey, receiptsKey)(() =>
+        receiptMatches(statementRows, rowInfoById, expenseMatchById, receiptList)
+      )
 
     val rowActionsOpt = statementState.toOption.map(stmt =>
       BankStatementRowActions(
@@ -216,11 +223,13 @@ object BankStatementReviewContent {
                   statementRows = statementRows,
                   rowInfoById = rowInfoById,
                   expenseMatchById = expenseMatchById,
+                  receiptMatchById = receiptMatchById.view.mapValues(_.id).toMap,
                   expenseList = expenseList,
                   updateRows = store.updateRows,
                   setBulkImport = setBulkImport,
                   setSelectedRowIds = setSelectedRowIds,
                   showToast = showToast,
+                  onReceiptLinked = id => store.updateSupport(_.withoutReceipt(id)),
                   onFinished = () => rowActions.refreshExpenses()
                 ),
               onIgnore = () =>
@@ -281,6 +290,8 @@ object BankStatementReviewContent {
                 store.patchRow(rowId)(_.copy(expenseId = Some(expenseId)))
                 setDrawerState(_.closing(DrawerState.CreateExpense(rowId)))
                 rowActions.refreshRow(rowId)
+                // The form may have attached a receipt; refetch so it cannot match another row.
+                store.refreshReceipts(props.ctx.api.client, setError)
                 showToast("Expense created")
               },
               onRefundCreated = (rowId, refundId) => {

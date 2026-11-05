@@ -112,7 +112,7 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
         rowId: UUID,
         request: CreateExpenseFromRow.Request
     ): Future[CreateExpenseFromRow.Response] = {
-      calls += s"create:$rowId"
+      calls += s"create:$rowId:${request.receiptId}"
       Future.successful(CreateExpenseFromRow.Response(createdExpenseId))
     }
 
@@ -194,11 +194,13 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
           first.id -> ReconciliationMatcher.AutoLink(exp.id),
           second.id -> ReconciliationMatcher.AutoLink(exp.id)
         ),
+        receiptMatchById = Map.empty,
         expenseList = List(exp),
         updateRows = rows.update,
         setBulkImport = run.callback,
         setSelectedRowIds = new Recorder[Set[UUID]](Set.empty).callback,
         showToast = _ => (),
+        onReceiptLinked = _ => (),
         onFinished = () => ()
       )
 
@@ -243,15 +245,17 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
           toIgnore.id -> info(RowRuleVerdict.Ignore)
         ),
         expenseMatchById = Map.empty,
+        receiptMatchById = Map.empty,
         expenseList = Nil,
         updateRows = rows.update,
         setBulkImport = run.callback,
         setSelectedRowIds = selected.callback,
         showToast = msg => events += s"toast:$msg:${run.value}:${selected.value}",
+        onReceiptLinked = _ => (),
         onFinished = () => events += "finished"
       )
 
-      client.calls.toList mustBe List(s"create:${toCreate.id}", s"ignore:${toIgnore.id}")
+      client.calls.toList mustBe List(s"create:${toCreate.id}:None", s"ignore:${toIgnore.id}")
       val created = rows.value.find(_.id == toCreate.id).get
       created.expenseId mustBe Some(createdExpenseId)
       created.expenseMerchantId mustBe Some(merchantId)
@@ -284,11 +288,13 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
           )
         ),
         expenseMatchById = Map.empty,
+        receiptMatchById = Map.empty,
         expenseList = Nil,
         updateRows = rows.update,
         setBulkImport = run.callback,
         setSelectedRowIds = selected.callback,
         showToast = msg => toasts += msg,
+        onReceiptLinked = _ => (),
         onFinished = () => ()
       )
 
@@ -318,11 +324,13 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
           ok.id -> info(RowRuleVerdict.NoRule, refund = prefill)
         ),
         expenseMatchById = Map.empty,
+        receiptMatchById = Map.empty,
         expenseList = Nil,
         updateRows = rows.update,
         setBulkImport = run.callback,
         setSelectedRowIds = selected.callback,
         showToast = msg => toasts += msg,
+        onReceiptLinked = _ => (),
         onFinished = () => ()
       )
 
@@ -330,6 +338,40 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
       rows.value.find(_.id == ok.id).flatMap(_.refundId) mustBe Some(createdRefundId)
       run.value mustBe BulkRun.Done(List(bad.id -> Left("refund boom"), ok.id -> Right(())))
       toasts.toList mustBe List(bulkImportSummary(0, 1, 0, 1))
+    }
+    "attach a matched receipt to a created expense and report it, but only link an AutoLink row" in {
+      val categoryId = UUID.randomUUID()
+      val exp = expense(categoryId, UUID.randomUUID())
+      val toCreate = sampleRow("CREATE")
+      val toLink = sampleRow("LINK")
+      val createReceipt = UUID.randomUUID()
+      val linkReceipt = UUID.randomUUID()
+      val client = new StubClient()
+      val linkedReceipts = ListBuffer.empty[UUID]
+      val resolved = ResolvedImport(merchantId = None, categoryId = categoryId, categoryFromAi = false)
+
+      BankStatementBulkRuns.handleBulkImport(
+        client = client,
+        stmtId = stmtId,
+        ids = List(toCreate.id, toLink.id),
+        statementRows = List(toCreate, toLink),
+        rowInfoById = Map(
+          toCreate.id -> info(RowRuleVerdict.NoRule, Some(resolved)),
+          toLink.id -> info(RowRuleVerdict.NoRule, Some(resolved))
+        ),
+        expenseMatchById = Map(toLink.id -> ReconciliationMatcher.AutoLink(exp.id)),
+        receiptMatchById = Map(toCreate.id -> createReceipt, toLink.id -> linkReceipt),
+        expenseList = List(exp),
+        updateRows = new Recorder(List(toCreate, toLink)).update,
+        setBulkImport = new Recorder[BulkRun](BulkRun.Idle).callback,
+        setSelectedRowIds = new Recorder[Set[UUID]](Set.empty).callback,
+        showToast = _ => (),
+        onReceiptLinked = id => linkedReceipts += id,
+        onFinished = () => ()
+      )
+
+      client.calls.toList mustBe List(s"create:${toCreate.id}:Some($createReceipt)", s"link:${toLink.id}:${exp.id}")
+      linkedReceipts.toList mustBe List(createReceipt)
     }
   }
 }

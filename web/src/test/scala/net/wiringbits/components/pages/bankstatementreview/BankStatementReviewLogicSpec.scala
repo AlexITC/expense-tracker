@@ -604,7 +604,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
     val resolved = ResolvedImport(merchantId = None, categoryId = categoryId, categoryFromAi = false)
 
     "ignore a row with an Ignore verdict" in {
-      BankStatementReviewLogic.bulkRowDecision(info(RowRuleVerdict.Ignore, None), None, Set.empty) mustBe
+      BankStatementReviewLogic.bulkRowDecision(info(RowRuleVerdict.Ignore, None), None, None, Set.empty) mustBe
         BulkRowDecision.Ignore
     }
 
@@ -612,11 +612,13 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       BankStatementReviewLogic.bulkRowDecision(
         info(RowRuleVerdict.Ignore, Some(resolved)),
         Some(ReconciliationMatcher.AutoLink(expenseId)),
+        None,
         Set.empty
       ) mustBe BulkRowDecision.Ignore
       BankStatementReviewLogic.bulkRowDecision(
         info(RowRuleVerdict.Ignore, Some(resolved)),
         Some(ReconciliationMatcher.NeedsReview(List(UUID.randomUUID(), UUID.randomUUID()))),
+        None,
         Set.empty
       ) mustBe BulkRowDecision.Ignore
     }
@@ -625,6 +627,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       BankStatementReviewLogic.bulkRowDecision(
         info(RowRuleVerdict.NoRule, Some(resolved)),
         Some(ReconciliationMatcher.AutoLink(expenseId)),
+        None,
         Set.empty
       ) mustBe BulkRowDecision.Link(expenseId)
     }
@@ -633,6 +636,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       val decision = BankStatementReviewLogic.bulkRowDecision(
         info(RowRuleVerdict.NoRule, Some(resolved)),
         Some(ReconciliationMatcher.AutoLink(expenseId)),
+        None,
         Set(expenseId)
       )
       decision match {
@@ -645,6 +649,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       val decision = BankStatementReviewLogic.bulkRowDecision(
         info(RowRuleVerdict.NoRule, Some(resolved)),
         Some(ReconciliationMatcher.NeedsReview(List(UUID.randomUUID(), UUID.randomUUID()))),
+        None,
         Set.empty
       )
       decision match {
@@ -657,8 +662,9 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       BankStatementReviewLogic.bulkRowDecision(
         info(RowRuleVerdict.NoRule, Some(resolved)),
         Some(ReconciliationMatcher.CreateNew),
+        None,
         Set.empty
-      ) mustBe BulkRowDecision.Create(resolved)
+      ) mustBe BulkRowDecision.Create(resolved, None)
     }
 
     "ignore an ignore-matched credit row" in {
@@ -670,7 +676,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         None,
         credit
       )
-      BankStatementReviewLogic.bulkRowDecision(Some(creditInfo), None, Set.empty) mustBe BulkRowDecision.Ignore
+      BankStatementReviewLogic.bulkRowDecision(Some(creditInfo), None, None, Set.empty) mustBe BulkRowDecision.Ignore
     }
 
     "create a refund for a rule-matched credit row" in {
@@ -683,13 +689,170 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         None,
         credit
       )
-      BankStatementReviewLogic.bulkRowDecision(Some(creditInfo), None, Set.empty) mustBe
+      BankStatementReviewLogic.bulkRowDecision(Some(creditInfo), None, None, Set.empty) mustBe
         BulkRowDecision.CreateRefund(BankStatementReviewLogic.RefundPrefill(Some(m), None))
     }
 
     "fail with No category when the row resolves to nothing" in {
-      BankStatementReviewLogic.bulkRowDecision(info(RowRuleVerdict.NoRule, None), None, Set.empty) mustBe
+      BankStatementReviewLogic.bulkRowDecision(info(RowRuleVerdict.NoRule, None), None, None, Set.empty) mustBe
         BulkRowDecision.Fail("No category")
+    }
+
+    val receiptId = UUID.randomUUID()
+
+    "link a row with a unique match, ignoring its receipt match" in {
+      BankStatementReviewLogic.bulkRowDecision(
+        info(RowRuleVerdict.NoRule, Some(resolved)),
+        Some(ReconciliationMatcher.AutoLink(expenseId)),
+        Some(receiptId),
+        Set.empty
+      ) mustBe BulkRowDecision.Link(expenseId)
+    }
+
+    "create an expense with its receipt match" in {
+      BankStatementReviewLogic.bulkRowDecision(
+        info(RowRuleVerdict.NoRule, Some(resolved)),
+        Some(ReconciliationMatcher.CreateNew),
+        Some(receiptId),
+        Set.empty
+      ) mustBe BulkRowDecision.Create(resolved, Some(receiptId))
+      BankStatementReviewLogic.bulkRowDecision(
+        info(RowRuleVerdict.NoRule, Some(resolved)),
+        None,
+        Some(receiptId),
+        Set.empty
+      ) mustBe BulkRowDecision.Create(resolved, Some(receiptId))
+    }
+
+    "still fail a row with several expense matches when it has a receipt match" in {
+      BankStatementReviewLogic.bulkRowDecision(
+        info(RowRuleVerdict.NoRule, Some(resolved)),
+        Some(ReconciliationMatcher.NeedsReview(List(UUID.randomUUID(), UUID.randomUUID()))),
+        Some(receiptId),
+        Set.empty
+      ) mustBe a[BulkRowDecision.Fail]
+    }
+  }
+
+  "receiptMatches" should {
+    import BankStatementReviewLogic.{LinkedCategory, RefundPrefill, ResolvedImport, RowInfo}
+
+    val resolved = ResolvedImport(merchantId = None, categoryId = UUID.randomUUID(), categoryFromAi = false)
+    def info(
+        verdict: RowRuleVerdict.Verdict = RowRuleVerdict.NoRule,
+        isReady: Boolean = true,
+        refund: Option[RefundPrefill] = None
+    ): RowInfo =
+      RowInfo(
+        verdict = verdict,
+        resolved = Some(resolved),
+        refund = refund,
+        prefillMerchantId = None,
+        isReady = isReady,
+        merchantName = None,
+        categoryName = None,
+        linkedMerchantName = None,
+        linkedCategory = LinkedCategory.Unknown
+      )
+    def receipt(amount: String = "120.00", date: LocalDate = LocalDate.of(2024, 3, 6)) =
+      GetReceipts.Response.Receipt(
+        id = UUID.randomUUID(),
+        documentFilename = "receipt.jpg",
+        documentStatus = DocumentStatus.Parsed,
+        amount = Some(BigDecimal(amount)),
+        date = Some(date),
+        merchantName = None,
+        expenseId = None,
+        ignoredAt = None,
+        createdAt = Instant.EPOCH
+      )
+
+    "include a ready row with a single receipt match" in {
+      val row = sampleRow()
+      val r = receipt()
+      BankStatementReviewLogic.receiptMatches(List(row), Map(row.id -> info()), Map.empty, List(r)) mustBe
+        Map(row.id -> r)
+      BankStatementReviewLogic.receiptMatches(
+        List(row),
+        Map(row.id -> info()),
+        Map(row.id -> ReconciliationMatcher.CreateNew),
+        List(r)
+      ) mustBe Map(row.id -> r)
+    }
+
+    "exclude rows that would link to or need review against an existing expense" in {
+      // Each row has its own receipt, so a wrongly included row shows up instead of cancelling out as a shared claim.
+      val autoLink = sampleRow().copy(amount = BigDecimal("-11.00"))
+      val review = sampleRow().copy(amount = BigDecimal("-12.00"))
+      BankStatementReviewLogic.receiptMatches(
+        List(autoLink, review),
+        Map(autoLink.id -> info(), review.id -> info()),
+        Map(
+          autoLink.id -> ReconciliationMatcher.AutoLink(UUID.randomUUID()),
+          review.id -> ReconciliationMatcher.NeedsReview(List(UUID.randomUUID(), UUID.randomUUID()))
+        ),
+        List(receipt(amount = "11.00"), receipt(amount = "12.00"))
+      ) mustBe Map.empty
+    }
+
+    "exclude an Ignore-verdict row" in {
+      val row = sampleRow()
+      BankStatementReviewLogic.receiptMatches(
+        List(row),
+        Map(row.id -> info(verdict = RowRuleVerdict.Ignore)),
+        Map.empty,
+        List(receipt())
+      ) mustBe Map.empty
+    }
+
+    "exclude a credit row" in {
+      val row = sampleRow().copy(amount = BigDecimal("120.00"))
+      BankStatementReviewLogic.receiptMatches(List(row), Map(row.id -> info()), Map.empty, List(receipt())) mustBe
+        Map.empty
+    }
+
+    "exclude a not-ready row" in {
+      val row = sampleRow()
+      BankStatementReviewLogic.receiptMatches(
+        List(row),
+        Map(row.id -> info(isReady = false)),
+        Map.empty,
+        List(receipt())
+      ) mustBe Map.empty
+    }
+
+    "exclude a row with a refund prefill" in {
+      val row = sampleRow()
+      BankStatementReviewLogic.receiptMatches(
+        List(row),
+        Map(row.id -> info(refund = Some(RefundPrefill(None, None)))),
+        Map.empty,
+        List(receipt())
+      ) mustBe Map.empty
+    }
+
+    "exclude a row with two candidate receipts" in {
+      val row = sampleRow()
+      BankStatementReviewLogic.receiptMatches(
+        List(row),
+        Map(row.id -> info()),
+        Map.empty,
+        List(receipt(), receipt(date = LocalDate.of(2024, 3, 7)))
+      ) mustBe Map.empty
+    }
+
+    "attach a receipt matching two ready rows to neither" in {
+      val first = sampleRow()
+      val second = sampleRow()
+      val other = sampleRow().copy(amount = BigDecimal("-30.00"))
+      val shared = receipt()
+      val own = receipt(amount = "30.00")
+      BankStatementReviewLogic.receiptMatches(
+        List(first, second, other),
+        Map(first.id -> info(), second.id -> info(), other.id -> info()),
+        Map.empty,
+        List(shared, own)
+      ) mustBe Map(other.id -> own)
     }
   }
 

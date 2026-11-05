@@ -240,6 +240,33 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
     }
   }
 
+  "refreshReceipts" should {
+    given ExecutionContext = ExecutionContext.parasitic
+
+    "replace the receipts with the refetched unlinked ones that have an amount" in {
+      val stale = receipt(Some(BigDecimal("12.00")), None)
+      val kept = receipt(Some(BigDecimal("30.00")), None)
+      val nowLinked = stale.copy(expenseId = Some(UUID.randomUUID()))
+      val noAmount = receipt(None, None)
+      val store = new BankStatementReviewStore
+      store.supportLoaded(emptySupport.copy(receipts = List(stale)))
+      val errors = ListBuffer.empty[String]
+      store.refreshReceipts(new StubClient(None, receipts = List(nowLinked, kept, noAmount)), errors += _)
+      store.$support() mustBe Loadable.Loaded(emptySupport.copy(receipts = List(kept)))
+      errors mustBe empty
+    }
+
+    "keep the current receipts and report the error when the fetch fails" in {
+      val current = receipt(Some(BigDecimal("12.00")), None)
+      val store = new BankStatementReviewStore
+      store.supportLoaded(emptySupport.copy(receipts = List(current)))
+      val errors = ListBuffer.empty[String]
+      store.refreshReceipts(new StubClient(None, failReceipts = true), errors += _)
+      store.$support() mustBe Loadable.Loaded(emptySupport.copy(receipts = List(current)))
+      errors.toList mustBe List("no receipts")
+    }
+  }
+
   "setSuggestions" should {
     "notify only the suggestions subscribers" in {
       val store = new BankStatementReviewStore
