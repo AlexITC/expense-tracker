@@ -5,7 +5,7 @@ import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
 import net.wiringbits.api.ApiClient
 import net.wiringbits.api.models.bankstatements.LinkRowToExpense
-import net.wiringbits.api.models.expenses.{CreateExpense, MergeExpenses, UpdateExpense}
+import net.wiringbits.api.models.expenses.{CreateExpense, MergeDetailsSource, MergeExpenses, UpdateExpense}
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
 import net.wiringbits.common.models.Captcha
@@ -16,6 +16,7 @@ import net.wiringbits.repositories.models.{BackgroundJobData, BankStatementRow, 
 import net.wiringbits.util.TokenGenerator
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.*
+import org.scalatest.OptionValues.*
 import org.scalatestplus.mockito.MockitoSugar
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
@@ -411,12 +412,44 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       val rowId = linkToNewRow(userId, survivorId)
       val receiptId = createLinkedReceipt(userId, loserId)
 
-      client.mergeExpenses(survivorId, MergeExpenses.Request(loserId)).futureValue
+      client
+        .mergeExpenses(survivorId, MergeExpenses.Request(loserId = loserId, keepDetailsFrom = MergeDetailsSource.Row))
+        .futureValue
 
       val expenses = client.getExpenses.futureValue.data
       expenses.map(_.id) must be(List(survivorId))
       expenses.head.receiptIds must be(List(receiptId))
       expenses.head.rowIds must be(List(rowId))
+    }
+
+    "keep the receipt's merchant, notes and splits when requested" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val merchant = client
+        .createMerchant(net.wiringbits.api.models.merchants.CreateMerchant.Request("Receipt shop", None, None))
+        .futureValue
+      val loserSplits = fullSplit(BigDecimal("50.00")).futureValue
+      val survivorId = client.createExpense(createRequest()).futureValue.id
+      val loserId = client
+        .createExpense(
+          createRequest().copy(merchantId = Some(merchant.id), notes = Some("receipt"), splits = loserSplits)
+        )
+        .futureValue
+        .id
+      linkToNewRow(userId, survivorId)
+      createLinkedReceipt(userId, loserId)
+
+      client
+        .mergeExpenses(
+          survivorId,
+          MergeExpenses.Request(loserId = loserId, keepDetailsFrom = MergeDetailsSource.Receipt)
+        )
+        .futureValue
+
+      val survivor = client.getExpenses.futureValue.data.find(_.id == survivorId).value
+      survivor.merchantId must be(Some(merchant.id))
+      survivor.notes must be(Some("receipt"))
+      survivor.splits.map(s => s.categoryId -> s.amount) must be(loserSplits.map(s => s.categoryId -> s.amount))
     }
 
     "fail when the survivor belongs to another user" in withApiClient { implicit client =>
@@ -431,7 +464,9 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       val loserId = client2.createExpense(createRequest()(using client2)).futureValue.id
       createLinkedReceipt(userId2, loserId)
 
-      val error = client2.mergeExpenses(survivorId, MergeExpenses.Request(loserId)).expectError
+      val error = client2
+        .mergeExpenses(survivorId, MergeExpenses.Request(loserId = loserId, keepDetailsFrom = MergeDetailsSource.Row))
+        .expectError
       error must include("Expense not found")
       client2.getExpenses.futureValue.data.map(_.id) must be(List(loserId))
     }
@@ -448,7 +483,9 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       val survivorId = client2.createExpense(createRequest()(using client2)).futureValue.id
       linkToNewRow(userId2, survivorId)(using client2)
 
-      val error = client2.mergeExpenses(survivorId, MergeExpenses.Request(loserId)).expectError
+      val error = client2
+        .mergeExpenses(survivorId, MergeExpenses.Request(loserId = loserId, keepDetailsFrom = MergeDetailsSource.Row))
+        .expectError
       error must include("Expense not found")
       client.getExpenses.futureValue.data.map(_.id) must be(List(loserId))
     }
@@ -461,7 +498,12 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       linkToNewRow(userId, rowLinkedId)
       createLinkedReceipt(userId, receiptLinkedId)
 
-      val error = client.mergeExpenses(receiptLinkedId, MergeExpenses.Request(rowLinkedId)).expectError
+      val error = client
+        .mergeExpenses(
+          receiptLinkedId,
+          MergeExpenses.Request(loserId = rowLinkedId, keepDetailsFrom = MergeDetailsSource.Row)
+        )
+        .expectError
       error must include("The surviving expense must be linked to a bank statement row")
       client.getExpenses.futureValue.data.map(_.id).toSet must be(Set(rowLinkedId, receiptLinkedId))
     }

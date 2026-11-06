@@ -1,5 +1,6 @@
 package net.wiringbits.repositories
 
+import net.wiringbits.api.models.expenses.MergeDetailsSource
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import net.wiringbits.repositories.models.{BankStatementRow, ExpenseCategorySplit}
 import org.scalatest.OptionValues.*
@@ -515,7 +516,14 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
     "move the loser's receipt to the survivor" in withRepositories() { implicit repositories =>
       val f = mergeFixture()
 
-      repositories.expenses.merge(f.survivorId, f.loserId, f.userId).futureValue
+      repositories.expenses
+        .merge(
+          survivorId = f.survivorId,
+          loserId = f.loserId,
+          userId = f.userId,
+          keepDetailsFrom = MergeDetailsSource.Row
+        )
+        .futureValue
 
       repositories.receipts.find(f.receiptId, f.userId).futureValue.value.expenseId must be(Some(f.survivorId))
     }
@@ -524,7 +532,14 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
       implicit repositories =>
         val f = mergeFixture()
 
-        repositories.expenses.merge(f.survivorId, f.loserId, f.userId).futureValue
+        repositories.expenses
+          .merge(
+            survivorId = f.survivorId,
+            loserId = f.loserId,
+            userId = f.userId,
+            keepDetailsFrom = MergeDetailsSource.Row
+          )
+          .futureValue
 
         repositories.refunds.find(f.refundId, f.userId).futureValue.value.expenseId must be(Some(f.survivorId))
         repositories.refunds.find(f.otherRefundId, f.userId).futureValue.value.expenseId must be(None)
@@ -533,7 +548,14 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
     "delete the loser and its splits" in withRepositories() { implicit repositories =>
       val f = mergeFixture()
 
-      repositories.expenses.merge(f.survivorId, f.loserId, f.userId).futureValue
+      repositories.expenses
+        .merge(
+          survivorId = f.survivorId,
+          loserId = f.loserId,
+          userId = f.userId,
+          keepDetailsFrom = MergeDetailsSource.Row
+        )
+        .futureValue
 
       repositories.expenses.find(f.loserId, f.userId).futureValue must be(None)
       repositories.expenses.findSplitsByExpenseId(f.loserId, f.userId).futureValue must be(empty)
@@ -543,7 +565,14 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
       val f = mergeFixture()
       val splitsBefore = repositories.expenses.findSplitsByExpenseId(f.survivorId, f.userId).futureValue
 
-      repositories.expenses.merge(f.survivorId, f.loserId, f.userId).futureValue
+      repositories.expenses
+        .merge(
+          survivorId = f.survivorId,
+          loserId = f.loserId,
+          userId = f.userId,
+          keepDetailsFrom = MergeDetailsSource.Row
+        )
+        .futureValue
 
       val survivor = repositories.expenses.find(f.survivorId, f.userId).futureValue.value
       survivor.amount must be(BigDecimal("42.50"))
@@ -558,7 +587,16 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
       val user = createUser().futureValue
       val expense = createExpense(user.id).futureValue
 
-      val ex = intercept[RuntimeException](repositories.expenses.merge(expense.id, expense.id, user.id).futureValue)
+      val ex = intercept[RuntimeException](
+        repositories.expenses
+          .merge(
+            survivorId = expense.id,
+            loserId = expense.id,
+            userId = user.id,
+            keepDetailsFrom = MergeDetailsSource.Row
+          )
+          .futureValue
+      )
       ex.getCause.getMessage must include("Cannot merge an expense with itself")
     }
 
@@ -571,7 +609,16 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
       val receipt = createReceipt(other.id).futureValue
       repositories.receipts.linkToExpense(receipt.id, other.id, loser.id).futureValue
 
-      val ex = intercept[RuntimeException](repositories.expenses.merge(survivor.id, loser.id, user.id).futureValue)
+      val ex = intercept[RuntimeException](
+        repositories.expenses
+          .merge(
+            survivorId = survivor.id,
+            loserId = loser.id,
+            userId = user.id,
+            keepDetailsFrom = MergeDetailsSource.Row
+          )
+          .futureValue
+      )
       ex.getCause.getMessage must include("Expense not found")
       repositories.expenses.find(loser.id, other.id).futureValue mustNot be(None)
     }
@@ -585,7 +632,16 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
       val receipt = createReceipt(user.id).futureValue
       repositories.receipts.linkToExpense(receipt.id, user.id, loser.id).futureValue
 
-      val ex = intercept[RuntimeException](repositories.expenses.merge(survivor.id, loser.id, user.id).futureValue)
+      val ex = intercept[RuntimeException](
+        repositories.expenses
+          .merge(
+            survivorId = survivor.id,
+            loserId = loser.id,
+            userId = user.id,
+            keepDetailsFrom = MergeDetailsSource.Row
+          )
+          .futureValue
+      )
       ex.getCause.getMessage must include("Expense not found")
       repositories.expenses.find(loser.id, user.id).futureValue mustNot be(None)
       repositories.receipts.find(receipt.id, user.id).futureValue.value.expenseId must be(Some(loser.id))
@@ -598,7 +654,16 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
       val receipt = createReceipt(user.id).futureValue
       repositories.receipts.linkToExpense(receipt.id, user.id, loser.id).futureValue
 
-      val ex = intercept[RuntimeException](repositories.expenses.merge(survivor.id, loser.id, user.id).futureValue)
+      val ex = intercept[RuntimeException](
+        repositories.expenses
+          .merge(
+            survivorId = survivor.id,
+            loserId = loser.id,
+            userId = user.id,
+            keepDetailsFrom = MergeDetailsSource.Row
+          )
+          .futureValue
+      )
       ex.getCause.getMessage must include("The surviving expense must be linked to a bank statement row")
     }
 
@@ -611,7 +676,16 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
       val receipt = createReceipt(user.id).futureValue
       repositories.receipts.linkToExpense(receipt.id, user.id, loser.id).futureValue
 
-      val ex = intercept[RuntimeException](repositories.expenses.merge(survivor.id, loser.id, user.id).futureValue)
+      val ex = intercept[RuntimeException](
+        repositories.expenses
+          .merge(
+            survivorId = survivor.id,
+            loserId = loser.id,
+            userId = user.id,
+            keepDetailsFrom = MergeDetailsSource.Row
+          )
+          .futureValue
+      )
       ex.getCause.getMessage must include("The merged expense must not be linked to a bank statement row")
     }
 
@@ -621,7 +695,16 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
       val loser = createExpense(user.id).futureValue
       linkToNewRow(user.id, survivor.id)
 
-      val ex = intercept[RuntimeException](repositories.expenses.merge(survivor.id, loser.id, user.id).futureValue)
+      val ex = intercept[RuntimeException](
+        repositories.expenses
+          .merge(
+            survivorId = survivor.id,
+            loserId = loser.id,
+            userId = user.id,
+            keepDetailsFrom = MergeDetailsSource.Row
+          )
+          .futureValue
+      )
       ex.getCause.getMessage must include("The merged expense must have a receipt")
       repositories.expenses.find(loser.id, user.id).futureValue mustNot be(None)
     }
@@ -638,12 +721,198 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
         repositories.receipts.linkToExpense(loserReceipt.id, user.id, loser.id).futureValue
 
         val ex =
-          intercept[RuntimeException](repositories.expenses.merge(survivor.id, loser.id, user.id).futureValue)
+          intercept[RuntimeException](
+            repositories.expenses
+              .merge(
+                survivorId = survivor.id,
+                loserId = loser.id,
+                userId = user.id,
+                keepDetailsFrom = MergeDetailsSource.Row
+              )
+              .futureValue
+          )
         ex.getCause.getMessage must include("The surviving expense already has a receipt")
 
         repositories.expenses.find(loser.id, user.id).futureValue mustNot be(None)
         repositories.receipts.find(loserReceipt.id, user.id).futureValue.value.expenseId must be(Some(loser.id))
         repositories.receipts.find(survivorReceipt.id, user.id).futureValue.value.expenseId must be(Some(survivor.id))
+    }
+    case class ReceiptModeFixture(
+        userId: UUID,
+        survivorId: UUID,
+        survivorMerchantId: UUID,
+        survivorCategoryId: UUID,
+        loserId: UUID,
+        loserMerchantId: UUID,
+        loserCategoryIds: List[UUID],
+        receiptId: UUID,
+        refundId: UUID
+    )
+
+    def receiptModeFixture(loserAmount: BigDecimal = BigDecimal("42.50"), loserSplitAmounts: List[BigDecimal] = Nil)(
+        implicit repositories: RepositoryComponents
+    ): ReceiptModeFixture = {
+      val user = createUser().futureValue
+      val survivorCategory = createCategory(user.id).futureValue
+      val survivorMerchant = createMerchant(user.id).futureValue
+      val loserMerchant = createMerchant(user.id, name = "Receipt Merchant").futureValue
+      val survivorId = createExpenseWithSplit(
+        userId = user.id,
+        categoryId = survivorCategory.id,
+        amount = BigDecimal("42.50"),
+        date = LocalDate.of(2024, 1, 15),
+        merchantId = Some(survivorMerchant.id),
+        notes = Some("bank")
+      )
+      val splitAmounts =
+        if (loserSplitAmounts.isEmpty) List(BigDecimal("30.00"), loserAmount - BigDecimal("30.00"))
+        else loserSplitAmounts
+      val loserCategoryIds =
+        splitAmounts.indices.toList.map(i => createCategory(user.id, name = s"Receipt Category $i").futureValue.id)
+      val loserId = UUID.randomUUID()
+      val now = Instant.now()
+      repositories.expenses
+        .create(
+          net.wiringbits.repositories.models.Expense.Create(
+            id = loserId,
+            userId = user.id,
+            amount = loserAmount,
+            date = LocalDate.of(2024, 1, 16),
+            time = None,
+            merchantId = Some(loserMerchant.id),
+            notes = Some("receipt"),
+            createdAt = now,
+            updatedAt = now
+          ),
+          loserCategoryIds.zip(splitAmounts).map { case (categoryId, amount) =>
+            ExpenseCategorySplit.Create(
+              id = UUID.randomUUID(),
+              userId = user.id,
+              expenseId = loserId,
+              categoryId = categoryId,
+              amount = amount
+            )
+          }
+        )
+        .futureValue
+      linkToNewRow(userId = user.id, expenseId = survivorId)
+      val receipt = createReceipt(user.id).futureValue
+      repositories.receipts.linkToExpense(id = receipt.id, userId = user.id, expenseId = loserId).futureValue
+      val refund = createRefund(user.id, expenseId = Some(loserId)).futureValue
+      ReceiptModeFixture(
+        userId = user.id,
+        survivorId = survivorId,
+        survivorMerchantId = survivorMerchant.id,
+        survivorCategoryId = survivorCategory.id,
+        loserId = loserId,
+        loserMerchantId = loserMerchant.id,
+        loserCategoryIds = loserCategoryIds,
+        receiptId = receipt.id,
+        refundId = refund.id
+      )
+    }
+
+    def mergeKeepingReceipt(f: ReceiptModeFixture)(implicit repositories: RepositoryComponents): Unit =
+      repositories.expenses
+        .merge(
+          survivorId = f.survivorId,
+          loserId = f.loserId,
+          userId = f.userId,
+          keepDetailsFrom = MergeDetailsSource.Receipt
+        )
+        .futureValue
+
+    def assertReceiptModeMergeRejected(f: ReceiptModeFixture, message: String)(implicit
+        repositories: RepositoryComponents
+    ): Unit = {
+      val ex = intercept[RuntimeException](mergeKeepingReceipt(f))
+      ex.getCause.getMessage must include(message)
+
+      val survivor = repositories.expenses.find(id = f.survivorId, userId = f.userId).futureValue.value
+      survivor.merchantId must be(Some(f.survivorMerchantId))
+      survivor.notes must be(Some("bank"))
+      repositories.expenses
+        .findSplitsByExpenseId(expenseId = f.survivorId, userId = f.userId)
+        .futureValue
+        .map(s => s.categoryId -> s.amount) must be(List(f.survivorCategoryId -> BigDecimal("42.50")))
+      repositories.expenses.find(id = f.loserId, userId = f.userId).futureValue mustNot be(None)
+      repositories.receipts.find(id = f.receiptId, userId = f.userId).futureValue.value.expenseId must be(
+        Some(f.loserId)
+      )
+    }
+
+    "adopt the loser's merchant and notes when keeping the receipt's details" in withRepositories() {
+      implicit repositories =>
+        val f = receiptModeFixture()
+
+        mergeKeepingReceipt(f)
+
+        val survivor = repositories.expenses.find(id = f.survivorId, userId = f.userId).futureValue.value
+        survivor.merchantId must be(Some(f.loserMerchantId))
+        survivor.notes must be(Some("receipt"))
+    }
+
+    "adopt the loser's splits when keeping the receipt's details" in withRepositories() { implicit repositories =>
+      val f = receiptModeFixture()
+
+      mergeKeepingReceipt(f)
+
+      repositories.expenses
+        .findSplitsByExpenseId(expenseId = f.survivorId, userId = f.userId)
+        .futureValue
+        .map(s => s.categoryId -> s.amount)
+        .toSet must be(f.loserCategoryIds.zip(List(BigDecimal("30.00"), BigDecimal("12.50"))).toSet)
+    }
+
+    "keep the survivor's amount, date, time and row link when keeping the receipt's details" in withRepositories() {
+      implicit repositories =>
+        val f = receiptModeFixture()
+
+        mergeKeepingReceipt(f)
+
+        val survivor = repositories.expenses.find(id = f.survivorId, userId = f.userId).futureValue.value
+        survivor.amount must be(BigDecimal("42.50"))
+        survivor.date must be(LocalDate.of(2024, 1, 15))
+        survivor.time must be(None)
+        repositories.bankStatements.allRows(f.userId).futureValue.map(_.expenseId) must be(List(Some(f.survivorId)))
+    }
+
+    "move the loser's receipt to the survivor when keeping the receipt's details" in withRepositories() {
+      implicit repositories =>
+        val f = receiptModeFixture()
+
+        mergeKeepingReceipt(f)
+
+        repositories.receipts
+          .find(id = f.receiptId, userId = f.userId)
+          .futureValue
+          .value
+          .expenseId must be(Some(f.survivorId))
+    }
+
+    "move the loser's refunds to the survivor when keeping the receipt's details" in withRepositories() {
+      implicit repositories =>
+        val f = receiptModeFixture()
+
+        mergeKeepingReceipt(f)
+
+        repositories.refunds.find(id = f.refundId, userId = f.userId).futureValue.value.expenseId must be(
+          Some(f.survivorId)
+        )
+    }
+
+    "reject keeping the receipt's details when amounts differ and leave everything unchanged" in withRepositories() {
+      implicit repositories =>
+        val f = receiptModeFixture(loserAmount = BigDecimal("42.00"))
+
+        assertReceiptModeMergeRejected(f, "the expense amounts differ")
+    }
+
+    "reject keeping the receipt's details when the loser's splits don't sum to the amount" in withRepositories() {
+      implicit repositories =>
+        val f = receiptModeFixture(loserSplitAmounts = List(BigDecimal("30.00"), BigDecimal("10.00")))
+
+        assertReceiptModeMergeRejected(f, "its category splits do not sum to the amount")
     }
   }
 }

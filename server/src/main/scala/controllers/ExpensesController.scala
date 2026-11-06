@@ -76,8 +76,15 @@ class ExpensesController @Inject() (
   ): Future[Either[ErrorResponse, MergeExpenses.Response]] = handleRequest {
     for {
       userId <- userIdF
-      _ = logger.info(s"Merge expense ${request.loserId} into $survivorId userId=$userId")
-      response <- mergeExpensesAction(survivorId, request.loserId, userId)
+      _ = logger.info(
+        s"Merge expense ${request.loserId} into $survivorId keepDetailsFrom=${request.keepDetailsFrom} userId=$userId"
+      )
+      response <- mergeExpensesAction(
+        survivorId = survivorId,
+        loserId = request.loserId,
+        userId = userId,
+        keepDetailsFrom = request.keepDetailsFrom
+      )
     } yield Right(response)
   }
 

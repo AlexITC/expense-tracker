@@ -7,7 +7,7 @@ import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.core.SafeHooks
 import net.wiringbits.api.models.categories.GetCategories
-import net.wiringbits.api.models.expenses.{CreateExpense, GetExpenses, MergeExpenses, UpdateExpense}
+import net.wiringbits.api.models.expenses.{CreateExpense, GetExpenses, MergeDetailsSource, MergeExpenses, UpdateExpense}
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.models.User
 import net.wiringbits.utils.ExpenseDuplicateDetector
@@ -256,7 +256,10 @@ object ExpenseList {
 
     def handleMerge(c: Candidate): Unit =
       props.ctx.api.client
-        .mergeExpenses(c.survivor.id, MergeExpenses.Request(c.loser.id))
+        .mergeExpenses(
+          c.survivor.id,
+          MergeExpenses.Request(loserId = c.loser.id, keepDetailsFrom = MergeDetailsSource.Row)
+        )
         .onComplete {
           case Success(_) =>
             setDeletedIds(_ + c.loser.id)

@@ -7,7 +7,7 @@ import sttp.tapir.generic.auto.*
 import java.util.UUID
 
 object MergeExpenses {
-  case class Request(loserId: UUID)
+  case class Request(loserId: UUID, keepDetailsFrom: MergeDetailsSource)
   case class Response()
 
   implicit val requestFormat: Format[Request] = Json.format[Request]
