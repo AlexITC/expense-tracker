@@ -178,8 +178,66 @@ class ExpensesPageSpec extends AnyWordSpec {
       val all = List(survivor, loser1, loser2)
       ExpenseDuplicateDetector.detect(all).size must be(2)
 
-      val merged = ExpenseList.applyMergeState(all, Set(loser1.id), Map(survivor.id -> loser1.receiptIds.head))
+      val merged =
+        ExpenseList.applyMergeState(all, Set(loser1.id), Map(survivor.id -> loser1.receiptIds.head), Map.empty)
       ExpenseDuplicateDetector.detect(merged) must be(Nil)
+    }
+
+    "apply the adopted details to the survivor after removing the loser and adding its receipt" in {
+      val survivor = expense(BigDecimal("10")).copy(rowIds = List(UUID.randomUUID()))
+      val loser = expense(BigDecimal("10"))
+        .copy(receiptIds = List(UUID.randomUUID()), merchantName = Some("Shop"), notes = Some("lunch"))
+      val receiptId = loser.receiptIds.head
+
+      val result = ExpenseList.applyMergeState(
+        List(survivor, loser),
+        Set(loser.id),
+        Map(survivor.id -> receiptId),
+        Map(survivor.id -> loser)
+      )
+      result must be(
+        List(survivor.copy(receiptIds = List(receiptId), merchantName = Some("Shop"), notes = Some("lunch")))
+      )
+    }
+  }
+
+  "applyAdoptedDetails" should {
+    val survivor = expense(
+      BigDecimal("10"),
+      date = LocalDate.of(2024, 3, 5),
+      time = Some(LocalTime.of(12, 0)),
+      splits = List(Split(UUID.randomUUID(), UUID.randomUUID(), BigDecimal("10")))
+    ).copy(
+      merchantId = Some(UUID.randomUUID()),
+      merchantName = Some("Bank merchant"),
+      notes = Some("bank"),
+      receiptIds = List(UUID.randomUUID()),
+      rowIds = List(UUID.randomUUID())
+    )
+    val loser = expense(
+      BigDecimal("9"),
+      date = LocalDate.of(2024, 3, 4),
+      splits = List(Split(UUID.randomUUID(), UUID.randomUUID(), BigDecimal("9")))
+    ).copy(merchantId = Some(UUID.randomUUID()), merchantName = Some("Receipt merchant"), notes = Some("receipt"))
+    val other = expense(BigDecimal("20"))
+    val all = List(survivor, other)
+
+    "return the expenses unchanged when nothing was adopted" in {
+      ExpenseList.applyAdoptedDetails(all, Map.empty) must be(all)
+    }
+
+    "copy merchant, notes and splits onto the survivor only, keeping its amount, date, time, receipts and rows" in {
+      ExpenseList.applyAdoptedDetails(all, Map(survivor.id -> loser)) must be(
+        List(
+          survivor.copy(
+            merchantId = loser.merchantId,
+            merchantName = loser.merchantName,
+            notes = loser.notes,
+            splits = loser.splits
+          ),
+          other
+        )
+      )
     }
   }
 

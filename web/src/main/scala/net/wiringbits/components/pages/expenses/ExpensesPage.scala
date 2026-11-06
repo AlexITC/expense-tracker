@@ -141,13 +141,29 @@ object ExpenseList {
     else
       expenses.map(e => merges.get(e.id).fold(e)(receiptId => e.copy(receiptIds = e.receiptIds :+ receiptId)))
 
+  /** Copies merchant, notes and splits from each adopted expense (survivorId -> loser) onto its survivor. */
+  def applyAdoptedDetails(
+      expenses: List[GetExpenses.Response.Expense],
+      adopted: Map[UUID, GetExpenses.Response.Expense]
+  ): List[GetExpenses.Response.Expense] =
+    if (adopted.isEmpty) expenses
+    else
+      expenses.map(e =>
+        adopted
+          .get(e.id)
+          .fold(e)(a =>
+            e.copy(merchantId = a.merchantId, merchantName = a.merchantName, notes = a.notes, splits = a.splits)
+          )
+      )
+
   /** The expenses as they are after the in-place deletes and merges, without a refetch. */
   def applyMergeState(
       expenses: List[GetExpenses.Response.Expense],
       deletedIds: Set[UUID],
-      merges: Map[UUID, UUID]
+      merges: Map[UUID, UUID],
+      adopted: Map[UUID, GetExpenses.Response.Expense]
   ): List[GetExpenses.Response.Expense] =
-    applyMerges(applyDeletedIds(expenses, deletedIds), merges)
+    applyAdoptedDetails(applyMerges(applyDeletedIds(expenses, deletedIds), merges), adopted)
 
   def dismissKey(c: Candidate): String = s"${c.survivor.id}:${c.loser.id}"
 
@@ -223,7 +239,8 @@ object ExpenseList {
     val (hoveredId, setHoveredId) = Hooks.useState[Option[UUID]](None)
     val (mergedReceipts, setMergedReceipts) = Hooks.useState[Map[UUID, UUID]](Map.empty)
     val (dismissed, setDismissed) = Hooks.useState[Set[String]](Set.empty)
-    val (pendingMerge, setPendingMerge) = Hooks.useState[Option[Candidate]](None)
+    val (adoptedDetails, setAdoptedDetails) = Hooks.useState[Map[UUID, GetExpenses.Response.Expense]](Map.empty)
+    val (pendingMerge, setPendingMerge) = Hooks.useState[Option[(Candidate, MergeDetailsSource)]](None)
     val (showDuplicates, setShowDuplicates) = Hooks.useState(false)
 
     def handleCreate(): Unit = {
@@ -259,16 +276,20 @@ object ExpenseList {
           case Failure(ex) => setError(ex.getMessage)
         }
 
-    def handleMerge(c: Candidate): Unit =
+    def handleMerge(c: Candidate, source: MergeDetailsSource): Unit =
       props.ctx.api.client
         .mergeExpenses(
           c.survivor.id,
-          MergeExpenses.Request(loserId = c.loser.id, keepDetailsFrom = MergeDetailsSource.Row)
+          MergeExpenses.Request(loserId = c.loser.id, keepDetailsFrom = source)
         )
         .onComplete {
           case Success(_) =>
             setDeletedIds(_ + c.loser.id)
             setMergedReceipts(_ + (c.survivor.id -> c.receiptId))
+            source match {
+              case MergeDetailsSource.Row => ()
+              case MergeDetailsSource.Receipt => setAdoptedDetails(_ + (c.survivor.id -> c.loser))
+            }
           case Failure(ex) => setError(ex.getMessage)
         }
 
@@ -393,9 +414,10 @@ object ExpenseList {
     val sortedExpenses: List[GetExpenses.Response.Expense] = sortExpenses(props.expenses.data)
     val mergeStateKey: String =
       s"${props.expenses.data.size}|${deletedIds.map(_.toString).toList.sorted.mkString(",")}|" +
-        mergedReceipts.map { case (s, r) => s"$s:$r" }.toList.sorted.mkString(",")
+        mergedReceipts.map { case (s, r) => s"$s:$r" }.toList.sorted.mkString(",") + "|" +
+        adoptedDetails.map { case (s, l) => s"$s:${l.id}" }.toList.sorted.mkString(",")
     val (visibleExpenses, allCandidates) = SafeHooks.useMemo(mergeStateKey) { () =>
-      val merged = applyMergeState(sortedExpenses, deletedIds, mergedReceipts)
+      val merged = applyMergeState(sortedExpenses, deletedIds, mergedReceipts, adoptedDetails)
       (merged, ExpenseDuplicateDetector.detect(merged))
     }
     val duplicateCandidates: List[Candidate] = allCandidates.filterNot(c => dismissed.contains(dismissKey(c)))
@@ -996,20 +1018,32 @@ object ExpenseList {
           candidates = duplicateCandidates,
           categories = props.categories,
           receiptFilenames = props.receiptFilenames,
-          onMerge = c => setPendingMerge(Some(c)),
+          onMerge = (c, source) => setPendingMerge(Some(c -> source)),
           onDismiss = c => setDismissed(_ + dismissKey(c)),
           onError = setError
         )
       else Fragment()
+
+    def mergeSummary(source: MergeDetailsSource): String = {
+      val kept = source match {
+        case MergeDetailsSource.Row => "bank row's"
+        case MergeDetailsSource.Receipt => "receipt's"
+      }
+      s"The $kept details (merchant, category, notes) will be kept. " +
+        "The receipt moves to the bank-row expense and the receipt-only expense is deleted. This action cannot be undone."
+    }
 
     val mergeDialog: ReactElement =
       mui
         .Dialog(pendingMerge.isDefined)(
           mui.DialogTitle("Merge expenses?"),
           mui.DialogContent(
-            mui.DialogContentText(
-              "The receipt moves to the bank-row expense and the receipt-only expense is deleted. This action cannot be undone."
-            )
+            pendingMerge.fold[ReactElement](Fragment()) { case (c, source) =>
+              Fragment(
+                ExpenseDuplicatesPanel.columns(c, props.categories),
+                mui.DialogContentText(mergeSummary(source)).sx(new CSSPropertiesUtils { marginTop = "16px" })
+              )
+            }
           ),
           mui.DialogActions(
             mui.Button.normal()("Cancel").onClick(_ => setPendingMerge(None)),
@@ -1017,7 +1051,7 @@ object ExpenseList {
               .normal()("Merge")
               .color("error")
               .onClick { _ =>
-                pendingMerge.foreach(handleMerge)
+                pendingMerge.foreach { case (c, source) => handleMerge(c, source) }
                 setPendingMerge(None)
               }
           )
