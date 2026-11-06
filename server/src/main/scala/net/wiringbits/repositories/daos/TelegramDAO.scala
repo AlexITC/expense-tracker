@@ -55,13 +55,16 @@ object TelegramDAO {
         """.as(botUserParser.singleOpt)
   }
 
-  def createReceipt(id: UUID, receiptId: UUID, chatId: Long)(implicit conn: Connection): Unit = {
+  def createReceipt(id: UUID, receiptId: UUID, chatId: Long, expenseMessageId: Option[Long])(implicit
+      conn: Connection
+  ): Unit = {
     val _ = SQL"""
-        INSERT INTO telegram_receipt (telegram_receipt_id, receipt_id, chat_id)
+        INSERT INTO telegram_receipt (telegram_receipt_id, receipt_id, chat_id, expense_message_id)
         VALUES (
           ${id.toString}::UUID,
           ${receiptId.toString}::UUID,
-          $chatId
+          $chatId,
+          $expenseMessageId
         )
         """.execute()
   }

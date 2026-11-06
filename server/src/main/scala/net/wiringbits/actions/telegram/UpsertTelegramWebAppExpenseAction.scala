@@ -12,6 +12,7 @@ import net.wiringbits.repositories.{
   ReceiptRepository,
   TelegramReceiptRepository
 }
+import net.wiringbits.services.DocumentTelegramNotifier
 import org.slf4j.LoggerFactory
 
 import java.time.{Clock, LocalDate, LocalTime}
@@ -32,7 +33,7 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
     expensesRepository: ExpensesRepository,
     receiptRepository: ReceiptRepository,
     telegramReceiptRepository: TelegramReceiptRepository,
-    telegramApi: TelegramApi,
+    notifier: DocumentTelegramNotifier,
     webAppConfig: WebAppConfig
 )(implicit ec: ExecutionContext, clock: Clock) {
 
@@ -58,7 +59,14 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
               catIdOpt <- resolveCategory(userId, category)
               _ <- createExpense(userId, expenseId, amount, date, merchantId, catIdOpt, notes)
               _ <- receiptId.fold(Future.unit)(rid => receiptRepository.linkToExpense(rid, userId, expenseId))
-              _ <- notifyTelegram(expenseId, merchantName, amount, date)
+              _ <- notifyTelegram(
+                userId = userId,
+                expenseId = expenseId,
+                merchantName = merchantName,
+                amount = amount,
+                date = date,
+                category = category
+              )
             } yield Right(())
           case Some(existing) =>
             for {
@@ -67,7 +75,14 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
               splits <- buildUpdateSplits(userId, expenseId, catIdOpt, amount)
               _ <- expensesRepository
                 .update(expenseId, userId, amount, date, existing.time, Some(merchantId), notes, splits)
-              _ <- notifyTelegram(expenseId, merchantName, amount, date)
+              _ <- notifyTelegram(
+                userId = userId,
+                expenseId = expenseId,
+                merchantName = merchantName,
+                amount = amount,
+                date = date,
+                category = category
+              )
             } yield Right(())
         }
     }
@@ -142,32 +157,27 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
     }
 
   private def notifyTelegram(
+      userId: UUID,
       expenseId: UUID,
       merchantName: String,
       amount: BigDecimal,
-      date: LocalDate
+      date: LocalDate,
+      category: Option[String]
   ): Future[Unit] =
     telegramReceiptRepository
       .findByExpenseId(expenseId)
       .flatMap {
         case None => Future.unit
         case Some(tr) =>
-          val text = s"Expense saved: $merchantName · $amount · $date"
-          val editUrl = s"${webAppConfig.host}/api/telegram/webapp?expense=$expenseId"
-          tr.expenseMessageId match {
-            case None =>
-              telegramApi
-                .sendMessageWithWebAppButton(tr.chatId, text, editUrl, "Edit")
-                .flatMap(msgId => telegramReceiptRepository.updateExpenseMessageId(tr.telegramReceiptId, msgId))
-            case Some(messageId) =>
-              telegramApi.editMessage(tr.chatId, messageId, text).recoverWith { case _ =>
-                telegramApi
-                  .sendMessageWithWebAppButton(tr.chatId, text, editUrl, "Edit")
-                  .flatMap(msgId => telegramReceiptRepository.updateExpenseMessageId(tr.telegramReceiptId, msgId))
-              }
-          }
+          val text = s"Expense saved: $merchantName · $amount · $date" + category.fold("")(c => s" · $c")
+          val editButton =
+            TelegramApi.WebAppButton(
+              label = "Edit",
+              url = s"${webAppConfig.host}/api/telegram/webapp?expense=$expenseId"
+            )
+          notifier.showOnReceiptMessage(telegramReceipt = tr, userId = userId, text = text, button = Some(editButton))
       }
       .recover { case e =>
-        logger.warn(s"Failed to notify Telegram for expense $expenseId: ${e.getMessage}")
+        logger.warn(s"userId=$userId, failed to notify Telegram for expense $expenseId: ${e.getMessage}")
       }
 }

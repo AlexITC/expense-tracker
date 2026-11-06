@@ -75,9 +75,23 @@ class ProcessDocumentAction @Inject() (
           logger.info(s"userId=${doc.userId}, document ${doc.id} rejected as $rejected, skipping Textract")
           for {
             _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Unsupported)
-            _ <- notifier.notify(doc.id, doc.userId, DocumentTelegramNotifier.notATicketMessage(rejected))
+            _ <- notifier.updateReceiptMessage(
+              documentId = doc.id,
+              userId = doc.userId,
+              text = DocumentTelegramNotifier.notATicketMessage(rejected),
+              button = None
+            )
           } yield ()
-        case None => analyze(doc, receipt)
+        case None =>
+          for {
+            _ <- notifier.updateReceiptMessage(
+              documentId = doc.id,
+              userId = doc.userId,
+              text = "Reading the receipt...",
+              button = None
+            )
+            _ <- analyze(doc, receipt)
+          } yield ()
       }
     } yield ()
 
