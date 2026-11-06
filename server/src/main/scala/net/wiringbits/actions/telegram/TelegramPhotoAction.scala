@@ -50,13 +50,32 @@ class TelegramPhotoAction @Inject() (
           filename = originalFilename.getOrElse(s"telegram-${computeSha256(bytes)}$ext")
           receiptId <- uploadReceipt(botUser.userId, bytes, filename)
           _ <- telegramReceiptRepository.findByReceiptId(receiptId).flatMap {
-            case Some(_) => Future.unit
-            case None => telegramReceiptRepository.create(UuidCreator.getTimeOrderedEpoch(), receiptId, chatId)
+            case Some(_) =>
+              logger.info(
+                s"Telegram photo: duplicate photo, keeping existing message userId=${botUser.userId} receiptId=$receiptId"
+              )
+              Future.unit
+            case None =>
+              val telegramReceiptId = UuidCreator.getTimeOrderedEpoch()
+              for {
+                _ <- telegramReceiptRepository.create(id = telegramReceiptId, receiptId = receiptId, chatId = chatId)
+                _ = logger.info(s"Telegram photo: receipt saved userId=${botUser.userId} receiptId=$receiptId")
+                _ <- sendInitialMessage(userId = botUser.userId, telegramReceiptId = telegramReceiptId, chatId = chatId)
+              } yield ()
           }
-          _ = logger.info(s"Telegram photo: receipt saved userId=${botUser.userId} receiptId=$receiptId")
-          _ <- telegramApi.sendMessage(chatId, "Receipt saved ✓")
         } yield ()
     }
+
+  // The stored message id lets later stages edit this single message; when sending fails, they send a fresh one.
+  private def sendInitialMessage(userId: UUID, telegramReceiptId: UUID, chatId: Long): Future[Unit] =
+    telegramApi
+      .sendMessageReturningId(chatId = chatId, text = "Receipt received, analyzing...", button = None)
+      .flatMap { messageId =>
+        telegramReceiptRepository.updateExpenseMessageId(id = telegramReceiptId, messageId = messageId)
+      }
+      .recover { case e =>
+        logger.warn(s"Telegram photo: failed to send initial message userId=$userId: ${e.getMessage}", e)
+      }
 
   private def uploadReceipt(userId: UUID, bytes: Array[Byte], filename: String): Future[UUID] = {
     val sha256 = computeSha256(bytes)
