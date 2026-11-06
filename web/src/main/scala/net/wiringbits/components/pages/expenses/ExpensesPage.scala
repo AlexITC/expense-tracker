@@ -5,10 +5,13 @@ import com.olvind.mui.csstype.mod.Property.FlexDirection
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
+import net.wiringbits.core.SafeHooks
 import net.wiringbits.api.models.categories.GetCategories
-import net.wiringbits.api.models.expenses.{CreateExpense, GetExpenses, UpdateExpense}
+import net.wiringbits.api.models.expenses.{CreateExpense, GetExpenses, MergeExpenses, UpdateExpense}
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.models.User
+import net.wiringbits.utils.ExpenseDuplicateDetector
+import net.wiringbits.utils.ExpenseDuplicateDetector.Candidate
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.Container
@@ -124,6 +127,25 @@ object ExpenseList {
   ): List[GetExpenses.Response.Expense] =
     if (deletedIds.isEmpty) expenses else expenses.filterNot(e => deletedIds.contains(e.id))
 
+  /** Adds each merged receipt (survivorId -> receiptId) to its survivor; the losers are removed by `deletedIds`. */
+  def applyMerges(
+      expenses: List[GetExpenses.Response.Expense],
+      merges: Map[UUID, UUID]
+  ): List[GetExpenses.Response.Expense] =
+    if (merges.isEmpty) expenses
+    else
+      expenses.map(e => merges.get(e.id).fold(e)(receiptId => e.copy(receiptIds = e.receiptIds :+ receiptId)))
+
+  /** The expenses as they are after the in-place deletes and merges, without a refetch. */
+  def applyMergeState(
+      expenses: List[GetExpenses.Response.Expense],
+      deletedIds: Set[UUID],
+      merges: Map[UUID, UUID]
+  ): List[GetExpenses.Response.Expense] =
+    applyMerges(applyDeletedIds(expenses, deletedIds), merges)
+
+  def dismissKey(c: Candidate): String = s"${c.survivor.id}:${c.loser.id}"
+
   def toUpdateSplits(splits: List[(String, String)]): List[UpdateExpense.Split] =
     splits.flatMap { case (catId, amt) =>
       if (catId.nonEmpty && amt.nonEmpty)
@@ -194,6 +216,10 @@ object ExpenseList {
     val (editNotes, setEditNotes) = Hooks.useState("")
     val (editSplits, setEditSplits) = Hooks.useState[List[(String, String)]](Nil)
     val (hoveredId, setHoveredId) = Hooks.useState[Option[UUID]](None)
+    val (mergedReceipts, setMergedReceipts) = Hooks.useState[Map[UUID, UUID]](Map.empty)
+    val (dismissed, setDismissed) = Hooks.useState[Set[String]](Set.empty)
+    val (pendingMerge, setPendingMerge) = Hooks.useState[Option[Candidate]](None)
+    val (showDuplicates, setShowDuplicates) = Hooks.useState(false)
 
     def handleCreate(): Unit = {
       (Try(BigDecimal(newAmount)).toOption, Try(LocalDate.parse(newDate)).toOption) match {
@@ -225,6 +251,16 @@ object ExpenseList {
         .deleteExpense(expenseId)
         .onComplete {
           case Success(_) => setDeletedIds(deletedIds + expenseId)
+          case Failure(ex) => setError(ex.getMessage)
+        }
+
+    def handleMerge(c: Candidate): Unit =
+      props.ctx.api.client
+        .mergeExpenses(c.survivor.id, MergeExpenses.Request(c.loser.id))
+        .onComplete {
+          case Success(_) =>
+            setDeletedIds(_ + c.loser.id)
+            setMergedReceipts(_ + (c.survivor.id -> c.loser.receiptIds.head))
           case Failure(ex) => setError(ex.getMessage)
         }
 
@@ -347,7 +383,14 @@ object ExpenseList {
     // ── computed data ──────────────────────────────────────────────────────────
 
     val sortedExpenses: List[GetExpenses.Response.Expense] = sortExpenses(props.expenses.data)
-    val visibleExpenses: List[GetExpenses.Response.Expense] = applyDeletedIds(sortedExpenses, deletedIds)
+    val mergeStateKey: String =
+      s"${props.expenses.data.size}|${deletedIds.map(_.toString).toList.sorted.mkString(",")}|" +
+        mergedReceipts.map { case (s, r) => s"$s:$r" }.toList.sorted.mkString(",")
+    val (visibleExpenses, allCandidates) = SafeHooks.useMemo(mergeStateKey) { () =>
+      val merged = applyMergeState(sortedExpenses, deletedIds, mergedReceipts)
+      (merged, ExpenseDuplicateDetector.detect(merged))
+    }
+    val duplicateCandidates: List[Candidate] = allCandidates.filterNot(c => dismissed.contains(dismissKey(c)))
     val dateFilteredExpenses: List[GetExpenses.Response.Expense] =
       applyDateFilter(visibleExpenses, dateFilter, LocalDate.now())
 
@@ -477,6 +520,14 @@ object ExpenseList {
           .variant("outlined")
           .size("small")
           .onClick(_ => setShowCreateForm(true)),
+      if (duplicateCandidates.isEmpty)
+        Fragment()
+      else
+        mui.Button
+          .normal()(s"Possible duplicates (${duplicateCandidates.size})")
+          .variant(if (showDuplicates) "contained" else "outlined")
+          .size("small")
+          .onClick(_ => setShowDuplicates(!showDuplicates)),
       // right-side summary
       mui.Box.sx(new CSSPropertiesUtils {
         marginLeft = "auto"; display = "flex"; gap = "18px"; alignItems = "baseline"
@@ -930,15 +981,52 @@ object ExpenseList {
         .onClose((_, _) => setPendingDeleteId(None))
         .build
 
+    val duplicatesPanel: ReactElement =
+      if (showDuplicates && duplicateCandidates.nonEmpty)
+        ExpenseDuplicatesPanel(
+          ctx = props.ctx,
+          candidates = duplicateCandidates,
+          categories = props.categories,
+          onMerge = c => setPendingMerge(Some(c)),
+          onDismiss = c => setDismissed(_ + dismissKey(c)),
+          onError = setError
+        )
+      else Fragment()
+
+    val mergeDialog: ReactElement =
+      mui
+        .Dialog(pendingMerge.isDefined)(
+          mui.DialogTitle("Merge expenses?"),
+          mui.DialogContent(
+            mui.DialogContentText(
+              "The receipt moves to the bank-row expense and the receipt-only expense is deleted. This action cannot be undone."
+            )
+          ),
+          mui.DialogActions(
+            mui.Button.normal()("Cancel").onClick(_ => setPendingMerge(None)),
+            mui.Button
+              .normal()("Merge")
+              .color("error")
+              .onClick { _ =>
+                pendingMerge.foreach(handleMerge)
+                setPendingMerge(None)
+              }
+          )
+        )
+        .onClose((_, _) => setPendingMerge(None))
+        .build
+
     Fragment(
       pageHeader,
       toolbar,
       createForm,
       errorMsg,
+      duplicatesPanel,
       expenseList,
       paginationControls,
       legend,
-      deleteDialog
+      deleteDialog,
+      mergeDialog
     )
   }
 }

@@ -3,6 +3,7 @@ package net.wiringbits.components.pages.expenses
 import net.wiringbits.api.models.expenses.{GetExpenses, UpdateExpense}
 import net.wiringbits.common.ExpenseSplits
 import net.wiringbits.api.models.expenses.GetExpenses.Response.Split
+import net.wiringbits.utils.ExpenseDuplicateDetector
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -145,6 +146,40 @@ class ExpensesPageSpec extends AnyWordSpec {
 
     "filter out multiple deleted ids" in {
       ExpenseList.applyDeletedIds(all, Set(idA, idC)) must be(List(all(1)))
+    }
+  }
+
+  "applyMerges" should {
+    val survivor = expense(BigDecimal("10"))
+    val other = expense(BigDecimal("20")).copy(receiptIds = List(UUID.randomUUID()))
+    val all = List(survivor, other)
+
+    "return the expenses unchanged when there are no merges" in {
+      ExpenseList.applyMerges(all, Map.empty) must be(all)
+    }
+
+    "add the merged receipt id to the survivor only" in {
+      val receiptId = UUID.randomUUID()
+      ExpenseList.applyMerges(all, Map(survivor.id -> receiptId)) must be(
+        List(survivor.copy(receiptIds = List(receiptId)), other)
+      )
+    }
+
+    "ignore merges whose survivor is not in the list" in {
+      ExpenseList.applyMerges(all, Map(UUID.randomUUID() -> UUID.randomUUID())) must be(all)
+    }
+  }
+
+  "applyMergeState" should {
+    "leave no duplicate candidates for a merged survivor, including its ambiguous siblings" in {
+      val survivor = expense(BigDecimal("10")).copy(rowIds = List(UUID.randomUUID()))
+      val loser1 = expense(BigDecimal("10")).copy(receiptIds = List(UUID.randomUUID()))
+      val loser2 = expense(BigDecimal("10")).copy(receiptIds = List(UUID.randomUUID()))
+      val all = List(survivor, loser1, loser2)
+      ExpenseDuplicateDetector.detect(all).size must be(2)
+
+      val merged = ExpenseList.applyMergeState(all, Set(loser1.id), Map(survivor.id -> loser1.receiptIds.head))
+      ExpenseDuplicateDetector.detect(merged) must be(Nil)
     }
   }
 
