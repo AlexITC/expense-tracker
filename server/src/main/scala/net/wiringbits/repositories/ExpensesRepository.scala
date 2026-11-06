@@ -8,7 +8,9 @@ import net.wiringbits.repositories.daos.{
   ReceiptDAO,
   RefundDAO
 }
-import net.wiringbits.repositories.ExpensesRepository.MergeError
+import net.wiringbits.api.models.expenses.MergeDetailsSource
+import net.wiringbits.common.ExpenseSplits
+import net.wiringbits.repositories.ExpensesRepository.{MergeError, ValidatedMerge}
 import net.wiringbits.repositories.models.{Expense, ExpenseCategorySplit, Receipt}
 import play.api.db.Database
 
@@ -88,36 +90,80 @@ class ExpensesRepository @Inject() (database: Database)(implicit
     }
   }
 
-  def merge(survivorId: UUID, loserId: UUID, userId: UUID): Future[Unit] = Future {
+  def merge(survivorId: UUID, loserId: UUID, userId: UUID, keepDetailsFrom: MergeDetailsSource): Future[Unit] = Future {
     ConstraintViolations.translating(ReceiptRepository.ReceiptExpenseIdUnique) {
       database.withTransaction { implicit conn =>
-        val receipt =
-          validateMerge(survivorId, loserId, userId).fold(e => throw new RuntimeException(e.message), identity)
+        val validated =
+          validateMerge(survivorId = survivorId, loserId = loserId, userId = userId)
+            .fold(e => throw new RuntimeException(e.message), identity)
         val now = clock.instant()
-        relinkReceipt(receipt, survivorId, userId, now)
+        keepDetailsFrom match {
+          case MergeDetailsSource.Row => ()
+          case MergeDetailsSource.Receipt =>
+            adoptLoserDetails(survivor = validated.survivor, loser = validated.loser, now = now)
+        }
+        relinkReceipt(receipt = validated.receipt, survivorId = survivorId, userId = userId, now = now)
         RefundDAO.reassignExpense(loserId, survivorId, userId, now)
         ExpenseDAO.delete(loserId, userId)
       }
     }
   }
 
-  /** Checks the merge guards and returns the loser's receipt, which moves to the survivor. */
+  /** Copies the loser's merchant, notes and splits onto the survivor, keeping the survivor's amount, date and time. */
+  private def adoptLoserDetails(survivor: Expense, loser: Expense, now: Instant)(implicit conn: Connection): Unit = {
+    import MergeError.*
+    val loserSplits = ExpenseCategorySplitDAO.findByExpenseId(expenseId = loser.id, userId = loser.userId)
+    val result = for {
+      _ <- Either.cond(survivor.amount == loser.amount, (), AmountMismatch)
+      _ <- Either.cond(
+        ExpenseSplits.isFullyAllocated(survivor.amount, loserSplits.map(_.amount)),
+        (),
+        LoserSplitsNotFullyAllocated
+      )
+    } yield ()
+    result.fold(e => throw new RuntimeException(e.message), identity)
+
+    ExpenseDAO.update(
+      id = survivor.id,
+      userId = survivor.userId,
+      amount = survivor.amount,
+      date = survivor.date,
+      time = survivor.time,
+      merchantId = loser.merchantId,
+      notes = loser.notes,
+      updatedAt = now
+    )
+    ExpenseCategorySplitDAO.deleteByExpenseId(expenseId = survivor.id, userId = survivor.userId)
+    ExpenseCategorySplitDAO.createAll(
+      loserSplits.map(s =>
+        ExpenseCategorySplit.Create(
+          id = UUID.randomUUID(),
+          userId = survivor.userId,
+          expenseId = survivor.id,
+          categoryId = s.categoryId,
+          amount = s.amount
+        )
+      )
+    )
+  }
+
+  /** Checks the merge guards and returns both expenses plus the loser's receipt, which moves to the survivor. */
   private def validateMerge(survivorId: UUID, loserId: UUID, userId: UUID)(implicit
       conn: Connection
-  ): Either[MergeError, Receipt] = {
+  ): Either[MergeError, ValidatedMerge] = {
     import MergeError.*
     for {
       _ <- Either.cond(survivorId != loserId, (), SelfMerge)
-      _ <- Either.cond(
-        ExpenseDAO.find(survivorId, userId).isDefined && ExpenseDAO.find(loserId, userId).isDefined,
-        (),
-        ExpenseNotFound
-      )
+      expenses <- ExpenseDAO
+        .find(id = survivorId, userId = userId)
+        .zip(ExpenseDAO.find(id = loserId, userId = userId))
+        .toRight(ExpenseNotFound)
+      (survivor, loser) = expenses
       _ <- Either.cond(BankStatementRowDAO.existsForExpense(survivorId, userId), (), SurvivorWithoutRow)
       _ <- Either.cond(!BankStatementRowDAO.existsForExpense(loserId, userId), (), LoserWithRow)
       receipt <- ReceiptDAO.findByExpenseId(loserId, userId).toRight(LoserWithoutReceipt)
       _ <- Either.cond(ReceiptDAO.findByExpenseId(survivorId, userId).isEmpty, (), SurvivorWithReceipt)
-    } yield receipt
+    } yield ValidatedMerge(survivor = survivor, loser = loser, receipt = receipt)
   }
 
   private def relinkReceipt(receipt: Receipt, survivorId: UUID, userId: UUID, now: Instant)(implicit
@@ -130,6 +176,8 @@ class ExpensesRepository @Inject() (database: Database)(implicit
 
 object ExpensesRepository {
 
+  private final case class ValidatedMerge(survivor: Expense, loser: Expense, receipt: Receipt)
+
   enum MergeError(val message: String) {
     case SelfMerge extends MergeError("Cannot merge an expense with itself")
     case ExpenseNotFound extends MergeError("Expense not found")
@@ -137,5 +185,8 @@ object ExpensesRepository {
     case LoserWithRow extends MergeError("The merged expense must not be linked to a bank statement row")
     case LoserWithoutReceipt extends MergeError("The merged expense must have a receipt")
     case SurvivorWithReceipt extends MergeError("The surviving expense already has a receipt")
+    case AmountMismatch extends MergeError("Cannot keep the receipt's details because the expense amounts differ")
+    case LoserSplitsNotFullyAllocated
+        extends MergeError("Cannot keep the receipt's details because its category splits do not sum to the amount")
   }
 }
