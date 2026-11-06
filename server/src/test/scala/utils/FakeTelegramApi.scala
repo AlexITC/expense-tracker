@@ -1,5 +1,6 @@
 package utils
 
+import com.bot4s.telegram.api.TelegramApiException
 import net.wiringbits.apis.TelegramApi
 import net.wiringbits.config.TelegramConfig
 import play.api.inject.DefaultApplicationLifecycle
@@ -13,7 +14,8 @@ import scala.jdk.CollectionConverters.*
 class FakeTelegramApi(
     downloadResult: Future[(Array[Byte], String)] =
       Future.failed(new RuntimeException("FakeTelegramApi: no download configured")),
-    failEdits: Boolean = false
+    editError: Option[Throwable] = None,
+    failSends: Boolean = false
 )(implicit ec: ExecutionContext)
     extends TelegramApi(
       TelegramConfig(enabled = false, botToken = "test-token", webhookSecret = "test-secret", botName = "test"),
@@ -21,7 +23,7 @@ class FakeTelegramApi(
     ) {
   import FakeTelegramApi.*
 
-  private val nextMessageId = new AtomicLong(1000L)
+  private val nextMessageId = new AtomicLong(FirstMessageId - 1)
   private val sentQueue = new ConcurrentLinkedQueue[Sent]()
   private val editedQueue = new ConcurrentLinkedQueue[Edited]()
 
@@ -37,7 +39,8 @@ class FakeTelegramApi(
       button: Option[TelegramApi.WebAppButton]
   ): Future[Long] = {
     sentQueue.add(Sent(chatId = chatId, text = text, button = button))
-    Future.successful(nextMessageId.incrementAndGet())
+    if (failSends) Future.failed(new RuntimeException("FakeTelegramApi: send failed"))
+    else Future.successful(nextMessageId.incrementAndGet())
   }
 
   override def sendMessageWithWebAppButton(
@@ -62,14 +65,21 @@ class FakeTelegramApi(
       button: Option[TelegramApi.WebAppButton]
   ): Future[Unit] = {
     editedQueue.add(Edited(chatId = chatId, messageId = messageId, text = text, button = button))
-    if (failEdits) Future.failed(new RuntimeException("FakeTelegramApi: message to edit not found"))
-    else Future.unit
+    editError.map(Future.failed).getOrElse(Future.unit)
   }
 
   override def downloadFile(fileId: String): Future[(Array[Byte], String)] = downloadResult
 }
 
 object FakeTelegramApi {
+  val FirstMessageId: Long = 1001L
+
+  def messageGoneError: TelegramApiException =
+    TelegramApiException("Bad Request: message to edit not found", 400, None, None)
+
+  def rateLimitedError: TelegramApiException =
+    TelegramApiException("Too Many Requests: retry after 1", 429, None, None)
+
   final case class Sent(chatId: Long, text: String, button: Option[TelegramApi.WebAppButton])
   final case class Edited(chatId: Long, messageId: Long, text: String, button: Option[TelegramApi.WebAppButton])
 }
