@@ -8,7 +8,8 @@ import net.wiringbits.repositories.daos.{
   DocumentDAO,
   ExpenseCategorySplitDAO,
   ExpenseDAO,
-  ReceiptDAO
+  ReceiptDAO,
+  TelegramDAO
 }
 import net.wiringbits.repositories.models.{BackgroundJobData, Document, Expense, ExpenseCategorySplit, Receipt}
 import play.api.db.Database
@@ -29,6 +30,24 @@ class ReceiptRepository @Inject() (database: Database)(implicit ec: DatabaseExec
     database.withTransaction { implicit conn =>
       DocumentDAO.create(document)
       ReceiptDAO.create(receipt)
+      BackgroundJobDAO.create(job)
+      receipt.id
+    }
+  }
+
+  /** Creates the receipt together with its Telegram link, so the enqueued job can always find the link. */
+  def createWithDocumentFromTelegram(
+      document: Document.Create,
+      receipt: Receipt.Create,
+      job: BackgroundJobData.Create,
+      telegramReceiptId: UUID,
+      chatId: Long,
+      messageId: Option[Long]
+  ): Future[UUID] = Future {
+    database.withTransaction { implicit conn =>
+      DocumentDAO.create(document)
+      ReceiptDAO.create(receipt)
+      TelegramDAO.createReceipt(telegramReceiptId, receipt.id, chatId, messageId)
       BackgroundJobDAO.create(job)
       receipt.id
     }

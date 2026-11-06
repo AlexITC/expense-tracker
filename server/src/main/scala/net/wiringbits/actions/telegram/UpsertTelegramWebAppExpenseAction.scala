@@ -171,7 +171,10 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
         case Some(tr) =>
           val text = s"Expense saved: $merchantName · $amount · $date" + category.fold("")(c => s" · $c")
           val editButton =
-            TelegramApi.WebAppButton("Edit", s"${webAppConfig.host}/api/telegram/webapp?expense=$expenseId")
+            TelegramApi.WebAppButton(
+              label = "Edit",
+              url = s"${webAppConfig.host}/api/telegram/webapp?expense=$expenseId"
+            )
           notifier.showOnReceiptMessage(telegramReceipt = tr, userId = userId, text = text, button = Some(editButton))
       }
       .recover { case e =>

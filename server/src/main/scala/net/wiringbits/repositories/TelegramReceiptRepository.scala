@@ -11,9 +11,9 @@ import scala.concurrent.Future
 
 class TelegramReceiptRepository @Inject() (database: Database)(implicit ec: DatabaseExecutionContext) {
 
-  def create(id: UUID, receiptId: UUID, chatId: Long): Future[Unit] = Future {
+  def create(id: UUID, receiptId: UUID, chatId: Long, expenseMessageId: Option[Long] = None): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      TelegramDAO.createReceipt(id, receiptId, chatId)
+      TelegramDAO.createReceipt(id, receiptId, chatId, expenseMessageId)
     }
   }
 

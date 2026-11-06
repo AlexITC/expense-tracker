@@ -11,6 +11,7 @@ import net.wiringbits.repositories.{
   TextractCacheRepository,
   TextractJobRepository
 }
+import net.wiringbits.services.DocumentTelegramNotifier
 import org.slf4j.LoggerFactory
 import play.api.libs.json.{JsArray, JsObject, JsValue, Json}
 
@@ -25,7 +26,8 @@ class PollReceiptAction @Inject() (
     textractCacheRepository: TextractCacheRepository,
     textractJobRepository: TextractJobRepository,
     backgroundJobsRepository: BackgroundJobsRepository,
-    textractClient: TextractClient
+    textractClient: TextractClient,
+    notifier: DocumentTelegramNotifier
 )(implicit ec: ExecutionContext, clock: Clock) {
 
   private val logger = LoggerFactory.getLogger(this.getClass)
@@ -68,7 +70,7 @@ class PollReceiptAction @Inject() (
     textractJobRepository.findByDocumentId(doc.id).flatMap {
       case None =>
         logger.error(s"No TextractJob found for document ${doc.id} (userId=${receipt.userId}), marking Unsupported")
-        receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Unsupported)
+        markUnsupported(receipt)
       case Some(job) =>
         job.status match {
           case TextractJob.Status.Succeeded =>
@@ -82,7 +84,7 @@ class PollReceiptAction @Inject() (
             logger.warn(
               s"TextractJob already failed for document ${doc.id} (userId=${receipt.userId}), marking Unsupported"
             )
-            receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Unsupported)
+            markUnsupported(receipt)
           case _ =>
             val jobId = job.jobId.getOrElse(throw new RuntimeException(s"TextractJob ${job.id} has no jobId"))
             fetchAndHandleResult(doc, receipt, job, jobId)
@@ -114,7 +116,7 @@ class PollReceiptAction @Inject() (
           logger.warn(s"Textract expense job $jobId FAILED for document ${doc.id} (userId=${receipt.userId})")
           for {
             _ <- textractJobRepository.markFailed(job.id)
-            _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Unsupported)
+            _ <- markUnsupported(receipt)
           } yield ()
         case _ => // IN_PROGRESS
           if (job.attempts >= MaxAttempts) {
@@ -123,7 +125,7 @@ class PollReceiptAction @Inject() (
             )
             for {
               _ <- textractJobRepository.markFailed(job.id)
-              _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Unsupported)
+              _ <- markUnsupported(receipt)
             } yield ()
           } else {
             val delay = math.min(InitialPollDelaySeconds * (job.attempts + 1), MaxPollDelaySeconds)
@@ -135,6 +137,17 @@ class PollReceiptAction @Inject() (
           }
       }
     }
+
+  private def markUnsupported(receipt: Receipt): Future[Unit] =
+    for {
+      _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Unsupported)
+      _ <- notifier.updateReceiptMessage(
+        documentId = receipt.documentId,
+        userId = receipt.userId,
+        text = "Could not read the receipt.",
+        button = None
+      )
+    } yield ()
 
   private def assembleAllExpensePages(jobId: String): Future[(String, Seq[JsValue])] = {
     def loop(nextToken: Option[String], acc: Seq[JsValue]): Future[(String, Seq[JsValue])] =

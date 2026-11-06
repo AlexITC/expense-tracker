@@ -2,34 +2,24 @@ package net.wiringbits.actions.documents
 
 import net.wiringbits.apis.{JevChoice, JevClient, JevRateLimitedException, TelegramApi, TextractApiType}
 import net.wiringbits.config.{JevConfig, WebAppConfig}
+import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import net.wiringbits.models.JevApiKey
-import net.wiringbits.models.documents.{DocumentClass, DocumentClassification, DocumentKind, DocumentStatus}
-import net.wiringbits.repositories.{
-  DocumentsRepository,
-  ImportRuleRepository,
-  MerchantsRepository,
-  ReceiptRepository,
-  TelegramReceiptRepository,
-  TextractCacheRepository
-}
-import net.wiringbits.repositories.models.{Document, Receipt, TelegramReceipt, TextractCache}
-import net.wiringbits.services.{DocumentClassifier, DocumentParser, DocumentTelegramNotifier}
-import org.mockito.ArgumentMatchers.{any, anyString}
-import org.mockito.Mockito.*
-import org.scalatest.concurrent.ScalaFutures
-import org.scalatest.matchers.must.Matchers
-import org.scalatest.wordspec.AnyWordSpec
-import org.scalatestplus.mockito.MockitoSugar
-import play.api.libs.json.Json
-import utils.FakeTelegramApi
+import net.wiringbits.models.documents.{DocumentClass, DocumentClassification, DocumentStatus}
+import net.wiringbits.repositories.DocumentsRepository
+import net.wiringbits.repositories.models.TextractCache
+import net.wiringbits.services.{DocumentClassifier, DocumentTelegramNotifier}
+import org.scalatest.OptionValues.*
+import org.scalatest.concurrent.ScalaFutures.*
+import org.scalatest.matchers.must.Matchers.*
+import play.api.libs.json.{JsValue, Json}
+import utils.{Executors, FakeTelegramApi, RandomData, RepositoryUtils}
 
 import java.time.{Clock, Instant}
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
-import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 
-class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures with MockitoSugar {
+class ParseReceiptActionSpec extends RepositorySpec with RepositoryUtils {
 
   private val minimalTextractJson =
     Json.parse(
@@ -70,9 +60,6 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
   private def jevConfig(mode: JevConfig.Mode) =
     JevConfig(JevApiKey("test"), "https://example.invalid", "jev-test", mode, minConfidence = BigDecimal("0.85"))
 
-  // jev.mode=mock never calls JEV, so the cases that don't exercise the classification ignore it.
-  private val mockModeClassifier = new DocumentClassifier(failingJev, jevConfig(JevConfig.Mock))
-
   private def realClassifier(jev: JevClient) = new DocumentClassifier(jev, jevConfig(JevConfig.Real))
 
   // A card-payment voucher as Textract reads it; synthetic data only.
@@ -97,244 +84,185 @@ class ParseReceiptActionSpec extends AnyWordSpec with Matchers with ScalaFutures
       |}""".stripMargin
   )
 
-  private def stubDocument(
-      docId: UUID,
+  private val readyText = "Receipt ready: EXAMPLE BANK · 12.34 EUR"
+
+  // A receipt from a Telegram chat whose bot message is already stored.
+  private case class TelegramReceiptDoc(
       userId: UUID,
-      sha256: String = "deadbeef",
-      kind: DocumentKind = DocumentKind.Receipt,
-      classification: Option[DocumentClassification] = None
-  ): Document =
-    Document(
-      docId,
-      userId,
-      sha256,
-      "key",
-      kind,
-      "receipt.jpg",
-      Instant.now(),
-      Instant.now(),
-      classification.map(_.documentClass),
-      classification.map(_.confidence),
-      classification.map(_.injectionSuspected),
-      classification.map(_.injectionConfidence)
+      documentId: UUID,
+      receiptId: UUID,
+      chatId: Long,
+      messageId: Long
+  )
+
+  private def createTelegramReceipt(
+      textractResponse: JsValue = voucherTextractJson
+  )(using repositories: RepositoryComponents): TelegramReceiptDoc = {
+    val user = createUser().futureValue
+    val receipt = createReceipt(user.id).futureValue
+    val chatId = RandomData.randomTelegramUserId()
+    val messageId = RandomData.randomTelegramUserId()
+    repositories.telegramReceipt
+      .create(id = UUID.randomUUID(), receiptId = receipt.id, chatId = chatId, expenseMessageId = Some(messageId))
+      .futureValue
+    val sha256 = repositories.documents.findById(receipt.documentId).futureValue.value.sha256
+    repositories.textractCache
+      .create(TextractCache.Create(sha256, TextractApiType.AnalyzeExpense, textractResponse, Instant.now()))
+      .futureValue
+    TelegramReceiptDoc(
+      userId = user.id,
+      documentId = receipt.documentId,
+      receiptId = receipt.id,
+      chatId = chatId,
+      messageId = messageId
     )
-
-  private def stubReceipt(receiptId: UUID, userId: UUID, docId: UUID): Receipt =
-    Receipt(
-      receiptId,
-      userId,
-      docId,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-      manuallyEdited = false,
-      None,
-      DocumentStatus.Ingested,
-      Instant.now(),
-      Instant.now(),
-      "receipt.jpg"
-    )
-
-  private def stubTextractCache(sha256: String): TextractCache =
-    TextractCache(sha256, TextractApiType.AnalyzeExpense, minimalTextractJson, Instant.now())
-
-  private def stubTelegramReceipt(receiptId: UUID, chatId: Long, messageId: Long): TelegramReceipt =
-    TelegramReceipt(UUID.randomUUID(), receiptId, chatId, Some(messageId), Instant.now(), Instant.now())
+  }
 
   private def newAction(
-      docRepo: DocumentsRepository,
-      receiptRepo: ReceiptRepository,
-      merchantRepo: MerchantsRepository,
-      ruleRepo: ImportRuleRepository,
-      cacheRepo: TextractCacheRepository,
-      telegramReceiptRepo: TelegramReceiptRepository,
-      telegramApi: TelegramApi,
-      classifier: DocumentClassifier
-  ): ParseReceiptAction =
+      classifier: DocumentClassifier,
+      telegramApi: FakeTelegramApi,
+      documentsRepository: Option[DocumentsRepository] = None
+  )(using repositories: RepositoryComponents): ParseReceiptAction =
     new ParseReceiptAction(
-      docRepo,
-      receiptRepo,
-      merchantRepo,
-      ruleRepo,
-      cacheRepo,
+      documentsRepository.getOrElse(repositories.documents),
+      repositories.receipts,
+      repositories.merchants,
+      repositories.importRules,
+      repositories.textractCache,
       webAppConfig,
       classifier,
-      new DocumentTelegramNotifier(receiptRepo, telegramReceiptRepo, telegramApi)
-    )(using global, Clock.systemUTC())
-
-  "apply (advisory classification)" should {
-    // Mocks for a receipt whose parse succeeds and that came from a Telegram chat.
-    case class Mocks(
-        docRepo: DocumentsRepository,
-        receiptRepo: ReceiptRepository,
-        merchantRepo: MerchantsRepository,
-        ruleRepo: ImportRuleRepository,
-        cacheRepo: TextractCacheRepository,
-        telegramReceiptRepo: TelegramReceiptRepository,
-        telegramApi: FakeTelegramApi
-    ) {
-      def action(classifier: DocumentClassifier): ParseReceiptAction =
-        newAction(docRepo, receiptRepo, merchantRepo, ruleRepo, cacheRepo, telegramReceiptRepo, telegramApi, classifier)
-    }
-
-    val chatId = 77L
-    val messageId = 501L
-    val readyText = "Receipt ready: EXAMPLE BANK · 12.34 EUR"
-
-    def mocksFor(doc: Document, telegramApi: FakeTelegramApi = new FakeTelegramApi()): Mocks = {
-      val receipt = stubReceipt(UUID.randomUUID(), doc.userId, doc.id)
-      val mocks = Mocks(
-        mock[DocumentsRepository],
-        mock[ReceiptRepository],
-        mock[MerchantsRepository],
-        mock[ImportRuleRepository],
-        mock[TextractCacheRepository],
-        mock[TelegramReceiptRepository],
-        telegramApi
+      new DocumentTelegramNotifier(repositories.receipts, repositories.telegramReceipt, telegramApi)(using
+        executionContext
       )
-      when(mocks.docRepo.findById(doc.id)).thenReturn(Future.successful(Some(doc)))
-      when(mocks.cacheRepo.find(doc.sha256, TextractApiType.AnalyzeExpense))
-        .thenReturn(
-          Future.successful(
-            Some(TextractCache(doc.sha256, TextractApiType.AnalyzeExpense, voucherTextractJson, Instant.now()))
-          )
-        )
-      when(mocks.docRepo.updateClassification(any(), any(), any())).thenReturn(Future.unit)
-      when(mocks.receiptRepo.findByDocumentId(doc.id)).thenReturn(Future.successful(Some(receipt)))
-      when(mocks.receiptRepo.updateParsed(any(), any(), any(), any(), any(), any(), any())).thenReturn(Future.unit)
-      when(mocks.ruleRepo.all(any())).thenReturn(Future.successful(Nil))
-      when(mocks.merchantRepo.all(any())).thenReturn(Future.successful(Nil))
-      when(mocks.merchantRepo.createPendingIfAbsent(any(), anyString()))
-        .thenReturn(Future.successful(UUID.randomUUID()))
-      when(mocks.receiptRepo.setMerchantId(any(), any())).thenReturn(Future.unit)
-      when(mocks.ruleRepo.createSetMerchantIfAbsent(any(), any(), anyString())).thenReturn(Future.unit)
-      when(mocks.receiptRepo.updateStatus(any(), any(), any())).thenReturn(Future.unit)
-      when(mocks.telegramReceiptRepo.findByReceiptId(receipt.id))
-        .thenReturn(Future.successful(Some(stubTelegramReceipt(receipt.id, chatId, messageId))))
-      mocks
-    }
+    )(using executionContext, Clock.systemUTC())
 
-    // The receipt is parsed and its Telegram message shows `text` with the Create Expense button.
-    def verifyParsed(mocks: Mocks, doc: Document, text: String = readyText): Unit = {
-      verify(mocks.receiptRepo).updateParsed(any(), any(), any(), any(), any(), any(), any())
-      verify(mocks.receiptRepo).updateStatus(any(), any(), org.mockito.ArgumentMatchers.eq(DocumentStatus.Parsed))
-      val receiptId = mocks.receiptRepo.findByDocumentId(doc.id).futureValue.map(_.id).getOrElse(fail("no receipt"))
-      mocks.telegramApi.edited mustBe List(
+  private def storedClassification(doc: TelegramReceiptDoc)(using
+      repositories: RepositoryComponents
+  ): Option[DocumentClassification] =
+    repositories.documents.findById(doc.documentId).futureValue.value.classification
+
+  // The receipt is parsed and its Telegram message shows `text` with the Create Expense button.
+  private def verifyParsed(doc: TelegramReceiptDoc, telegramApi: FakeTelegramApi, text: String = readyText)(using
+      repositories: RepositoryComponents
+  ): Unit = {
+    repositories.receipts.find(doc.receiptId, doc.userId).futureValue.value.status must be(DocumentStatus.Parsed)
+    telegramApi.edited must be(
+      List(
         FakeTelegramApi.Edited(
-          chatId = chatId,
-          messageId = messageId,
+          chatId = doc.chatId,
+          messageId = doc.messageId,
           text = text,
           button = Some(
             TelegramApi.WebAppButton(
               label = "Create Expense",
-              url = s"${webAppConfig.host}/api/telegram/webapp?receipt=$receiptId"
+              url = s"${webAppConfig.host}/api/telegram/webapp?receipt=${doc.receiptId}"
             )
           )
         )
       )
-      mocks.telegramApi.sent mustBe empty
+    )
+    telegramApi.sent must be(empty)
+  }
+
+  "apply (advisory classification)" should {
+    "persist the classification and still parse a document that is not a ticket, advising the user" in withRepositories() {
+      implicit repositories =>
+        val doc = createTelegramReceipt()
+        val telegramApi = new FakeTelegramApi()(using executionContext)
+
+        newAction(realClassifier(stubJev("bank_voucher")), telegramApi)(doc.documentId).futureValue
+
+        storedClassification(doc) must be(
+          Some(DocumentClassification(DocumentClass.BankVoucher, BigDecimal("1.0"), false, BigDecimal("0.99")))
+        )
+        verifyParsed(
+          doc,
+          telegramApi,
+          text = DocumentTelegramNotifier.notATicketMessage(DocumentClass.BankVoucher) + "\n" + readyText
+        )
     }
 
-    "persist the classification and still parse a document that is not a ticket, advising the user" in {
-      val doc = stubDocument(UUID.randomUUID(), UUID.randomUUID())
-      val mocks = mocksFor(doc)
+    "persist a purchase ticket classification without advising the user" in withRepositories() {
+      implicit repositories =>
+        val doc = createTelegramReceipt()
+        val telegramApi = new FakeTelegramApi()(using executionContext)
 
-      mocks.action(realClassifier(stubJev("bank_voucher")))(doc.id).futureValue
+        newAction(realClassifier(stubJev("purchase_ticket")), telegramApi)(doc.documentId).futureValue
 
-      verify(mocks.docRepo).updateClassification(
-        doc.id,
-        doc.userId,
-        DocumentClassification(DocumentClass.BankVoucher, BigDecimal("1.0"), false, BigDecimal("0.99"))
-      )
-      verifyParsed(
-        mocks,
-        doc,
-        text = DocumentTelegramNotifier.notATicketMessage(DocumentClass.BankVoucher) + "\n" + readyText
-      )
+        storedClassification(doc) must be(
+          Some(DocumentClassification(DocumentClass.PurchaseTicket, BigDecimal("1.0"), false, BigDecimal("0.99")))
+        )
+        verifyParsed(doc, telegramApi)
     }
 
-    "persist a purchase ticket classification without advising the user" in {
-      val doc = stubDocument(UUID.randomUUID(), UUID.randomUUID())
-      val mocks = mocksFor(doc)
-
-      mocks.action(realClassifier(stubJev("purchase_ticket")))(doc.id).futureValue
-
-      verify(mocks.docRepo).updateClassification(
-        doc.id,
-        doc.userId,
-        DocumentClassification(DocumentClass.PurchaseTicket, BigDecimal("1.0"), false, BigDecimal("0.99"))
-      )
-      verifyParsed(mocks, doc)
-    }
-
-    "not classify a document that was already classified" in {
+    "not classify a document that was already classified" in withRepositories() { implicit repositories =>
+      val doc = createTelegramReceipt()
       val stored = DocumentClassification(DocumentClass.PurchaseTicket, BigDecimal("0.95"), false, BigDecimal("0.99"))
-      val doc = stubDocument(UUID.randomUUID(), UUID.randomUUID(), classification = Some(stored))
-      val mocks = mocksFor(doc)
+      repositories.documents.updateClassification(doc.documentId, doc.userId, stored).futureValue
+      val telegramApi = new FakeTelegramApi()(using executionContext)
       val jev = stubJev("bank_voucher")
 
-      mocks.action(realClassifier(jev))(doc.id).futureValue
+      newAction(realClassifier(jev), telegramApi)(doc.documentId).futureValue
 
       jev.calls.get() mustBe 0
-      verify(mocks.docRepo, never()).updateClassification(any(), any(), any())
-      verifyParsed(mocks, doc)
+      storedClassification(doc) must be(Some(stored))
+      verifyParsed(doc, telegramApi)
     }
 
-    "parse normally without persisting anything when JEV fails (the classifier answers inconclusive)" in {
-      val doc = stubDocument(UUID.randomUUID(), UUID.randomUUID())
-      val mocks = mocksFor(doc)
-      val jev = failingJev
+    "parse normally without persisting anything when JEV fails (the classifier answers inconclusive)" in withRepositories() {
+      implicit repositories =>
+        val doc = createTelegramReceipt()
+        val telegramApi = new FakeTelegramApi()(using executionContext)
+        val jev = failingJev
 
-      mocks.action(realClassifier(jev))(doc.id).futureValue
+        newAction(realClassifier(jev), telegramApi)(doc.documentId).futureValue
 
-      jev.calls.get() mustBe 1
-      verify(mocks.docRepo, never()).updateClassification(any(), any(), any())
-      verifyParsed(mocks, doc)
+        jev.calls.get() mustBe 1
+        storedClassification(doc) mustBe empty
+        verifyParsed(doc, telegramApi)
     }
 
-    "still parse when storing the classification fails" in {
-      val doc = stubDocument(UUID.randomUUID(), UUID.randomUUID())
-      val mocks = mocksFor(doc)
-      when(mocks.docRepo.updateClassification(any(), any(), any()))
-        .thenReturn(Future.failed(new RuntimeException("db down")))
+    "still parse when storing the classification fails" in withRepositories() { implicit repositories =>
+      val doc = createTelegramReceipt()
+      val telegramApi = new FakeTelegramApi()(using executionContext)
+      val failingStore = new DocumentsRepository(repositories.database)(using Executors.databaseEC, Clock.systemUTC()) {
+        override def updateClassification(id: UUID, userId: UUID, classification: DocumentClassification) =
+          Future.failed(new RuntimeException("db down"))
+      }
 
-      mocks.action(realClassifier(stubJev("bank_voucher")))(doc.id).futureValue
+      newAction(realClassifier(stubJev("bank_voucher")), telegramApi, documentsRepository = Some(failingStore))(
+        doc.documentId
+      ).futureValue
 
-      verifyParsed(mocks, doc)
+      storedClassification(doc) mustBe empty
+      verifyParsed(doc, telegramApi)
     }
 
-    "still mark the receipt Parsed when the Telegram edit fails" in {
-      val doc = stubDocument(UUID.randomUUID(), UUID.randomUUID())
-      val mocks = mocksFor(doc, new FakeTelegramApi(editError = Some(FakeTelegramApi.rateLimitedError)))
+    "still mark the receipt Parsed when the Telegram edit fails" in withRepositories() { implicit repositories =>
+      val doc = createTelegramReceipt()
+      val telegramApi =
+        new FakeTelegramApi(editError = Some(FakeTelegramApi.rateLimitedError))(using executionContext)
 
-      mocks.action(realClassifier(stubJev("bank_voucher")))(doc.id).futureValue
+      newAction(realClassifier(stubJev("bank_voucher")), telegramApi)(doc.documentId).futureValue
 
-      verify(mocks.docRepo).updateClassification(any(), any(), any())
+      storedClassification(doc) must not be empty
       verifyParsed(
-        mocks,
         doc,
+        telegramApi,
         text = DocumentTelegramNotifier.notATicketMessage(DocumentClass.BankVoucher) + "\n" + readyText
       )
     }
 
-    "not classify a document whose Textract response has no text" in {
-      val doc = stubDocument(UUID.randomUUID(), UUID.randomUUID())
-      val mocks = mocksFor(doc)
-      when(mocks.cacheRepo.find(doc.sha256, TextractApiType.AnalyzeExpense))
-        .thenReturn(Future.successful(Some(stubTextractCache(doc.sha256))))
+    "not classify a document whose Textract response has no text" in withRepositories() { implicit repositories =>
+      val doc = createTelegramReceipt(textractResponse = minimalTextractJson)
+      val telegramApi = new FakeTelegramApi()(using executionContext)
       val jev = stubJev("other")
 
-      mocks.action(realClassifier(jev))(doc.id).futureValue
+      newAction(realClassifier(jev), telegramApi)(doc.documentId).futureValue
 
       jev.calls.get() mustBe 0
-      verify(mocks.docRepo, never()).updateClassification(any(), any(), any())
-      verifyParsed(mocks, doc, text = "Receipt ready.")
+      storedClassification(doc) mustBe empty
+      verifyParsed(doc, telegramApi, text = "Receipt ready.")
     }
   }
 }
