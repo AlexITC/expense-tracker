@@ -436,8 +436,8 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
         )
         .futureValue
         .id
-      linkToNewRow(userId, survivorId)
-      createLinkedReceipt(userId, loserId)
+      linkToNewRow(userId = userId, expenseId = survivorId)
+      createLinkedReceipt(userId = userId, expenseId = loserId)
 
       client
         .mergeExpenses(

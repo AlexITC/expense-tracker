@@ -72,7 +72,10 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with BeforeAndAfterEach {
       ambiguous = false
     )
 
-  private def render(onMerge: (Candidate, MergeDetailsSource) => Unit): Unit =
+  private def render(
+      onMerge: (Candidate, MergeDetailsSource) => Unit,
+      candidate: Candidate = candidate
+  ): Unit =
     ReactDOM.render(
       BrowserRouter(basename = "")(
         ExpenseDuplicatesPanel(
@@ -95,6 +98,13 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with BeforeAndAfterEach {
     matching.head.asInstanceOf[dom.html.Element].click()
   }
 
+  private def lastLineOf(columnTitle: String): String = {
+    val titles = container.querySelectorAll("p, span, h6")
+    val title = (0 until titles.length).map(titles(_)).filter(_.textContent == columnTitle)
+    title.length mustBe 1
+    title.head.parentNode.lastChild.textContent
+  }
+
   "ExpenseDuplicatesPanel" should {
     "send the row source from the keep row details button" in {
       val merges = ListBuffer.empty[(Candidate, MergeDetailsSource)]
@@ -108,6 +118,19 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with BeforeAndAfterEach {
       render((c, source) => merges += (c -> source))
       clickButton("Merge, keep receipt details")
       merges.toList must be(List(candidate -> MergeDetailsSource.Receipt))
+    }
+
+  }
+
+  "column" should {
+    "show notes, with a dash for empty notes" in {
+      val withNotes = candidate.copy(
+        survivor = candidate.survivor.copy(notes = Some("bank note")),
+        loser = candidate.loser.copy(notes = Some(""))
+      )
+      render(onMerge = (_, _) => (), candidate = withNotes)
+      lastLineOf("Bank row") must be("bank note")
+      lastLineOf("Receipt") must be("—")
     }
   }
 }
