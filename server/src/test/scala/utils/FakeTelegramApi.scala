@@ -43,21 +43,6 @@ class FakeTelegramApi(
     else Future.successful(nextMessageId.incrementAndGet())
   }
 
-  override def sendMessageWithWebAppButton(
-      chatId: Long,
-      text: String,
-      webAppUrl: String,
-      buttonLabel: String
-  ): Future[Long] =
-    sendMessageReturningId(
-      chatId = chatId,
-      text = text,
-      button = Some(TelegramApi.WebAppButton(label = buttonLabel, url = webAppUrl))
-    )
-
-  override def editMessage(chatId: Long, messageId: Long, text: String): Future[Unit] =
-    editMessage(chatId = chatId, messageId = messageId, text = text, button = None)
-
   override def editMessage(
       chatId: Long,
       messageId: Long,

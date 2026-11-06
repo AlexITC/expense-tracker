@@ -3,7 +3,7 @@ package net.wiringbits.actions.telegram
 import net.wiringbits.actions.telegram.UpsertTelegramWebAppExpenseAction.Error
 import net.wiringbits.apis.TelegramApi
 import net.wiringbits.config.WebAppConfig
-import net.wiringbits.repositories.models.{Expense, TelegramReceipt}
+import net.wiringbits.repositories.models.{Category, Expense, TelegramReceipt}
 import net.wiringbits.repositories.{
   CategoriesRepository,
   ExpensesRepository,
@@ -11,8 +11,8 @@ import net.wiringbits.repositories.{
   ReceiptRepository,
   TelegramReceiptRepository
 }
-import org.mockito.ArgumentCaptor
-import org.mockito.ArgumentMatchers.{any, anyLong, anyString}
+import net.wiringbits.services.DocumentTelegramNotifier
+import org.mockito.ArgumentMatchers.{any, anyString}
 import org.mockito.Mockito.*
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.must.Matchers
@@ -23,6 +23,7 @@ import java.time.{Clock, Instant, LocalDate, LocalTime}
 import java.util.UUID
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
+import utils.{FakeTelegramApi, RandomData}
 
 class UpsertTelegramWebAppExpenseActionSpec extends AnyWordSpec with Matchers with ScalaFutures with MockitoSugar {
 
@@ -42,7 +43,40 @@ class UpsertTelegramWebAppExpenseActionSpec extends AnyWordSpec with Matchers wi
     )
 
   private def stubTelegramReceipt(expenseMessageId: Option[Long]): TelegramReceipt =
-    TelegramReceipt(UUID.randomUUID(), UUID.randomUUID(), 42L, expenseMessageId, Instant.now(), Instant.now())
+    TelegramReceipt(
+      telegramReceiptId = UUID.randomUUID(),
+      receiptId = UUID.randomUUID(),
+      chatId = RandomData.randomTelegramUserId(),
+      expenseMessageId = expenseMessageId,
+      createdAt = Instant.now(),
+      updatedAt = Instant.now()
+    )
+
+  private def editButton(expenseId: UUID): Option[TelegramApi.WebAppButton] =
+    Some(TelegramApi.WebAppButton("Edit", s"https://app.example.com/api/telegram/webapp?expense=$expenseId"))
+
+  private def stubNewExpense(
+      userId: UUID,
+      expenseId: UUID,
+      merchantsRepo: MerchantsRepository,
+      expensesRepo: ExpensesRepository
+  ): Unit = {
+    when(expensesRepo.find(expenseId, userId)).thenReturn(Future.successful(None))
+    when(merchantsRepo.createPendingIfAbsent(any(), anyString())).thenReturn(Future.successful(UUID.randomUUID()))
+    when(expensesRepo.create(any(), any())).thenReturn(Future.unit)
+  }
+
+  private def stubExistingExpense(
+      userId: UUID,
+      expenseId: UUID,
+      merchantsRepo: MerchantsRepository,
+      expensesRepo: ExpensesRepository
+  ): Unit = {
+    when(expensesRepo.find(expenseId, userId)).thenReturn(Future.successful(Some(stubExpense(expenseId, userId))))
+    when(merchantsRepo.createPendingIfAbsent(any(), anyString())).thenReturn(Future.successful(UUID.randomUUID()))
+    when(expensesRepo.findSplitsByExpenseId(expenseId, userId)).thenReturn(Future.successful(Nil))
+    when(expensesRepo.update(any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(Future.unit)
+  }
 
   private def newAction(
       merchantsRepo: MerchantsRepository = mock[MerchantsRepository],
@@ -50,7 +84,7 @@ class UpsertTelegramWebAppExpenseActionSpec extends AnyWordSpec with Matchers wi
       expensesRepo: ExpensesRepository = mock[ExpensesRepository],
       receiptRepo: ReceiptRepository = mock[ReceiptRepository],
       telegramReceiptRepo: TelegramReceiptRepository = mock[TelegramReceiptRepository],
-      telegramApi: TelegramApi = mock[TelegramApi]
+      telegramApi: TelegramApi = new FakeTelegramApi()
   ): UpsertTelegramWebAppExpenseAction =
     new UpsertTelegramWebAppExpenseAction(
       merchantsRepo,
@@ -58,7 +92,7 @@ class UpsertTelegramWebAppExpenseActionSpec extends AnyWordSpec with Matchers wi
       expensesRepo,
       receiptRepo,
       telegramReceiptRepo,
-      telegramApi,
+      new DocumentTelegramNotifier(receiptRepo, telegramReceiptRepo, telegramApi),
       webAppConfig
     )(using global, Clock.systemUTC())
 
@@ -141,31 +175,29 @@ class UpsertTelegramWebAppExpenseActionSpec extends AnyWordSpec with Matchers wi
       result must be(Left(Error.Invalid("Category name must be 25 characters or less")))
     }
 
-    "create expense, link receipt, send Telegram message when expense does not exist" in {
+    "edit the stored photo-time message with the Edit button when creating the expense" in {
       val userId = UUID.randomUUID()
       val expenseId = UUID.randomUUID()
       val receiptId = UUID.randomUUID()
-      val merchantId = UUID.randomUUID()
-      val messageId = 99L
-      val tr = stubTelegramReceipt(None)
+      val storedMessageId = 77L
+      val tr = stubTelegramReceipt(Some(storedMessageId))
 
       val merchantsRepo = mock[MerchantsRepository]
+      val categoriesRepo = mock[CategoriesRepository]
       val expensesRepo = mock[ExpensesRepository]
       val receiptRepo = mock[ReceiptRepository]
       val telegramReceiptRepo = mock[TelegramReceiptRepository]
-      val telegramApi = mock[TelegramApi]
+      val telegramApi = new FakeTelegramApi()
 
-      when(expensesRepo.find(expenseId, userId)).thenReturn(Future.successful(None))
-      when(merchantsRepo.createPendingIfAbsent(any(), anyString())).thenReturn(Future.successful(merchantId))
-      when(expensesRepo.create(any(), any())).thenReturn(Future.unit)
+      stubNewExpense(userId = userId, expenseId = expenseId, merchantsRepo = merchantsRepo, expensesRepo = expensesRepo)
+      when(categoriesRepo.getOrCreate(userId, "Food"))
+        .thenReturn(Future.successful(Category(UUID.randomUUID(), userId, "Food", Instant.now(), Instant.now())))
       when(receiptRepo.linkToExpense(receiptId, userId, expenseId)).thenReturn(Future.unit)
       when(telegramReceiptRepo.findByExpenseId(expenseId)).thenReturn(Future.successful(Some(tr)))
-      when(telegramApi.sendMessageWithWebAppButton(anyLong(), anyString(), anyString(), anyString()))
-        .thenReturn(Future.successful(messageId))
-      when(telegramReceiptRepo.updateExpenseMessageId(tr.telegramReceiptId, messageId)).thenReturn(Future.unit)
 
       val action = newAction(
         merchantsRepo = merchantsRepo,
+        categoriesRepo = categoriesRepo,
         expensesRepo = expensesRepo,
         receiptRepo = receiptRepo,
         telegramReceiptRepo = telegramReceiptRepo,
@@ -179,65 +211,74 @@ class UpsertTelegramWebAppExpenseActionSpec extends AnyWordSpec with Matchers wi
           BigDecimal("12.50"),
           LocalDate.of(2026, 1, 15),
           "Coffee Shop",
-          None,
+          Some("Food"),
           None
         ).futureValue
 
       result must be(Right(()))
       verify(expensesRepo).create(any(), any())
       verify(receiptRepo).linkToExpense(receiptId, userId, expenseId)
-      val textCaptor = ArgumentCaptor.forClass(classOf[String])
-      verify(telegramApi).sendMessageWithWebAppButton(anyLong(), textCaptor.capture(), anyString(), anyString())
-      textCaptor.getValue must be("Expense saved: Coffee Shop · 12.50 · 2026-01-15")
-      verify(telegramReceiptRepo).updateExpenseMessageId(tr.telegramReceiptId, messageId)
+      telegramApi.edited must be(
+        List(
+          FakeTelegramApi.Edited(
+            chatId = tr.chatId,
+            messageId = storedMessageId,
+            text = "Expense saved: Coffee Shop · 12.50 · 2026-01-15 · Food",
+            button = editButton(expenseId)
+          )
+        )
+      )
+      telegramApi.sent must be(empty)
+      verify(telegramReceiptRepo, never()).updateExpenseMessageId(any(), any())
     }
 
     "create expense without linking receipt when receiptId is absent" in {
       val userId = UUID.randomUUID()
       val expenseId = UUID.randomUUID()
-      val merchantId = UUID.randomUUID()
 
       val merchantsRepo = mock[MerchantsRepository]
       val expensesRepo = mock[ExpensesRepository]
       val receiptRepo = mock[ReceiptRepository]
       val telegramReceiptRepo = mock[TelegramReceiptRepository]
+      val telegramApi = new FakeTelegramApi()
 
-      when(expensesRepo.find(expenseId, userId)).thenReturn(Future.successful(None))
-      when(merchantsRepo.createPendingIfAbsent(any(), anyString())).thenReturn(Future.successful(merchantId))
-      when(expensesRepo.create(any(), any())).thenReturn(Future.unit)
+      stubNewExpense(userId = userId, expenseId = expenseId, merchantsRepo = merchantsRepo, expensesRepo = expensesRepo)
       when(telegramReceiptRepo.findByExpenseId(expenseId)).thenReturn(Future.successful(None))
 
       val action = newAction(
         merchantsRepo = merchantsRepo,
         expensesRepo = expensesRepo,
         receiptRepo = receiptRepo,
-        telegramReceiptRepo = telegramReceiptRepo
+        telegramReceiptRepo = telegramReceiptRepo,
+        telegramApi = telegramApi
       )
       val result =
         action(userId, expenseId, None, BigDecimal("5"), LocalDate.now(), "Shop", None, None).futureValue
 
       result must be(Right(()))
       verify(receiptRepo, never()).linkToExpense(any(), any(), any())
+      telegramApi.sent must be(empty)
+      telegramApi.edited must be(empty)
     }
 
-    "update expense and edit Telegram message when expense already exists" in {
+    "edit the same stored message again when the expense is updated" in {
       val userId = UUID.randomUUID()
       val expenseId = UUID.randomUUID()
-      val merchantId = UUID.randomUUID()
-      val messageId = 55L
-      val tr = stubTelegramReceipt(Some(messageId))
+      val storedMessageId = 55L
+      val tr = stubTelegramReceipt(Some(storedMessageId))
 
       val merchantsRepo = mock[MerchantsRepository]
       val expensesRepo = mock[ExpensesRepository]
       val telegramReceiptRepo = mock[TelegramReceiptRepository]
-      val telegramApi = mock[TelegramApi]
+      val telegramApi = new FakeTelegramApi()
 
-      when(expensesRepo.find(expenseId, userId)).thenReturn(Future.successful(Some(stubExpense(expenseId, userId))))
-      when(merchantsRepo.createPendingIfAbsent(any(), anyString())).thenReturn(Future.successful(merchantId))
-      when(expensesRepo.findSplitsByExpenseId(expenseId, userId)).thenReturn(Future.successful(Nil))
-      when(expensesRepo.update(any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(Future.unit)
+      stubExistingExpense(
+        userId = userId,
+        expenseId = expenseId,
+        merchantsRepo = merchantsRepo,
+        expensesRepo = expensesRepo
+      )
       when(telegramReceiptRepo.findByExpenseId(expenseId)).thenReturn(Future.successful(Some(tr)))
-      when(telegramApi.editMessage(anyLong(), anyLong(), anyString())).thenReturn(Future.unit)
 
       val action = newAction(
         merchantsRepo = merchantsRepo,
@@ -258,35 +299,43 @@ class UpsertTelegramWebAppExpenseActionSpec extends AnyWordSpec with Matchers wi
         ).futureValue
 
       result must be(Right(()))
-      val textCaptor = ArgumentCaptor.forClass(classOf[String])
-      verify(telegramApi).editMessage(anyLong(), anyLong(), textCaptor.capture())
-      textCaptor.getValue must be("Expense saved: Restaurant · 20 · 2026-03-05")
-      verify(telegramApi, never()).sendMessageWithWebAppButton(anyLong(), anyString(), anyString(), anyString())
+      telegramApi.edited must be(
+        List(
+          FakeTelegramApi.Edited(
+            chatId = tr.chatId,
+            messageId = storedMessageId,
+            text = "Expense saved: Restaurant · 20 · 2026-03-05",
+            button = editButton(expenseId)
+          )
+        )
+      )
+      telegramApi.sent must be(empty)
     }
 
-    "fall back to sendMessageWithWebAppButton when editMessage fails" in {
+    "send a fresh message with the Edit button and store its id when the stored message is gone" in {
       val userId = UUID.randomUUID()
       val expenseId = UUID.randomUUID()
-      val merchantId = UUID.randomUUID()
       val oldMessageId = 55L
-      val newMessageId = 99L
       val tr = stubTelegramReceipt(Some(oldMessageId))
 
       val merchantsRepo = mock[MerchantsRepository]
       val expensesRepo = mock[ExpensesRepository]
       val telegramReceiptRepo = mock[TelegramReceiptRepository]
-      val telegramApi = mock[TelegramApi]
+      val telegramApi = new FakeTelegramApi(editError = Some(FakeTelegramApi.messageGoneError))
 
-      when(expensesRepo.find(expenseId, userId)).thenReturn(Future.successful(Some(stubExpense(expenseId, userId))))
-      when(merchantsRepo.createPendingIfAbsent(any(), anyString())).thenReturn(Future.successful(merchantId))
-      when(expensesRepo.findSplitsByExpenseId(expenseId, userId)).thenReturn(Future.successful(Nil))
-      when(expensesRepo.update(any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(Future.unit)
+      stubExistingExpense(
+        userId = userId,
+        expenseId = expenseId,
+        merchantsRepo = merchantsRepo,
+        expensesRepo = expensesRepo
+      )
       when(telegramReceiptRepo.findByExpenseId(expenseId)).thenReturn(Future.successful(Some(tr)))
-      when(telegramApi.editMessage(anyLong(), anyLong(), anyString()))
-        .thenReturn(Future.failed(new RuntimeException("message too old")))
-      when(telegramApi.sendMessageWithWebAppButton(anyLong(), anyString(), anyString(), anyString()))
-        .thenReturn(Future.successful(newMessageId))
-      when(telegramReceiptRepo.updateExpenseMessageId(tr.telegramReceiptId, newMessageId)).thenReturn(Future.unit)
+      when(
+        telegramReceiptRepo.updateExpenseMessageId(
+          id = tr.telegramReceiptId,
+          messageId = FakeTelegramApi.FirstMessageId
+        )
+      ).thenReturn(Future.unit)
 
       val action = newAction(
         merchantsRepo = merchantsRepo,
@@ -307,32 +356,123 @@ class UpsertTelegramWebAppExpenseActionSpec extends AnyWordSpec with Matchers wi
         ).futureValue
 
       result must be(Right(()))
-      verify(telegramApi).editMessage(anyLong(), anyLong(), anyString())
-      verify(telegramApi).sendMessageWithWebAppButton(anyLong(), anyString(), anyString(), anyString())
-      verify(telegramReceiptRepo).updateExpenseMessageId(tr.telegramReceiptId, newMessageId)
+      telegramApi.edited.map(_.messageId) must be(List(oldMessageId))
+      telegramApi.sent must be(
+        List(
+          FakeTelegramApi.Sent(
+            chatId = tr.chatId,
+            text = "Expense saved: Restaurant · 20 · 2026-03-05",
+            button = editButton(expenseId)
+          )
+        )
+      )
+      verify(telegramReceiptRepo).updateExpenseMessageId(
+        id = tr.telegramReceiptId,
+        messageId = FakeTelegramApi.FirstMessageId
+      )
     }
 
-    "return Right even when Telegram notification fails entirely" in {
+    "send a message with the Edit button and store its id when no message id is stored" in {
       val userId = UUID.randomUUID()
       val expenseId = UUID.randomUUID()
-      val merchantId = UUID.randomUUID()
+      val tr = stubTelegramReceipt(None)
 
       val merchantsRepo = mock[MerchantsRepository]
       val expensesRepo = mock[ExpensesRepository]
       val telegramReceiptRepo = mock[TelegramReceiptRepository]
+      val telegramApi = new FakeTelegramApi()
 
-      when(expensesRepo.find(expenseId, userId)).thenReturn(Future.successful(Some(stubExpense(expenseId, userId))))
-      when(merchantsRepo.createPendingIfAbsent(any(), anyString())).thenReturn(Future.successful(merchantId))
-      when(expensesRepo.findSplitsByExpenseId(expenseId, userId)).thenReturn(Future.successful(Nil))
-      when(expensesRepo.update(any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(Future.unit)
+      stubNewExpense(userId = userId, expenseId = expenseId, merchantsRepo = merchantsRepo, expensesRepo = expensesRepo)
+      when(telegramReceiptRepo.findByExpenseId(expenseId)).thenReturn(Future.successful(Some(tr)))
+      when(
+        telegramReceiptRepo.updateExpenseMessageId(
+          id = tr.telegramReceiptId,
+          messageId = FakeTelegramApi.FirstMessageId
+        )
+      ).thenReturn(Future.unit)
+
+      val action = newAction(
+        merchantsRepo = merchantsRepo,
+        expensesRepo = expensesRepo,
+        telegramReceiptRepo = telegramReceiptRepo,
+        telegramApi = telegramApi
+      )
+      val result =
+        action(userId, expenseId, None, BigDecimal("8"), LocalDate.of(2026, 2, 1), "Bakery", None, None).futureValue
+
+      result must be(Right(()))
+      telegramApi.edited must be(empty)
+      telegramApi.sent must be(
+        List(
+          FakeTelegramApi.Sent(
+            chatId = tr.chatId,
+            text = "Expense saved: Bakery · 8 · 2026-02-01",
+            button = editButton(expenseId)
+          )
+        )
+      )
+      verify(telegramReceiptRepo).updateExpenseMessageId(
+        id = tr.telegramReceiptId,
+        messageId = FakeTelegramApi.FirstMessageId
+      )
+    }
+
+    "return Right even when sending the Telegram message fails" in {
+      val userId = UUID.randomUUID()
+      val expenseId = UUID.randomUUID()
+      val tr = stubTelegramReceipt(None)
+
+      val merchantsRepo = mock[MerchantsRepository]
+      val expensesRepo = mock[ExpensesRepository]
+      val telegramReceiptRepo = mock[TelegramReceiptRepository]
+      val telegramApi = new FakeTelegramApi(failSends = true)
+
+      stubNewExpense(userId = userId, expenseId = expenseId, merchantsRepo = merchantsRepo, expensesRepo = expensesRepo)
+      when(telegramReceiptRepo.findByExpenseId(expenseId)).thenReturn(Future.successful(Some(tr)))
+
+      val action = newAction(
+        merchantsRepo = merchantsRepo,
+        expensesRepo = expensesRepo,
+        telegramReceiptRepo = telegramReceiptRepo,
+        telegramApi = telegramApi
+      )
+      val result =
+        action(userId, expenseId, None, BigDecimal("8"), LocalDate.now(), "Bakery", None, None).futureValue
+
+      result must be(Right(()))
+      telegramApi.sent.size must be(1)
+      verify(telegramReceiptRepo, never()).updateExpenseMessageId(any(), any())
+    }
+
+    "return Right even when the Telegram receipt lookup fails" in {
+      val userId = UUID.randomUUID()
+      val expenseId = UUID.randomUUID()
+
+      val merchantsRepo = mock[MerchantsRepository]
+      val expensesRepo = mock[ExpensesRepository]
+      val telegramReceiptRepo = mock[TelegramReceiptRepository]
+      val telegramApi = new FakeTelegramApi()
+
+      stubExistingExpense(
+        userId = userId,
+        expenseId = expenseId,
+        merchantsRepo = merchantsRepo,
+        expensesRepo = expensesRepo
+      )
       when(telegramReceiptRepo.findByExpenseId(expenseId)).thenReturn(Future.failed(new RuntimeException("db error")))
 
-      val action =
-        newAction(merchantsRepo = merchantsRepo, expensesRepo = expensesRepo, telegramReceiptRepo = telegramReceiptRepo)
+      val action = newAction(
+        merchantsRepo = merchantsRepo,
+        expensesRepo = expensesRepo,
+        telegramReceiptRepo = telegramReceiptRepo,
+        telegramApi = telegramApi
+      )
       val result =
         action(userId, expenseId, None, BigDecimal("20"), LocalDate.now(), "Restaurant", None, None).futureValue
 
       result must be(Right(()))
+      telegramApi.sent must be(empty)
+      telegramApi.edited must be(empty)
     }
   }
 }

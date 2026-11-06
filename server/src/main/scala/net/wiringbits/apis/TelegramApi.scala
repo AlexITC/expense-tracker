@@ -37,16 +37,6 @@ class TelegramApi @Inject() (telegramConfig: TelegramConfig, lifecycle: Applicat
   def sendMessage(chatId: Long, text: String): Future[Unit] =
     request(SendMessage(ChatId(chatId), text)).map(_ => ())
 
-  def sendMessageWithWebAppButton(chatId: Long, text: String, webAppUrl: String, buttonLabel: String): Future[Long] = {
-    val button = InlineKeyboardButton(text = buttonLabel, webApp = Some(WebAppInfo(webAppUrl)))
-    request(SendMessage(ChatId(chatId), text, replyMarkup = Some(InlineKeyboardMarkup.singleButton(button))))
-      .map(_.messageId.toLong)
-  }
-
-  def editMessage(chatId: Long, messageId: Long, text: String): Future[Unit] =
-    request(EditMessageText(chatId = Some(ChatId(chatId)), messageId = Some(messageId.toInt), text = text))
-      .map(_ => ())
-
   def sendMessageReturningId(chatId: Long, text: String, button: Option[TelegramApi.WebAppButton]): Future[Long] =
     request(SendMessage(ChatId(chatId), text, replyMarkup = button.map(webAppMarkup)))
       .map(_.messageId.toLong)
