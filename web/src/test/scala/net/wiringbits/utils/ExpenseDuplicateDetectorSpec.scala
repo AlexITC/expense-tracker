@@ -51,25 +51,33 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
       val merchantId = Some(UUID.randomUUID())
       val s = survivor(merchantId = merchantId)
       val l = loser(merchantId = merchantId)
-      ExpenseDuplicateDetector.detect(List(s, l)) must be(List(Candidate(s, l, Tier.Strong, ambiguous = false)))
+      ExpenseDuplicateDetector.detect(List(s, l)) must be(
+        List(Candidate(s, l, l.receiptIds.head, Tier.Strong, ambiguous = false))
+      )
     }
 
     "mark a pair with different merchants as Weak" in {
       val s = survivor(merchantId = Some(UUID.randomUUID()))
       val l = loser(merchantId = Some(UUID.randomUUID()))
-      ExpenseDuplicateDetector.detect(List(s, l)) must be(List(Candidate(s, l, Tier.Weak, ambiguous = false)))
+      ExpenseDuplicateDetector.detect(List(s, l)) must be(
+        List(Candidate(s, l, l.receiptIds.head, Tier.Weak, ambiguous = false))
+      )
     }
 
     "mark a pair where only one side has a merchant as Weak" in {
       val s = survivor(merchantId = Some(UUID.randomUUID()))
       val l = loser()
-      ExpenseDuplicateDetector.detect(List(s, l)) must be(List(Candidate(s, l, Tier.Weak, ambiguous = false)))
+      ExpenseDuplicateDetector.detect(List(s, l)) must be(
+        List(Candidate(s, l, l.receiptIds.head, Tier.Weak, ambiguous = false))
+      )
     }
 
     "mark a pair where both merchants are None as Weak" in {
       val s = survivor()
       val l = loser()
-      ExpenseDuplicateDetector.detect(List(s, l)) must be(List(Candidate(s, l, Tier.Weak, ambiguous = false)))
+      ExpenseDuplicateDetector.detect(List(s, l)) must be(
+        List(Candidate(s, l, l.receiptIds.head, Tier.Weak, ambiguous = false))
+      )
     }
 
     "require the exact amount" in {
@@ -113,9 +121,16 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
     "assign the survivor to the expense with a row regardless of input order" in {
       val s = survivor()
       val l = loser()
-      val expected = List(Candidate(s, l, Tier.Weak, ambiguous = false))
+      val expected = List(Candidate(s, l, l.receiptIds.head, Tier.Weak, ambiguous = false))
       ExpenseDuplicateDetector.detect(List(s, l)) must be(expected)
       ExpenseDuplicateDetector.detect(List(l, s)) must be(expected)
+    }
+
+    "carry the loser's first receipt id" in {
+      val s = survivor()
+      val receiptId = UUID.randomUUID()
+      val l = loser().copy(receiptIds = List(receiptId, UUID.randomUUID()))
+      ExpenseDuplicateDetector.detect(List(s, l)).map(_.receiptId) must be(List(receiptId))
     }
 
     "exclude a loser without a receipt" in {
@@ -150,8 +165,8 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
 
       ExpenseDuplicateDetector.detect(List(s, strong, weak)).toSet must be(
         Set(
-          Candidate(s, strong, Tier.Strong, ambiguous = true),
-          Candidate(s, weak, Tier.Weak, ambiguous = true)
+          Candidate(s, strong, strong.receiptIds.head, Tier.Strong, ambiguous = true),
+          Candidate(s, weak, weak.receiptIds.head, Tier.Weak, ambiguous = true)
         )
       )
     }
@@ -162,7 +177,10 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
       val l = loser()
 
       ExpenseDuplicateDetector.detect(List(s1, s2, l)) must be(
-        List(Candidate(s2, l, Tier.Weak, ambiguous = true), Candidate(s1, l, Tier.Weak, ambiguous = true))
+        List(
+          Candidate(s2, l, l.receiptIds.head, Tier.Weak, ambiguous = true),
+          Candidate(s1, l, l.receiptIds.head, Tier.Weak, ambiguous = true)
+        )
       )
     }
 

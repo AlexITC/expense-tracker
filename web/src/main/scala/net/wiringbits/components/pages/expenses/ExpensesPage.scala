@@ -260,7 +260,7 @@ object ExpenseList {
         .onComplete {
           case Success(_) =>
             setDeletedIds(_ + c.loser.id)
-            setMergedReceipts(_ + (c.survivor.id -> c.loser.receiptIds.head))
+            setMergedReceipts(_ + (c.survivor.id -> c.receiptId))
           case Failure(ex) => setError(ex.getMessage)
         }
 

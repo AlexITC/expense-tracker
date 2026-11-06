@@ -8,10 +8,12 @@ import net.wiringbits.repositories.daos.{
   ReceiptDAO,
   RefundDAO
 }
-import net.wiringbits.repositories.models.{Expense, ExpenseCategorySplit}
+import net.wiringbits.repositories.ExpensesRepository.MergeError
+import net.wiringbits.repositories.models.{Expense, ExpenseCategorySplit, Receipt}
 import play.api.db.Database
 
-import java.time.{Clock, LocalDate, LocalTime}
+import java.sql.Connection
+import java.time.{Clock, Instant, LocalDate, LocalTime}
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.Future
@@ -89,25 +91,51 @@ class ExpensesRepository @Inject() (database: Database)(implicit
   def merge(survivorId: UUID, loserId: UUID, userId: UUID): Future[Unit] = Future {
     ConstraintViolations.translating(ReceiptRepository.ReceiptExpenseIdUnique) {
       database.withTransaction { implicit conn =>
-        if (survivorId == loserId) throw new RuntimeException("Cannot merge an expense with itself")
-        if (ExpenseDAO.find(survivorId, userId).isEmpty || ExpenseDAO.find(loserId, userId).isEmpty)
-          throw new RuntimeException("Expense not found")
-        if (!BankStatementRowDAO.existsForExpense(survivorId, userId))
-          throw new RuntimeException("The surviving expense must be linked to a bank statement row")
-        if (BankStatementRowDAO.existsForExpense(loserId, userId))
-          throw new RuntimeException("The merged expense must not be linked to a bank statement row")
-        val receipt = ReceiptDAO
-          .findByExpenseId(loserId, userId)
-          .getOrElse(throw new RuntimeException("The merged expense must have a receipt"))
-        if (ReceiptDAO.findByExpenseId(survivorId, userId).isDefined)
-          throw new RuntimeException("The surviving expense already has a receipt")
-
+        val receipt =
+          validateMerge(survivorId, loserId, userId).fold(e => throw new RuntimeException(e.message), identity)
         val now = clock.instant()
-        ReceiptDAO.clearExpenseId(receipt.id, userId, now)
-        ReceiptDAO.setExpenseId(receipt.id, userId, survivorId, now)
+        relinkReceipt(receipt, survivorId, userId, now)
         RefundDAO.reassignExpense(loserId, survivorId, userId, now)
         ExpenseDAO.delete(loserId, userId)
       }
     }
+  }
+
+  /** Checks the merge guards and returns the loser's receipt, which moves to the survivor. */
+  private def validateMerge(survivorId: UUID, loserId: UUID, userId: UUID)(implicit
+      conn: Connection
+  ): Either[MergeError, Receipt] = {
+    import MergeError.*
+    for {
+      _ <- Either.cond(survivorId != loserId, (), SelfMerge)
+      _ <- Either.cond(
+        ExpenseDAO.find(survivorId, userId).isDefined && ExpenseDAO.find(loserId, userId).isDefined,
+        (),
+        ExpenseNotFound
+      )
+      _ <- Either.cond(BankStatementRowDAO.existsForExpense(survivorId, userId), (), SurvivorWithoutRow)
+      _ <- Either.cond(!BankStatementRowDAO.existsForExpense(loserId, userId), (), LoserWithRow)
+      receipt <- ReceiptDAO.findByExpenseId(loserId, userId).toRight(LoserWithoutReceipt)
+      _ <- Either.cond(ReceiptDAO.findByExpenseId(survivorId, userId).isEmpty, (), SurvivorWithReceipt)
+    } yield receipt
+  }
+
+  private def relinkReceipt(receipt: Receipt, survivorId: UUID, userId: UUID, now: Instant)(implicit
+      conn: Connection
+  ): Unit = {
+    ReceiptDAO.clearExpenseId(receipt.id, userId, now)
+    ReceiptDAO.setExpenseId(receipt.id, userId, survivorId, now)
+  }
+}
+
+object ExpensesRepository {
+
+  enum MergeError(val message: String) {
+    case SelfMerge extends MergeError("Cannot merge an expense with itself")
+    case ExpenseNotFound extends MergeError("Expense not found")
+    case SurvivorWithoutRow extends MergeError("The surviving expense must be linked to a bank statement row")
+    case LoserWithRow extends MergeError("The merged expense must not be linked to a bank statement row")
+    case LoserWithoutReceipt extends MergeError("The merged expense must have a receipt")
+    case SurvivorWithReceipt extends MergeError("The surviving expense already has a receipt")
   }
 }

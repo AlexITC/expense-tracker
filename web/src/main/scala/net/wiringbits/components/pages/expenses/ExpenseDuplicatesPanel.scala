@@ -57,6 +57,12 @@ object ExpenseDuplicatesPanel {
   private val columnTitleStyling = new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" }
   private val actionsStyling = new CSSPropertiesUtils { display = "flex"; gap = "8px"; marginTop = "10px" }
 
+  private def groupLabels(tier: Tier): (String, String) = tier match {
+    case Tier.Strong => ("STRONG", "Same amount, close date and same merchant.")
+    case Tier.Weak =>
+      ("WEAK", "Same amount and close date, but the merchant differs. Check the receipt before merging.")
+  }
+
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
@@ -75,7 +81,7 @@ object ExpenseDuplicatesPanel {
       )
 
     def card(c: Candidate, filenames: Map[UUID, String]): ReactElement = {
-      val receipt = c.loser.receiptIds.headOption.flatMap(id => filenames.get(id).map(id -> _))
+      val receipt = filenames.get(c.receiptId)
       mui.Box
         .sx(cardStyling)(
           mui.Box.sx(columnsStyling)(column("Bank row", c.survivor), column("Receipt", c.loser)),
@@ -83,11 +89,13 @@ object ExpenseDuplicatesPanel {
             mui.Typography("Several expenses match this one; check the receipt to pick the right pair.").sx(hintStyling)
           else Fragment(),
           mui.Box.sx(actionsStyling)(
-            receipt.fold[ReactElement](Fragment()) { case (id, filename) =>
+            receipt.fold[ReactElement](Fragment()) { filename =>
               mui.Button
                 .normal()("View receipt")
                 .size("small")
-                .onClick(_ => ReceiptFileViewer.openInNewTab(props.ctx.api.client, id, filename, props.onError))
+                .onClick(_ =>
+                  ReceiptFileViewer.openInNewTab(props.ctx.api.client, c.receiptId, filename, props.onError)
+                )
             },
             mui.Button.normal()("Merge").variant("contained").size("small").onClick(_ => props.onMerge(c)),
             mui.Button.normal()("Dismiss").size("small").onClick(_ => props.onDismiss(c))
@@ -96,7 +104,8 @@ object ExpenseDuplicatesPanel {
         .withKey(ExpenseList.dismissKey(c))
     }
 
-    def group(title: String, hint: String, candidates: List[Candidate], filenames: Map[UUID, String]): ReactElement =
+    def group(tier: Tier, candidates: List[Candidate], filenames: Map[UUID, String]): ReactElement = {
+      val (title, hint) = groupLabels(tier)
       if (candidates.isEmpty) Fragment()
       else
         Fragment(
@@ -104,20 +113,19 @@ object ExpenseDuplicatesPanel {
           mui.Typography(hint).sx(hintStyling),
           Fragment(candidates.map(c => card(c, filenames))*)
         )
+    }
 
     AsyncComponent[GetReceipts.Response](
       fetch = () => props.ctx.api.client.getReceipts,
       render = receipts => {
         val filenames = receipts.data.map(r => r.id -> r.documentFilename).toMap
-        val (strong, weak) = props.candidates.partition(_.tier == Tier.Strong)
+        val byTier = props.candidates.groupBy(_.tier)
         mui.Box.sx(panelStyling)(
           mui.Typography("Possible duplicates").variant("h6"),
-          group("STRONG", "Same amount, close date and same merchant.", strong, filenames),
-          group(
-            "WEAK",
-            "Same amount and close date, but the merchant differs. Check the receipt before merging.",
-            weak,
-            filenames
+          Fragment(
+            Tier.values.toList.map(tier =>
+              Fragment(group(tier, byTier.getOrElse(tier, Nil), filenames)).withKey(tier.toString)
+            )*
           )
         )
       },
