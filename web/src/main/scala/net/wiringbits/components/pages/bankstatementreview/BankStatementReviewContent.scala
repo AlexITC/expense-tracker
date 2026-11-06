@@ -4,11 +4,12 @@ import com.olvind.mui.muiMaterial.components as mui
 import monix.execution.Scheduler
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.GetBankStatement
-import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewRow.RowAction
+import net.wiringbits.api.models.receipts.GetReceipts
+import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewRow.{ReceiptAction, RowAction}
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.core.{ReactiveHooks, SafeHooks}
-import net.wiringbits.utils.ReconciliationMatcher
+import net.wiringbits.utils.{ReceiptFileViewer, ReconciliationMatcher}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.RouterCompat
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.useHistory
@@ -20,8 +21,8 @@ import java.util.UUID
 import scala.concurrent.ExecutionContext
 
 /** The review page body for one statement. It loads the statement first and the support lists (merchants, categories,
-  * rules, candidate expenses) after it, into a store that lives as long as this component; its parent keys it by
-  * statement id, so another statement gets a fresh store.
+  * rules, candidate expenses, unlinked receipts) after it, into a store that lives as long as this component; its
+  * parent keys it by statement id, so another statement gets a fresh store.
   */
 object BankStatementReviewContent {
   import BankStatementReviewLogic.*
@@ -112,6 +113,14 @@ object BankStatementReviewContent {
       SafeHooks.useMemo(rowsKey, rowInfoKey, expensesKey)(() =>
         expenseMatches(statementRows, rowInfoById, unlinkedExpensesByDate)
       )
+    val receiptList = support.fold(Nil)(_.receipts)
+    val receiptsKey = receiptList.toString
+    val receiptMatchById: Map[UUID, GetReceipts.Response.Receipt] =
+      SafeHooks.useMemo(rowsKey, rowInfoKey, expensesKey, receiptsKey)(() =>
+        receiptMatches(statementRows, rowInfoById, expenseMatchById, receiptList)
+      )
+    // Rows the user opted out of attaching their matched receipt to; processing creates them without one.
+    val (detachedReceiptRowIds, setDetached) = Hooks.useState[Set[UUID]](Set.empty)
 
     val rowActionsOpt = statementState.toOption.map(stmt =>
       BankStatementRowActions(
@@ -147,6 +156,15 @@ object BankStatementReviewContent {
             case RowAction.Unlink => rowActionsOpt.foreach(_.unlink(rowId))
             case RowAction.UnlinkRefund => rowActionsOpt.foreach(_.unlinkRefund(rowId))
           }
+      )
+    val onReceiptAction: (UUID, ReceiptAction) => Unit =
+      SafeHooks.useCallback(stmtId.toString)((rowId: UUID, action: ReceiptAction) =>
+        action match {
+          case ReceiptAction.View(receiptId, filename) =>
+            ReceiptFileViewer.openInNewTab(props.ctx.api.client, receiptId, filename, setError(_))
+          case ReceiptAction.Detach => setDetached(_ + rowId)
+          case ReceiptAction.Reattach => setDetached(_ - rowId)
+        }
       )
 
     val drawerTarget =
@@ -216,11 +234,13 @@ object BankStatementReviewContent {
                   statementRows = statementRows,
                   rowInfoById = rowInfoById,
                   expenseMatchById = expenseMatchById,
+                  receiptMatchById = effectiveReceiptIds(receiptMatchById, detachedReceiptRowIds),
                   expenseList = expenseList,
                   updateRows = store.updateRows,
                   setBulkImport = setBulkImport,
                   setSelectedRowIds = setSelectedRowIds,
                   showToast = showToast,
+                  onReceiptLinked = id => store.updateSupport(_.withoutReceipt(id)),
                   onFinished = () => rowActions.refreshExpenses()
                 ),
               onIgnore = () =>
@@ -249,10 +269,13 @@ object BankStatementReviewContent {
               showCheckbox = rowFilter == "unprocessed" || rowFilter == "ready",
               pollingSuggestions = suggestions.polling,
               expenseMatchById = expenseMatchById,
+              receiptMatchById = receiptMatchById,
+              detachedReceiptRowIds = detachedReceiptRowIds,
               onSelectAll =
                 checked => if (checked) setSelectedRowIds(tableRows.map(_.id).toSet) else setSelectedRowIds(Set.empty),
               onToggleSelected = onToggleSelected,
-              onRowAction = onRowAction
+              onRowAction = onRowAction,
+              onReceiptAction = onReceiptAction
             )
           ),
           if ((bulkImport.results ++ bulkIgnore.results).nonEmpty)
@@ -281,6 +304,8 @@ object BankStatementReviewContent {
                 store.patchRow(rowId)(_.copy(expenseId = Some(expenseId)))
                 setDrawerState(_.closing(DrawerState.CreateExpense(rowId)))
                 rowActions.refreshRow(rowId)
+                // The form may have attached a receipt; refetch so it cannot match another row.
+                store.refreshReceipts(props.ctx.api.client, setError)
                 showToast("Expense created")
               },
               onRefundCreated = (rowId, refundId) => {

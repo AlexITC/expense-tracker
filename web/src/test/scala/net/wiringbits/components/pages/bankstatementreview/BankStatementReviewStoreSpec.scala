@@ -7,6 +7,7 @@ import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.documents.DocumentStatus
 import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.models.merchants.{GetImportRules, GetMerchants, ImportRuleAction}
+import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewLogic.{Loadable, ReviewSupport}
 import org.scalatest.matchers.must.Matchers.*
@@ -59,12 +60,29 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
       aiSuggestions = suggestions
     )
 
-  private val emptySupport = ReviewSupport(Nil, Nil, Nil, Nil)
+  private val emptySupport = ReviewSupport(Nil, Nil, Nil, Nil, Nil)
 
-  /** Answers the load calls from the given values; a missing statement or a set `failMerchants` fails that call. */
+  private def receipt(amount: Option[BigDecimal], expenseId: Option[UUID]): GetReceipts.Response.Receipt =
+    GetReceipts.Response.Receipt(
+      id = UUID.randomUUID(),
+      documentFilename = "receipt.jpg",
+      documentStatus = DocumentStatus.Parsed,
+      amount = amount,
+      date = Some(LocalDate.of(2024, 3, 7)),
+      merchantName = None,
+      expenseId = expenseId,
+      ignoredAt = None,
+      createdAt = Instant.EPOCH
+    )
+
+  /** Answers the load calls from the given values; a missing statement or a set `failMerchants`/`failReceipts` fails
+    * that call.
+    */
   private final class StubClient(
       stmt: Option[GetBankStatement.Response],
       failMerchants: Boolean = false,
+      failReceipts: Boolean = false,
+      receipts: List[GetReceipts.Response.Receipt] = Nil,
       merchants: List[GetMerchants.Response.Merchant] = Nil,
       rules: List[GetImportRules.Rule] = Nil,
       expenses: List[GetExpenses.Response.Expense] = Nil
@@ -80,6 +98,10 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
     override def getMerchants: Future[GetMerchants.Response] =
       if (failMerchants) Future.failed(new RuntimeException("no merchants"))
       else Future.successful(GetMerchants.Response(merchants))
+
+    override def getReceipts: Future[GetReceipts.Response] =
+      if (failReceipts) Future.failed(new RuntimeException("no receipts"))
+      else Future.successful(GetReceipts.Response(receipts))
 
     override def getCategories: Future[GetCategories.Response] = Future.successful(GetCategories.Response(Nil))
 
@@ -113,13 +135,21 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
       )
       val merchant =
         GetMerchants.Response.Merchant(UUID.randomUUID(), "Shop", None, None, None, reviewed = true, Instant.EPOCH)
-      val client = new StubClient(Some(resp), merchants = List(merchant), rules = List(apiRule))
+      val linked = receipt(Some(BigDecimal("12.00")), Some(UUID.randomUUID()))
+      val noAmount = receipt(None, None)
+      val kept = receipt(Some(BigDecimal("12.00")), None)
+      val client = new StubClient(
+        Some(resp),
+        merchants = List(merchant),
+        rules = List(apiRule),
+        receipts = List(linked, noAmount, kept)
+      )
       val store = new BankStatementReviewStore
       store.load(client, resp.id)
       store.$statement() mustBe Loadable.Loaded(resp)
       store.$rows() mustBe resp.statementRows
       store.$support() mustBe Loadable.Loaded(
-        ReviewSupport(List(merchant), Nil, List(ImportRuleMatcher.Rule.fromApi(apiRule)), Nil)
+        ReviewSupport(List(merchant), Nil, List(ImportRuleMatcher.Rule.fromApi(apiRule)), Nil, List(kept))
       )
       val (from, to) = BankStatementReviewLogic.candidateExpenseWindow(resp)
       client.calls.toList mustBe List(s"expenses:${Some(from)}:${Some(to)}:true")
@@ -131,6 +161,14 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
       store.load(new StubClient(Some(resp), failMerchants = true), resp.id)
       store.$statement() mustBe Loadable.Loaded(resp)
       store.$support() mustBe Loadable.Failed("no merchants")
+    }
+
+    "load the support lists without receipts when the receipts fail" in {
+      val resp = statement(List(sampleRow("A")))
+      val store = new BankStatementReviewStore
+      store.load(new StubClient(Some(resp), failReceipts = true), resp.id)
+      store.$statement() mustBe Loadable.Loaded(resp)
+      store.$support() mustBe Loadable.Loaded(emptySupport)
     }
 
     "mark the statement failed and not load the support lists when the statement fails" in {
@@ -199,6 +237,33 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
       )
       store.updateSupport(_.withRule(rule))
       store.$support() mustBe Loadable.Loaded(emptySupport.withRule(rule))
+    }
+  }
+
+  "refreshReceipts" should {
+    given ExecutionContext = ExecutionContext.parasitic
+
+    "replace the receipts with the refetched unlinked ones that have an amount" in {
+      val stale = receipt(Some(BigDecimal("12.00")), None)
+      val kept = receipt(Some(BigDecimal("30.00")), None)
+      val nowLinked = stale.copy(expenseId = Some(UUID.randomUUID()))
+      val noAmount = receipt(None, None)
+      val store = new BankStatementReviewStore
+      store.supportLoaded(emptySupport.copy(receipts = List(stale)))
+      val errors = ListBuffer.empty[String]
+      store.refreshReceipts(new StubClient(None, receipts = List(nowLinked, kept, noAmount)), errors += _)
+      store.$support() mustBe Loadable.Loaded(emptySupport.copy(receipts = List(kept)))
+      errors mustBe empty
+    }
+
+    "keep the current receipts and report the error when the fetch fails" in {
+      val current = receipt(Some(BigDecimal("12.00")), None)
+      val store = new BankStatementReviewStore
+      store.supportLoaded(emptySupport.copy(receipts = List(current)))
+      val errors = ListBuffer.empty[String]
+      store.refreshReceipts(new StubClient(None, failReceipts = true), errors += _)
+      store.$support() mustBe Loadable.Loaded(emptySupport.copy(receipts = List(current)))
+      errors.toList mustBe List("no receipts")
     }
   }
 

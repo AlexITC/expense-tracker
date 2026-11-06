@@ -7,6 +7,7 @@ import net.wiringbits.api.models.merchants.{GetMerchants, GetPendingMerchants, M
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.core.SafeHooks
 import net.wiringbits.models.User
+import net.wiringbits.utils.ReceiptFileViewer
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 import org.scalajs.dom
@@ -306,12 +307,7 @@ object PendingMerchantItem {
       }
 
     def handleViewTicket(receiptId: UUID, filename: String): Unit = {
-      val mimeType = filename.toLowerCase match {
-        case f if f.endsWith(".pdf") => "application/pdf"
-        case f if f.endsWith(".jpg") || f.endsWith(".jpeg") => "image/jpeg"
-        case f if f.endsWith(".png") => "image/png"
-        case _ => "application/octet-stream"
-      }
+      val mimeType = ReceiptFileViewer.mimeTypeFor(filename)
       props.ctx.api.client.getReceiptFile(receiptId).onComplete {
         case Success((bytes, _, _)) =>
           val typedArray = new js.typedarray.Int8Array(bytes.length)

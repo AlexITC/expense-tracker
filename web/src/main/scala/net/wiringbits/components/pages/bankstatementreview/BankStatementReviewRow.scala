@@ -2,6 +2,7 @@ package net.wiringbits.components.pages.bankstatementreview
 
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.api.models.bankstatements.GetBankStatement
+import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.RowRuleVerdict
 import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewLogic.{
   LinkedCategory,
@@ -30,6 +31,13 @@ object BankStatementReviewRow {
     case OpenExpenseForm, OpenRefundForm, OpenLinkPicker, OpenRuleForm, Ignore, Unignore, Unlink, UnlinkRefund
   }
 
+  /** What a row asks the page to do with its matched receipt. */
+  enum ReceiptAction {
+    case View(receiptId: UUID, filename: String)
+    case Detach
+    case Reattach
+  }
+
   case class Props(
       row: GetBankStatement.StatementRowData,
       info: RowInfo,
@@ -37,8 +45,11 @@ object BankStatementReviewRow {
       showCheckbox: Boolean,
       pollingSuggestions: Boolean,
       linksToExpense: Boolean,
+      matchedReceipt: Option[GetReceipts.Response.Receipt],
+      receiptDetached: Boolean,
       onToggleSelected: (UUID, Boolean) => Unit,
-      onAction: (UUID, RowAction) => Unit
+      onAction: (UUID, RowAction) => Unit,
+      onReceiptAction: (UUID, ReceiptAction) => Unit
   )
 
   // Slinky wraps Scala props in a single JS object, so React's default shallow compare never matches; compare the
@@ -123,9 +134,31 @@ object BankStatementReviewRow {
           mui.Typography("suggesting…").sx(new CSSPropertiesUtils { color = "var(--lc-hint)"; fontSize = "13px" })
         else dash
 
+      def smallTextButton(lbl: String, onClick: () => Unit): ReactElement =
+        (mui.Button
+          .normal()(lbl)
+          .size("small")
+          .sx(new CSSPropertiesUtils { minWidth = "0"; padding = "0 4px"; fontSize = "12px" })
+          .onClick(_ => onClick())
+          .build: ReactElement)
+
+      // The receipt processing would attach, with View plus Detach (or Re-attach once the user opted out).
+      def receiptControls(receipt: GetReceipts.Response.Receipt): ReactElement =
+        Fragment(
+          if (props.receiptDetached) tintChip("Receipt detached", "var(--lc-text-2)")
+          else tintChip("🧾 Receipt", "var(--lc-brand)"),
+          smallTextButton(
+            "View",
+            () => props.onReceiptAction(row.id, ReceiptAction.View(receipt.id, receipt.documentFilename))
+          ),
+          if (props.receiptDetached)
+            smallTextButton("Re-attach", () => props.onReceiptAction(row.id, ReceiptAction.Reattach))
+          else smallTextButton("Detach", () => props.onReceiptAction(row.id, ReceiptAction.Detach))
+        )
+
       // Linked rows show the linked expense's merchant (else "Linked"); other rows the merchant set on import, rule-matched
       // or AI-suggested, with "→ Ignore" taking over when an Ignore rule applies, plus "↔ Link existing" when processing
-      // would link the row to an existing expense.
+      // would link the row to an existing expense and the receipt controls when it would attach a receipt.
       def matchCell: ReactElement =
         if (row.expenseId.isDefined || row.refundId.isDefined)
           tintChip(info.linkedMerchantName.getOrElse("Linked"), "var(--lc-brand)")
@@ -136,10 +169,11 @@ object BankStatementReviewRow {
             case Some(name) => tintChip(name, "var(--lc-brand-dark)")
             case None => suggestingOrDash
           }
-          if (props.linksToExpense)
+          if (props.linksToExpense || props.matchedReceipt.isDefined)
             mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px"; alignItems = "center" })(
               merchant,
-              tintChip("↔ Link existing", "var(--lc-brand)")
+              if (props.linksToExpense) tintChip("↔ Link existing", "var(--lc-brand)") else Fragment(),
+              props.matchedReceipt.fold[ReactElement](Fragment())(receiptControls)
             )
           else merchant
         }

@@ -2,8 +2,11 @@ package net.wiringbits.utils
 
 import net.wiringbits.api.models.bankstatements.{CreateExpenseFromRow, GetBankStatement}
 import net.wiringbits.api.models.expenses.GetExpenses
+import net.wiringbits.api.models.documents.DocumentStatus
 import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction}
+import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
+import net.wiringbits.utils.ReconciliationMatcher.ReceiptMatch
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -71,6 +74,23 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       createdAt = Instant.now(),
       receiptIds = Nil,
       rowIds = rowIds
+    )
+
+  private def makeReceipt(
+      amount: Option[BigDecimal] = Some(BigDecimal("100.00")),
+      date: Option[LocalDate] = Some(baseDate),
+      merchantName: Option[String] = Some("Amazon")
+  ): GetReceipts.Response.Receipt =
+    GetReceipts.Response.Receipt(
+      id = UUID.randomUUID(),
+      documentFilename = "receipt.pdf",
+      documentStatus = DocumentStatus.Parsed,
+      amount = amount,
+      date = date,
+      merchantName = merchantName,
+      expenseId = None,
+      ignoredAt = None,
+      createdAt = Instant.now()
     )
 
   "qualifyingCreateRequests" should {
@@ -369,6 +389,62 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       val linked = makeExpense(rowIds = List(UUID.randomUUID()))
       val byDate = ReconciliationMatcher.unlinkedByDate(inWindow ++ outside :+ linked)
       ReconciliationMatcher.candidatesFor(row, byDate).map(_.id).toSet mustBe inWindow.map(_.id).toSet
+    }
+  }
+
+  "matchReceipt" should {
+    "require an exact amount" in {
+      val receipt = makeReceipt(amount = Some(BigDecimal("100.01")))
+      ReconciliationMatcher.matchReceipt(makeRow(), List(receipt)) mustBe ReceiptMatch.NoMatch
+    }
+
+    "match a debit row against the receipt's positive amount" in {
+      val receipt = makeReceipt()
+      ReconciliationMatcher.matchReceipt(makeRow(amount = BigDecimal("-100.00")), List(receipt)) mustBe
+        ReceiptMatch.Single(receipt.id)
+    }
+
+    "match when the row posts 0 to MaxDateDifferenceDays days after the receipt" in {
+      List(0L, ReconciliationMatcher.MaxDateDifferenceDays).foreach { d =>
+        val receipt = makeReceipt(date = Some(baseDate.minusDays(d)))
+        ReconciliationMatcher.matchReceipt(makeRow(), List(receipt)) mustBe ReceiptMatch.Single(receipt.id)
+      }
+    }
+
+    "not match when the row posts before the receipt" in {
+      val receipt = makeReceipt(date = Some(baseDate.plusDays(1)))
+      ReconciliationMatcher.matchReceipt(makeRow(), List(receipt)) mustBe ReceiptMatch.NoMatch
+    }
+
+    "not match when the row posts more than MaxDateDifferenceDays days after the receipt" in {
+      val receipt = makeReceipt(date = Some(baseDate.minusDays(ReconciliationMatcher.MaxDateDifferenceDays + 1)))
+      ReconciliationMatcher.matchReceipt(makeRow(), List(receipt)) mustBe ReceiptMatch.NoMatch
+    }
+
+    "exclude a receipt without a date even when the amount is exact" in {
+      ReconciliationMatcher.matchReceipt(makeRow(), List(makeReceipt(date = None))) mustBe ReceiptMatch.NoMatch
+    }
+
+    "exclude a receipt without an amount" in {
+      ReconciliationMatcher.matchReceipt(makeRow(), List(makeReceipt(amount = None))) mustBe ReceiptMatch.NoMatch
+    }
+
+    "return Single for the only candidate among non-matching receipts" in {
+      val matching = makeReceipt()
+      val others = List(makeReceipt(amount = Some(BigDecimal("55.00"))), makeReceipt(date = None))
+      ReconciliationMatcher.matchReceipt(makeRow(), matching :: others) mustBe ReceiptMatch.Single(matching.id)
+    }
+
+    "return Ambiguous with every candidate when several match" in {
+      val first = makeReceipt()
+      val second = makeReceipt(date = Some(baseDate.minusDays(1)))
+      ReconciliationMatcher.matchReceipt(makeRow(), List(first, second)) mustBe
+        ReceiptMatch.Ambiguous(List(first.id, second.id))
+    }
+
+    "ignore the merchant name" in {
+      val receipt = makeReceipt(merchantName = Some("Corner Bakery"))
+      ReconciliationMatcher.matchReceipt(makeRow(), List(receipt)) mustBe ReceiptMatch.Single(receipt.id)
     }
   }
 }

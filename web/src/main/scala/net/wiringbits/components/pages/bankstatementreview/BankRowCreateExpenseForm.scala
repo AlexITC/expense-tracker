@@ -9,6 +9,7 @@ import net.wiringbits.api.models.merchants.{CreateImportRule, CreateMerchant, Ge
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.core.SafeHooks
+import net.wiringbits.utils.ReceiptFileViewer
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
@@ -18,7 +19,6 @@ import slinky.web.html.{form, label, onSubmit}
 import java.time.{Instant, LocalDate}
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
-import scala.scalajs.js
 import scala.util.{Failure, Success, Try}
 
 object BankRowCreateExpenseForm {
@@ -360,31 +360,6 @@ object BankRowCreateExpenseForm {
           }
       }
 
-    def handleViewTicket(receiptId: UUID, filename: String): Unit = {
-      val win = dom.window.open("", "_blank")
-      val mimeType = filename.toLowerCase match {
-        case f if f.endsWith(".pdf") => "application/pdf"
-        case f if f.endsWith(".jpg") || f.endsWith(".jpeg") => "image/jpeg"
-        case f if f.endsWith(".png") => "image/png"
-        case _ => "application/octet-stream"
-      }
-      props.ctx.api.client.getReceiptFile(receiptId).onComplete {
-        case Success((bytes, _, _)) =>
-          val typedArray = new js.typedarray.Uint8Array(bytes.length)
-          bytes.indices.foreach(i => typedArray(i) = (bytes(i) & 0xff).toShort)
-          val blob = new dom.Blob(
-            js.Array(typedArray.buffer.asInstanceOf[js.typedarray.ArrayBuffer]),
-            new dom.BlobPropertyBag { `type` = mimeType }
-          )
-          val url = dom.URL.createObjectURL(blob)
-          if (win != null) win.location.href = url
-          dom.window.setTimeout(() => dom.URL.revokeObjectURL(url), 60000)
-        case Failure(ex) =>
-          if (win != null) win.close()
-          setError(ex.getMessage)
-      }
-    }
-
     val dropdownItemSx = new CSSPropertiesUtils {
       padding = "8px 12px"; cursor = "pointer"; fontSize = "14px"
     }
@@ -565,7 +540,9 @@ object BankRowCreateExpenseForm {
                       mui.Button
                         .normal()("View")
                         .size("small")
-                        .onClick(_ => handleViewTicket(r.id, r.documentFilename))
+                        .onClick(_ =>
+                          ReceiptFileViewer.openInNewTab(props.ctx.api.client, r.id, r.documentFilename, setError)
+                        )
                     )
                     .withKey(r.id.toString): ReactElement)
                 }*

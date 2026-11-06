@@ -17,6 +17,7 @@ import net.wiringbits.api.models.receipts.{ConfirmReceipt, GetReceipt, GetReceip
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.components.pages.receipts.ReceiptsLogic.{BatchState, ConfirmForm, ReceiptMode}
 import net.wiringbits.models.User
+import net.wiringbits.utils.ReceiptFileViewer
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
@@ -95,12 +96,6 @@ object ReceiptList {
   private val parsedStyling = new CSSPropertiesUtils { fontSize = "0.85em"; color = "var(--lc-brand)" }
   private val linkedStyling = new CSSPropertiesUtils { fontSize = "0.8em"; color = "var(--lc-link)" }
   private val remainderStyling = new CSSPropertiesUtils { fontSize = "0.85em"; color = "var(--lc-text-2)" }
-  private def mimeForFilename(filename: String): String = filename.toLowerCase match {
-    case f if f.endsWith(".pdf") => "application/pdf"
-    case f if f.endsWith(".jpg") || f.endsWith(".jpeg") => "image/jpeg"
-    case f if f.endsWith(".png") => "image/png"
-    case _ => "application/octet-stream"
-  }
 
   private val cardStyle = new CSSPropertiesUtils {
     border = "1px solid var(--lc-border)"
@@ -242,7 +237,7 @@ object ReceiptList {
       var blobUrl = Option.empty[String]
       selectedReceiptId.foreach { id =>
         localReceipts.find(_.id == id).foreach { r =>
-          val mimeType = mimeForFilename(r.documentFilename)
+          val mimeType = ReceiptFileViewer.mimeTypeFor(r.documentFilename)
           if (mimeType != "application/octet-stream") {
             setPreviewLoading(true)
             props.ctx.api.client.getReceiptFile(id).onComplete {
@@ -276,7 +271,7 @@ object ReceiptList {
     }
 
     def handleViewTicket(receiptId: UUID, filename: String): Unit = {
-      val mimeType = mimeForFilename(filename)
+      val mimeType = ReceiptFileViewer.mimeTypeFor(filename)
       props.ctx.api.client.getReceiptFile(receiptId).onComplete {
         case Success((bytes, _, _)) =>
           val typedArray = new js.typedarray.Int8Array(bytes.length)

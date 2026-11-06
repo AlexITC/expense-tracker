@@ -2,6 +2,8 @@ package net.wiringbits.components.pages.bankstatementreview
 
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.api.models.bankstatements.GetBankStatement
+import net.wiringbits.api.models.documents.DocumentStatus
+import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.RowRuleVerdict
 import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewLogic.{
   LinkedCategory,
@@ -9,7 +11,7 @@ import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewLo
   ResolvedImport,
   RowInfo
 }
-import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewRow.RowAction
+import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewRow.{ReceiptAction, RowAction}
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.BrowserRouter
 import org.scalajs.dom
 import org.scalatest.BeforeAndAfterEach
@@ -67,12 +69,33 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
   private val ignoreInfo =
     RowInfo(RowRuleVerdict.Ignore, None, None, None, isReady = true, None, None, None, LinkedCategory.Unknown)
 
+  private def receipt: GetReceipts.Response.Receipt =
+    GetReceipts.Response.Receipt(
+      id = UUID.randomUUID(),
+      documentFilename = "receipt-1.pdf",
+      documentStatus = DocumentStatus.Parsed,
+      amount = Some(BigDecimal("120.00")),
+      date = Some(LocalDate.of(2024, 3, 6)),
+      merchantName = None,
+      taxId = None,
+      merchantId = None,
+      expenseId = None,
+      ignoredAt = None,
+      createdAt = Instant.parse("2024-03-06T10:00:00Z")
+    )
+
+  // One reference shared by every render, so the memo tests only see the callbacks they vary.
+  private val noReceiptAction: (UUID, ReceiptAction) => Unit = (_, _) => ()
+
   private def props(
       r: GetBankStatement.StatementRowData,
       info: RowInfo,
       onAction: (UUID, RowAction) => Unit,
       onToggleSelected: (UUID, Boolean) => Unit = (_, _) => (),
-      linksToExpense: Boolean = false
+      linksToExpense: Boolean = false,
+      matchedReceipt: Option[GetReceipts.Response.Receipt] = None,
+      receiptDetached: Boolean = false,
+      onReceiptAction: (UUID, ReceiptAction) => Unit = noReceiptAction
   ): BankStatementReviewRow.Props =
     BankStatementReviewRow.Props(
       row = r,
@@ -81,8 +104,11 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
       showCheckbox = true,
       pollingSuggestions = false,
       linksToExpense = linksToExpense,
+      matchedReceipt = matchedReceipt,
+      receiptDetached = receiptDetached,
       onToggleSelected = onToggleSelected,
-      onAction = onAction
+      onAction = onAction,
+      onReceiptAction = onReceiptAction
     )
 
   private def renderProps(rowProps: List[BankStatementReviewRow.Props]) =
@@ -244,6 +270,58 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
       container.textContent must include("↔ Link existing")
       renderProps(List(props(r, readyInfo, (_, _) => (), linksToExpense = false)))
       container.textContent must not include ("↔ Link existing")
+    }
+
+    "show the receipt chip only when the row has a matched receipt" in {
+      val r = row("SUPERMARKET")
+      renderProps(List(props(r, readyInfo, (_, _) => (), matchedReceipt = Some(receipt))))
+      container.textContent must include("🧾 Receipt")
+      renderProps(List(props(r, readyInfo, (_, _) => ())))
+      container.textContent must not include ("Receipt")
+    }
+
+    "report View with the receipt's id and filename for its own row" in {
+      val r = row("SUPERMARKET")
+      val rec = receipt
+      var received = List.empty[(UUID, ReceiptAction)]
+      renderProps(
+        List(
+          props(
+            r,
+            readyInfo,
+            (_, _) => (),
+            matchedReceipt = Some(rec),
+            onReceiptAction = (id, action) => received = received :+ (id -> action)
+          )
+        )
+      )
+      clickButton("View")
+      received mustBe List(r.id -> ReceiptAction.View(rec.id, "receipt-1.pdf"))
+    }
+
+    "report Detach, and Reattach once the receipt is detached" in {
+      val r = row("SUPERMARKET")
+      var received = List.empty[(UUID, ReceiptAction)]
+      val onReceiptAction: (UUID, ReceiptAction) => Unit = (id, action) => received = received :+ (id -> action)
+      renderProps(
+        List(props(r, readyInfo, (_, _) => (), matchedReceipt = Some(receipt), onReceiptAction = onReceiptAction))
+      )
+      clickButton("Detach")
+      renderProps(
+        List(
+          props(
+            r,
+            readyInfo,
+            (_, _) => (),
+            matchedReceipt = Some(receipt),
+            receiptDetached = true,
+            onReceiptAction = onReceiptAction
+          )
+        )
+      )
+      container.textContent must include("Receipt detached")
+      clickButton("Re-attach")
+      received mustBe List(r.id -> ReceiptAction.Detach, r.id -> ReceiptAction.Reattach)
     }
 
     "report onToggleSelected when the checkbox is clicked" in {

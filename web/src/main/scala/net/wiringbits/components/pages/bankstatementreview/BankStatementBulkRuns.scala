@@ -55,11 +55,13 @@ object BankStatementBulkRuns {
       statementRows: List[GetBankStatement.StatementRowData],
       rowInfoById: Map[UUID, RowInfo],
       expenseMatchById: Map[UUID, ReconciliationMatcher.ProposedAction],
+      receiptMatchById: Map[UUID, UUID],
       expenseList: List[GetExpenses.Response.Expense],
       updateRows: (List[GetBankStatement.StatementRowData] => List[GetBankStatement.StatementRowData]) => Unit,
       setBulkImport: SetStateHookCallback[BulkRun],
       setSelectedRowIds: SetStateHookCallback[Set[UUID]],
       showToast: String => Unit,
+      onReceiptLinked: UUID => Unit,
       onFinished: () => Unit
   )(implicit ec: ExecutionContext): Unit = {
     val total = ids.length
@@ -83,7 +85,12 @@ object BankStatementBulkRuns {
           statementRows.find(_.id == rowId) match {
             case None => fail("Row not found")
             case Some(row) =>
-              bulkRowDecision(rowInfoById.get(rowId), expenseMatchById.get(rowId), linkedThisRun) match {
+              bulkRowDecision(
+                rowInfoById.get(rowId),
+                expenseMatchById.get(rowId),
+                receiptMatchById.get(rowId),
+                linkedThisRun
+              ) match {
                 case BulkRowDecision.Fail(message) => fail(message)
                 case BulkRowDecision.Ignore =>
                   client.ignoreRow(stmtId, rowId).onComplete {
@@ -115,7 +122,7 @@ object BankStatementBulkRuns {
                         advance(Right(()), counts.copy(linked = counts.linked + 1), linkedThisRun + expenseId)
                       case Failure(ex) => fail(ex.getMessage)
                     }
-                case BulkRowDecision.Create(res) =>
+                case BulkRowDecision.Create(res, receiptId) =>
                   val req = CreateExpenseFromRow.Request(
                     amount = row.amount.abs,
                     date = row.date,
@@ -123,7 +130,7 @@ object BankStatementBulkRuns {
                     merchantId = res.merchantId,
                     notes = Some(row.description).filter(_.nonEmpty),
                     splits = List(CreateExpenseFromRow.Split(res.categoryId, row.amount.abs)),
-                    receiptId = None
+                    receiptId = receiptId
                   )
                   client.createExpenseFromRow(stmtId, rowId, req).onComplete {
                     case Success(resp) =>
@@ -136,6 +143,7 @@ object BankStatementBulkRuns {
                           )
                         )
                       )
+                      receiptId.foreach(onReceiptLinked)
                       succeed(counts.copy(created = counts.created + 1))
                     case Failure(ex) => fail(ex.getMessage)
                   }

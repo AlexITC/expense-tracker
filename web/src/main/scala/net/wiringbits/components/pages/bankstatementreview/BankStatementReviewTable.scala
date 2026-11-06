@@ -2,8 +2,9 @@ package net.wiringbits.components.pages.bankstatementreview
 
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.api.models.bankstatements.GetBankStatement.StatementRowData
+import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewLogic.RowInfo
-import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewRow.RowAction
+import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewRow.{ReceiptAction, RowAction}
 import net.wiringbits.utils.ReconciliationMatcher
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import slinky.core.facade.{Fragment, ReactElement}
@@ -22,9 +23,12 @@ object BankStatementReviewTable {
       showCheckbox: Boolean,
       pollingSuggestions: Boolean,
       expenseMatchById: Map[UUID, ReconciliationMatcher.ProposedAction],
+      receiptMatchById: Map[UUID, GetReceipts.Response.Receipt],
+      detachedReceiptRowIds: Set[UUID],
       onSelectAll: Boolean => Unit,
       onToggleSelected: (UUID, Boolean) => Unit,
-      onRowAction: (UUID, RowAction) => Unit
+      onRowAction: (UUID, RowAction) => Unit,
+      onReceiptAction: (UUID, ReceiptAction) => Unit
   )
 
   private val hcell = new CSSPropertiesUtils {
@@ -84,8 +88,11 @@ object BankStatementReviewTable {
                       case ReconciliationMatcher.AutoLink(_) => true
                       case _ => false
                     },
+                    matchedReceipt = props.receiptMatchById.get(row.id),
+                    receiptDetached = props.detachedReceiptRowIds.contains(row.id),
                     onToggleSelected = props.onToggleSelected,
-                    onAction = props.onRowAction
+                    onAction = props.onRowAction,
+                    onReceiptAction = props.onReceiptAction
                   )
                 ).withKey(row.id.toString): ReactElement)
               }

@@ -3,6 +3,7 @@ package net.wiringbits.utils
 import net.wiringbits.api.models.bankstatements.{CreateExpenseFromRow, GetBankStatement}
 import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.models.merchants.GetMerchants
+import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 
 import java.time.LocalDate
@@ -21,6 +22,12 @@ object ReconciliationMatcher {
   case class AutoLink(expenseId: UUID) extends ProposedAction
   case class NeedsReview(candidates: List[UUID]) extends ProposedAction
   case object CreateNew extends ProposedAction
+
+  enum ReceiptMatch {
+    case NoMatch
+    case Single(receiptId: UUID)
+    case Ambiguous(receiptIds: List[UUID])
+  }
 
   def qualifyingCreateRequests(
       rows: List[GetBankStatement.StatementRowData],
@@ -104,6 +111,25 @@ object ReconciliationMatcher {
     actionFor(candidates)
   }
 
+  /** Finds the receipt for a row. A receipt qualifies when its amount equals the row's absolute amount exactly and its
+    * date is between 0 and `MaxDateDifferenceDays` days before the row's date (the same window as `matchRow`). Receipts
+    * without an amount or a date never qualify, and the merchant is not considered. More than one candidate is
+    * `Ambiguous`.
+    */
+  def matchReceipt(
+      row: GetBankStatement.StatementRowData,
+      receipts: List[GetReceipts.Response.Receipt]
+  ): ReceiptMatch = {
+    val candidates = receipts.filter { r =>
+      r.amount.contains(row.amount.abs) && r.date.exists(d => rowPostsWithinWindow(row, d))
+    }
+    candidates match {
+      case List(single) => ReceiptMatch.Single(single.id)
+      case Nil => ReceiptMatch.NoMatch
+      case multiple => ReceiptMatch.Ambiguous(multiple.map(_.id))
+    }
+  }
+
   /** Unlinked expenses grouped by date, built once so each row only looks at the dates it can match. */
   def unlinkedByDate(
       expenses: List[GetExpenses.Response.Expense]
@@ -121,14 +147,16 @@ object ReconciliationMatcher {
       .flatMap(d => byDate.getOrElse(row.date.minusDays(d), Nil))
       .filter(isMatchRowCandidate(row, _))
 
-  // `matchRow`'s window and unlinked rule: the expense is unlinked and the row posts 0 to 3 days after it.
+  // `matchRow`'s window and unlinked rule: the expense is unlinked and within `rowPostsWithinWindow`.
   private def isMatchRowCandidate(
       row: GetBankStatement.StatementRowData,
       e: GetExpenses.Response.Expense
   ): Boolean =
-    e.rowIds.isEmpty &&
-      !row.date.isBefore(e.date) &&
-      !row.date.isAfter(e.date.plusDays(MaxDateDifferenceDays))
+    e.rowIds.isEmpty && rowPostsWithinWindow(row, e.date)
+
+  // The row posts 0 to `MaxDateDifferenceDays` days after `date`.
+  private def rowPostsWithinWindow(row: GetBankStatement.StatementRowData, date: LocalDate): Boolean =
+    !row.date.isBefore(date) && !row.date.isAfter(date.plusDays(MaxDateDifferenceDays))
 
   private def actionFor(candidates: List[GetExpenses.Response.Expense]): ProposedAction =
     candidates match {

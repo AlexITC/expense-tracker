@@ -4,6 +4,7 @@ import net.wiringbits.api.models.bankstatements.{AiSuggestions, AiSuggestionsSta
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.models.merchants.GetMerchants
+import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.utils.ReconciliationMatcher
 
@@ -38,11 +39,13 @@ object BankStatementReviewLogic {
       merchants: List[GetMerchants.Response.Merchant],
       categories: List[GetCategories.Response.Category],
       rules: List[ImportRuleMatcher.Rule],
-      expenses: List[GetExpenses.Response.Expense]
+      expenses: List[GetExpenses.Response.Expense],
+      receipts: List[GetReceipts.Response.Receipt]
   ) {
     def withRule(rule: ImportRuleMatcher.Rule): ReviewSupport = copy(rules = rules :+ rule)
     def withMerchant(m: GetMerchants.Response.Merchant): ReviewSupport = copy(merchants = merchants :+ m)
     def withExpenses(list: List[GetExpenses.Response.Expense]): ReviewSupport = copy(expenses = list)
+    def withoutReceipt(id: UUID): ReviewSupport = copy(receipts = receipts.filterNot(_.id == id))
   }
 
   /** Apply `f` to the row with `rowId`, leaving the others untouched. */
@@ -276,7 +279,7 @@ object BankStatementReviewLogic {
   enum BulkRowDecision {
     case Ignore
     case Link(expenseId: UUID)
-    case Create(resolved: ResolvedImport)
+    case Create(resolved: ResolvedImport, receiptId: Option[UUID])
     case CreateRefund(prefill: RefundPrefill)
     case Fail(message: String)
   }
@@ -348,14 +351,15 @@ object BankStatementReviewLogic {
 
   private val manualLinkHint = "link it manually via … → Link to existing expense"
 
-  /** Decide a selected row's bulk action from its info and its expense match. An Ignore verdict wins; a credit with a
-    * refund prefill becomes a refund; otherwise a unique match is linked unless an earlier row in this run already took
-    * that expense; an ambiguous match fails so the user picks manually; otherwise a new expense is created when the row
-    * resolves to a category.
+  /** Decide a selected row's bulk action from its info, its expense match and its receipt match. An Ignore verdict
+    * wins; a credit with a refund prefill becomes a refund; otherwise a unique match is linked unless an earlier row in
+    * this run already took that expense (the receipt match is not used); an ambiguous match fails so the user picks
+    * manually; otherwise a new expense is created when the row resolves to a category, attaching `receiptMatch` if any.
     */
   def bulkRowDecision(
       info: Option[RowInfo],
       expenseMatch: Option[ReconciliationMatcher.ProposedAction],
+      receiptMatch: Option[UUID],
       linkedThisRun: Set[UUID]
   ): BulkRowDecision =
     if (info.exists(_.verdict == RowRuleVerdict.Ignore)) BulkRowDecision.Ignore
@@ -369,7 +373,9 @@ object BankStatementReviewLogic {
           case Some(ReconciliationMatcher.NeedsReview(ids)) =>
             BulkRowDecision.Fail(s"Matches ${ids.size} existing expenses — $manualLinkHint")
           case None | Some(ReconciliationMatcher.CreateNew) =>
-            info.flatMap(_.resolved).fold(BulkRowDecision.Fail("No category"))(BulkRowDecision.Create(_))
+            info
+              .flatMap(_.resolved)
+              .fold(BulkRowDecision.Fail("No category"))(BulkRowDecision.Create(_, receiptMatch))
         }
       }
 
@@ -390,6 +396,42 @@ object BankStatementReviewLogic {
           row.id -> ReconciliationMatcher.matchRow(row, info.verdict, candidates)
         }
     }.toMap
+
+  /** The receipt each row would attach when "Process ready" creates its expense: only ready, non-Ignore debit rows that
+    * resolve to a new expense (no refund prefill, and an expense match of None or CreateNew) are considered, and only a
+    * single matching receipt counts. A receipt claimed by more than one row is ambiguous and attached to none.
+    */
+  def receiptMatches(
+      rows: List[GetBankStatement.StatementRowData],
+      rowInfoById: Map[UUID, RowInfo],
+      expenseMatchById: Map[UUID, ReconciliationMatcher.ProposedAction],
+      receipts: List[GetReceipts.Response.Receipt]
+  ): Map[UUID, GetReceipts.Response.Receipt] = {
+    val receiptById = receipts.map(r => r.id -> r).toMap
+    val claims = rows.flatMap { row =>
+      val createsExpense = rowInfoById.get(row.id).exists { info =>
+        info.isReady && info.verdict != RowRuleVerdict.Ignore && row.amount < 0 && info.resolved.isDefined &&
+        info.refund.isEmpty
+      } && expenseMatchById.get(row.id).forall(_ == ReconciliationMatcher.CreateNew)
+      if (!createsExpense) Nil
+      else
+        ReconciliationMatcher.matchReceipt(row, receipts) match {
+          case ReconciliationMatcher.ReceiptMatch.Single(receiptId) => List(row.id -> receiptId)
+          case _ => Nil
+        }
+    }
+    val claimCount = claims.groupMapReduce(_._2)(_ => 1)(_ + _)
+    claims.collect {
+      case (rowId, receiptId) if claimCount(receiptId) == 1 => rowId -> receiptById(receiptId)
+    }.toMap
+  }
+
+  /** The receipt id each row attaches when processed: its matched receipt, unless the user detached it. */
+  def effectiveReceiptIds(
+      matches: Map[UUID, GetReceipts.Response.Receipt],
+      detached: Set[UUID]
+  ): Map[UUID, UUID] =
+    (matches -- detached).view.mapValues(_.id).toMap
 
   /** The toast shown after "Process ready", listing only the non-zero counts. */
   def bulkImportSummary(linked: Int, created: Int, ignored: Int, failed: Int): String = {

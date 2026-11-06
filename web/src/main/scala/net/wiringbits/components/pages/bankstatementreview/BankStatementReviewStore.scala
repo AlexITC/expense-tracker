@@ -4,6 +4,7 @@ import monix.execution.Scheduler
 import monix.reactive.subjects.Var
 import net.wiringbits.api.ApiClient
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, GetBankStatement}
+import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewLogic.{Loadable, ReviewSupport}
 
@@ -57,27 +58,48 @@ final class BankStatementReviewStore(using Scheduler) {
   }
 
   def setSuggestions(s: Option[AiSuggestions]): Unit = $suggestions := s
+
+  /** Refetches the unlinked receipts, so one a form just attached can no longer match another row. A failure keeps the
+    * current list and is reported through `onError`.
+    */
+  def refreshReceipts(client: ApiClient, onError: String => Unit)(using ExecutionContext): Unit =
+    client.getReceipts.onComplete {
+      case Success(resp) =>
+        val receipts = BankStatementReviewStore.matchableReceipts(resp.data)
+        updateSupport(_.copy(receipts = receipts))
+      case Failure(ex) => onError(ex.getMessage)
+    }
 }
 
 object BankStatementReviewStore {
 
-  /** Fetches the merchants, categories, rules and the statement's candidate expenses in parallel. */
+  /** Fetches the merchants, categories, rules, the statement's candidate expenses and the unlinked receipts that have
+    * an amount, in parallel. Receipts only feed the optional auto-match, so a failed receipts fetch yields no receipts
+    * instead of failing the support lists.
+    */
   def loadSupport(client: ApiClient, stmt: GetBankStatement.Response)(using ExecutionContext): Future[ReviewSupport] = {
     val (from, to) = BankStatementReviewLogic.candidateExpenseWindow(stmt)
     val merchantsF = client.getMerchants
     val categoriesF = client.getCategories
     val rulesF = client.getImportRules
     val expensesF = client.getExpensesFiltered(Some(from), Some(to), unlinkedOnly = true)
+    val receiptsF = client.getReceipts.map(r => matchableReceipts(r.data)).recover { case _ => Nil }
     for {
       merchants <- merchantsF
       categories <- categoriesF
       rules <- rulesF
       expenses <- expensesF
+      receipts <- receiptsF
     } yield ReviewSupport(
       merchants = merchants.data,
       categories = categories.data,
       rules = rules.data.map(ImportRuleMatcher.Rule.fromApi),
-      expenses = expenses.data
+      expenses = expenses.data,
+      receipts = receipts
     )
   }
+
+  /** The receipts a row can still match: not linked to an expense and with an amount. */
+  def matchableReceipts(receipts: List[GetReceipts.Response.Receipt]): List[GetReceipts.Response.Receipt] =
+    receipts.filter(r => r.expenseId.isEmpty && r.amount.isDefined)
 }
