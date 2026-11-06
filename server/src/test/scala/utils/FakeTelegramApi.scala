@@ -1,0 +1,75 @@
+package utils
+
+import net.wiringbits.apis.TelegramApi
+import net.wiringbits.config.TelegramConfig
+import play.api.inject.DefaultApplicationLifecycle
+
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicLong
+import scala.concurrent.{ExecutionContext, Future}
+import scala.jdk.CollectionConverters.*
+
+// Records every outgoing Telegram call without touching the network.
+class FakeTelegramApi(
+    downloadResult: Future[(Array[Byte], String)] =
+      Future.failed(new RuntimeException("FakeTelegramApi: no download configured")),
+    failEdits: Boolean = false
+)(implicit ec: ExecutionContext)
+    extends TelegramApi(
+      TelegramConfig(enabled = false, botToken = "test-token", webhookSecret = "test-secret", botName = "test"),
+      new DefaultApplicationLifecycle
+    ) {
+  import FakeTelegramApi.*
+
+  private val nextMessageId = new AtomicLong(1000L)
+  private val sentQueue = new ConcurrentLinkedQueue[Sent]()
+  private val editedQueue = new ConcurrentLinkedQueue[Edited]()
+
+  def sent: Seq[Sent] = sentQueue.asScala.toList
+  def edited: Seq[Edited] = editedQueue.asScala.toList
+
+  override def sendMessage(chatId: Long, text: String): Future[Unit] =
+    sendMessageReturningId(chatId = chatId, text = text, button = None).map(_ => ())
+
+  override def sendMessageReturningId(
+      chatId: Long,
+      text: String,
+      button: Option[TelegramApi.WebAppButton]
+  ): Future[Long] = {
+    sentQueue.add(Sent(chatId = chatId, text = text, button = button))
+    Future.successful(nextMessageId.incrementAndGet())
+  }
+
+  override def sendMessageWithWebAppButton(
+      chatId: Long,
+      text: String,
+      webAppUrl: String,
+      buttonLabel: String
+  ): Future[Long] =
+    sendMessageReturningId(
+      chatId = chatId,
+      text = text,
+      button = Some(TelegramApi.WebAppButton(label = buttonLabel, url = webAppUrl))
+    )
+
+  override def editMessage(chatId: Long, messageId: Long, text: String): Future[Unit] =
+    editMessage(chatId = chatId, messageId = messageId, text = text, button = None)
+
+  override def editMessage(
+      chatId: Long,
+      messageId: Long,
+      text: String,
+      button: Option[TelegramApi.WebAppButton]
+  ): Future[Unit] = {
+    editedQueue.add(Edited(chatId = chatId, messageId = messageId, text = text, button = button))
+    if (failEdits) Future.failed(new RuntimeException("FakeTelegramApi: message to edit not found"))
+    else Future.unit
+  }
+
+  override def downloadFile(fileId: String): Future[(Array[Byte], String)] = downloadResult
+}
+
+object FakeTelegramApi {
+  final case class Sent(chatId: Long, text: String, button: Option[TelegramApi.WebAppButton])
+  final case class Edited(chatId: Long, messageId: Long, text: String, button: Option[TelegramApi.WebAppButton])
+}
