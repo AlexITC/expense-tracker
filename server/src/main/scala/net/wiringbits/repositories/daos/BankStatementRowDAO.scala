@@ -201,6 +201,17 @@ object BankStatementRowDAO {
     if (updated == 0) throw new RuntimeException("Bank statement row not found or already linked to an expense")
   }
 
+  def existsForExpense(expenseId: UUID, userId: UUID)(implicit conn: Connection): Boolean =
+    SQL"""
+      SELECT EXISTS (
+        SELECT 1 FROM bank_statement_row
+        WHERE expense_id = ${expenseId.toString}::UUID
+          AND bank_statement_id IN (
+            SELECT id FROM bank_statement WHERE user_id = ${userId.toString}::UUID
+          )
+      ) AS row_exists
+      """.as(scalar[Boolean].single)
+
   def findByStatementId(bankStatementId: UUID)(implicit conn: Connection): List[BankStatementRow] =
     SQL"""
       SELECT id, bank_statement_id, index, date, amount, description, manually_edited, confirmed_at, expense_id, refund_id, ignored_at, txn_type, created_at, updated_at

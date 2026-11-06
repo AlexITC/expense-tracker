@@ -450,4 +450,200 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
       ex.getCause.getMessage must include("expense_category_split_expense_category_unique")
     }
   }
+
+  "merge" should {
+    def createExpenseWithSplit(
+        userId: UUID,
+        categoryId: UUID,
+        amount: BigDecimal,
+        date: LocalDate,
+        merchantId: Option[UUID] = None,
+        notes: Option[String] = None
+    )(implicit repositories: RepositoryComponents): UUID = {
+      val expId = UUID.randomUUID()
+      val now = Instant.now()
+      repositories.expenses
+        .create(
+          net.wiringbits.repositories.models.Expense.Create(
+            id = expId,
+            userId = userId,
+            amount = amount,
+            date = date,
+            time = None,
+            merchantId = merchantId,
+            notes = notes,
+            createdAt = now,
+            updatedAt = now
+          ),
+          List(ExpenseCategorySplit.Create(UUID.randomUUID(), userId, expId, categoryId, amount))
+        )
+        .futureValue
+      expId
+    }
+
+    case class MergeFixture(
+        userId: UUID,
+        merchantId: UUID,
+        survivorId: UUID,
+        loserId: UUID,
+        receiptId: UUID,
+        refundId: UUID,
+        otherRefundId: UUID
+    )
+
+    def mergeFixture()(implicit repositories: RepositoryComponents): MergeFixture = {
+      val user = createUser().futureValue
+      val category = createCategory(user.id).futureValue
+      val merchant = createMerchant(user.id).futureValue
+      val survivorId = createExpenseWithSplit(
+        user.id,
+        category.id,
+        BigDecimal("42.50"),
+        LocalDate.of(2024, 1, 15),
+        Some(merchant.id),
+        Some("bank")
+      )
+      val loserId = createExpenseWithSplit(user.id, category.id, BigDecimal("42.00"), LocalDate.of(2024, 1, 16))
+      linkToNewRow(user.id, survivorId)
+      val receipt = createReceipt(user.id).futureValue
+      repositories.receipts.linkToExpense(receipt.id, user.id, loserId).futureValue
+      val refund = createRefund(user.id, expenseId = Some(loserId)).futureValue
+      val otherRefund = createRefund(user.id).futureValue
+      MergeFixture(user.id, merchant.id, survivorId, loserId, receipt.id, refund.id, otherRefund.id)
+    }
+
+    "move the loser's receipt to the survivor" in withRepositories() { implicit repositories =>
+      val f = mergeFixture()
+
+      repositories.expenses.merge(f.survivorId, f.loserId, f.userId).futureValue
+
+      repositories.receipts.find(f.receiptId, f.userId).futureValue.value.expenseId must be(Some(f.survivorId))
+    }
+
+    "move the loser's refunds to the survivor and leave other refunds untouched" in withRepositories() {
+      implicit repositories =>
+        val f = mergeFixture()
+
+        repositories.expenses.merge(f.survivorId, f.loserId, f.userId).futureValue
+
+        repositories.refunds.find(f.refundId, f.userId).futureValue.value.expenseId must be(Some(f.survivorId))
+        repositories.refunds.find(f.otherRefundId, f.userId).futureValue.value.expenseId must be(None)
+    }
+
+    "delete the loser and its splits" in withRepositories() { implicit repositories =>
+      val f = mergeFixture()
+
+      repositories.expenses.merge(f.survivorId, f.loserId, f.userId).futureValue
+
+      repositories.expenses.find(f.loserId, f.userId).futureValue must be(None)
+      repositories.expenses.findSplitsByExpenseId(f.loserId, f.userId).futureValue must be(empty)
+    }
+
+    "leave the survivor's fields, splits and row link unchanged" in withRepositories() { implicit repositories =>
+      val f = mergeFixture()
+      val splitsBefore = repositories.expenses.findSplitsByExpenseId(f.survivorId, f.userId).futureValue
+
+      repositories.expenses.merge(f.survivorId, f.loserId, f.userId).futureValue
+
+      val survivor = repositories.expenses.find(f.survivorId, f.userId).futureValue.value
+      survivor.amount must be(BigDecimal("42.50"))
+      survivor.date must be(LocalDate.of(2024, 1, 15))
+      survivor.merchantId must be(Some(f.merchantId))
+      survivor.notes must be(Some("bank"))
+      repositories.expenses.findSplitsByExpenseId(f.survivorId, f.userId).futureValue must be(splitsBefore)
+      repositories.bankStatements.allRows(f.userId).futureValue.map(_.expenseId) must be(List(Some(f.survivorId)))
+    }
+
+    "reject merging an expense with itself" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val expense = createExpense(user.id).futureValue
+
+      val ex = intercept[RuntimeException](repositories.expenses.merge(expense.id, expense.id, user.id).futureValue)
+      ex.getCause.getMessage must include("Cannot merge an expense with itself")
+    }
+
+    "reject another user's expense" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val other = createUser().futureValue
+      val survivor = createExpense(user.id).futureValue
+      linkToNewRow(user.id, survivor.id)
+      val loser = createExpense(other.id).futureValue
+      val receipt = createReceipt(other.id).futureValue
+      repositories.receipts.linkToExpense(receipt.id, other.id, loser.id).futureValue
+
+      val ex = intercept[RuntimeException](repositories.expenses.merge(survivor.id, loser.id, user.id).futureValue)
+      ex.getCause.getMessage must include("Expense not found")
+      repositories.expenses.find(loser.id, other.id).futureValue mustNot be(None)
+    }
+
+    "reject a survivor owned by another user" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val other = createUser().futureValue
+      val survivor = createExpense(other.id).futureValue
+      linkToNewRow(other.id, survivor.id)
+      val loser = createExpense(user.id).futureValue
+      val receipt = createReceipt(user.id).futureValue
+      repositories.receipts.linkToExpense(receipt.id, user.id, loser.id).futureValue
+
+      val ex = intercept[RuntimeException](repositories.expenses.merge(survivor.id, loser.id, user.id).futureValue)
+      ex.getCause.getMessage must include("Expense not found")
+      repositories.expenses.find(loser.id, user.id).futureValue mustNot be(None)
+      repositories.receipts.find(receipt.id, user.id).futureValue.value.expenseId must be(Some(loser.id))
+    }
+
+    "reject a survivor without a bank statement row" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val survivor = createExpense(user.id).futureValue
+      val loser = createExpense(user.id).futureValue
+      val receipt = createReceipt(user.id).futureValue
+      repositories.receipts.linkToExpense(receipt.id, user.id, loser.id).futureValue
+
+      val ex = intercept[RuntimeException](repositories.expenses.merge(survivor.id, loser.id, user.id).futureValue)
+      ex.getCause.getMessage must include("The surviving expense must be linked to a bank statement row")
+    }
+
+    "reject a loser with a bank statement row" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val survivor = createExpense(user.id).futureValue
+      val loser = createExpense(user.id).futureValue
+      linkToNewRow(user.id, survivor.id)
+      linkToNewRow(user.id, loser.id)
+      val receipt = createReceipt(user.id).futureValue
+      repositories.receipts.linkToExpense(receipt.id, user.id, loser.id).futureValue
+
+      val ex = intercept[RuntimeException](repositories.expenses.merge(survivor.id, loser.id, user.id).futureValue)
+      ex.getCause.getMessage must include("The merged expense must not be linked to a bank statement row")
+    }
+
+    "reject a loser without a receipt" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val survivor = createExpense(user.id).futureValue
+      val loser = createExpense(user.id).futureValue
+      linkToNewRow(user.id, survivor.id)
+
+      val ex = intercept[RuntimeException](repositories.expenses.merge(survivor.id, loser.id, user.id).futureValue)
+      ex.getCause.getMessage must include("The merged expense must have a receipt")
+      repositories.expenses.find(loser.id, user.id).futureValue mustNot be(None)
+    }
+
+    "reject a survivor that already has a receipt and leave everything unchanged" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val survivor = createExpense(user.id).futureValue
+        val loser = createExpense(user.id).futureValue
+        linkToNewRow(user.id, survivor.id)
+        val survivorReceipt = createReceipt(user.id).futureValue
+        repositories.receipts.linkToExpense(survivorReceipt.id, user.id, survivor.id).futureValue
+        val loserReceipt = createReceipt(user.id).futureValue
+        repositories.receipts.linkToExpense(loserReceipt.id, user.id, loser.id).futureValue
+
+        val ex =
+          intercept[RuntimeException](repositories.expenses.merge(survivor.id, loser.id, user.id).futureValue)
+        ex.getCause.getMessage must include("The surviving expense already has a receipt")
+
+        repositories.expenses.find(loser.id, user.id).futureValue mustNot be(None)
+        repositories.receipts.find(loserReceipt.id, user.id).futureValue.value.expenseId must be(Some(loser.id))
+        repositories.receipts.find(survivorReceipt.id, user.id).futureValue.value.expenseId must be(Some(survivor.id))
+    }
+  }
 }

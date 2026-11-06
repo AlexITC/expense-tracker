@@ -1,7 +1,13 @@
 package net.wiringbits.repositories
 
 import net.wiringbits.executors.DatabaseExecutionContext
-import net.wiringbits.repositories.daos.{ExpenseCategorySplitDAO, ExpenseDAO}
+import net.wiringbits.repositories.daos.{
+  BankStatementRowDAO,
+  ExpenseCategorySplitDAO,
+  ExpenseDAO,
+  ReceiptDAO,
+  RefundDAO
+}
 import net.wiringbits.repositories.models.{Expense, ExpenseCategorySplit}
 import play.api.db.Database
 
@@ -77,6 +83,31 @@ class ExpensesRepository @Inject() (database: Database)(implicit
   def delete(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withConnection { implicit conn =>
       ExpenseDAO.delete(id, userId)
+    }
+  }
+
+  def merge(survivorId: UUID, loserId: UUID, userId: UUID): Future[Unit] = Future {
+    ConstraintViolations.translating(ReceiptRepository.ReceiptExpenseIdUnique) {
+      database.withTransaction { implicit conn =>
+        if (survivorId == loserId) throw new RuntimeException("Cannot merge an expense with itself")
+        if (ExpenseDAO.find(survivorId, userId).isEmpty || ExpenseDAO.find(loserId, userId).isEmpty)
+          throw new RuntimeException("Expense not found")
+        if (!BankStatementRowDAO.existsForExpense(survivorId, userId))
+          throw new RuntimeException("The surviving expense must be linked to a bank statement row")
+        if (BankStatementRowDAO.existsForExpense(loserId, userId))
+          throw new RuntimeException("The merged expense must not be linked to a bank statement row")
+        val receipt = ReceiptDAO
+          .findByExpenseId(loserId, userId)
+          .getOrElse(throw new RuntimeException("The merged expense must have a receipt"))
+        if (ReceiptDAO.findByExpenseId(survivorId, userId).isDefined)
+          throw new RuntimeException("The surviving expense already has a receipt")
+
+        val now = clock.instant()
+        ReceiptDAO.clearExpenseId(receipt.id, userId, now)
+        ReceiptDAO.setExpenseId(receipt.id, userId, survivorId, now)
+        RefundDAO.reassignExpense(loserId, survivorId, userId, now)
+        ExpenseDAO.delete(loserId, userId)
+      }
     }
   }
 }
