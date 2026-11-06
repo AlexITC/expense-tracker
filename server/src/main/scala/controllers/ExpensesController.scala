@@ -18,7 +18,8 @@ class ExpensesController @Inject() (
     getExpensesAction: GetExpensesAction,
     createExpenseAction: CreateExpenseAction,
     updateExpenseAction: UpdateExpenseAction,
-    deleteExpenseAction: DeleteExpenseAction
+    deleteExpenseAction: DeleteExpenseAction,
+    mergeExpensesAction: MergeExpensesAction
 )(implicit ec: ExecutionContext) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
@@ -68,12 +69,25 @@ class ExpensesController @Inject() (
     } yield Right(response)
   }
 
+  private def merge(
+      survivorId: UUID,
+      request: MergeExpenses.Request,
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, MergeExpenses.Response]] = handleRequest {
+    for {
+      userId <- userIdF
+      _ = logger.info(s"Merge expense ${request.loserId} into $survivorId userId=$userId")
+      response <- mergeExpensesAction(survivorId, request.loserId, userId)
+    } yield Right(response)
+  }
+
   def routes: List[ServerEndpoint[PekkoStreams & WebSockets, Future]] = {
     List(
       ExpensesEndpoints.getAll.serverLogic(getAll),
       ExpensesEndpoints.create.serverLogic(create),
       ExpensesEndpoints.update.serverLogic(update),
-      ExpensesEndpoints.delete.serverLogic(delete)
+      ExpensesEndpoints.delete.serverLogic(delete),
+      ExpensesEndpoints.merge.serverLogic(merge)
     )
   }
 }

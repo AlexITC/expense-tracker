@@ -5,11 +5,14 @@ import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
 import net.wiringbits.api.ApiClient
 import net.wiringbits.api.models.bankstatements.LinkRowToExpense
-import net.wiringbits.api.models.expenses.{CreateExpense, UpdateExpense}
+import net.wiringbits.api.models.expenses.{CreateExpense, MergeExpenses, UpdateExpense}
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
 import net.wiringbits.common.models.Captcha
-import net.wiringbits.repositories.models.BankStatementRow
+import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
+import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
+import net.wiringbits.repositories.ReceiptRepository
+import net.wiringbits.repositories.models.{BackgroundJobData, BankStatementRow, Document, Receipt}
 import net.wiringbits.util.TokenGenerator
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.*
@@ -18,7 +21,7 @@ import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
 import utils.{ExpenseUtils, LoginUtils}
 
-import java.time.{Instant, LocalDate}
+import java.time.{Duration, Instant, LocalDate}
 import java.util.UUID
 import scala.concurrent.Future
 
@@ -399,6 +402,71 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
     }
   }
 
+  "POST /expenses/:id/merge" should {
+    "move the receipt to the row-linked expense and delete the duplicate" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val survivorId = client.createExpense(createRequest()).futureValue.id
+      val loserId = client.createExpense(createRequest()).futureValue.id
+      val rowId = linkToNewRow(userId, survivorId)
+      val receiptId = createLinkedReceipt(userId, loserId)
+
+      client.mergeExpenses(survivorId, MergeExpenses.Request(loserId)).futureValue
+
+      val expenses = client.getExpenses.futureValue.data
+      expenses.map(_.id) must be(List(survivorId))
+      expenses.head.receiptIds must be(List(receiptId))
+      expenses.head.rowIds must be(List(rowId))
+    }
+
+    "fail when the survivor belongs to another user" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val survivorId = client.createExpense(createRequest()).futureValue.id
+      linkToNewRow(userId, survivorId)
+
+      val client2 = buildClient()
+      createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
+      val userId2 = client2.currentUser.futureValue.id
+      val loserId = client2.createExpense(createRequest()(using client2)).futureValue.id
+      createLinkedReceipt(userId2, loserId)
+
+      val error = client2.mergeExpenses(survivorId, MergeExpenses.Request(loserId)).expectError
+      error must include("Expense not found")
+      client2.getExpenses.futureValue.data.map(_.id) must be(List(loserId))
+    }
+
+    "fail when the loser belongs to another user" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val loserId = client.createExpense(createRequest()).futureValue.id
+      createLinkedReceipt(userId, loserId)
+
+      val client2 = buildClient()
+      createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
+      val userId2 = client2.currentUser.futureValue.id
+      val survivorId = client2.createExpense(createRequest()(using client2)).futureValue.id
+      linkToNewRow(userId2, survivorId)(using client2)
+
+      val error = client2.mergeExpenses(survivorId, MergeExpenses.Request(loserId)).expectError
+      error must include("Expense not found")
+      client.getExpenses.futureValue.data.map(_.id) must be(List(loserId))
+    }
+
+    "fail when the row-linked expense is passed as the loser" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val rowLinkedId = client.createExpense(createRequest()).futureValue.id
+      val receiptLinkedId = client.createExpense(createRequest()).futureValue.id
+      linkToNewRow(userId, rowLinkedId)
+      createLinkedReceipt(userId, receiptLinkedId)
+
+      val error = client.mergeExpenses(receiptLinkedId, MergeExpenses.Request(rowLinkedId)).expectError
+      error must include("The surviving expense must be linked to a bank statement row")
+      client.getExpenses.futureValue.data.map(_.id).toSet must be(Set(rowLinkedId, receiptLinkedId))
+    }
+  }
+
   "Unauthenticated access" should {
     "reject requests without a valid session" in withApiClient { client =>
       val error = client.getExpenses.expectError
@@ -408,6 +476,70 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
 
   private def fullUpdateSplit(amount: BigDecimal)(using client: ApiClient): List[UpdateExpense.Split] =
     fullSplit(amount).futureValue.map(s => UpdateExpense.Split(s.categoryId, s.amount))
+
+  private def linkToNewRow(userId: UUID, expenseId: UUID)(using client: ApiClient): UUID = {
+    val rowId = UUID.randomUUID()
+    val now = Instant.now()
+    val stmtId = createBankStatementWithRows(
+      userId,
+      sid =>
+        List(
+          BankStatementRow.Create(
+            rowId,
+            sid,
+            0,
+            sampleDate,
+            BigDecimal("-50.00"),
+            "Test row",
+            manuallyEdited = false,
+            now,
+            now,
+            txnType = "purchase"
+          )
+        )
+    )
+    client.linkRowToExpense(stmtId, rowId, LinkRowToExpense.Request(expenseId)).futureValue
+    rowId
+  }
+
+  /** Creates a receipt directly (no upload / Textract) and links it to the expense. */
+  private def createLinkedReceipt(userId: UUID, expenseId: UUID): UUID = {
+    val repo = app.injector.instanceOf[ReceiptRepository]
+    val now = Instant.now()
+    val docId = UUID.randomUUID()
+    val document = Document.Create(
+      id = docId,
+      userId = userId,
+      sha256 = "sha-" + docId.toString,
+      storageKey = "",
+      kind = DocumentKind.Receipt,
+      filename = "receipt.pdf",
+      createdAt = now,
+      updatedAt = now
+    )
+    val receipt = Receipt.Create(
+      id = UUID.randomUUID(),
+      userId = userId,
+      documentId = docId,
+      manuallyEdited = false,
+      status = DocumentStatus.Ingested,
+      createdAt = now,
+      updatedAt = now
+    )
+    // Scheduled far in the future so the live executor never processes the document while a test runs.
+    val job = BackgroundJobData.Create(
+      id = UUID.randomUUID(),
+      `type` = BackgroundJobType.ProcessDocument,
+      payload = BackgroundJobPayload.ProcessDocument(docId),
+      status = BackgroundJobStatus.Pending,
+      executeAt = now.plus(Duration.ofDays(365)),
+      createdAt = now,
+      updatedAt = now
+    )
+    repo.createWithDocument(document, receipt, job).futureValue
+    repo.linkToExpense(receipt.id, userId, expenseId).futureValue
+    receipt.id
+  }
 
   private def buildClient() = {
     import sttp.client3.HttpClientFutureBackend

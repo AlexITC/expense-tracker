@@ -53,6 +53,17 @@ object ReceiptDAO {
         AND r.user_id = ${userId.toString}::UUID
       """.as(receiptParser.singleOpt)
 
+  def findByExpenseId(expenseId: UUID, userId: UUID)(implicit conn: Connection): Option[Receipt] =
+    SQL"""
+      SELECT r.id, r.user_id, r.document_id, r.amount, r.date, r.time, r.merchant_name, r.tax_id,
+             r.merchant_id, r.expense_id, r.refund_id, r.ignored_at, r.manually_edited, r.parser_version, r.status,
+             r.created_at, r.updated_at, d.filename
+      FROM receipt r
+      JOIN document d ON r.document_id = d.id
+      WHERE r.expense_id = ${expenseId.toString}::UUID
+        AND r.user_id = ${userId.toString}::UUID
+      """.as(receiptParser.singleOpt)
+
   def all(userId: UUID)(implicit conn: Connection): List[Receipt] =
     SQL"""
       SELECT r.id, r.user_id, r.document_id, r.amount, r.date, r.time, r.merchant_name, r.tax_id,

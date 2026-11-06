@@ -111,4 +111,15 @@ object RefundDAO {
       """.executeUpdate()
     if (updated == 0) throw new RuntimeException("Refund not found")
   }
+
+  def reassignExpense(fromExpenseId: UUID, toExpenseId: UUID, userId: UUID, updatedAt: Instant)(implicit
+      conn: Connection
+  ): Int =
+    SQL"""
+      UPDATE refund
+      SET expense_id = ${toExpenseId.toString}::UUID,
+          updated_at = $updatedAt
+      WHERE expense_id = ${fromExpenseId.toString}::UUID
+        AND user_id = ${userId.toString}::UUID
+      """.executeUpdate()
 }

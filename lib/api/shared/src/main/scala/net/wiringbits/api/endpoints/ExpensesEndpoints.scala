@@ -65,6 +65,18 @@ object ExpensesEndpoints {
       .errorOut(oneOf(HttpErrors.badRequest))
       .summary("Delete an expense")
 
+  def merge(implicit
+      authHandler: ServerRequest => Future[UUID]
+  ): Endpoint[Unit, (UUID, MergeExpenses.Request, Future[UUID]), ErrorResponse, MergeExpenses.Response, Any] =
+    baseEndpoint.post
+      .in(path[UUID]("expenseId"))
+      .in("merge")
+      .in(jsonBody[MergeExpenses.Request])
+      .in(userAuth)
+      .out(jsonBody[MergeExpenses.Response])
+      .errorOut(oneOf(HttpErrors.badRequest))
+      .summary("Merge a duplicate expense (loser) into a bank-row-linked expense (survivor)")
+
   def routes(implicit authHandler: ServerRequest => Future[UUID]): List[AnyEndpoint] =
-    List(getAll, create, update, delete)
+    List(getAll, create, update, delete, merge)
 }
