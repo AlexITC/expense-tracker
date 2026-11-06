@@ -11,14 +11,13 @@ import net.wiringbits.repositories.{
   ImportRuleRepository,
   MerchantsRepository,
   ReceiptRepository,
-  TelegramReceiptRepository,
   TextractCacheRepository
 }
 import net.wiringbits.services.{DocumentClassifier, DocumentParser, DocumentTelegramNotifier}
 import org.slf4j.LoggerFactory
 import play.api.libs.json.JsValue
 
-import java.time.Clock
+import java.time.{Clock, LocalDate}
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
@@ -30,8 +29,6 @@ class ParseReceiptAction @Inject() (
     merchantsRepository: MerchantsRepository,
     ruleRepository: ImportRuleRepository,
     textractCacheRepository: TextractCacheRepository,
-    telegramReceiptRepository: TelegramReceiptRepository,
-    telegramApi: TelegramApi,
     webAppConfig: WebAppConfig,
     documentClassifier: DocumentClassifier,
     notifier: DocumentTelegramNotifier
@@ -58,11 +55,16 @@ class ParseReceiptAction @Inject() (
         logger.error(s"No AnalyzeExpense cache for document ${doc.id} (userId=${receipt.userId}), marking Unsupported")
         for {
           _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Unsupported)
-          _ <- notifyTelegramError(doc.id, "Could not parse the receipt: analysis data not found.")
+          _ <- notifier.updateReceiptMessage(
+            documentId = doc.id,
+            userId = receipt.userId,
+            text = "Could not parse the receipt: analysis data not found.",
+            button = None
+          )
         } yield ()
       case Some(cache) =>
         // Advisory post-OCR classification (fail-open) before parsing the cached Textract result.
-        classifyAfterTextract(doc, cache.response).flatMap { _ =>
+        classifyAfterTextract(doc, cache.response).flatMap { hint =>
           DocumentParser.parse(cache.response, doc.kind) match {
             case Right(parsed) =>
               val date =
@@ -108,33 +110,39 @@ class ParseReceiptAction @Inject() (
                   case _ => Future.unit
                 }
                 _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Parsed)
-                _ <- telegramReceiptRepository
-                  .findByReceiptId(receipt.id)
-                  .flatMap {
-                    case None => Future.unit
-                    case Some(tr) =>
-                      val webAppUrl = s"${webAppConfig.host}/api/telegram/webapp?receipt=${receipt.id}"
-                      val summary =
-                        parsed.vendor_name.map(n => s"Receipt from $n parsed.").getOrElse("Receipt parsed.")
-                      telegramApi
-                        .sendMessageWithWebAppButton(tr.chatId, summary, webAppUrl, "Create Expense")
-                        .map(_ => ())
-                  }
-                  .recover { case e =>
-                    logger.warn(s"Failed to notify Telegram for document ${doc.id}: ${e.getMessage}")
-                  }
+                _ <- notifier.updateReceiptMessage(
+                  documentId = doc.id,
+                  userId = receipt.userId,
+                  text = (hint.toList :+ readySummary(parsed, date)).mkString("\n"),
+                  button = Some(
+                    TelegramApi.WebAppButton(
+                      label = "Create Expense",
+                      url = s"${webAppConfig.host}/api/telegram/webapp?receipt=${receipt.id}"
+                    )
+                  )
+                )
               } yield ()
             case Left(DocumentParser.UnsupportedKind(kind)) =>
               logger.warn(s"Document ${doc.id} (userId=${receipt.userId}) has unsupported kind '$kind'")
               for {
                 _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Unsupported)
-                _ <- notifyTelegramError(doc.id, "Could not parse the receipt: unsupported document format.")
+                _ <- notifier.updateReceiptMessage(
+                  documentId = doc.id,
+                  userId = receipt.userId,
+                  text = "Could not parse the receipt: unsupported document format.",
+                  button = None
+                )
               } yield ()
             case Left(DocumentParser.ParseError(reason)) =>
               logger.warn(s"Document ${doc.id} (userId=${receipt.userId}) parse failed: $reason")
               for {
                 _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.ParseFailed)
-                _ <- notifyTelegramError(doc.id, "Could not parse the receipt.")
+                _ <- notifier.updateReceiptMessage(
+                  documentId = doc.id,
+                  userId = receipt.userId,
+                  text = "Could not parse the receipt.",
+                  button = None
+                )
               } yield ()
           }
         }
@@ -142,10 +150,11 @@ class ParseReceiptAction @Inject() (
 
   /** Classifies a document that had no text layer to classify before Textract (photos, scans) from the Textract text.
     * ADVISORY and FAIL-OPEN, on purpose: Textract has already been paid for, so the document is parsed whatever the
-    * answer; a wrong document only gets a Telegram hint, and any failure here is logged and ignored.
+    * answer; a wrong document only gets a hint shown with the parsed receipt, and any failure here is logged and
+    * ignored.
     */
-  private def classifyAfterTextract(doc: Document, response: JsValue): Future[Unit] =
-    if (doc.aiClassification.nonEmpty) Future.unit
+  private def classifyAfterTextract(doc: Document, response: JsValue): Future[Option[String]] =
+    if (doc.aiClassification.nonEmpty) Future.successful(None)
     else
       Future
         .delegate {
@@ -153,35 +162,31 @@ class ParseReceiptAction @Inject() (
           // Textract found no field values: there is nothing to judge, so don't store a guess about an empty state.
           if (text.isBlank) {
             logger.info(s"userId=${doc.userId}, document ${doc.id} has no Textract text, skipping classification")
-            Future.unit
+            Future.successful(None)
           } else
             for {
               result <- documentClassifier.classify(doc.userId, s"document ${doc.id}", text)
               _ <- result.persistWith(documentsRepository.updateClassification(doc.id, doc.userId, _))
-              _ <- result.rejection(DocumentClassifier.acceptedFor(doc.kind)) match {
-                case Some(cls) =>
-                  logger.info(s"userId=${doc.userId}, document ${doc.id} looks like $cls after Textract, advising user")
-                  notifier.notify(doc.id, doc.userId, DocumentTelegramNotifier.notATicketMessage(cls))
-                case None => Future.unit
-              }
-            } yield ()
+            } yield result.rejection(DocumentClassifier.acceptedFor(doc.kind)).map { cls =>
+              logger.info(s"userId=${doc.userId}, document ${doc.id} looks like $cls after Textract, advising user")
+              DocumentTelegramNotifier.notATicketMessage(cls)
+            }
         }
         .recover { case NonFatal(e) =>
           logger.warn(
             s"userId=${doc.userId}, document ${doc.id} advisory classification failed: ${e.getClass.getSimpleName}"
           )
+          None
         }
 
-  private def notifyTelegramError(documentId: UUID, text: String): Future[Unit] =
-    receiptRepository
-      .findByDocumentId(documentId)
-      .flatMap {
-        case None => Future.unit
-        case Some(receipt) =>
-          telegramReceiptRepository.findByReceiptId(receipt.id).flatMap {
-            case None => Future.unit
-            case Some(tr) => telegramApi.sendMessage(tr.chatId, text)
-          }
-      }
-      .recover { case e => logger.warn(s"Failed to notify Telegram for document $documentId: ${e.getMessage}") }
+  // Only fields the parser found are shown; a missing field is left out rather than guessed. The parser reports an
+  // unreadable total as zero, so a zero total (and the currency attached to it) is treated as not read.
+  private def readySummary(parsed: DocumentParser.ParsedData, date: Option[LocalDate]): String = {
+    val vendor = parsed.vendor_name.filter(_.nonEmpty)
+    val total =
+      parsed.amount.filter(_.signum != 0).map(a => (a.bigDecimal.toPlainString :: parsed.currency.toList).mkString(" "))
+    val items = Option(parsed.line_items.size).filter(_ > 0).map(n => if (n == 1) "1 item" else s"$n items")
+    val fields = vendor.toList ++ total ++ date.map(_.toString) ++ items
+    if (fields.isEmpty) "Receipt ready." else s"Receipt ready: ${fields.mkString(" · ")}"
+  }
 }

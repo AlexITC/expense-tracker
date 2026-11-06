@@ -20,26 +20,6 @@ class DocumentTelegramNotifier @Inject() (
 
   private val logger = LoggerFactory.getLogger(this.getClass)
 
-  /** Never fails: a document without a Telegram link is not notified, and send failures are only logged. */
-  def notify(documentId: UUID, userId: UUID, text: String): Future[Unit] =
-    receiptRepository
-      .findByDocumentId(documentId)
-      .flatMap {
-        case None =>
-          logger.info(s"userId=$userId, document $documentId has no receipt, not notifying Telegram")
-          Future.unit
-        case Some(receipt) =>
-          telegramReceiptRepository.findByReceiptId(receipt.id).flatMap {
-            case None =>
-              logger.info(s"userId=$userId, document $documentId has no Telegram link, not notifying Telegram")
-              Future.unit
-            case Some(telegramReceipt) => telegramApi.sendMessage(telegramReceipt.chatId, text)
-          }
-      }
-      .recover { case e =>
-        logger.warn(s"userId=$userId, failed to notify Telegram for document $documentId: ${e.getMessage}")
-      }
-
   /** Never fails: shows the text on the receipt's bot message when the document came from Telegram. */
   def updateReceiptMessage(
       documentId: UUID,
