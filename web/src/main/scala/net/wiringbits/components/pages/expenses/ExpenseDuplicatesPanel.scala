@@ -4,12 +4,9 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.expenses.GetExpenses
-import net.wiringbits.api.models.receipts.GetReceipts
-import net.wiringbits.components.widgets.Loader
 import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Tier}
 import net.wiringbits.utils.ReceiptFileViewer
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
-import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import slinky.core.facade.{Fragment, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 
@@ -22,16 +19,18 @@ object ExpenseDuplicatesPanel {
       ctx: AppContext,
       candidates: List[Candidate],
       categories: GetCategories.Response,
+      receiptFilenames: Map[UUID, String],
       onMerge: Candidate => Unit,
       onDismiss: Candidate => Unit,
       onError: String => Unit
   ): KeyAddingStage =
-    component(Props(ctx, candidates, categories, onMerge, onDismiss, onError))
+    component(Props(ctx, candidates, categories, receiptFilenames, onMerge, onDismiss, onError))
 
   case class Props(
       ctx: AppContext,
       candidates: List[Candidate],
       categories: GetCategories.Response,
+      receiptFilenames: Map[UUID, String],
       onMerge: Candidate => Unit,
       onDismiss: Candidate => Unit,
       onError: String => Unit
@@ -77,11 +76,12 @@ object ExpenseDuplicatesPanel {
         mui.Typography(s"€${ExpenseList.formatAmount(e.amount)}"),
         mui.Typography(e.date.toString),
         mui.Typography(e.merchantName.getOrElse("—")),
-        mui.Typography(categoryName(e))
+        mui.Typography(categoryName(e)),
+        mui.Typography(e.notes.filter(_.nonEmpty).getOrElse("—"))
       )
 
-    def card(c: Candidate, filenames: Map[UUID, String]): ReactElement = {
-      val receipt = filenames.get(c.receiptId)
+    def card(c: Candidate): ReactElement = {
+      val receipt = props.receiptFilenames.get(c.receiptId)
       mui.Box
         .sx(cardStyling)(
           mui.Box.sx(columnsStyling)(column("Bank row", c.survivor), column("Receipt", c.loser)),
@@ -104,32 +104,23 @@ object ExpenseDuplicatesPanel {
         .withKey(ExpenseList.dismissKey(c))
     }
 
-    def group(tier: Tier, candidates: List[Candidate], filenames: Map[UUID, String]): ReactElement = {
+    def group(tier: Tier, candidates: List[Candidate]): ReactElement = {
       val (title, hint) = groupLabels(tier)
       if (candidates.isEmpty) Fragment()
       else
         Fragment(
           mui.Typography(s"$title (${candidates.size})").sx(groupTitleStyling),
           mui.Typography(hint).sx(hintStyling),
-          Fragment(candidates.map(c => card(c, filenames))*)
+          Fragment(candidates.map(c => card(c))*)
         )
     }
 
-    AsyncComponent[GetReceipts.Response](
-      fetch = () => props.ctx.api.client.getReceipts,
-      render = receipts => {
-        val filenames = receipts.data.map(r => r.id -> r.documentFilename).toMap
-        val byTier = props.candidates.groupBy(_.tier)
-        mui.Box.sx(panelStyling)(
-          mui.Typography("Possible duplicates").variant("h6"),
-          Fragment(
-            Tier.values.toList.map(tier =>
-              Fragment(group(tier, byTier.getOrElse(tier, Nil), filenames)).withKey(tier.toString)
-            )*
-          )
-        )
-      },
-      progressIndicator = () => Loader(props.ctx)
+    val byTier = props.candidates.groupBy(_.tier)
+    mui.Box.sx(panelStyling)(
+      mui.Typography("Possible duplicates").variant("h6"),
+      Fragment(
+        Tier.values.toList.map(tier => Fragment(group(tier, byTier.getOrElse(tier, Nil))).withKey(tier.toString))*
+      )
     )
   }
 }

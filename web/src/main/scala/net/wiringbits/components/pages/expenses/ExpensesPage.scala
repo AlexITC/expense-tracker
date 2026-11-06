@@ -9,6 +9,7 @@ import net.wiringbits.core.SafeHooks
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.expenses.{CreateExpense, GetExpenses, MergeDetailsSource, MergeExpenses, UpdateExpense}
 import net.wiringbits.api.models.merchants.GetMerchants
+import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.models.User
 import net.wiringbits.utils.ExpenseDuplicateDetector
 import net.wiringbits.utils.ExpenseDuplicateDetector.Candidate
@@ -37,21 +38,23 @@ object ExpensesPage {
     implicit val ec: ExecutionContext = props.ctx.executionContext
     val (timesRefreshing, forceRefresh) = GenericHooks.useForceRefresh
 
-    AsyncComponent[GetExpenses.Response](
-      fetch = () => props.ctx.api.client.getExpenses,
-      render = expenses =>
-        AsyncComponent[GetMerchants.Response](
-          fetch = () => props.ctx.api.client.getMerchants,
-          render = merchants =>
-            AsyncComponent[GetCategories.Response](
-              fetch = () => props.ctx.api.client.getCategories,
-              render = categories => ExpenseList(props.ctx, expenses, merchants, categories, () => forceRefresh()),
-              progressIndicator = () => Loader(props.ctx),
-              watchedObjects = List(timesRefreshing)
-            ),
-          progressIndicator = () => Loader(props.ctx),
-          watchedObjects = List(timesRefreshing)
-        ),
+    AsyncComponent[(GetExpenses.Response, GetMerchants.Response, GetCategories.Response, GetReceipts.Response)](
+      fetch = () => {
+        val expensesF = props.ctx.api.client.getExpenses
+        val merchantsF = props.ctx.api.client.getMerchants
+        val categoriesF = props.ctx.api.client.getCategories
+        val receiptsF = props.ctx.api.client.getReceipts
+        for {
+          expenses <- expensesF
+          merchants <- merchantsF
+          categories <- categoriesF
+          receipts <- receiptsF
+        } yield (expenses, merchants, categories, receipts)
+      },
+      render = { case (expenses, merchants, categories, receipts) =>
+        val receiptFilenames = receipts.data.map(r => r.id -> r.documentFilename).toMap
+        ExpenseList(props.ctx, expenses, merchants, categories, receiptFilenames, () => forceRefresh())
+      },
       progressIndicator = () => Loader(props.ctx),
       watchedObjects = List(timesRefreshing)
     )
@@ -64,15 +67,17 @@ object ExpenseList {
       expenses: GetExpenses.Response,
       merchants: GetMerchants.Response,
       categories: GetCategories.Response,
+      receiptFilenames: Map[UUID, String],
       onRefresh: () => Unit
   ): KeyAddingStage =
-    component(Props(ctx, expenses, merchants, categories, onRefresh))
+    component(Props(ctx, expenses, merchants, categories, receiptFilenames, onRefresh))
 
   case class Props(
       ctx: AppContext,
       expenses: GetExpenses.Response,
       merchants: GetMerchants.Response,
       categories: GetCategories.Response,
+      receiptFilenames: Map[UUID, String],
       onRefresh: () => Unit
   )
 
@@ -990,6 +995,7 @@ object ExpenseList {
           ctx = props.ctx,
           candidates = duplicateCandidates,
           categories = props.categories,
+          receiptFilenames = props.receiptFilenames,
           onMerge = c => setPendingMerge(Some(c)),
           onDismiss = c => setDismissed(_ + dismissKey(c)),
           onError = setError
