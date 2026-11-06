@@ -158,6 +158,9 @@ class ApiClient(config: ApiClient.Config)(implicit
   def deleteExpense(expenseId: UUID): Future[DeleteExpense.Response] =
     handleRequest(ExpensesEndpoints.delete, (expenseId, dummyUserId))
 
+  def mergeExpenses(survivorId: UUID, request: MergeExpenses.Request): Future[MergeExpenses.Response] =
+    handleRequest(ExpensesEndpoints.merge, (survivorId, request, dummyUserId))
+
   def getMerchants: Future[GetMerchants.Response] =
     handleRequest(MerchantsEndpoints.getAll, dummyUserId)
 
