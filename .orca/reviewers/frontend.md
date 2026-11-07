@@ -1,5 +1,5 @@
 ---
-description: Frontend — fetch via AsyncComponent; mutually-exclusive UI state as one ADT; hook dependency lists via SafeHooks (String keys); filters and view selections encoded in the URL
+description: Frontend — fetch via AsyncComponent; mutually-exclusive UI state as one ADT; hook dependency lists via SafeHooks (String keys); filters and view selections encoded in the URL; navigate with the router link, not hand-rolled anchors
 files: web/src/main/scala
 ---
 
@@ -59,3 +59,24 @@ the query must be URL-encoded and decoded, not concatenated raw.
 Not: ephemeral UI state that is not a filter or selection (a drawer open/closed,
 a hover, an unsaved form draft, a loading flag); transient state that should not
 survive a refresh by design.
+
+## Navigate to routes with the router link, not a hand-rolled anchor
+Flag navigation to an in-app route built from a click handler instead of the
+router link component (`reactrouterdom.NavLink`). The giveaway is an element whose
+`onClick` calls `history.push` or `dom.window.open` to go to a route, especially
+one that inspects the mouse button or modifier keys (`button`, `ctrlKey`,
+`metaKey`, `shiftKey`, `altKey`) to decide between in-app navigation and a new
+tab. That is reimplementing what an anchor does for free: a real `<a href>` (which
+`NavLink` renders) already gives the hover URL preview and native ctrl/cmd/shift/
+middle-click behavior, with a plain click doing in-app navigation. Use `NavLink`
+with `to`, put any action buttons outside it (not nested inside the anchor), and
+delete the modifier-key handling.
+
+More generally, do not read keyboard-modifier or mouse-button state to re-create
+default browser behavior. Inspecting which keys are pressed is legitimate only
+when building an actual keyboard shortcut or a deliberate custom interaction, not
+to patch up an element that should have been a link or a button.
+
+Not: `history.push` from a genuine action handler that is not a link (a form
+submit, a button that acts then navigates, a redirect after an API call); reading
+modifier keys inside a real keyboard-shortcut handler.
