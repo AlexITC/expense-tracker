@@ -2,7 +2,7 @@ package net.wiringbits.components.pages.bankstatements
 
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
-import net.wiringbits.api.models.bankstatements.BankStatementDraft
+import net.wiringbits.api.models.bankstatements.{BankStatementDraft, ConfirmWarning}
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.models.{SaveState, User}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -103,6 +103,7 @@ object BankStatementTemplateEditor {
 
     val (payloadOpt, setPayloadOpt) = Hooks.useState[Option[BankStatementDraft.Payload]](props.draft.payload)
     val (saveState, setSaveState) = Hooks.useState[SaveState](SaveState.Idle)
+    val (pendingWarnings, setPendingWarnings) = Hooks.useState[List[ConfirmWarning]](Nil)
     val busy = saveState.isSaving
 
     def setMeta(f: BankStatementDraft.Metadata => BankStatementDraft.Metadata): Unit =
@@ -138,13 +139,58 @@ object BankStatementTemplateEditor {
       setSaveState(SaveState.Saving)
       val run = for {
         _ <- client.updateBankStatementDraft(id, BankStatementDraft.Update.Request(p))
-        confirmed <- client.confirmBankStatementDraft(id)
+        confirmed <- client.confirmBankStatementDraft(id, acceptWarnings = false)
       } yield confirmed
       run.onComplete {
-        case Success(resp) => history.push(s"/bank-statements/${resp.bankStatementId}")
+        case Success(resp) =>
+          resp.bankStatementId match {
+            case Some(stmtId) => history.push(s"/bank-statements/$stmtId")
+            case None =>
+              setPendingWarnings(resp.warnings)
+              setSaveState(SaveState.Idle)
+          }
         case Failure(ex) => setSaveState(SaveState.Failed(ex.getMessage))
       }
     }
+
+    def doConfirmAnyway(): Unit = {
+      setSaveState(SaveState.Saving)
+      client.confirmBankStatementDraft(id, acceptWarnings = true).onComplete {
+        case Success(resp) =>
+          resp.bankStatementId match {
+            case Some(stmtId) => history.push(s"/bank-statements/$stmtId")
+            case None =>
+              setPendingWarnings(Nil)
+              setSaveState(SaveState.Failed("The statement could not be imported"))
+          }
+        case Failure(ex) =>
+          setPendingWarnings(Nil)
+          setSaveState(SaveState.Failed(ex.getMessage))
+      }
+    }
+
+    def warningsDialog: ReactElement =
+      if (pendingWarnings.isEmpty) Fragment()
+      else
+        mui
+          .Dialog(true)(
+            mui.DialogTitle("This statement may be a duplicate"),
+            mui.DialogContent(
+              pendingWarnings.zipWithIndex.map { case (w, i) =>
+                mui.DialogContentText(w.message).withKey(i.toString).build: ReactElement
+              }*
+            ),
+            mui.DialogActions(
+              mui.Button.normal()("Cancel").disabled(busy).onClick(_ => setPendingWarnings(Nil)),
+              mui.Button
+                .normal()(if (busy) "Importing…" else "Import anyway")
+                .color("warning")
+                .disabled(busy)
+                .onClick(_ => doConfirmAnyway())
+            )
+          )
+          .onClose((_, _) => if (!busy) setPendingWarnings(Nil))
+          .build
 
     def doDiscard(): Unit = {
       setSaveState(SaveState.Saving)
@@ -355,7 +401,8 @@ object BankStatementTemplateEditor {
       saveState.errorOpt match {
         case Some(message) => errorText(message)
         case None => Fragment()
-      }
+      },
+      warningsDialog
     )
   }
 }
