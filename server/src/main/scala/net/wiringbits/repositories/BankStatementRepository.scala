@@ -82,6 +82,18 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
     }
   }
 
+  def findOverlapping(userId: UUID, metadata: BankStatement.Metadata): Future[List[BankStatement]] = Future {
+    database.withConnection { implicit conn =>
+      BankStatementDAO.findOverlapping(userId, metadata)
+    }
+  }
+
+  def overlappingStatementIds(userId: UUID): Future[Map[UUID, List[UUID]]] = Future {
+    database.withConnection { implicit conn =>
+      BankStatementDAO.overlappingStatementIds(userId)
+    }
+  }
+
   def findInternal(id: UUID): Future[Option[BankStatement]] = Future {
     database.withConnection { implicit conn =>
       BankStatementDAO.findInternal(id)
