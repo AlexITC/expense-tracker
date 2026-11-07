@@ -142,6 +142,16 @@ class BankStatementsLogicSpec extends AnyWordSpec {
     "keep a malformed escape as typed instead of failing" in {
       BankStatementsLogic.parseListQuery("?q=50%") mustBe BankStatementsLogic.ListQuery(account = "", name = "50%")
     }
+
+    "keep the first occurrence of a repeated param" in {
+      BankStatementsLogic.parseListQuery("?account=A&account=B") mustBe
+        BankStatementsLogic.ListQuery(account = "A", name = "")
+    }
+
+    "treat a valueless param as empty and skip empty segments" in {
+      BankStatementsLogic.parseListQuery("?account&q=x&&") mustBe
+        BankStatementsLogic.ListQuery(account = "", name = "x")
+    }
   }
 
   "listPath" should {
