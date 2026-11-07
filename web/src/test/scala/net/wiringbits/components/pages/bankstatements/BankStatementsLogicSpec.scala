@@ -1,6 +1,6 @@
 package net.wiringbits.components.pages.bankstatements
 
-import net.wiringbits.api.models.bankstatements.GetBankStatements
+import net.wiringbits.api.models.bankstatements.{GetBankStatement, GetBankStatements}
 import net.wiringbits.api.models.documents.DocumentStatus
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
@@ -178,6 +178,65 @@ class BankStatementsLogicSpec extends AnyWordSpec {
     "join bank, product type and last 4 with ~" in {
       BankStatementsLogic.accountKey(bankName = "Banco de Chile", productType = "debit", accountLast4 = "1234") mustBe
         "Banco de Chile~debit~1234"
+    }
+  }
+
+  "deleteSummaryLines" should {
+    def row(
+        expenseId: Option[UUID] = None,
+        refundId: Option[UUID] = None,
+        ignoredAt: Option[Instant] = None
+    ): GetBankStatement.StatementRowData =
+      GetBankStatement.StatementRowData(
+        id = UUID.randomUUID(),
+        index = 0,
+        date = LocalDate.of(2026, 4, 2),
+        amount = BigDecimal(10),
+        description = "x",
+        manuallyEdited = false,
+        confirmedAt = None,
+        expenseId = expenseId,
+        refundId = refundId,
+        ignoredAt = ignoredAt,
+        txnType = "debit",
+        expenseMerchantId = None,
+        expenseCategoryId = None
+      )
+    val s = stmt(accountLast4 = "1234", createdAt = t0, documentFilename = "apr.pdf")
+
+    "describe a statement with no rows" in {
+      BankStatementsLogic.deleteSummaryLines(s, Nil) mustBe List(
+        "File: apr.pdf",
+        "Account: BBVA (Credit) ••••1234",
+        "Period: 2026-04-01 → 2026-04-30",
+        "Rows: 0",
+        "0 linked expenses will be kept but unlinked from this statement.",
+        "This action cannot be undone."
+      )
+    }
+
+    "count no linked expenses when no row is linked" in {
+      val lines = BankStatementsLogic.deleteSummaryLines(s, List(row(), row()))
+      lines must contain("Rows: 2")
+      lines must contain("0 linked expenses will be kept but unlinked from this statement.")
+    }
+
+    "count only rows linked to an expense, not refund-only or ignored rows" in {
+      val rows = List(
+        row(expenseId = Some(UUID.randomUUID())),
+        row(expenseId = Some(UUID.randomUUID())),
+        row(refundId = Some(UUID.randomUUID())),
+        row(ignoredAt = Some(t0)),
+        row()
+      )
+      val lines = BankStatementsLogic.deleteSummaryLines(s, rows)
+      lines must contain("Rows: 5")
+      lines must contain("2 linked expenses will be kept but unlinked from this statement.")
+    }
+
+    "use the singular for exactly one linked expense" in {
+      val lines = BankStatementsLogic.deleteSummaryLines(s, List(row(expenseId = Some(UUID.randomUUID())), row()))
+      lines must contain("1 linked expense will be kept but unlinked from this statement.")
     }
   }
 }

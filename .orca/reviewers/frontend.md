@@ -1,5 +1,5 @@
 ---
-description: Frontend — fetch via AsyncComponent; mutually-exclusive UI state as one ADT; hook dependency lists via SafeHooks (String keys)
+description: Frontend — fetch via AsyncComponent; mutually-exclusive UI state as one ADT; hook dependency lists via SafeHooks (String keys); filters and view selections encoded in the URL
 files: web/src/main/scala
 ---
 
@@ -44,3 +44,18 @@ Not: `Hooks.useEffect(fn)` with NO dependency argument (runs every render, by
 design); `Hooks.useState` / `useRef` / `useContext` (no dependency list); the
 low-level hook utilities in `net.wiringbits.core` (e.g. `ReactiveHooks`) that
 deliberately key on a stable object reference.
+
+## Encode filters and view selections in the URL
+Flag a page that keeps a user-chosen filter or view selection — an account or
+category picker, a search box, a status filter, a selected tab, a sort — only in
+component state, so a refresh, a shared link, or back-navigation loses it. Such
+state must be read from the URL (path or query params) on mount and written to
+the URL when it changes, so the page is refreshable, shareable, and
+back-navigable, and the local state must re-sync when the URL changes while the
+component stays mounted (back/forward between two entries, a nav-link click, a
+pasted link), so the control never disagrees with the address bar. Values put in
+the query must be URL-encoded and decoded, not concatenated raw.
+
+Not: ephemeral UI state that is not a filter or selection (a drawer open/closed,
+a hover, an unsaved form draft, a loading flag); transient state that should not
+survive a refresh by design.
