@@ -830,7 +830,13 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         kind = DocumentKind.BankStatementPdf
       ).futureValue
       val now = Instant.now()
-      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, userId, now, now)
+      val stmt = BankStatement.Create(
+        id = UUID.randomUUID(),
+        documentId = doc.id,
+        userId = userId,
+        createdAt = now,
+        updatedAt = now
+      )
       createStatement(stmt, metadata, Nil).futureValue
       stmt.id
     }

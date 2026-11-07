@@ -14,7 +14,7 @@ class BankStatementConfirmChecksSpec extends AnyWordSpec with Matchers {
 
   private def kinds(start: String, end: String): List[ConfirmWarningKind] =
     BankStatementConfirmChecks
-      .periodWarnings(LocalDate.parse(start), LocalDate.parse(end), today)
+      .periodWarnings(start = LocalDate.parse(start), end = LocalDate.parse(end), today = today)
       .map(_.kind)
 
   private def statement(start: String, end: String): BankStatement =
@@ -62,8 +62,11 @@ class BankStatementConfirmChecksSpec extends AnyWordSpec with Matchers {
     }
 
     "mention the dates in the message" in {
-      val warnings =
-        BankStatementConfirmChecks.periodWarnings(LocalDate.parse("2026-01-31"), LocalDate.parse("2026-01-01"), today)
+      val warnings = BankStatementConfirmChecks.periodWarnings(
+        start = LocalDate.parse("2026-01-31"),
+        end = LocalDate.parse("2026-01-01"),
+        today = today
+      )
       warnings.map(_.message).mkString must (include("2026-01-31") and include("2026-01-01"))
     }
   }

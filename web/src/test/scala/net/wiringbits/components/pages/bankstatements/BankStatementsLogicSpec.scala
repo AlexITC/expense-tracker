@@ -269,27 +269,55 @@ class BankStatementsLogicSpec extends AnyWordSpec {
   }
 
   "mergePolled" should {
-    "replace the polled statement while keeping its known overlaps" in {
-      val other = UUID.randomUUID()
-      val s = stmt(accountLast4 = "1111", createdAt = t0, overlappingStatementIds = List(other))
-      val untouched = stmt(accountLast4 = "2222", createdAt = t0)
-      val updated = GetBankStatement.Response(
-        id = s.id,
-        documentId = UUID.randomUUID(),
-        documentFilename = s.documentFilename,
-        documentStatus = DocumentStatus.Parsed,
-        bankName = s.bankName,
-        productType = s.productType,
-        currency = s.currency,
-        accountLast4 = s.accountLast4,
-        periodStart = s.periodStart,
-        periodEnd = s.periodEnd,
-        statementRows = Nil,
-        createdAt = s.createdAt,
-        extractionInfo = None,
-        aiSuggestions = None
+    val other = UUID.randomUUID()
+    val s = stmt(accountLast4 = "1111", createdAt = t0, overlappingStatementIds = List(other))
+      .copy(documentStatus = DocumentStatus.Processing)
+    val untouched = stmt(accountLast4 = "2222", createdAt = t0)
+    def row(expenseId: Option[UUID]): GetBankStatement.StatementRowData =
+      GetBankStatement.StatementRowData(
+        id = UUID.randomUUID(),
+        index = 0,
+        date = LocalDate.of(2026, 4, 2),
+        amount = BigDecimal(10),
+        description = "x",
+        manuallyEdited = false,
+        confirmedAt = None,
+        expenseId = expenseId,
+        refundId = None,
+        ignoredAt = None,
+        txnType = "debit",
+        expenseMerchantId = None,
+        expenseCategoryId = None
       )
-      BankStatementsLogic.mergePolled(List(s, untouched), updated) mustBe List(s, untouched)
+    val updated = GetBankStatement.Response(
+      id = s.id,
+      documentId = UUID.randomUUID(),
+      documentFilename = s.documentFilename,
+      documentStatus = DocumentStatus.Parsed,
+      bankName = s.bankName,
+      productType = s.productType,
+      currency = s.currency,
+      accountLast4 = s.accountLast4,
+      periodStart = s.periodStart,
+      periodEnd = s.periodEnd,
+      statementRows = List(row(expenseId = Some(UUID.randomUUID())), row(expenseId = None)),
+      createdAt = s.createdAt,
+      extractionInfo = None,
+      aiSuggestions = None
+    )
+
+    "replace the polled statement's status and row counts" in {
+      val result = BankStatementsLogic.mergePolled(List(s, untouched), updated)
+      val merged = result.find(_.id == s.id).get
+      merged.documentStatus mustBe DocumentStatus.Parsed
+      merged.totalRows mustBe 2
+      merged.processedRows mustBe 1
+      result.find(_.id == untouched.id) mustBe Some(untouched)
+    }
+
+    "keep the polled statement's known overlaps" in {
+      val result = BankStatementsLogic.mergePolled(List(s, untouched), updated)
+      result.find(_.id == s.id).map(_.overlappingStatementIds) mustBe Some(List(other))
     }
   }
 
