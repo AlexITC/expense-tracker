@@ -1,6 +1,6 @@
 package net.wiringbits.components.pages.bankstatements
 
-import net.wiringbits.api.models.bankstatements.GetBankStatements
+import net.wiringbits.api.models.bankstatements.{GetBankStatement, GetBankStatements}
 
 /** Pure logic behind the bank statements page: no React or MUI. */
 object BankStatementsLogic {
@@ -31,5 +31,26 @@ object BankStatementsLogic {
       needle.isEmpty || s.documentFilename.toLowerCase.contains(needle)
     val olderOf = accountStmts.zip(accountStmts.drop(1)).toMap
     accountStmts.filter(matches).map(s => s -> olderOf.get(s).filter(matches))
+  }
+
+  private def plural(n: Int, singular: String, pluralForm: String): String =
+    s"$n ${if (n == 1) singular else pluralForm}"
+
+  /** Lines describing what deleting a statement does, given its rows. Only rows linked to an expense count as linked
+    * expenses (refund-only or ignored rows don't). Deleting keeps those expenses but unlinks them.
+    */
+  def deleteSummaryLines(
+      s: GetBankStatements.Response.BankStatement,
+      rows: List[GetBankStatement.StatementRowData]
+  ): List[String] = {
+    val linked = rows.count(_.expenseId.isDefined)
+    List(
+      s"File: ${s.documentFilename}",
+      s"Account: ${BankStatementList.accountLabelOf(s)}",
+      s"Period: ${s.periodStart} → ${s.periodEnd}",
+      s"Rows: ${rows.size}",
+      s"${plural(linked, "linked expense", "linked expenses")} will be kept but unlinked from this statement.",
+      "This action cannot be undone."
+    )
   }
 }
