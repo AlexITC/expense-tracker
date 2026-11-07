@@ -83,11 +83,24 @@ object BankStatementDraft {
       Schema.derived[Request].name(Schema.SName("UpdateBankStatementDraftRequest"))
   }
 
+  /** Confirming runs non-blocking sanity checks (period, overlap). When they produce warnings and `acceptWarnings` is
+    * false, nothing is created and `bankStatementId` is None; otherwise the statement is created and the warnings are
+    * echoed back.
+    */
   object Confirm {
-    case class Response(bankStatementId: UUID)
-    implicit val format: Format[Response] = Json.format[Response]
-    implicit val schema: Schema[Response] =
-      Schema.derived[Response].name(Schema.SName("ConfirmBankStatementDraftResponse"))
+    case class Request(acceptWarnings: Boolean)
+    object Request {
+      implicit val format: Format[Request] = Json.format[Request]
+      implicit val schema: Schema[Request] =
+        Schema.derived[Request].name(Schema.SName("ConfirmBankStatementDraftRequest"))
+    }
+
+    case class Response(bankStatementId: Option[UUID], warnings: List[ConfirmWarning])
+    object Response {
+      implicit val format: Format[Response] = Json.format[Response]
+      implicit val schema: Schema[Response] =
+        Schema.derived[Response].name(Schema.SName("ConfirmBankStatementDraftResponse"))
+    }
   }
 
   object Discard {

@@ -816,4 +816,104 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       unignored.value.ignoredAt must be(None)
     }
   }
+
+  "findOverlapping / overlappingStatementIds" should {
+    val january = sampleStatementMetadata.copy(
+      periodStart = LocalDate.of(2026, 1, 1),
+      periodEnd = LocalDate.of(2026, 1, 31)
+    )
+
+    def seed(userId: UUID, metadata: BankStatement.Metadata)(implicit repositories: RepositoryComponents): UUID = {
+      val doc = createDocument(
+        userId,
+        sha256 = UUID.randomUUID().toString,
+        kind = DocumentKind.BankStatementPdf
+      ).futureValue
+      val now = Instant.now()
+      val stmt = BankStatement.Create(
+        id = UUID.randomUUID(),
+        documentId = doc.id,
+        userId = userId,
+        createdAt = now,
+        updatedAt = now
+      )
+      createStatement(stmt, metadata, Nil).futureValue
+      stmt.id
+    }
+
+    def overlapping(userId: UUID, metadata: BankStatement.Metadata)(implicit
+        repositories: RepositoryComponents
+    ): List[UUID] =
+      repositories.bankStatements.findOverlapping(userId, metadata).futureValue.map(_.id)
+
+    "match an identical period" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val id = seed(user.id, january)
+      overlapping(user.id, january) must be(List(id))
+    }
+
+    "match a partial overlap" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val id = seed(user.id, january)
+      val query = january.copy(periodStart = LocalDate.of(2026, 1, 15), periodEnd = LocalDate.of(2026, 2, 14))
+      overlapping(user.id, query) must be(List(id))
+    }
+
+    "match ranges that only share a boundary day" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val id = seed(user.id, january)
+      val before = january.copy(periodStart = LocalDate.of(2025, 12, 1), periodEnd = LocalDate.of(2026, 1, 1))
+      val after = january.copy(periodStart = LocalDate.of(2026, 1, 31), periodEnd = LocalDate.of(2026, 2, 28))
+      overlapping(user.id, before) must be(List(id))
+      overlapping(user.id, after) must be(List(id))
+    }
+
+    "not match adjacent ranges" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      seed(user.id, january)
+      val february = january.copy(periodStart = LocalDate.of(2026, 2, 1), periodEnd = LocalDate.of(2026, 2, 28))
+      overlapping(user.id, february) must be(Nil)
+      seed(user.id, february)
+      repositories.bankStatements.overlappingStatementIds(user.id).futureValue must be(Map.empty)
+    }
+
+    "not match a different account" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      seed(user.id, january)
+      val others = List(
+        january.copy(accountLast4 = "9999"),
+        january.copy(currency = "EUR"),
+        january.copy(productType = "debit"),
+        january.copy(bankName = "Other Bank")
+      )
+      others.foreach { metadata =>
+        overlapping(user.id, metadata) must be(Nil)
+      }
+      others.foreach(seed(user.id, _))
+      repositories.bankStatements.overlappingStatementIds(user.id).futureValue must be(Map.empty)
+    }
+
+    "never match another user's statement" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val other = createUser().futureValue
+      seed(other.id, january)
+      overlapping(user.id, january) must be(Nil)
+      seed(user.id, january)
+      repositories.bankStatements.overlappingStatementIds(user.id).futureValue must be(Map.empty)
+    }
+
+    "map overlaps symmetrically and exclude self" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val a = seed(user.id, january)
+      val b =
+        seed(user.id, january.copy(periodStart = LocalDate.of(2026, 1, 20), periodEnd = LocalDate.of(2026, 2, 20)))
+      val c =
+        seed(user.id, january.copy(periodStart = LocalDate.of(2026, 2, 20), periodEnd = LocalDate.of(2026, 3, 20)))
+      seed(user.id, january.copy(periodStart = LocalDate.of(2026, 5, 1), periodEnd = LocalDate.of(2026, 5, 31)))
+
+      repositories.bankStatements.overlappingStatementIds(user.id).futureValue must be(
+        Map(a -> List(b), b -> List(a, c), c -> List(b))
+      )
+    }
+  }
 }

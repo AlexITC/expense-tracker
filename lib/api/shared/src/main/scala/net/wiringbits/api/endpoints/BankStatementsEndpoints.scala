@@ -69,9 +69,16 @@ object BankStatementsEndpoints {
 
   def confirmDraft(implicit
       authHandler: ServerRequest => Future[UUID]
-  ): Endpoint[Unit, (UUID, Future[UUID]), ErrorResponse, BankStatementDraft.Confirm.Response, Any] =
+  ): Endpoint[
+    Unit,
+    (UUID, BankStatementDraft.Confirm.Request, Future[UUID]),
+    ErrorResponse,
+    BankStatementDraft.Confirm.Response,
+    Any
+  ] =
     baseEndpoint.post
       .in("drafts" / path[UUID]("draftId") / "confirm")
+      .in(jsonBody[BankStatementDraft.Confirm.Request])
       .in(userAuth)
       .out(jsonBody[BankStatementDraft.Confirm.Response])
       .errorOut(oneOf(HttpErrors.badRequest))

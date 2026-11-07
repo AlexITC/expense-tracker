@@ -2,7 +2,7 @@ package net.wiringbits.actions.bankstatements
 
 import com.github.f4b6a3.uuid.UuidCreator
 import io.scalaland.chimney.dsl.*
-import net.wiringbits.api.models.bankstatements.{BankStatementDraft, ExtractionInfo}
+import net.wiringbits.api.models.bankstatements.{BankStatementDraft, ConfirmWarning, ExtractionInfo}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.{BackgroundJobData, BankStatement, BankStatementRow}
 import net.wiringbits.repositories.{BankStatementDraftRepository, BankStatementRepository, DocumentsRepository}
@@ -10,14 +10,15 @@ import net.wiringbits.services.AiStatementExtractor
 import org.slf4j.LoggerFactory
 import play.api.libs.json.Json
 
-import java.time.Clock
+import java.time.{Clock, LocalDate}
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 
 /** Confirm the current draft into a real statement + rows. Blocks unless the (possibly edited) draft reconciles and the
-  * required metadata is present. Writes everything (plus the AI suggestions job) in one transaction and deletes the
-  * draft.
+  * required metadata is present. Non-blocking warnings (unusual period, overlap with an existing statement of the same
+  * account) stop the import unless `acceptWarnings` is set. Writes everything (plus the AI suggestions job) in one
+  * transaction and deletes the draft.
   */
 class ConfirmBankStatementDraftAction @Inject() (
     bankStatementDraftRepository: BankStatementDraftRepository,
@@ -27,7 +28,7 @@ class ConfirmBankStatementDraftAction @Inject() (
 
   private val logger = LoggerFactory.getLogger(this.getClass)
 
-  def apply(draftId: UUID, userId: UUID): Future[BankStatementDraft.Confirm.Response] =
+  def apply(draftId: UUID, userId: UUID, acceptWarnings: Boolean): Future[BankStatementDraft.Confirm.Response] =
     for {
       existing <- bankStatementDraftRepository.findByIdForUser(draftId, userId)
       draft = existing.getOrElse(throw new RuntimeException("Draft not found"))
@@ -37,41 +38,72 @@ class ConfirmBankStatementDraftAction @Inject() (
       payload = Json.parse(payloadStr).as[BankStatementDraft.Payload]
       _ = requireReconciled(payload)
       metadata = requireMetadata(payload.metadata)
-      now = clock.instant()
-      stmtId = UuidCreator.getTimeOrderedEpoch()
-      stmt = BankStatement.Create(stmtId, draft.documentId, userId, createdAt = now, updatedAt = now)
-      rows = payload.transactions.zipWithIndex.map { case (t, i) =>
-        BankStatementRow.Create(
-          id = UuidCreator.getTimeOrderedEpoch(),
-          bankStatementId = stmtId,
-          index = i,
-          date = t.date,
-          amount = t.amount,
-          description = t.description,
-          manuallyEdited = false,
-          createdAt = now,
-          updatedAt = now,
-          txnType = t.txnType.getOrElse("purchase")
-        )
-      }
-      extractionInfo = payload.stage.map(s => payload.into[ExtractionInfo].withFieldConst(_.stage, s).transform)
-      job = BackgroundJobData.Create(
-        id = UUID.randomUUID(),
-        `type` = BackgroundJobType.ResolveStatementSuggestions,
-        payload = BackgroundJobPayload.ResolveStatementSuggestions(stmtId),
-        status = BackgroundJobStatus.Pending,
-        executeAt = now,
+      overlapping <- bankStatementRepository.findOverlapping(userId, metadata)
+      warnings = BankStatementConfirmChecks.periodWarnings(
+        start = metadata.periodStart,
+        end = metadata.periodEnd,
+        today = LocalDate.now(clock)
+      ) ++ BankStatementConfirmChecks.overlapWarning(overlapping).toList
+      response <-
+        if (warnings.nonEmpty && !acceptWarnings)
+          Future.successful(BankStatementDraft.Confirm.Response(None, warnings))
+        else create(draft, payload, metadata, userId, warnings)
+    } yield response
+
+  private def create(
+      draft: net.wiringbits.repositories.models.BankStatementDraft,
+      payload: BankStatementDraft.Payload,
+      metadata: BankStatement.Metadata,
+      userId: UUID,
+      warnings: List[ConfirmWarning]
+  ): Future[BankStatementDraft.Confirm.Response] = {
+    val now = clock.instant()
+    val stmtId = UuidCreator.getTimeOrderedEpoch()
+    val stmt = BankStatement.Create(
+      id = stmtId,
+      documentId = draft.documentId,
+      userId = userId,
+      createdAt = now,
+      updatedAt = now
+    )
+    val rows = payload.transactions.zipWithIndex.map { case (t, i) =>
+      BankStatementRow.Create(
+        id = UuidCreator.getTimeOrderedEpoch(),
+        bankStatementId = stmtId,
+        index = i,
+        date = t.date,
+        amount = t.amount,
+        description = t.description,
+        manuallyEdited = false,
         createdAt = now,
-        updatedAt = now
+        updatedAt = now,
+        txnType = t.txnType.getOrElse("purchase")
       )
+    }
+    val extractionInfo = payload.stage.map(s => payload.into[ExtractionInfo].withFieldConst(_.stage, s).transform)
+    val job = BackgroundJobData.Create(
+      id = UUID.randomUUID(),
+      `type` = BackgroundJobType.ResolveStatementSuggestions,
+      payload = BackgroundJobPayload.ResolveStatementSuggestions(stmtId),
+      status = BackgroundJobStatus.Pending,
+      executeAt = now,
+      createdAt = now,
+      updatedAt = now
+    )
+    for {
       _ <- bankStatementRepository.createConfirmedStatement(stmt, metadata, rows, extractionInfo, job)
-      _ <- bankStatementDraftRepository.delete(draftId, userId)
+      _ <- bankStatementDraftRepository.delete(draft.id, userId)
     } yield {
       logger.info(
         s"Confirmed statement draft ${draft.id} for user $userId into statement $stmtId (document ${draft.documentId}) (${payload.transactions.size} rows), enqueued suggestions job ${job.id}"
       )
-      BankStatementDraft.Confirm.Response(stmtId)
+      if (warnings.nonEmpty)
+        logger.info(
+          s"Statement $stmtId for user $userId was confirmed with accepted warnings: ${warnings.map(_.message).mkString("; ")}"
+        )
+      BankStatementDraft.Confirm.Response(Some(stmtId), warnings)
     }
+  }
 
   private def requireReconciled(payload: BankStatementDraft.Payload): Unit = {
     val (reconciled, discrepancy) = AiStatementExtractor.reconcile(

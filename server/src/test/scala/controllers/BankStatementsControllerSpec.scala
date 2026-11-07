@@ -158,6 +158,25 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
       val list2 = client2.getBankStatements.futureValue
       list2.data.map(_.id) must not contain stmtId
     }
+
+    "list overlapping statements of the same account in overlappingStatementIds" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val a = createBankStatement(userId)
+      val b = createBankStatement(userId)
+      val otherAccount = createBankStatement(userId, defaultStatementMetadata.copy(accountLast4 = "9999"))
+
+      val client2 = buildClient()
+      createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
+      val otherUserStmt = createBankStatement(client2.currentUser.futureValue.id)
+
+      val byId = client.getBankStatements.futureValue.data.map(s => s.id -> s.overlappingStatementIds).toMap
+      byId(a) must be(List(b))
+      byId(b) must be(List(a))
+      byId(otherAccount) must be(empty)
+      byId.values.flatten must not contain otherUserStmt
+      client2.getBankStatements.futureValue.data.flatMap(_.overlappingStatementIds) must be(empty)
+    }
   }
 
   "POST /bank-statements/:id/rows/:rowId/ignore" should {

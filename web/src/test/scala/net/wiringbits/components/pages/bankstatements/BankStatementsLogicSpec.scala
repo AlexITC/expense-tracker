@@ -18,7 +18,8 @@ class BankStatementsLogicSpec extends AnyWordSpec {
       periodStart: LocalDate = LocalDate.of(2026, 4, 1),
       documentFilename: String = "s.pdf",
       totalRows: Int = 0,
-      processedRows: Int = 0
+      processedRows: Int = 0,
+      overlappingStatementIds: List[UUID] = Nil
   ): GetBankStatements.Response.BankStatement =
     GetBankStatements.Response.BankStatement(
       id = UUID.randomUUID(),
@@ -32,7 +33,8 @@ class BankStatementsLogicSpec extends AnyWordSpec {
       periodEnd = periodStart.plusMonths(1).minusDays(1),
       createdAt = createdAt,
       totalRows = totalRows,
-      processedRows = processedRows
+      processedRows = processedRows,
+      overlappingStatementIds = overlappingStatementIds
     )
 
   private val t0 = Instant.parse("2026-05-01T10:00:00Z")
@@ -237,6 +239,95 @@ class BankStatementsLogicSpec extends AnyWordSpec {
     "use the singular for exactly one linked expense" in {
       val lines = BankStatementsLogic.deleteSummaryLines(s, List(row(expenseId = Some(UUID.randomUUID())), row()))
       lines must contain("1 linked expense will be kept but unlinked from this statement.")
+    }
+  }
+
+  "duplicateBadgeText" should {
+    "return None when the statement overlaps nothing" in {
+      val s = stmt(accountLast4 = "1111", createdAt = t0)
+      BankStatementsLogic.duplicateBadgeText(s, List(s)) mustBe None
+    }
+
+    "name the overlapping statements' files" in {
+      val a = stmt(accountLast4 = "1111", createdAt = t0, documentFilename = "a.pdf")
+      val b = stmt(accountLast4 = "1111", createdAt = t0, documentFilename = "b.pdf")
+      val s = stmt(accountLast4 = "1111", createdAt = t0, overlappingStatementIds = List(a.id, b.id))
+      BankStatementsLogic.duplicateBadgeText(s, List(s, a, b)) mustBe
+        Some("⚠ Possible duplicate — overlaps a.pdf, b.pdf")
+    }
+
+    "count overlapping statements missing from the list" in {
+      val a = stmt(accountLast4 = "1111", createdAt = t0, documentFilename = "a.pdf")
+      val s = stmt(
+        accountLast4 = "1111",
+        createdAt = t0,
+        overlappingStatementIds = List(a.id, UUID.randomUUID(), UUID.randomUUID())
+      )
+      BankStatementsLogic.duplicateBadgeText(s, List(s, a)) mustBe
+        Some("⚠ Possible duplicate — overlaps a.pdf, 2 other statements")
+    }
+  }
+
+  "mergePolled" should {
+    val other = UUID.randomUUID()
+    val s = stmt(accountLast4 = "1111", createdAt = t0, overlappingStatementIds = List(other))
+      .copy(documentStatus = DocumentStatus.Processing)
+    val untouched = stmt(accountLast4 = "2222", createdAt = t0)
+    def row(expenseId: Option[UUID]): GetBankStatement.StatementRowData =
+      GetBankStatement.StatementRowData(
+        id = UUID.randomUUID(),
+        index = 0,
+        date = LocalDate.of(2026, 4, 2),
+        amount = BigDecimal(10),
+        description = "x",
+        manuallyEdited = false,
+        confirmedAt = None,
+        expenseId = expenseId,
+        refundId = None,
+        ignoredAt = None,
+        txnType = "debit",
+        expenseMerchantId = None,
+        expenseCategoryId = None
+      )
+    val updated = GetBankStatement.Response(
+      id = s.id,
+      documentId = UUID.randomUUID(),
+      documentFilename = s.documentFilename,
+      documentStatus = DocumentStatus.Parsed,
+      bankName = s.bankName,
+      productType = s.productType,
+      currency = s.currency,
+      accountLast4 = s.accountLast4,
+      periodStart = s.periodStart,
+      periodEnd = s.periodEnd,
+      statementRows = List(row(expenseId = Some(UUID.randomUUID())), row(expenseId = None)),
+      createdAt = s.createdAt,
+      extractionInfo = None,
+      aiSuggestions = None
+    )
+
+    "replace the polled statement's status and row counts" in {
+      val result = BankStatementsLogic.mergePolled(List(s, untouched), updated)
+      val merged = result.find(_.id == s.id).get
+      merged.documentStatus mustBe DocumentStatus.Parsed
+      merged.totalRows mustBe 2
+      merged.processedRows mustBe 1
+      result.find(_.id == untouched.id) mustBe Some(untouched)
+    }
+
+    "keep the polled statement's known overlaps" in {
+      val result = BankStatementsLogic.mergePolled(List(s, untouched), updated)
+      result.find(_.id == s.id).map(_.overlappingStatementIds) mustBe Some(List(other))
+    }
+  }
+
+  "removeStatement" should {
+    "drop the statement and remove it from the others' overlaps" in {
+      val a = stmt(accountLast4 = "1111", createdAt = t0)
+      val b = stmt(accountLast4 = "1111", createdAt = t0, overlappingStatementIds = List(a.id))
+      val result = BankStatementsLogic.removeStatement(List(a, b), a.id)
+      result mustBe List(b.copy(overlappingStatementIds = Nil))
+      BankStatementsLogic.duplicateBadgeText(result.head, result) mustBe None
     }
   }
 }

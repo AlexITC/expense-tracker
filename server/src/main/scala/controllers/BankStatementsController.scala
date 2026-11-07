@@ -80,11 +80,12 @@ class BankStatementsController @Inject() (
 
   private def confirmDraft(
       draftId: UUID,
+      request: BankStatementDraft.Confirm.Request,
       userIdF: Future[UUID]
   ): Future[Either[ErrorResponse, BankStatementDraft.Confirm.Response]] = handleRequest {
     for {
       userId <- userIdF
-      response <- confirmBankStatementDraftAction(draftId, userId)
+      response <- confirmBankStatementDraftAction(draftId, userId, request.acceptWarnings)
     } yield Right(response)
   }
 

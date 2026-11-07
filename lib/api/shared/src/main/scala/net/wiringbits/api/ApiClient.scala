@@ -245,8 +245,11 @@ class ApiClient(config: ApiClient.Config)(implicit
   ): Future[BankStatementDraft.Data] =
     handleRequest(BankStatementsEndpoints.updateDraft, (draftId, request, dummyUserId))
 
-  def confirmBankStatementDraft(draftId: UUID): Future[BankStatementDraft.Confirm.Response] =
-    handleRequest(BankStatementsEndpoints.confirmDraft, (draftId, dummyUserId))
+  def confirmBankStatementDraft(draftId: UUID, acceptWarnings: Boolean): Future[BankStatementDraft.Confirm.Response] =
+    handleRequest(
+      BankStatementsEndpoints.confirmDraft,
+      (draftId, BankStatementDraft.Confirm.Request(acceptWarnings), dummyUserId)
+    )
 
   def discardBankStatementDraft(draftId: UUID): Future[BankStatementDraft.Discard.Response] =
     handleRequest(BankStatementsEndpoints.discardDraft, (draftId, dummyUserId))
