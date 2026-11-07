@@ -59,8 +59,21 @@ trait PlayPostgresSpec extends PlayAPISpec with GuiceOneServerPerSuite {
     runTest(client)
   }
 
+  val defaultStatementMetadata: BankStatement.Metadata = BankStatement.Metadata(
+    bankName = "Test Bank",
+    productType = "credit",
+    currency = "USD",
+    accountLast4 = "0000",
+    periodStart = LocalDate.of(2026, 1, 1),
+    periodEnd = LocalDate.of(2026, 1, 31)
+  )
+
   /** Create a confirmed bank statement with rows directly (no upload / Textract), for tests. */
-  def createBankStatementWithRows(userId: UUID, rows: UUID => List[BankStatementRow.Create]): UUID = {
+  def createBankStatementWithRows(
+      userId: UUID,
+      rows: UUID => List[BankStatementRow.Create],
+      metadata: BankStatement.Metadata = defaultStatementMetadata
+  ): UUID = {
     val repo = app.injector.instanceOf[BankStatementRepository]
     val now = Instant.now()
     val stmtId = UuidCreator.getTimeOrderedEpoch()
@@ -76,14 +89,6 @@ trait PlayPostgresSpec extends PlayAPISpec with GuiceOneServerPerSuite {
       updatedAt = now
     )
     val stmt = BankStatement.Create(stmtId, docId, userId, now, now)
-    val metadata = BankStatement.Metadata(
-      bankName = "Test Bank",
-      productType = "credit",
-      currency = "USD",
-      accountLast4 = "0000",
-      periodStart = LocalDate.of(2026, 1, 1),
-      periodEnd = LocalDate.of(2026, 1, 31)
-    )
     // Scheduled far in the future so the live executor never resolves suggestions while a test inspects the statement.
     val job = BackgroundJobData.Create(
       id = UUID.randomUUID(),
@@ -99,7 +104,8 @@ trait PlayPostgresSpec extends PlayAPISpec with GuiceOneServerPerSuite {
     stmtId
   }
 
-  def createBankStatement(userId: UUID): UUID = createBankStatementWithRows(userId, _ => Nil)
+  def createBankStatement(userId: UUID, metadata: BankStatement.Metadata = defaultStatementMetadata): UUID =
+    createBankStatementWithRows(userId, _ => Nil, metadata)
 
   implicit class RichFutureExt[T](val future: Future[T]) {
     def expectError: String = {

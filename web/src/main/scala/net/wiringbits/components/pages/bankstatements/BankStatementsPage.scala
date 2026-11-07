@@ -108,23 +108,6 @@ object BankStatementList {
     )
   }
 
-  private def toListStmt(r: GetBankStatement.Response): GetBankStatements.Response.BankStatement =
-    GetBankStatements.Response.BankStatement(
-      id = r.id,
-      documentFilename = r.documentFilename,
-      documentStatus = r.documentStatus,
-      bankName = r.bankName,
-      productType = r.productType,
-      currency = r.currency,
-      accountLast4 = r.accountLast4,
-      periodStart = r.periodStart,
-      periodEnd = r.periodEnd,
-      createdAt = r.createdAt,
-      totalRows = r.statementRows.size,
-      processedRows =
-        r.statementRows.count(row => row.expenseId.isDefined || row.refundId.isDefined || row.ignoredAt.isDefined)
-    )
-
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
     val history = useHistory()
@@ -211,7 +194,7 @@ object BankStatementList {
               props.ctx.api.client.getBankStatement(pending.id).onComplete {
                 case Success(updated) =>
                   setPollingIds(cur => cur - updated.id)
-                  setLocalStmts(cur => cur.map(s => if (s.id == updated.id) toListStmt(updated) else s))
+                  setLocalStmts(cur => BankStatementsLogic.mergePolled(cur, updated))
                 case Failure(_) =>
                   setPollingIds(cur => cur - pending.id)
               }
@@ -231,7 +214,7 @@ object BankStatementList {
       props.ctx.api.client
         .deleteBankStatement(bankStatementId)
         .onComplete {
-          case Success(_) => setLocalStmts(cur => cur.filterNot(_.id == bankStatementId))
+          case Success(_) => setLocalStmts(cur => BankStatementsLogic.removeStatement(cur, bankStatementId))
           case Failure(ex) => setError(ex.getMessage)
         }
 
@@ -326,6 +309,13 @@ object BankStatementList {
           mui
             .Typography(metadataLine(s))
             .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" }),
+          BankStatementsLogic.duplicateBadgeText(s, localStmts) match {
+            case Some(text) =>
+              mui
+                .Typography(text)
+                .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-warning-text)" })
+            case None => Fragment()
+          },
           if (isPending) mui.LinearProgress().sx(new CSSPropertiesUtils { width = "200px"; marginTop = "4px" })
           else Fragment(),
           if (s.totalRows > 0) {

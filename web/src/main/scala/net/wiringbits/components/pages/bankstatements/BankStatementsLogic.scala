@@ -2,6 +2,7 @@ package net.wiringbits.components.pages.bankstatements
 
 import net.wiringbits.api.models.bankstatements.{GetBankStatement, GetBankStatements}
 
+import java.util.UUID
 import scala.scalajs.js.URIUtils
 import scala.util.Try
 
@@ -71,6 +72,55 @@ object BankStatementsLogic {
     val olderOf = accountStmts.zip(accountStmts.drop(1)).toMap
     accountStmts.filter(matches).map(s => s -> olderOf.get(s).filter(matches))
   }
+
+  /** Replaces the polled statement in the list. A single statement response carries no overlap info, so the previously
+    * known overlaps are kept.
+    */
+  def mergePolled(
+      stmts: List[GetBankStatements.Response.BankStatement],
+      updated: GetBankStatement.Response
+  ): List[GetBankStatements.Response.BankStatement] =
+    stmts.map { s =>
+      if (s.id != updated.id) s
+      else
+        GetBankStatements.Response.BankStatement(
+          id = updated.id,
+          documentFilename = updated.documentFilename,
+          documentStatus = updated.documentStatus,
+          bankName = updated.bankName,
+          productType = updated.productType,
+          currency = updated.currency,
+          accountLast4 = updated.accountLast4,
+          periodStart = updated.periodStart,
+          periodEnd = updated.periodEnd,
+          createdAt = updated.createdAt,
+          totalRows = updated.statementRows.size,
+          processedRows = updated.statementRows.count(row =>
+            row.expenseId.isDefined || row.refundId.isDefined || row.ignoredAt.isDefined
+          ),
+          overlappingStatementIds = s.overlappingStatementIds
+        )
+    }
+
+  /** Drops a deleted statement and removes it from the others' overlaps, so their duplicate badges clear. */
+  def removeStatement(
+      stmts: List[GetBankStatements.Response.BankStatement],
+      id: UUID
+  ): List[GetBankStatements.Response.BankStatement] =
+    stmts.filterNot(_.id == id).map(s => s.copy(overlappingStatementIds = s.overlappingStatementIds.filterNot(_ == id)))
+
+  /** Warning text when `s` overlaps other statements of the same account; ids missing from `all` are counted. */
+  def duplicateBadgeText(
+      s: GetBankStatements.Response.BankStatement,
+      all: List[GetBankStatements.Response.BankStatement]
+  ): Option[String] =
+    Option.when(s.overlappingStatementIds.nonEmpty) {
+      val byId = all.map(x => x.id -> x.documentFilename).toMap
+      val names = s.overlappingStatementIds.flatMap(byId.get)
+      val missing = s.overlappingStatementIds.size - names.size
+      val parts = names ++ Option.when(missing > 0)(plural(missing, "other statement", "other statements"))
+      s"⚠ Possible duplicate — overlaps ${parts.mkString(", ")}"
+    }
 
   private def plural(n: Int, singular: String, pluralForm: String): String =
     s"$n ${if (n == 1) singular else pluralForm}"

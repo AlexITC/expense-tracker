@@ -14,7 +14,10 @@ class GetBankStatementsAction @Inject() (bankStatementRepository: BankStatementR
 ) {
 
   def apply(userId: UUID): Future[GetBankStatements.Response] =
-    bankStatementRepository.all(userId).map { stmts =>
+    for {
+      stmts <- bankStatementRepository.all(userId)
+      overlaps <- bankStatementRepository.overlappingStatementIds(userId)
+    } yield {
       val items = stmts.map { s =>
         GetBankStatements.Response.BankStatement(
           id = s.id,
@@ -28,7 +31,8 @@ class GetBankStatementsAction @Inject() (bankStatementRepository: BankStatementR
           periodEnd = s.periodEnd,
           createdAt = s.createdAt,
           totalRows = s.totalRows,
-          processedRows = s.processedRows
+          processedRows = s.processedRows,
+          overlappingStatementIds = overlaps.getOrElse(s.id, Nil)
         )
       }
       GetBankStatements.Response(items)
