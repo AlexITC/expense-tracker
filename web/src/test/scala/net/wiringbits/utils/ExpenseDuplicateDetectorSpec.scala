@@ -256,4 +256,20 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
       ExpenseDuplicateDetector.detect(List(s1, l1, s2, l2)).map(_.ambiguous) must be(List(false, false))
     }
   }
+
+  "isBulkEligible" should {
+    val strong = Candidate(survivor(), orphan(), None, Tier.Strong, ambiguous = false)
+
+    "accept a Strong unambiguous candidate" in {
+      ExpenseDuplicateDetector.isBulkEligible(strong) must be(true)
+    }
+
+    "reject a Weak candidate" in {
+      ExpenseDuplicateDetector.isBulkEligible(strong.copy(tier = Tier.Weak)) must be(false)
+    }
+
+    "reject an ambiguous candidate" in {
+      ExpenseDuplicateDetector.isBulkEligible(strong.copy(ambiguous = true)) must be(false)
+    }
+  }
 }

@@ -83,6 +83,9 @@ object ExpenseDuplicateDetector {
       .sortBy(c => (-c.survivor.date.toEpochDay, c.survivor.id.toString, c.loser.id.toString))
   }
 
+  /** Whether `c` can be merged in bulk without review: a Strong, unambiguous pair. */
+  def isBulkEligible(c: Candidate): Boolean = c.tier == Tier.Strong && !c.ambiguous
+
   private def tierFor(survivor: GetExpenses.Response.Expense, loser: GetExpenses.Response.Expense): Tier =
     if (survivor.merchantId.isDefined && survivor.merchantId == loser.merchantId) Tier.Strong else Tier.Weak
 }

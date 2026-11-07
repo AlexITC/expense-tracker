@@ -10,6 +10,9 @@ import org.scalatest.wordspec.AnyWordSpec
 
 import java.time.{Instant, LocalDate, LocalTime}
 import java.util.UUID
+import scala.collection.mutable.ListBuffer
+import scala.concurrent.{ExecutionContext, Future}
+import scala.util.Success
 
 class ExpensesPageSpec extends AnyWordSpec {
 
@@ -316,6 +319,72 @@ class ExpensesPageSpec extends AnyWordSpec {
       ExpenseList.updateSplits(BigDecimal("10"), List(catA.toString -> "4", catB.toString -> "6")) must be(
         Right(List(UpdateExpense.Split(catA, BigDecimal("4")), UpdateExpense.Split(catB, BigDecimal("6"))))
       )
+    }
+  }
+
+  "effectiveSelection" should {
+    def candidate(tier: Tier = Tier.Strong, ambiguous: Boolean = false): Candidate =
+      Candidate(expense(BigDecimal("1")), expense(BigDecimal("1")), None, tier, ambiguous)
+
+    "keep only selected keys of current bulk-eligible candidates" in {
+      val eligible = candidate()
+      val unselected = candidate()
+      val weak = candidate(tier = Tier.Weak)
+      val ambiguous = candidate(ambiguous = true)
+      val gone = candidate()
+      val selected = List(eligible, weak, ambiguous, gone).map(ExpenseList.dismissKey).toSet
+      ExpenseList.effectiveSelection(selected, List(eligible, unselected, weak, ambiguous)) must be(
+        Set(ExpenseList.dismissKey(eligible))
+      )
+    }
+  }
+
+  "toggleAllSelection" should {
+    def candidate(tier: Tier): Candidate =
+      Candidate(expense(BigDecimal("1")), expense(BigDecimal("1")), None, tier, ambiguous = false)
+
+    "select every bulk-eligible candidate when checked" in {
+      val strong = candidate(Tier.Strong)
+      ExpenseList.toggleAllSelection(checked = true, List(strong, candidate(Tier.Weak))) must be(
+        Set(ExpenseList.dismissKey(strong))
+      )
+    }
+
+    "clear the selection when unchecked" in {
+      ExpenseList.toggleAllSelection(checked = false, List(candidate(Tier.Strong))) must be(Set.empty)
+    }
+  }
+
+  "runBulkMerge" should {
+    given ExecutionContext = ExecutionContext.parasitic
+
+    def candidate(): Candidate =
+      Candidate(expense(BigDecimal("1")), expense(BigDecimal("1")), None, Tier.Strong, ambiguous = false)
+
+    "attempt every candidate in order, continuing past failures" in {
+      val (a, b, c) = (candidate(), candidate(), candidate())
+      val attempted = ListBuffer.empty[Candidate]
+      val result = ExpenseList.runBulkMerge(
+        List(a, b, c),
+        x => {
+          attempted += x
+          if (x == b) Future.failed(new RuntimeException("boom")) else Future.successful(())
+        }
+      )
+      attempted.toList must be(List(a, b, c))
+      result.value must be(Some(Success(List("boom"))))
+    }
+  }
+
+  "bulkFailureMessage" should {
+    "report the failure count and the first message" in {
+      ExpenseList.bulkFailureMessage(List("first", "second"), total = 5) must be(
+        Some("2 of 5 merges failed: first")
+      )
+    }
+
+    "be empty without failures" in {
+      ExpenseList.bulkFailureMessage(Nil, total = 3) must be(None)
     }
   }
 }

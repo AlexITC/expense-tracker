@@ -5,7 +5,7 @@ import net.wiringbits.AppContext
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.expenses.{GetExpenses, MergeDetailsSource}
 import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Tier}
-import net.wiringbits.utils.ReceiptFileViewer
+import net.wiringbits.utils.{ExpenseDuplicateDetector, ReceiptFileViewer}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import slinky.core.facade.{Fragment, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
@@ -22,9 +22,29 @@ object ExpenseDuplicatesPanel {
       receiptFilenames: Map[UUID, String],
       onMerge: (Candidate, MergeDetailsSource) => Unit,
       onDismiss: Candidate => Unit,
-      onError: String => Unit
+      onError: String => Unit,
+      selected: Set[String],
+      onToggleSelected: (Candidate, Boolean) => Unit,
+      onToggleAll: Boolean => Unit,
+      onBulkMerge: () => Unit,
+      bulkMerging: Boolean
   ): KeyAddingStage =
-    component(Props(ctx, candidates, categories, receiptFilenames, onMerge, onDismiss, onError))
+    component(
+      Props(
+        ctx,
+        candidates,
+        categories,
+        receiptFilenames,
+        onMerge,
+        onDismiss,
+        onError,
+        selected,
+        onToggleSelected,
+        onToggleAll,
+        onBulkMerge,
+        bulkMerging
+      )
+    )
 
   case class Props(
       ctx: AppContext,
@@ -33,7 +53,12 @@ object ExpenseDuplicatesPanel {
       receiptFilenames: Map[UUID, String],
       onMerge: (Candidate, MergeDetailsSource) => Unit,
       onDismiss: Candidate => Unit,
-      onError: String => Unit
+      onError: String => Unit,
+      selected: Set[String],
+      onToggleSelected: (Candidate, Boolean) => Unit,
+      onToggleAll: Boolean => Unit,
+      onBulkMerge: () => Unit,
+      bulkMerging: Boolean
   )
 
   private val panelStyling = new CSSPropertiesUtils {
@@ -55,6 +80,8 @@ object ExpenseDuplicatesPanel {
   private val columnStyling = new CSSPropertiesUtils { flex = "1" }
   private val columnTitleStyling = new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" }
   private val actionsStyling = new CSSPropertiesUtils { display = "flex"; gap = "8px"; marginTop = "10px" }
+  private val headerStyling = new CSSPropertiesUtils { display = "flex"; alignItems = "center"; gap = "8px" }
+  private val headerTitleStyling = new CSSPropertiesUtils { flex = "1" }
 
   private def groupLabels(tier: Tier): (String, String) = tier match {
     case Tier.Strong => ("STRONG", "Same amount, close date and same merchant.")
@@ -93,6 +120,7 @@ object ExpenseDuplicatesPanel {
           .normal()(label)
           .variant("contained")
           .size("small")
+          .disabled(props.bulkMerging)
           .onClick(_ => props.onMerge(c, source))
 
       val actions: List[ReactElement] = c.receiptId match {
@@ -109,8 +137,16 @@ object ExpenseDuplicatesPanel {
             mergeButton("Merge, keep receipt details", MergeDetailsSource.Receipt)
           )
       }
+      val key = ExpenseList.dismissKey(c)
       mui.Box
         .sx(cardStyling)(
+          if (ExpenseDuplicateDetector.isBulkEligible(c))
+            (mui.Checkbox
+              .checked(props.selected.contains(key))
+              .disabled(props.bulkMerging)
+              .size("small")
+              .onChange((_, checked) => props.onToggleSelected(c, checked)): ReactElement)
+          else Fragment(),
           columns(c, props.categories),
           if (c.ambiguous)
             mui.Typography("Several expenses match this one; check the receipt to pick the right pair.").sx(hintStyling)
@@ -120,7 +156,7 @@ object ExpenseDuplicatesPanel {
             mui.Button.normal()("Dismiss").size("small").onClick(_ => props.onDismiss(c))
           )
         )
-        .withKey(ExpenseList.dismissKey(c))
+        .withKey(key)
     }
 
     def group(tier: Tier, candidates: List[Candidate]): ReactElement = {
@@ -135,8 +171,25 @@ object ExpenseDuplicatesPanel {
     }
 
     val byTier = props.candidates.groupBy(_.tier)
+    val eligibleKeys = props.candidates.filter(ExpenseDuplicateDetector.isBulkEligible).map(ExpenseList.dismissKey)
+    val selectedCount = eligibleKeys.count(props.selected.contains)
+    val allSelected = eligibleKeys.nonEmpty && selectedCount == eligibleKeys.size
     mui.Box.sx(panelStyling)(
-      mui.Typography("Possible duplicates").variant("h6"),
+      mui.Box.sx(headerStyling)(
+        (mui.Checkbox
+          .checked(allSelected)
+          .indeterminate(selectedCount > 0 && !allSelected)
+          .disabled(eligibleKeys.isEmpty || props.bulkMerging)
+          .size("small")
+          .onChange((_, checked) => props.onToggleAll(checked)): ReactElement),
+        mui.Typography("Possible duplicates").variant("h6").sx(headerTitleStyling),
+        mui.Button
+          .normal()(s"Merge selected ($selectedCount)")
+          .variant("contained")
+          .size("small")
+          .disabled(selectedCount == 0 || props.bulkMerging)
+          .onClick(_ => props.onBulkMerge())
+      ),
       Fragment(
         Tier.values.toList.map(tier => Fragment(group(tier, byTier.getOrElse(tier, Nil))).withKey(tier.toString))*
       )
