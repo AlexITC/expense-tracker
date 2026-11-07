@@ -7,6 +7,7 @@ import net.wiringbits.api.models.documents.DocumentStatus
 import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction, ImportRuleActionKind}
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
+import net.wiringbits.components.pages.bankstatements.BankStatementsLogic
 import net.wiringbits.utils.ReconciliationMatcher
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
@@ -1006,6 +1007,31 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
     "end at a row dated after the period" in {
       val window = BankStatementReviewLogic.candidateExpenseWindow(statement(LocalDate.of(2024, 4, 5)))
       window mustBe (LocalDate.of(2024, 2, 27), LocalDate.of(2024, 4, 5))
+    }
+  }
+
+  "backToListPath" should {
+    "select the statement's account and round-trip through parseListQuery" in {
+      val stmt = GetBankStatement.Response(
+        id = UUID.randomUUID(),
+        documentId = UUID.randomUUID(),
+        documentFilename = "statement.pdf",
+        documentStatus = DocumentStatus.Parsed,
+        bankName = "Banco Azteca",
+        productType = "credit",
+        currency = "USD",
+        accountLast4 = "1234",
+        periodStart = LocalDate.of(2024, 3, 1),
+        periodEnd = LocalDate.of(2024, 3, 31),
+        statementRows = Nil,
+        createdAt = Instant.now(),
+        extractionInfo = None,
+        aiSuggestions = None
+      )
+      val path = BankStatementReviewLogic.backToListPath(stmt)
+      path must startWith("/bank-statements?")
+      BankStatementsLogic.parseListQuery(path.stripPrefix("/bank-statements")) mustBe
+        BankStatementsLogic.ListQuery(account = "Banco Azteca~credit~1234", name = "")
     }
   }
 

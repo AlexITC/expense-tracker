@@ -6,6 +6,7 @@ import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
+import net.wiringbits.components.pages.bankstatements.BankStatementsLogic
 import net.wiringbits.utils.ReconciliationMatcher
 
 import java.time.LocalDate
@@ -47,6 +48,13 @@ object BankStatementReviewLogic {
     def withExpenses(list: List[GetExpenses.Response.Expense]): ReviewSupport = copy(expenses = list)
     def withoutReceipt(id: UUID): ReviewSupport = copy(receipts = receipts.filterNot(_.id == id))
   }
+
+  /** The bank statements list, filtered to this statement's account; independent of browser history. */
+  def backToListPath(stmt: GetBankStatement.Response): String =
+    BankStatementsLogic.listPath(
+      account = Some(BankStatementsLogic.accountKey(stmt.bankName, stmt.productType, stmt.accountLast4)),
+      name = ""
+    )
 
   /** Apply `f` to the row with `rowId`, leaving the others untouched. */
   def patchRow(rows: List[GetBankStatement.StatementRowData], rowId: UUID)(

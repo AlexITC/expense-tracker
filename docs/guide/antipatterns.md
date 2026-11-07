@@ -108,6 +108,10 @@ All forms repeat the same ~25-line submit handler: check `isSubmitButtonEnabled`
 
 Hand-rolling pagination controls, tables, or dialogs when MUI 5 already provides them (`mui.Pagination`, `mui.Table`, `mui.Dialog`, etc.) adds code that diverges from MUI behaviour and requires maintenance. Always prefer wrapping the existing MUI component. See RULE-FE-015 in [frontend.md](frontend.md).
 
+**AP-FE-09 — Filter or view state held only in `useState`**
+
+A selected account, search text, tab or page kept only in component state is lost on refresh, can't be shared as a link, and ignores Back/Forward. Put it in the URL. See RULE-FE-013 in [frontend.md](frontend.md).
+
 ---
 
 ## Backend

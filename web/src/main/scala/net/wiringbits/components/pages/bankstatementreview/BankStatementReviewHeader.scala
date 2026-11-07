@@ -73,7 +73,7 @@ object BankStatementReviewHeader {
           .normal()("← Back")
           .size("small")
           .variant("outlined")
-          .onClick(_ => history.push("/bank-statements"))
+          .onClick(_ => history.push(BankStatementReviewLogic.backToListPath(stmt)))
       ),
       statementMetadataLine(stmt)
     )

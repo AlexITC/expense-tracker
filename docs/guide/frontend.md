@@ -327,45 +327,49 @@ Key rules:
 - **`freeSolo` + `onChange`**: with `freeSolo = true`, `onChange` fires with a plain string when the user presses Enter on typed text. Use `(value: Any) match { case o: MyOption => ...; case _ => () }` — this safely excludes strings, undefined, and null without needing `js.typeOf` guards.
 - **`getOptionLabel` must use `(opt: Any) match`**: MUI calls `getOptionLabel` for every rendered list option and also with `undefined` when the dropdown first opens. Using `opt.asInstanceOf[js.Dynamic].name` crashes because Scala.js case class fields are name-mangled in JS output (`.name` returns `undefined`). Ascribing `opt` as `Any` and using a pattern match is the only correct approach. Extract this function as `private[pages]` so you can unit-test it directly with Merchant instances, plain strings, undefined, and null.
 
-@file: web/src/main/scala/net/wiringbits/components/pages/BulkMerchantSetupPage.scala (DescriptionRow — real usage with merchant + category Autocomplete)
+@file: web/src/main/scala/net/wiringbits/components/pages/merchants/BulkMerchantSetupPage.scala (DescriptionRow — real usage with merchant + category Autocomplete)
 
-**RULE-FE-013 — Persist pageable/filterable state in the URL**
+**RULE-FE-013 — Pages must be URL friendly**
 
-Any state that a user would want to bookmark or recover after a page refresh — pagination page, selected tab, filter value — must be stored in the URL query string, not only in React state. Local state alone is lost on refresh; the URL survives.
+Filters and view choices the user picks (account, search text, tab, page) belong in the URL path or query string, not only in component state. Then a refresh restores the same view, a copied link opens it for someone else, and browser Back/Forward move between views as the user expects. State kept only in `useState` is lost on refresh and can't be shared.
 
 ```scala
 import net.wiringbits.webapp.utils.slinkyUtils.compat.RouterCompat
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.useHistory
-import org.scalajs.dom.URLSearchParams
 
 // Inside FunctionalComponent body:
 val history  = useHistory()
 val location = RouterCompat.useTypedLocation()
 
-// Read on mount (executed once because it's the useState initializer)
-val initialPage = {
-  val params = new URLSearchParams(location.search)
-  val p = params.get("page")
-  if (p == null) 0 else math.max(0, p.toIntOption.getOrElse(1) - 1)  // URL is 1-based
-}
-val (page, setPage) = Hooks.useState(initialPage)
+// Read: derive from the URL on every render, so Back/Forward within the route stays in sync
+val urlQuery        = BankStatementsLogic.parseListQuery(location.search)
+val selectedAccount = BankStatementsLogic.selectedAccountKey(urlQuery.account, localStmts) // stale key → default
 
-// Write on change — update React state AND push to URL
-def gotoPage(n: Int): Unit = {
-  setPage(n)
-  history.push(s"/my-page?page=${n + 1}")  // URL is 1-based for readability
+// Free-text input: local state seeded from the URL keeps the cursor stable; re-sync on external URL changes
+val (stmtFilter, setStmtFilter) = Hooks.useState(urlQuery.name)
+SafeHooks.useEffect(urlQuery.name)(() => { setStmtFilter(urlQuery.name); () })
+
+// Write: filters and search text use replace
+def onNameChange(text: String): Unit = {
+  setStmtFilter(text)
+  history.replace(BankStatementsLogic.listPath(account = Some(urlQuery.account), name = text))
 }
 ```
 
 Rules:
 
-- Use 1-based page numbers in the URL (e.g., `?page=1`) — readable to users.
-- Use 0-based numbers in React state — consistent with Scala `List.slice`.
-- `RouterCompat.useTypedLocation().search` is always a `String`; `URLSearchParams` handles the leading `?` for you.
-- `history.push` on every page change means the browser back button navigates through pages. Use `history.replace` if you want pagination not to pollute the history stack. `replace` uses the same signature as `push`.
-- The `useState(initialPage)` call reads the URL once at mount. If the component stays mounted and the URL changes (e.g., browser back within the same route), state won't update automatically. For now this is acceptable — the component is re-mounted on a hard refresh, which is the main use case. Full back-button support would require a `useEffect` on `location.search`.
+- **Read** the initial state from the URL with `RouterCompat.useTypedLocation().search` and `URLSearchParams` (or a pure parser like `BankStatementsLogic.parseListQuery`). Derive the value on each render rather than in a mount-only `useState` initialiser. A mount-only read misses URL changes while the component stays mounted (Back/Forward within the same route, nav links, pasted links). Local state seeded from the URL is fine for free-text inputs, as long as a `SafeHooks.useEffect` keyed on the URL value re-syncs it.
+- **Write** on change. Use `history.replace` for filters, search text and tab switches, so typing doesn't fill the history stack. Use `history.push` only for changes the user expects Back to undo: moving to another page or record, or pagination where that's wanted. `replace` has the same signature as `push`.
+- **Build and parse URLs in pure helpers** in the page's `*Logic` object (for example `BankStatementsLogic.parseListQuery` and `listPath`), and unit-test them (see RULE-TE-010) instead of writing DOM tests. Name same-typed arguments at call sites: `listPath(account = ..., name = ...)`.
+- **Omit params that hold defaults** (no `?q=` for empty search, no `?tab=` for the default tab), so canonical URLs stay short.
+- **Fall back gracefully on stale params.** If a param names something that no longer exists (a deleted account, an unknown tab, a page past the end), use the default view. Don't render an empty page or an error.
+- **Pagination:** use 1-based page numbers in the URL (`?page=1`) and 0-based numbers in code (consistent with `List.slice`).
+- **"Back" buttons build their target URL from the data they already have** (for example `BankStatementReviewLogic.backToListPath(stmt)` → `/bank-statements?account=…`). Don't rely on `history.goBack()`, which breaks on deep links, new tabs and cold loads.
 
-@file: web/src/main/scala/net/wiringbits/components/pages/BulkMerchantSetupPage.scala (live example — `gotoPage` and `initialPage`)
+@file: web/src/main/scala/net/wiringbits/components/pages/bankstatements/BankStatementsPage.scala (live example: `account` + `q` derived from the URL, `history.replace` on change)
+@file: web/src/main/scala/net/wiringbits/components/pages/bankstatements/BankStatementsLogic.scala (`ListQuery`, `parseListQuery`, `listPath`)
+@file: web/src/main/scala/net/wiringbits/components/pages/bankstatementreview/BankStatementReviewContent.scala (`?tab=` written with `history.replace`)
+@file: web/src/main/scala/net/wiringbits/components/pages/merchants/BulkMerchantSetupPage.scala (`?page=` written with `history.push`)
 
 **RULE-FE-014 — `js.Dynamic` and `asInstanceOf` are banned from component bodies, pages, and widgets**
 
