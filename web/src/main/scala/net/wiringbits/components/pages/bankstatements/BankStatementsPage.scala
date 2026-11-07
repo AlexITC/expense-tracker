@@ -12,11 +12,11 @@ import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.Container
 import net.wiringbits.webapp.utils.slinkyUtils.compat.RouterCompat
 import net.wiringbits.webapp.utils.slinkyUtils.core.GenericHooks
-import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.useHistory
+import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.{NavLink, useHistory}
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
-import slinky.web.html.{accept, input, multiple, onChange, `type`}
+import slinky.web.html.{accept, input, multiple, onChange, style, `type`}
 
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
@@ -302,12 +302,10 @@ object BankStatementList {
         case _ => "var(--lc-text-2)"
       }
 
-      val content: ReactElement = mui.Box.sx(new CSSPropertiesUtils {
-        display = "flex"
-        alignItems = "center"
-        justifyContent = "space-between"
-        width = "100%"
-      })(
+      val reviewPath = s"/bank-statements/${s.id}"
+      val isReviewable = s.documentStatus == DocumentStatus.Parsed
+
+      val details: ReactElement =
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "2px" })(
           mui.Box.sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; gap = "8px" })(
             mui
@@ -339,9 +337,31 @@ object BankStatementList {
                 .Typography(s"$pending pending")
                 .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-warning-text)" })
           } else Fragment()
-        ),
+        )
+
+      // Render the clickable area as a router NavLink: a real anchor to the review path, so hovering previews the URL
+      // and ctrl/cmd/middle-click opens it in a new tab natively, while a plain click navigates in-app. The action
+      // buttons stay outside the anchor so they keep working and are not nested interactive elements.
+      val clickableDetails: ReactElement =
+        if (isReviewable)
+          NavLink(style := new CSSPropertiesUtils {
+            textDecoration = "none"
+            color = "inherit"
+            display = "block"
+            flex = "1"
+            minWidth = "0"
+          })(to = reviewPath, exact = true)(details)
+        else details
+
+      val content: ReactElement = mui.Box.sx(new CSSPropertiesUtils {
+        display = "flex"
+        alignItems = "center"
+        justifyContent = "space-between"
+        width = "100%"
+      })(
+        clickableDetails,
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px"; alignItems = "center" })(
-          if (s.documentStatus == DocumentStatus.Parsed)
+          if (isReviewable)
             mui.Button
               .normal()("Review")
               .size("small")
@@ -349,7 +369,7 @@ object BankStatementList {
               .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)"; borderRadius = "8px" })
               .onClick { ev =>
                 ev.stopPropagation()
-                history.push(s"/bank-statements/${s.id}")
+                history.push(reviewPath)
               }
           else Fragment(),
           mui.Button
@@ -363,8 +383,6 @@ object BankStatementList {
         )
       )
 
-      val reviewPath = s"/bank-statements/${s.id}"
-      val isReviewable = s.documentStatus == DocumentStatus.Parsed
       val cardSx = new CSSPropertiesUtils {
         border = "1px solid var(--lc-border)"
         borderRadius = "8px"
@@ -372,16 +390,9 @@ object BankStatementList {
         marginBottom = "6px"
         padding = "12px 16px"
         width = "100%"
-        cursor = if (isReviewable) "pointer" else "default"
       }
       mui.Box
-        .sx(cardSx)
-        .onClick(e => {
-          if (isReviewable) {
-            if (e.ctrlKey || e.metaKey) dom.window.open(reviewPath, "_blank")
-            else history.push(reviewPath)
-          }
-        })(content)
+        .sx(cardSx)(content)
         .withKey(s.id.toString)
     }
 
