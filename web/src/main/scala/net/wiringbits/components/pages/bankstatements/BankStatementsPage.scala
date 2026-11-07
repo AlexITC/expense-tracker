@@ -18,7 +18,7 @@ import slinky.core.{FunctionalComponent, KeyAddingStage}
 import slinky.web.html.{accept, input, multiple, onChange, `type`}
 
 import java.util.UUID
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
 import scala.scalajs.js
 import scala.util.{Failure, Success}
 
@@ -225,6 +225,55 @@ object BankStatementList {
           case Failure(ex) => setError(ex.getMessage)
         }
 
+    // Delete confirmation: the statement awaiting confirmation. Its rows are loaded by an AsyncComponent mounted only
+    // while the dialog is open (keyed by statement id), so a late response for another statement is never shown.
+    val (pendingDelete, setPendingDelete) = Hooks.useState[Option[GetBankStatements.Response.BankStatement]](None)
+
+    def closeDeleteDialog(): Unit = setPendingDelete(None)
+
+    def deleteActions(s: GetBankStatements.Response.BankStatement, canConfirm: Boolean): ReactElement =
+      mui.DialogActions(
+        mui.Button.normal()("Cancel").onClick(_ => closeDeleteDialog()),
+        mui.Button
+          .normal()("Delete")
+          .color("error")
+          .disabled(!canConfirm)
+          .onClick { _ =>
+            handleDelete(s.id)
+            closeDeleteDialog()
+          }
+      )
+
+    val deleteDialog: ReactElement = pendingDelete match {
+      case None => Fragment()
+      case Some(s) =>
+        mui
+          .Dialog(true)(
+            mui.DialogTitle("Delete bank statement?"),
+            AsyncComponent[List[GetBankStatement.StatementRowData]](
+              fetch = () =>
+                if (s.totalRows == 0) Future.successful(Nil)
+                else props.ctx.api.client.getBankStatement(s.id).map(_.statementRows),
+              render = rows =>
+                Fragment(
+                  mui.DialogContent(
+                    BankStatementsLogic.deleteSummaryLines(s, rows).zipWithIndex.map { case (line, i) =>
+                      mui.DialogContentText(line).withKey(i.toString).build: ReactElement
+                    }*
+                  ),
+                  deleteActions(s, canConfirm = true)
+                ),
+              progressIndicator = () =>
+                Fragment(
+                  mui.DialogContent(mui.CircularProgress().size(24.0)),
+                  deleteActions(s, canConfirm = false)
+                )
+            ).withKey(s.id.toString)
+          )
+          .onClose((_, _) => closeDeleteDialog())
+          .build
+    }
+
     val accounts = localStmts.map(s => accountKeyOf(s) -> accountLabelOf(s)).distinctBy(_._1)
     val selectedAccount = BankStatementsLogic.selectedAccountKey(accountFilter, localStmts)
 
@@ -299,7 +348,7 @@ object BankStatementList {
             .sx(new CSSPropertiesUtils { color = "var(--lc-error)" })
             .onClick { ev =>
               ev.stopPropagation()
-              handleDelete(s.id)
+              setPendingDelete(Some(s))
             }
         )
       )
@@ -458,6 +507,7 @@ object BankStatementList {
           .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px"; marginBottom = "8px" })
       else Fragment(),
       Fragment(stmtItems*),
+      deleteDialog,
       toast match {
         case None => Fragment()
         case Some(msg) =>
