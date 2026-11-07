@@ -689,13 +689,14 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
       ex.getCause.getMessage must include("The merged expense must not be linked to a bank statement row")
     }
 
-    "reject a loser without a receipt" in withRepositories() { implicit repositories =>
-      val user = createUser().futureValue
-      val survivor = createExpense(user.id).futureValue
-      val loser = createExpense(user.id).futureValue
-      linkToNewRow(user.id, survivor.id)
+    "delete a loser without a receipt and move its refunds to the survivor" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val survivor = createExpense(user.id).futureValue
+        val loser = createExpense(user.id).futureValue
+        linkToNewRow(user.id, survivor.id)
+        val refund = createRefund(user.id, expenseId = Some(loser.id)).futureValue
 
-      val ex = intercept[RuntimeException](
         repositories.expenses
           .merge(
             survivorId = survivor.id,
@@ -704,9 +705,32 @@ class ExpensesRepositorySpec extends RepositorySpec with RepositoryUtils {
             keepDetailsFrom = MergeDetailsSource.Row
           )
           .futureValue
+
+        repositories.expenses.find(loser.id, user.id).futureValue must be(None)
+        repositories.expenses.find(survivor.id, user.id).futureValue mustNot be(None)
+        repositories.refunds.find(refund.id, user.id).futureValue.value.expenseId must be(Some(survivor.id))
+    }
+
+    "reject keeping the details of a loser without a receipt" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val survivor = createExpense(user.id).futureValue
+      val loser = createExpense(user.id).futureValue
+      linkToNewRow(user.id, survivor.id)
+      val refund = createRefund(user.id, expenseId = Some(loser.id)).futureValue
+
+      val ex = intercept[RuntimeException](
+        repositories.expenses
+          .merge(
+            survivorId = survivor.id,
+            loserId = loser.id,
+            userId = user.id,
+            keepDetailsFrom = MergeDetailsSource.Receipt
+          )
+          .futureValue
       )
-      ex.getCause.getMessage must include("The merged expense must have a receipt")
+      ex.getCause.getMessage must include("Cannot keep the duplicate's details because it has no receipt")
       repositories.expenses.find(loser.id, user.id).futureValue mustNot be(None)
+      repositories.refunds.find(refund.id, user.id).futureValue.value.expenseId must be(Some(loser.id))
     }
 
     "reject a survivor that already has a receipt and leave everything unchanged" in withRepositories() {

@@ -507,6 +507,89 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       error must include("The surviving expense must be linked to a bank statement row")
       client.getExpenses.futureValue.data.map(_.id).toSet must be(Set(rowLinkedId, receiptLinkedId))
     }
+
+    "delete an orphan duplicate, keeping the survivor's row, splits and merchant" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val merchant = client
+        .createMerchant(net.wiringbits.api.models.merchants.CreateMerchant.Request("Row shop", None, None))
+        .futureValue
+      val survivorSplits = fullSplit(BigDecimal("50.00")).futureValue
+      val survivorId = client
+        .createExpense(createRequest().copy(merchantId = Some(merchant.id), splits = survivorSplits))
+        .futureValue
+        .id
+      val orphanId = client.createExpense(createRequest().copy(notes = Some("orphan"))).futureValue.id
+      val rowId = linkToNewRow(userId = userId, expenseId = survivorId)
+
+      client
+        .mergeExpenses(
+          survivorId,
+          MergeExpenses.Request(loserId = orphanId, keepDetailsFrom = MergeDetailsSource.Row)
+        )
+        .futureValue
+
+      val expenses = client.getExpenses.futureValue.data
+      expenses.map(_.id) must be(List(survivorId))
+      val survivor = expenses.head
+      survivor.rowIds must be(List(rowId))
+      survivor.receiptIds must be(Nil)
+      survivor.merchantId must be(Some(merchant.id))
+      survivor.notes must be(None)
+      survivor.splits.map(s => s.categoryId -> s.amount) must be(survivorSplits.map(s => s.categoryId -> s.amount))
+    }
+
+    "delete an orphan duplicate even when the survivor already has a receipt" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val survivorId = client.createExpense(createRequest()).futureValue.id
+      val orphanId = client.createExpense(createRequest()).futureValue.id
+      linkToNewRow(userId = userId, expenseId = survivorId)
+      val receiptId = createLinkedReceipt(userId = userId, expenseId = survivorId)
+
+      client
+        .mergeExpenses(survivorId, MergeExpenses.Request(loserId = orphanId, keepDetailsFrom = MergeDetailsSource.Row))
+        .futureValue
+
+      val expenses = client.getExpenses.futureValue.data
+      expenses.map(_.id) must be(List(survivorId))
+      expenses.head.receiptIds must be(List(receiptId))
+    }
+
+    "fail to keep an orphan duplicate's details" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val survivorId = client.createExpense(createRequest()).futureValue.id
+      val orphanId = client.createExpense(createRequest()).futureValue.id
+      linkToNewRow(userId = userId, expenseId = survivorId)
+
+      val error = client
+        .mergeExpenses(
+          survivorId,
+          MergeExpenses.Request(loserId = orphanId, keepDetailsFrom = MergeDetailsSource.Receipt)
+        )
+        .expectError
+      error must include("Cannot keep the duplicate's details because it has no receipt")
+      client.getExpenses.futureValue.data.map(_.id).toSet must be(Set(survivorId, orphanId))
+    }
+
+    "fail when the orphan duplicate belongs to another user" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val orphanId = client.createExpense(createRequest()).futureValue.id
+
+      val client2 = buildClient()
+      createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
+      val userId2 = client2.currentUser.futureValue.id
+      val survivorId = client2.createExpense(createRequest()(using client2)).futureValue.id
+      linkToNewRow(userId = userId2, expenseId = survivorId)(using client2)
+
+      val error = client2
+        .mergeExpenses(survivorId, MergeExpenses.Request(loserId = orphanId, keepDetailsFrom = MergeDetailsSource.Row))
+        .expectError
+      error must include("Expense not found")
+      client.getExpenses.futureValue.data.map(_.id) must be(List(orphanId))
+      client2.getExpenses.futureValue.data.map(_.id) must be(List(survivorId))
+    }
   }
 
   "Unauthenticated access" should {

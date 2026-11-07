@@ -90,11 +90,15 @@ class ExpensesRepository @Inject() (database: Database)(implicit
     }
   }
 
+  /** Merges the loser into the row-linked survivor: moves the loser's receipt (if any) and refunds to the survivor,
+    * then deletes the loser. A loser without a receipt (an orphan duplicate) can only be merged keeping the row's
+    * details.
+    */
   def merge(survivorId: UUID, loserId: UUID, userId: UUID, keepDetailsFrom: MergeDetailsSource): Future[Unit] = Future {
     ConstraintViolations.translating(ReceiptRepository.ReceiptExpenseIdUnique) {
       database.withTransaction { implicit conn =>
         val validated =
-          validateMerge(survivorId = survivorId, loserId = loserId, userId = userId)
+          validateMerge(survivorId = survivorId, loserId = loserId, userId = userId, keepDetailsFrom = keepDetailsFrom)
             .fold(e => throw new RuntimeException(e.message), identity)
         val now = clock.instant()
         keepDetailsFrom match {
@@ -102,7 +106,9 @@ class ExpensesRepository @Inject() (database: Database)(implicit
           case MergeDetailsSource.Receipt =>
             adoptLoserDetails(survivor = validated.survivor, loser = validated.loser, now = now)
         }
-        relinkReceipt(receipt = validated.receipt, survivorId = survivorId, userId = userId, now = now)
+        validated.receipt.foreach(receipt =>
+          relinkReceipt(receipt = receipt, survivorId = survivorId, userId = userId, now = now)
+        )
         RefundDAO.reassignExpense(loserId, survivorId, userId, now)
         ExpenseDAO.delete(loserId, userId)
       }
@@ -147,8 +153,16 @@ class ExpensesRepository @Inject() (database: Database)(implicit
     )
   }
 
-  /** Checks the merge guards and returns both expenses plus the loser's receipt, which moves to the survivor. */
-  private def validateMerge(survivorId: UUID, loserId: UUID, userId: UUID)(implicit
+  /** Checks the merge guards and returns both expenses plus the loser's receipt, if any, which moves to the survivor.
+    * The survivor must not already hold a receipt only when the loser brings one; an orphan loser cannot donate its
+    * details.
+    */
+  private def validateMerge(
+      survivorId: UUID,
+      loserId: UUID,
+      userId: UUID,
+      keepDetailsFrom: MergeDetailsSource
+  )(implicit
       conn: Connection
   ): Either[MergeError, ValidatedMerge] = {
     import MergeError.*
@@ -161,9 +175,28 @@ class ExpensesRepository @Inject() (database: Database)(implicit
       (survivor, loser) = expenses
       _ <- Either.cond(BankStatementRowDAO.existsForExpense(survivorId, userId), (), SurvivorWithoutRow)
       _ <- Either.cond(!BankStatementRowDAO.existsForExpense(loserId, userId), (), LoserWithRow)
-      receipt <- ReceiptDAO.findByExpenseId(loserId, userId).toRight(LoserWithoutReceipt)
-      _ <- Either.cond(ReceiptDAO.findByExpenseId(survivorId, userId).isEmpty, (), SurvivorWithReceipt)
+      receipt = ReceiptDAO.findByExpenseId(loserId, userId)
+      _ <- checkReceiptGuards(
+        loserReceipt = receipt,
+        survivorId = survivorId,
+        userId = userId,
+        keepDetailsFrom = keepDetailsFrom
+      )
     } yield ValidatedMerge(survivor = survivor, loser = loser, receipt = receipt)
+  }
+
+  /** A loser with a receipt needs a receipt-free survivor; a loser without one cannot donate its details. */
+  private def checkReceiptGuards(
+      loserReceipt: Option[Receipt],
+      survivorId: UUID,
+      userId: UUID,
+      keepDetailsFrom: MergeDetailsSource
+  )(implicit conn: Connection): Either[MergeError, Unit] = {
+    import MergeError.*
+    loserReceipt match {
+      case Some(_) => Either.cond(ReceiptDAO.findByExpenseId(survivorId, userId).isEmpty, (), SurvivorWithReceipt)
+      case None => Either.cond(keepDetailsFrom == MergeDetailsSource.Row, (), OrphanDetailsNotSupported)
+    }
   }
 
   private def relinkReceipt(receipt: Receipt, survivorId: UUID, userId: UUID, now: Instant)(implicit
@@ -176,15 +209,15 @@ class ExpensesRepository @Inject() (database: Database)(implicit
 
 object ExpensesRepository {
 
-  private final case class ValidatedMerge(survivor: Expense, loser: Expense, receipt: Receipt)
+  private final case class ValidatedMerge(survivor: Expense, loser: Expense, receipt: Option[Receipt])
 
   enum MergeError(val message: String) {
     case SelfMerge extends MergeError("Cannot merge an expense with itself")
     case ExpenseNotFound extends MergeError("Expense not found")
     case SurvivorWithoutRow extends MergeError("The surviving expense must be linked to a bank statement row")
     case LoserWithRow extends MergeError("The merged expense must not be linked to a bank statement row")
-    case LoserWithoutReceipt extends MergeError("The merged expense must have a receipt")
     case SurvivorWithReceipt extends MergeError("The surviving expense already has a receipt")
+    case OrphanDetailsNotSupported extends MergeError("Cannot keep the duplicate's details because it has no receipt")
     case AmountMismatch extends MergeError("Cannot keep the receipt's details because the expense amounts differ")
     case LoserSplitsNotFullyAllocated
         extends MergeError("Cannot keep the receipt's details because its category splits do not sum to the amount")

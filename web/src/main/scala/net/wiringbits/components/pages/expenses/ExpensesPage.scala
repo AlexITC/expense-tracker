@@ -25,7 +25,7 @@ import slinky.web.html.{form, onKeyDown, onSubmit}
 
 import java.time.{DayOfWeek, LocalDate, LocalTime}
 import java.util.UUID
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success, Try}
 
 object ExpensesPage {
@@ -167,6 +167,60 @@ object ExpenseList {
 
   def dismissKey(c: Candidate): String = s"${c.survivor.id}:${c.loser.id}"
 
+  /** The merged receipts after merging `c`; an orphan candidate moves no receipt, so it leaves them unchanged. */
+  def withMergedReceipt(merged: Map[UUID, UUID], c: Candidate): Map[UUID, UUID] =
+    c.receiptId.fold(merged)(receiptId => merged + (c.survivor.id -> receiptId))
+
+  /** The selected keys that still belong to a bulk-eligible candidate; merged, dismissed or now-ambiguous ones drop
+    * out.
+    */
+  def effectiveSelection(selected: Set[String], candidates: List[Candidate]): Set[String] =
+    candidates.filter(ExpenseDuplicateDetector.isBulkEligible).map(dismissKey).toSet.intersect(selected)
+
+  /** The selection after the select-all checkbox: every bulk-eligible candidate, or nothing. */
+  def toggleAllSelection(checked: Boolean, candidates: List[Candidate]): Set[String] =
+    if (checked) effectiveSelection(candidates.map(dismissKey).toSet, candidates) else Set.empty
+
+  /** Merges `candidates` one at a time, continuing past failures, and returns the failure messages in order.
+    * Unambiguous candidates share no expense ids, so the order never conflicts.
+    */
+  def runBulkMerge(candidates: List[Candidate], merge: Candidate => Future[Unit])(using
+      ec: ExecutionContext
+  ): Future[List[String]] =
+    candidates.foldLeft(Future.successful(List.empty[String])) { (previous, c) =>
+      previous.flatMap { failures =>
+        merge(c).transform {
+          case Success(_) => Success(failures)
+          case Failure(ex) => Success(failures :+ ex.getMessage)
+        }
+      }
+    }
+
+  def bulkFailureMessage(failures: List[String], total: Int): Option[String] =
+    failures.headOption.map(first => s"${failures.size} of $total merges failed: $first")
+
+  def bulkMergeSummary(count: Int): String =
+    s"$count selected ${if (count == 1) "duplicate" else "duplicates"} will be merged into their bank-row expense. " +
+      "Receipts move to the bank-row expense, duplicates without a receipt are deleted, and the bank row's details " +
+      "(merchant, category, notes) are kept. This action cannot be undone."
+
+  /** The confirm dialog's title and confirm button label for merging `c`. */
+  def mergeDialogLabels(c: Candidate): (String, String) =
+    if (c.receiptId.isEmpty) ("Delete duplicate?", "Delete") else ("Merge expenses?", "Merge")
+
+  def mergeSummary(c: Candidate, source: MergeDetailsSource): String =
+    if (c.receiptId.isEmpty)
+      "The duplicate has no receipt and no bank row, so it will be deleted; any refunds move to the bank-row " +
+        "expense, which keeps its details (merchant, category, notes). This action cannot be undone."
+    else {
+      val kept = source match {
+        case MergeDetailsSource.Row => "bank row's"
+        case MergeDetailsSource.Receipt => "receipt's"
+      }
+      s"The $kept details (merchant, category, notes) will be kept. " +
+        "The receipt moves to the bank-row expense and the receipt-only expense is deleted. This action cannot be undone."
+    }
+
   def toUpdateSplits(splits: List[(String, String)]): List[UpdateExpense.Split] =
     splits.flatMap { case (catId, amt) =>
       if (catId.nonEmpty && amt.nonEmpty)
@@ -242,6 +296,9 @@ object ExpenseList {
     val (adoptedDetails, setAdoptedDetails) = Hooks.useState[Map[UUID, GetExpenses.Response.Expense]](Map.empty)
     val (pendingMerge, setPendingMerge) = Hooks.useState[Option[(Candidate, MergeDetailsSource)]](None)
     val (showDuplicates, setShowDuplicates) = Hooks.useState(false)
+    val (selectedDuplicates, setSelectedDuplicates) = Hooks.useState[Set[String]](Set.empty)
+    val (showBulkMergeDialog, setShowBulkMergeDialog) = Hooks.useState(false)
+    val (bulkMerging, setBulkMerging) = Hooks.useState(false)
 
     def handleCreate(): Unit = {
       (Try(BigDecimal(newAmount)).toOption, Try(LocalDate.parse(newDate)).toOption) match {
@@ -276,22 +333,34 @@ object ExpenseList {
           case Failure(ex) => setError(ex.getMessage)
         }
 
-    def handleMerge(c: Candidate, source: MergeDetailsSource): Unit =
+    def requestMerge(c: Candidate, source: MergeDetailsSource): Future[Unit] =
       props.ctx.api.client
         .mergeExpenses(
           c.survivor.id,
           MergeExpenses.Request(loserId = c.loser.id, keepDetailsFrom = source)
         )
-        .onComplete {
-          case Success(_) =>
-            setDeletedIds(_ + c.loser.id)
-            setMergedReceipts(_ + (c.survivor.id -> c.receiptId))
-            source match {
-              case MergeDetailsSource.Row => ()
-              case MergeDetailsSource.Receipt => setAdoptedDetails(_ + (c.survivor.id -> c.loser))
-            }
-          case Failure(ex) => setError(ex.getMessage)
+        .map { _ =>
+          setDeletedIds(_ + c.loser.id)
+          setMergedReceipts(withMergedReceipt(_, c))
+          source match {
+            case MergeDetailsSource.Row => ()
+            case MergeDetailsSource.Receipt => setAdoptedDetails(_ + (c.survivor.id -> c.loser))
+          }
         }
+
+    def handleMerge(c: Candidate, source: MergeDetailsSource): Unit =
+      requestMerge(c, source).failed.foreach(ex => setError(ex.getMessage))
+
+    // The merge controls stay disabled until the run ends, so a second run can't resubmit the same pairs.
+    def handleBulkMerge(candidates: List[Candidate]): Unit = {
+      setBulkMerging(true)
+      runBulkMerge(candidates, c => requestMerge(c, MergeDetailsSource.Row))
+        .foreach { failures =>
+          bulkFailureMessage(failures, total = candidates.size).foreach(setError)
+          setSelectedDuplicates(Set.empty)
+          setBulkMerging(false)
+        }
+    }
 
     def handleUpdate(expenseId: UUID): Unit = {
       (Try(BigDecimal(editAmount)).toOption, Try(LocalDate.parse(editDate)).toOption) match {
@@ -421,6 +490,7 @@ object ExpenseList {
       (merged, ExpenseDuplicateDetector.detect(merged))
     }
     val duplicateCandidates: List[Candidate] = allCandidates.filterNot(c => dismissed.contains(dismissKey(c)))
+    val selectedKeys: Set[String] = effectiveSelection(selectedDuplicates, duplicateCandidates)
     val dateFilteredExpenses: List[GetExpenses.Response.Expense] =
       applyDateFilter(visibleExpenses, dateFilter, LocalDate.now())
 
@@ -1020,35 +1090,36 @@ object ExpenseList {
           receiptFilenames = props.receiptFilenames,
           onMerge = (c, source) => setPendingMerge(Some(c -> source)),
           onDismiss = c => setDismissed(_ + dismissKey(c)),
-          onError = setError
+          onError = setError,
+          selected = selectedKeys,
+          onToggleSelected = (c, checked) =>
+            setSelectedDuplicates(current => if (checked) current + dismissKey(c) else current - dismissKey(c)),
+          onToggleAll = checked =>
+            setSelectedDuplicates(
+              toggleAllSelection(checked, duplicateCandidates)
+            ),
+          onBulkMerge = () => setShowBulkMergeDialog(true),
+          bulkMerging = bulkMerging
         )
       else Fragment()
 
-    def mergeSummary(source: MergeDetailsSource): String = {
-      val kept = source match {
-        case MergeDetailsSource.Row => "bank row's"
-        case MergeDetailsSource.Receipt => "receipt's"
-      }
-      s"The $kept details (merchant, category, notes) will be kept. " +
-        "The receipt moves to the bank-row expense and the receipt-only expense is deleted. This action cannot be undone."
-    }
-
+    val (dialogTitle, confirmLabel) = pendingMerge.fold(("Merge expenses?", "Merge"))((c, _) => mergeDialogLabels(c))
     val mergeDialog: ReactElement =
       mui
         .Dialog(pendingMerge.isDefined)(
-          mui.DialogTitle("Merge expenses?"),
+          mui.DialogTitle(dialogTitle),
           mui.DialogContent(
             pendingMerge.fold[ReactElement](Fragment()) { case (c, source) =>
               Fragment(
                 ExpenseDuplicatesPanel.columns(c, props.categories),
-                mui.DialogContentText(mergeSummary(source)).sx(new CSSPropertiesUtils { marginTop = "16px" })
+                mui.DialogContentText(mergeSummary(c, source)).sx(new CSSPropertiesUtils { marginTop = "16px" })
               )
             }
           ),
           mui.DialogActions(
             mui.Button.normal()("Cancel").onClick(_ => setPendingMerge(None)),
             mui.Button
-              .normal()("Merge")
+              .normal()(confirmLabel)
               .color("error")
               .onClick { _ =>
                 pendingMerge.foreach { case (c, source) => handleMerge(c, source) }
@@ -1057,6 +1128,26 @@ object ExpenseList {
           )
         )
         .onClose((_, _) => setPendingMerge(None))
+        .build
+
+    val bulkMergeDialog: ReactElement =
+      mui
+        .Dialog(showBulkMergeDialog)(
+          mui.DialogTitle(s"Merge ${selectedKeys.size} selected?"),
+          mui.DialogContent(mui.DialogContentText(bulkMergeSummary(selectedKeys.size))),
+          mui.DialogActions(
+            mui.Button.normal()("Cancel").onClick(_ => setShowBulkMergeDialog(false)),
+            mui.Button
+              .normal()("Merge")
+              .color("error")
+              .onClick { _ =>
+                if (!bulkMerging)
+                  handleBulkMerge(duplicateCandidates.filter(c => selectedKeys.contains(dismissKey(c))))
+                setShowBulkMergeDialog(false)
+              }
+          )
+        )
+        .onClose((_, _) => setShowBulkMergeDialog(false))
         .build
 
     Fragment(
@@ -1069,7 +1160,8 @@ object ExpenseList {
       paginationControls,
       legend,
       deleteDialog,
-      mergeDialog
+      mergeDialog,
+      bulkMergeDialog
     )
   }
 }
