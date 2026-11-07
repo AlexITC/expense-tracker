@@ -10,6 +10,7 @@ import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.Container
+import net.wiringbits.webapp.utils.slinkyUtils.compat.RouterCompat
 import net.wiringbits.webapp.utils.slinkyUtils.core.GenericHooks
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.useHistory
 import org.scalajs.dom
@@ -65,7 +66,11 @@ object BankStatementList {
 
   // An "account" groups a user's statements by bank + product type + last 4 digits.
   def accountKeyOf(s: GetBankStatements.Response.BankStatement): String =
-    s"${s.bankName}~${s.productType}~${s.accountLast4}"
+    BankStatementsLogic.accountKey(
+      bankName = s.bankName,
+      productType = s.productType,
+      accountLast4 = s.accountLast4
+    )
 
   def accountLabelOf(s: GetBankStatements.Response.BankStatement): String =
     s"${s.bankName} (${productLabel(s.productType)}) ••••${s.accountLast4}"
@@ -127,8 +132,13 @@ object BankStatementList {
     val (error, setError) = Hooks.useState("")
     val (toast, setToast) = Hooks.useState[Option[String]](None)
     val (pollingIds, setPollingIds) = Hooks.useState[Set[UUID]](Set.empty)
-    val (stmtFilter, setStmtFilter) = Hooks.useState("")
-    val (accountFilter, setAccountFilter) = Hooks.useState("") // "" = not chosen yet; else an account key
+    val location = RouterCompat.useTypedLocation()
+    // Filters live in the URL so browser Back from a review lands on the same filtered list.
+    val urlQuery = BankStatementsLogic.parseListQuery(location.search)
+    // Local state keeps the controlled name field's cursor stable; seeded from the URL.
+    val (stmtFilter, setStmtFilter) = Hooks.useState(urlQuery.name)
+    // Re-sync when the URL's `q` changes without a local edit (Back/Forward, nav link, pasted link).
+    SafeHooks.useEffect(urlQuery.name)(() => { setStmtFilter(urlQuery.name); () })
 
     // The import queue: drafts being AI-extracted / awaiting review.
     val (drafts, setDrafts) = Hooks.useState[List[BankStatementDraft.Summary]](Nil)
@@ -226,7 +236,7 @@ object BankStatementList {
         }
 
     val accounts = localStmts.map(s => accountKeyOf(s) -> accountLabelOf(s)).distinctBy(_._1)
-    val selectedAccount = BankStatementsLogic.selectedAccountKey(accountFilter, localStmts)
+    val selectedAccount = BankStatementsLogic.selectedAccountKey(urlQuery.account, localStmts)
 
     // The selected account's timeline, ordered by statement period (newest first) so gaps between cycles are visible.
     val timeline = BankStatementsLogic.timeline(localStmts, selectedAccount, stmtFilter)
@@ -431,7 +441,14 @@ object BankStatementList {
             .label("Account")
             .size("small")
             .value(selectedAccount.getOrElse(""))
-            .onChange(e => setAccountFilter(e.target.asInstanceOf[dom.HTMLInputElement].value))
+            .onChange(e =>
+              history.replace(
+                BankStatementsLogic.listPath(
+                  account = Some(e.target.asInstanceOf[dom.HTMLInputElement].value),
+                  name = stmtFilter
+                )
+              )
+            )
             .sx(new CSSPropertiesUtils { minWidth = "220px" })(
               accounts.map { case (k, label) =>
                 mui.MenuItem.normal()(label).value(k).withKey(k).build
@@ -443,7 +460,11 @@ object BankStatementList {
           .label("Filter by name")
           .size("small")
           .value(stmtFilter)
-          .onChange(e => setStmtFilter(e.target.asInstanceOf[dom.HTMLInputElement].value))
+          .onChange { e =>
+            val text = e.target.asInstanceOf[dom.HTMLInputElement].value
+            setStmtFilter(text)
+            history.replace(BankStatementsLogic.listPath(account = Some(urlQuery.account), name = text))
+          }
           .sx(new CSSPropertiesUtils { flex = "1"; minWidth = "160px" })
       ),
       if (error.nonEmpty)

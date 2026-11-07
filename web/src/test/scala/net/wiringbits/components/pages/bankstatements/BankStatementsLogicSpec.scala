@@ -114,4 +114,60 @@ class BankStatementsLogicSpec extends AnyWordSpec {
       BankStatementsLogic.timeline(List(jan, feb, mar), key, "a") mustBe List(mar -> None, jan -> None)
     }
   }
+
+  "parseListQuery" should {
+    "return empty values for an empty search" in {
+      BankStatementsLogic.parseListQuery("") mustBe BankStatementsLogic.ListQuery(account = "", name = "")
+    }
+
+    "return empty values for a bare '?'" in {
+      BankStatementsLogic.parseListQuery("?") mustBe BankStatementsLogic.ListQuery(account = "", name = "")
+    }
+
+    "read the account alone" in {
+      BankStatementsLogic.parseListQuery("?account=BBVA~credit~1234") mustBe
+        BankStatementsLogic.ListQuery(account = "BBVA~credit~1234", name = "")
+    }
+
+    "read both params" in {
+      BankStatementsLogic.parseListQuery("?account=BBVA~credit~1234&q=april") mustBe
+        BankStatementsLogic.ListQuery(account = "BBVA~credit~1234", name = "april")
+    }
+
+    "decode URL-encoded values" in {
+      BankStatementsLogic.parseListQuery("?account=Banco+de+Chile%7Edebit%7E9876&q=mar%C3%A7o%20%26%20abril") mustBe
+        BankStatementsLogic.ListQuery(account = "Banco de Chile~debit~9876", name = "março & abril")
+    }
+
+    "keep a malformed escape as typed instead of failing" in {
+      BankStatementsLogic.parseListQuery("?q=50%") mustBe BankStatementsLogic.ListQuery(account = "", name = "50%")
+    }
+  }
+
+  "listPath" should {
+    "omit the query string when there are no filters" in {
+      BankStatementsLogic.listPath(account = None, name = "") mustBe "/bank-statements"
+      BankStatementsLogic.listPath(account = Some(""), name = "") mustBe "/bank-statements"
+    }
+
+    "include only the non-empty params" in {
+      BankStatementsLogic.listPath(account = None, name = "april") mustBe "/bank-statements?q=april"
+    }
+
+    "round-trip values with spaces and special characters through parseListQuery" in {
+      val account = "Banco de Chile~debit~9876"
+      val name = "estado 50% & más?#="
+      val path = BankStatementsLogic.listPath(account = Some(account), name = name)
+      path must startWith("/bank-statements?")
+      BankStatementsLogic.parseListQuery(path.dropWhile(_ != '?')) mustBe
+        BankStatementsLogic.ListQuery(account = account, name = name)
+    }
+  }
+
+  "accountKey" should {
+    "join bank, product type and last 4 with ~" in {
+      BankStatementsLogic.accountKey(bankName = "Banco de Chile", productType = "debit", accountLast4 = "1234") mustBe
+        "Banco de Chile~debit~1234"
+    }
+  }
 }
