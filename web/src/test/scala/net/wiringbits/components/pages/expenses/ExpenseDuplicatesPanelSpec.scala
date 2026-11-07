@@ -67,7 +67,7 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with BeforeAndAfterEach {
     Candidate(
       survivor = expense(),
       loser = expense(),
-      receiptId = UUID.randomUUID(),
+      receiptId = Some(UUID.randomUUID()),
       tier = Tier.Strong,
       ambiguous = false
     )
@@ -90,6 +90,11 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with BeforeAndAfterEach {
       ): ReactElement,
       container
     )
+
+  private def buttonLabels: List[String] = {
+    val buttons = container.querySelectorAll("button")
+    (0 until buttons.length).map(buttons(_).textContent).toList
+  }
 
   private def clickButton(label: String): Unit = {
     val buttons = container.querySelectorAll("button")
@@ -120,6 +125,15 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with BeforeAndAfterEach {
       merges.toList must be(List(candidate -> MergeDetailsSource.Receipt))
     }
 
+    "offer only Delete duplicate and Dismiss for an orphan candidate, sending the row source" in {
+      val orphanCandidate = candidate.copy(receiptId = None)
+      val merges = ListBuffer.empty[(Candidate, MergeDetailsSource)]
+      render((c, source) => merges += (c -> source), candidate = orphanCandidate)
+      buttonLabels must be(List("Delete duplicate", "Dismiss"))
+      clickButton("Delete duplicate")
+      merges.toList must be(List(orphanCandidate -> MergeDetailsSource.Row))
+    }
+
   }
 
   "column" should {
@@ -131,6 +145,15 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with BeforeAndAfterEach {
       render(onMerge = (_, _) => (), candidate = withNotes)
       lastLineOf("Bank row") must be("bank note")
       lastLineOf("Receipt") must be("—")
+    }
+
+    "title the loser column for an orphan candidate" in {
+      val orphanCandidate = candidate.copy(
+        receiptId = None,
+        loser = candidate.loser.copy(notes = Some("hand entered"))
+      )
+      render(onMerge = (_, _) => (), candidate = orphanCandidate)
+      lastLineOf("Duplicate (no receipt)") must be("hand entered")
     }
   }
 }

@@ -1,9 +1,10 @@
 package net.wiringbits.components.pages.expenses
 
-import net.wiringbits.api.models.expenses.{GetExpenses, UpdateExpense}
+import net.wiringbits.api.models.expenses.{GetExpenses, MergeDetailsSource, UpdateExpense}
 import net.wiringbits.common.ExpenseSplits
 import net.wiringbits.api.models.expenses.GetExpenses.Response.Split
 import net.wiringbits.utils.ExpenseDuplicateDetector
+import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Tier}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -171,6 +172,15 @@ class ExpensesPageSpec extends AnyWordSpec {
   }
 
   "applyMergeState" should {
+    "remove a merged orphan and leave its survivor unchanged" in {
+      val survivor = expense(BigDecimal("10")).copy(rowIds = List(UUID.randomUUID()))
+      val orphan = expense(BigDecimal("10"))
+      val other = expense(BigDecimal("20"))
+      ExpenseList.applyMergeState(List(survivor, orphan, other), Set(orphan.id), Map.empty, Map.empty) must be(
+        List(survivor, other)
+      )
+    }
+
     "leave no duplicate candidates for a merged survivor, including its ambiguous siblings" in {
       val survivor = expense(BigDecimal("10")).copy(rowIds = List(UUID.randomUUID()))
       val loser1 = expense(BigDecimal("10")).copy(receiptIds = List(UUID.randomUUID()))
@@ -198,6 +208,53 @@ class ExpensesPageSpec extends AnyWordSpec {
       result must be(
         List(survivor.copy(receiptIds = List(receiptId), merchantName = Some("Shop"), notes = Some("lunch")))
       )
+    }
+  }
+
+  private def candidate(receiptId: Option[UUID]): Candidate =
+    Candidate(
+      survivor = expense(BigDecimal("10")).copy(rowIds = List(UUID.randomUUID())),
+      loser = expense(BigDecimal("10")).copy(receiptIds = receiptId.toList),
+      receiptId = receiptId,
+      tier = Tier.Strong,
+      ambiguous = false
+    )
+
+  "withMergedReceipt" should {
+    "record the moved receipt on the survivor for a receipt candidate" in {
+      val receiptId = UUID.randomUUID()
+      val c = candidate(Some(receiptId))
+      ExpenseList.withMergedReceipt(Map.empty, c) must be(Map(c.survivor.id -> receiptId))
+    }
+
+    "leave the merged receipts unchanged for an orphan candidate" in {
+      val existing = Map(UUID.randomUUID() -> UUID.randomUUID())
+      ExpenseList.withMergedReceipt(existing, candidate(None)) must be(existing)
+    }
+  }
+
+  "mergeDialogLabels" should {
+    "describe a merge for a receipt candidate" in {
+      ExpenseList.mergeDialogLabels(candidate(Some(UUID.randomUUID()))) must be(("Merge expenses?", "Merge"))
+    }
+
+    "describe a delete for an orphan candidate" in {
+      ExpenseList.mergeDialogLabels(candidate(None)) must be(("Delete duplicate?", "Delete"))
+    }
+  }
+
+  "mergeSummary" should {
+    "say the orphan is deleted and the bank-row expense keeps its details" in {
+      val summary = ExpenseList.mergeSummary(candidate(None), MergeDetailsSource.Row)
+      summary must include("no receipt")
+      summary must include("will be deleted")
+      summary must include("bank-row expense, which keeps its details")
+    }
+
+    "say the receipt moves for a receipt candidate" in {
+      val summary = ExpenseList.mergeSummary(candidate(Some(UUID.randomUUID())), MergeDetailsSource.Receipt)
+      summary must include("The receipt's details")
+      summary must include("The receipt moves to the bank-row expense")
     }
   }
 

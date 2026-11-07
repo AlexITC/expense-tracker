@@ -13,7 +13,7 @@ import slinky.core.{FunctionalComponent, KeyAddingStage}
 import java.util.UUID
 import scala.concurrent.ExecutionContext
 
-/** Lists likely duplicate pairs (bank-row expense vs receipt-only expense) with merge and dismiss actions. */
+/** Lists likely duplicate pairs (bank-row expense vs receipt-only or orphan expense) with merge and dismiss actions. */
 object ExpenseDuplicatesPanel {
   def apply(
       ctx: AppContext,
@@ -78,15 +78,37 @@ object ExpenseDuplicatesPanel {
       mui.Typography(e.notes.filter(_.nonEmpty).getOrElse("—"))
     )
 
-  /** The bank-row and receipt sides of a candidate, side by side. */
-  def columns(c: Candidate, categories: GetCategories.Response): ReactElement =
-    mui.Box.sx(columnsStyling)(column("Bank row", c.survivor, categories), column("Receipt", c.loser, categories))
+  /** The bank-row and receipt (or orphan duplicate) sides of a candidate, side by side. */
+  def columns(c: Candidate, categories: GetCategories.Response): ReactElement = {
+    val loserTitle = if (c.receiptId.isDefined) "Receipt" else "Duplicate (no receipt)"
+    mui.Box.sx(columnsStyling)(column("Bank row", c.survivor, categories), column(loserTitle, c.loser, categories))
+  }
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
     def card(c: Candidate): ReactElement = {
-      val receipt = props.receiptFilenames.get(c.receiptId)
+      def mergeButton(label: String, source: MergeDetailsSource): ReactElement =
+        mui.Button
+          .normal()(label)
+          .variant("contained")
+          .size("small")
+          .onClick(_ => props.onMerge(c, source))
+
+      val actions: List[ReactElement] = c.receiptId match {
+        case None => List(mergeButton("Delete duplicate", MergeDetailsSource.Row))
+        case Some(receiptId) =>
+          List(
+            props.receiptFilenames.get(receiptId).fold[ReactElement](Fragment()) { filename =>
+              mui.Button
+                .normal()("View receipt")
+                .size("small")
+                .onClick(_ => ReceiptFileViewer.openInNewTab(props.ctx.api.client, receiptId, filename, props.onError))
+            },
+            mergeButton("Merge, keep row details", MergeDetailsSource.Row),
+            mergeButton("Merge, keep receipt details", MergeDetailsSource.Receipt)
+          )
+      }
       mui.Box
         .sx(cardStyling)(
           columns(c, props.categories),
@@ -94,24 +116,7 @@ object ExpenseDuplicatesPanel {
             mui.Typography("Several expenses match this one; check the receipt to pick the right pair.").sx(hintStyling)
           else Fragment(),
           mui.Box.sx(actionsStyling)(
-            receipt.fold[ReactElement](Fragment()) { filename =>
-              mui.Button
-                .normal()("View receipt")
-                .size("small")
-                .onClick(_ =>
-                  ReceiptFileViewer.openInNewTab(props.ctx.api.client, c.receiptId, filename, props.onError)
-                )
-            },
-            mui.Button
-              .normal()("Merge, keep row details")
-              .variant("contained")
-              .size("small")
-              .onClick(_ => props.onMerge(c, MergeDetailsSource.Row)),
-            mui.Button
-              .normal()("Merge, keep receipt details")
-              .variant("contained")
-              .size("small")
-              .onClick(_ => props.onMerge(c, MergeDetailsSource.Receipt)),
+            Fragment(actions*),
             mui.Button.normal()("Dismiss").size("small").onClick(_ => props.onDismiss(c))
           )
         )

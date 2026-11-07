@@ -167,6 +167,27 @@ object ExpenseList {
 
   def dismissKey(c: Candidate): String = s"${c.survivor.id}:${c.loser.id}"
 
+  /** The merged receipts after merging `c`; an orphan candidate moves no receipt, so it leaves them unchanged. */
+  def withMergedReceipt(merged: Map[UUID, UUID], c: Candidate): Map[UUID, UUID] =
+    c.receiptId.fold(merged)(receiptId => merged + (c.survivor.id -> receiptId))
+
+  /** The confirm dialog's title and confirm button label for merging `c`. */
+  def mergeDialogLabels(c: Candidate): (String, String) =
+    if (c.receiptId.isEmpty) ("Delete duplicate?", "Delete") else ("Merge expenses?", "Merge")
+
+  def mergeSummary(c: Candidate, source: MergeDetailsSource): String =
+    if (c.receiptId.isEmpty)
+      "The duplicate has no receipt and no bank row, so it will be deleted; any refunds move to the bank-row " +
+        "expense, which keeps its details (merchant, category, notes). This action cannot be undone."
+    else {
+      val kept = source match {
+        case MergeDetailsSource.Row => "bank row's"
+        case MergeDetailsSource.Receipt => "receipt's"
+      }
+      s"The $kept details (merchant, category, notes) will be kept. " +
+        "The receipt moves to the bank-row expense and the receipt-only expense is deleted. This action cannot be undone."
+    }
+
   def toUpdateSplits(splits: List[(String, String)]): List[UpdateExpense.Split] =
     splits.flatMap { case (catId, amt) =>
       if (catId.nonEmpty && amt.nonEmpty)
@@ -285,7 +306,7 @@ object ExpenseList {
         .onComplete {
           case Success(_) =>
             setDeletedIds(_ + c.loser.id)
-            setMergedReceipts(_ + (c.survivor.id -> c.receiptId))
+            setMergedReceipts(withMergedReceipt(_, c))
             source match {
               case MergeDetailsSource.Row => ()
               case MergeDetailsSource.Receipt => setAdoptedDetails(_ + (c.survivor.id -> c.loser))
@@ -1024,31 +1045,23 @@ object ExpenseList {
         )
       else Fragment()
 
-    def mergeSummary(source: MergeDetailsSource): String = {
-      val kept = source match {
-        case MergeDetailsSource.Row => "bank row's"
-        case MergeDetailsSource.Receipt => "receipt's"
-      }
-      s"The $kept details (merchant, category, notes) will be kept. " +
-        "The receipt moves to the bank-row expense and the receipt-only expense is deleted. This action cannot be undone."
-    }
-
+    val (dialogTitle, confirmLabel) = pendingMerge.fold(("Merge expenses?", "Merge"))((c, _) => mergeDialogLabels(c))
     val mergeDialog: ReactElement =
       mui
         .Dialog(pendingMerge.isDefined)(
-          mui.DialogTitle("Merge expenses?"),
+          mui.DialogTitle(dialogTitle),
           mui.DialogContent(
             pendingMerge.fold[ReactElement](Fragment()) { case (c, source) =>
               Fragment(
                 ExpenseDuplicatesPanel.columns(c, props.categories),
-                mui.DialogContentText(mergeSummary(source)).sx(new CSSPropertiesUtils { marginTop = "16px" })
+                mui.DialogContentText(mergeSummary(c, source)).sx(new CSSPropertiesUtils { marginTop = "16px" })
               )
             }
           ),
           mui.DialogActions(
             mui.Button.normal()("Cancel").onClick(_ => setPendingMerge(None)),
             mui.Button
-              .normal()("Merge")
+              .normal()(confirmLabel)
               .color("error")
               .onClick { _ =>
                 pendingMerge.foreach { case (c, source) => handleMerge(c, source) }
