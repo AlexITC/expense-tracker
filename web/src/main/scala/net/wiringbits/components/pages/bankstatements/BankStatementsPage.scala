@@ -288,13 +288,19 @@ object BankStatementList {
               .size("small")
               .variant("contained")
               .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)"; borderRadius = "8px" })
-              .onClick(_ => history.push(s"/bank-statements/${s.id}"))
+              .onClick { ev =>
+                ev.stopPropagation()
+                history.push(s"/bank-statements/${s.id}")
+              }
           else Fragment(),
           mui.Button
             .normal()("Delete")
             .size("small")
             .sx(new CSSPropertiesUtils { color = "var(--lc-error)" })
-            .onClick(_ => handleDelete(s.id))
+            .onClick { ev =>
+              ev.stopPropagation()
+              handleDelete(s.id)
+            }
         )
       )
 
