@@ -57,7 +57,7 @@ lazy val commonSettings: Project => Project = {
     Compile / compile / wartremoverErrors ++= List(
       Wart.ArrayEquals,
       //      Wart.Any,
-      //      Wart.AsInstanceOf,
+      Wart.AsInstanceOf,
       Wart.ExplicitImplicitTypes,
       Wart.IsInstanceOf,
       Wart.JavaConversions,
@@ -323,6 +323,8 @@ lazy val ui = (project in file("lib/ui"))
   .configure(_.enablePlugins(ScalaJSPlugin, ScalaJSBundlerPlugin, ScalablyTypedConverterPlugin))
   .dependsOn(api.js, common.js)
   .settings(
+    // Scala.js UI boundary: casts to DOM/JS facades (e.g. event.target) are unavoidable here.
+    Compile / compile / wartremoverErrors -= Wart.AsInstanceOf,
     name := "wiringbits-lib-ui",
     useYarn := true,
     yarnExtraArgs ++= yarnLockfileArgs,
@@ -443,6 +445,8 @@ lazy val web = (project in file("web"))
     webBuildInfoSettings
   )
   .settings(
+    // Scala.js UI boundary: casts to DOM/JS facades (MUI callbacks, js.Dynamic) are unavoidable here.
+    Compile / compile / wartremoverErrors -= Wart.AsInstanceOf,
     name := "wiringbits-web",
     useYarn := true,
     yarnExtraArgs ++= yarnLockfileArgs,
