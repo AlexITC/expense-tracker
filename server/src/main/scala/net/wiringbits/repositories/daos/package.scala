@@ -49,7 +49,7 @@ package object daos {
       case _ =>
         Left(
           TypeDoesNotMatch(
-            s"Cannot convert $value: ${value.asInstanceOf[AnyRef].getClass} to JsValue for column $qualified"
+            s"Cannot convert $value: ${value.getClass} to JsValue for column $qualified"
           )
         )
     }
@@ -71,7 +71,7 @@ package object daos {
       case _ =>
         Left(
           TypeDoesNotMatch(
-            s"Cannot convert $value: ${value.asInstanceOf[AnyRef].getClass} to String for column $qualified, class = $clazz"
+            s"Cannot convert $value: ${value.getClass} to String for column $qualified, class = $clazz"
           )
         )
     }
@@ -176,7 +176,7 @@ package object daos {
       case _ =>
         Left(
           TypeDoesNotMatch(
-            s"Cannot convert $value: ${value.asInstanceOf[AnyRef].getClass} to LocalDate for column ${meta.column}"
+            s"Cannot convert $value: ${value.getClass} to LocalDate for column ${meta.column}"
           )
         )
     }
@@ -188,7 +188,7 @@ package object daos {
       case _ =>
         Left(
           TypeDoesNotMatch(
-            s"Cannot convert $value: ${value.asInstanceOf[AnyRef].getClass} to LocalTime for column ${meta.column}"
+            s"Cannot convert $value: ${value.getClass} to LocalTime for column ${meta.column}"
           )
         )
     }

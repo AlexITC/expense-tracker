@@ -46,6 +46,8 @@ package object controllers {
 
   // This is the way to access the play request from tapir, we need it to extract the play session
   // UUID has to be future, because we want to handle the exception in the controllers
+  // tapir exposes the underlying request as Any, so reaching the Play RequestHeader needs a cast.
+  @SuppressWarnings(Array("org.wartremover.warts.AsInstanceOf"))
   implicit def authHandler(serverRequest: ServerRequest)(implicit ec: ExecutionContext): Future[UUID] =
     val session = serverRequest.underlying
       .asInstanceOf[RequestHeader]
