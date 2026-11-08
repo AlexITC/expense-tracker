@@ -224,7 +224,8 @@ object DocumentParser {
             val mo = m.group(2).toInt
             val yr = m.group(3)
             val year = if (yr.length == 2) "20" + yr else yr
-            if (mo >= 1 && mo <= 12 && day >= 1 && day <= 31) Some(f"$year-$mo%02d-$day%02d") else None
+            if (mo >= 1 && mo <= 12 && day >= 1 && day <= 31) Some(String.format("%s-%02d-%02d", year, mo, day))
+            else None
           }
         }
         .orElse {
@@ -234,7 +235,7 @@ object DocumentParser {
             monthMap.get(m.group(2).toLowerCase).map { mo =>
               val yr = m.group(3)
               val year = if (yr.length == 2) "20" + yr else yr
-              f"$year-$mo-${m.group(1).toInt}%02d"
+              String.format("%s-%s-%02d", year, mo, m.group(1).toInt)
             }
           }
         }
@@ -245,7 +246,7 @@ object DocumentParser {
             monthMap.get(m.group(2).toLowerCase).map { mo =>
               val yr = m.group(3)
               val year = if (yr.length == 2) "20" + yr else yr
-              f"$year-$mo-${m.group(1).toInt}%02d"
+              String.format("%s-%s-%02d", year, mo, m.group(1).toInt)
             }
           }
         }
@@ -253,14 +254,18 @@ object DocumentParser {
           // "2 sept 2026" / "02 Sep 2026" — day, month word, 4-digit year
           val r3 = "(?i)(\\d{1,2})\\s+([a-z]{3,})\\.?\\s+(\\d{4})".r
           r3.findFirstMatchIn(s).flatMap { m =>
-            monthMap.get(m.group(2).take(3).toLowerCase).map(mo => f"${m.group(3)}-$mo-${m.group(1).toInt}%02d")
+            monthMap
+              .get(m.group(2).take(3).toLowerCase)
+              .map(mo => String.format("%s-%s-%02d", m.group(3), mo, m.group(1).toInt))
           }
         }
         .orElse {
           // "Sep 2, 2026" / "Wed, Sep 2, 2026" — month word, day, 4-digit year
           val r4 = "(?i)([a-z]{3,})\\.?\\s+(\\d{1,2}),?\\s+(\\d{4})".r
           r4.findFirstMatchIn(s).flatMap { m =>
-            monthMap.get(m.group(1).take(3).toLowerCase).map(mo => f"${m.group(3)}-$mo-${m.group(2).toInt}%02d")
+            monthMap
+              .get(m.group(1).take(3).toLowerCase)
+              .map(mo => String.format("%s-%s-%02d", m.group(3), mo, m.group(2).toInt))
           }
         }
   }
@@ -289,7 +294,7 @@ object DocumentParser {
                 .flatMap { mo =>
                   // e.g. label="DIC", value="20, 2025" → 2025-12-20
                   "(\\d{1,2})[,\\s]+(\\d{4})".r.findFirstMatchIn(value).map { m =>
-                    f"${m.group(2)}-$mo-${m.group(1).toInt}%02d"
+                    String.format("%s-%s-%02d", m.group(2), mo, m.group(1).toInt)
                   }
                 }
                 .toList
@@ -304,7 +309,7 @@ object DocumentParser {
       .find(f => timeKeywords.exists(normalizedLabel(f).contains))
       .flatMap { f =>
         "(\\d{1,2})\\s*:\\s*(\\d{2})".r.findFirstMatchIn(fieldValue(f)).map { m =>
-          f"${m.group(1).toInt}%02d:${m.group(2)}:00"
+          String.format("%02d:%s:00", m.group(1).toInt, m.group(2))
         }
       }
   }

@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory
 
 import java.security.MessageDigest
 import java.time.{Clock, Instant, LocalDate}
+import java.util.HexFormat
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
@@ -116,10 +117,8 @@ class CreateBankStatementDraftAction @Inject() (
       )
   }
 
-  private def computeSha256(bytes: Array[Byte]): String = {
-    val digest = MessageDigest.getInstance("SHA-256")
-    digest.digest(bytes).map("%02x".format(_)).mkString
-  }
+  private def computeSha256(bytes: Array[Byte]): String =
+    HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
 }
 
 private final case class AlreadyUploadedAsOtherKind(kind: DocumentKind)

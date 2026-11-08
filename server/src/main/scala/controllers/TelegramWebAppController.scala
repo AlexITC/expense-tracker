@@ -15,6 +15,7 @@ import play.api.libs.json.{JsValue, Json}
 import play.api.mvc.*
 
 import java.time.LocalDate
+import java.util.HexFormat
 import java.util.UUID
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -274,9 +275,7 @@ class TelegramWebAppController @Inject() (
             .mkString("\n")
 
           val secretKey = hmacSha256("WebAppData".getBytes("UTF-8"), telegramConfig.botToken)
-          val computedHash = hmacSha256(secretKey, dataCheckString)
-            .map(b => f"${b & 0xff}%02x")
-            .mkString
+          val computedHash = HexFormat.of().formatHex(hmacSha256(secretKey, dataCheckString))
 
           if (computedHash != hash) Left("Invalid initData signature")
           else

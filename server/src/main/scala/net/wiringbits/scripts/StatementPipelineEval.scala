@@ -16,6 +16,7 @@ import software.amazon.awssdk.regions.Region
 import java.nio.file.{Files, Paths}
 import java.security.MessageDigest
 import java.time.Clock
+import java.util.HexFormat
 import scala.concurrent.duration.*
 import scala.concurrent.{Await, ExecutionContext}
 import scala.jdk.CollectionConverters.*
@@ -166,5 +167,5 @@ object StatementPipelineEval {
   }
 
   private def sha256Hex(bytes: Array[Byte]): String =
-    MessageDigest.getInstance("SHA-256").digest(bytes).map(b => f"$b%02x").mkString
+    HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
 }

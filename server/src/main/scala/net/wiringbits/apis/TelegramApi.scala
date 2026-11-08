@@ -56,6 +56,9 @@ class TelegramApi @Inject() (telegramConfig: TelegramConfig, lifecycle: Applicat
         case e: TelegramApiException if Option(e.message).exists(_.contains("message is not modified")) => ()
       }
 
+  // sttp's uri"" interpolator builds its arguments through Any; it is the idiomatic way to build an
+  // encoded Uri, so suppress the Any wart for this method.
+  @SuppressWarnings(Array("org.wartremover.warts.Any"))
   def downloadFile(fileId: String): Future[(Array[Byte], String)] =
     request(GetFile(fileId)).flatMap { file =>
       file.filePath match {

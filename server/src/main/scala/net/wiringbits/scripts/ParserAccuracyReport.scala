@@ -119,7 +119,13 @@ object ParserAccuracyReport {
                 if (amtOutcome.status == Match) None
                 else
                   Some(
-                    f"$shortId  parsed=${parsedAmt.map(_.toString).getOrElse("-")}%-10s confirmed=${expense.amount}%-10s ${bucketLabel(amtOutcome)}"
+                    String.format(
+                      "%s  parsed=%-10s confirmed=%-10s %s",
+                      shortId,
+                      parsedAmt.map(_.toString).getOrElse("-"),
+                      expense.amount,
+                      bucketLabel(amtOutcome)
+                    )
                   )
 
               val parsedDate = parsed.transaction_date.flatMap(s => Try(LocalDate.parse(s)).toOption)
@@ -128,7 +134,13 @@ object ParserAccuracyReport {
                 if (dateOutcome.status == Match) None
                 else
                   Some(
-                    f"$shortId  parsed=${parsedDate.map(_.toString).getOrElse("-")}%-12s confirmed=${expense.date}%-12s ${bucketLabel(dateOutcome)}"
+                    String.format(
+                      "%s  parsed=%-12s confirmed=%-12s %s",
+                      shortId,
+                      parsedDate.map(_.toString).getOrElse("-"),
+                      expense.date,
+                      bucketLabel(dateOutcome)
+                    )
                   )
 
               acc.copy(
@@ -170,9 +182,9 @@ object ParserAccuracyReport {
 
   private def dateCandidates(d: LocalDate): Seq[String] = {
     val y = d.getYear
-    val yy = f"${y % 100}%02d"
-    val m = f"${d.getMonthValue}%02d"
-    val dd = f"${d.getDayOfMonth}%02d"
+    val yy = String.format("%02d", y % 100)
+    val m = String.format("%02d", d.getMonthValue)
+    val dd = String.format("%02d", d.getDayOfMonth)
     val mNo = d.getMonthValue.toString
     val dNo = d.getDayOfMonth.toString
     Seq(
@@ -191,7 +203,7 @@ object ParserAccuracyReport {
     if (o.status == Match) "MATCH" else if (o.recoverable) "RECOVERABLE (in raw)" else "ABSENT (not in raw)"
 
   private def printReport(labeledCount: Int, acc: Acc): Unit = {
-    def pct(n: Int, d: Int): String = if (d == 0) "n/a" else f"${100.0 * n / d}%.1f%%"
+    def pct(n: Int, d: Int): String = if (d == 0) "n/a" else String.format("%.1f%%", 100.0 * n / d)
 
     println("=" * 78)
     println("PARSER ACCURACY REPORT (receipts confirmed into expenses)")

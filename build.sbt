@@ -369,6 +369,9 @@ lazy val server = (project in file("server"))
   .dependsOn(common.jvm, api.jvm)
   .configure(baseServerSettings, commonSettings, playSettings)
   .settings(
+    // The backend should not produce inferred Any. Anorm (dynamically typed column values) and the sttp
+    // uri interpolator are the exceptions, suppressed at their definitions.
+    Compile / compile / wartremoverErrors += Wart.Any,
     name := "wiringbits-server",
     fork := true,
     // In CI, run suites in parallel in a single JVM sharing the one Postgres container (scaled to cores via
