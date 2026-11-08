@@ -17,15 +17,11 @@ ThisBuild / dependencyOverrides ++= Dependencies.pekkoOverrides
 lazy val common = (crossProject(JSPlatform, JVMPlatform) in file("lib/common"))
   .configure(baseLibSettings, commonSettings)
   .jsConfigure(_.enablePlugins(ScalaJSPlugin, ScalaJSBundlerPlugin, ScalablyTypedConverterPlugin))
+  .jsConfigure(scalaJsModuleSettings)
   .jvmSettings(
     libraryDependencies ++= Dependencies.commonJvm
   )
   .jsSettings(
-    useYarn := true,
-    yarnExtraArgs ++= yarnLockfileArgs,
-    Test / fork := false, // sjs needs this to run tests
-    stUseScalaJsDom := true,
-    Compile / stMinimize := Selection.All,
     libraryDependencies ++= Dependencies.commonJs.value
   )
 
@@ -34,15 +30,11 @@ lazy val api = (crossProject(JSPlatform, JVMPlatform) in file("lib/api"))
   .dependsOn(common)
   .configure(baseLibSettings, commonSettings)
   .jsConfigure(_.enablePlugins(ScalaJSPlugin, ScalaJSBundlerPlugin, ScalablyTypedConverterPlugin))
+  .jsConfigure(scalaJsModuleSettings)
   .jvmSettings(
     libraryDependencies ++= Dependencies.apiJvm
   )
   .jsSettings(
-    useYarn := true,
-    yarnExtraArgs ++= yarnLockfileArgs,
-    Test / fork := false, // sjs needs this to run tests
-    stUseScalaJsDom := true,
-    Compile / stMinimize := Selection.All,
     libraryDependencies ++= Dependencies.apiJs.value
   )
 
@@ -71,6 +63,7 @@ lazy val web = (project in file("web"))
     baseWebSettings,
     browserProject,
     commonSettings,
+    scalaJsModuleSettings,
     reactNpmDeps,
     withCssLoading,
     bundlerSettings,
@@ -80,39 +73,15 @@ lazy val web = (project in file("web"))
     // Scala.js UI boundary: casts to DOM/JS facades (MUI callbacks, js.Dynamic) are unavoidable here.
     Compile / compile / wartremoverErrors -= Wart.AsInstanceOf,
     name := "wiringbits-web",
-    useYarn := true,
-    yarnExtraArgs ++= yarnLockfileArgs,
     webpackDevServerPort := 8080,
     // sbt-scalajs-bundler only copies *.js to the webpack working dir by default;
     // index.html must also be there so webpack-dev-server can serve it at "/".
     Compile / webpackResources := (baseDirectory.value / "src" / "main" / "js") ** "*.html",
     stFlavour := Flavour.Slinky,
     stReactEnableTreeShaking := Selection.All,
-    stUseScalaJsDom := true,
-    Compile / stMinimize := Selection.All,
     // material-ui is provided by a pre-packaged library
-    stIgnore ++= List(
-      "@mui/material",
-      "@mui/icons-material",
-      "@mui/joy",
-      "@mui/x-charts",
-      "react-router",
-      "react-router-dom",
-      "node",
-      "undici-types"
-    ),
-    Compile / npmDependencies ++= Seq(
-      "@mui/material" -> "5.11.16",
-      "@mui/icons-material" -> "5.11.16",
-      "@mui/joy" -> "5.0.0-alpha.74",
-      "@emotion/styled" -> "11.10.6",
-      "@emotion/react" -> "11.10.6",
-      "react-router" -> "5.1.2",
-      "react-router-dom" -> "5.1.2",
-      "react-google-recaptcha" -> "2.1.0",
-      "@types/react-google-recaptcha" -> "2.1.0",
-      "@mui/x-charts" -> "6.18.7"
-    ),
+    stIgnore ++= Dependencies.webStIgnore,
+    Compile / npmDependencies ++= Dependencies.webNpmDependencies,
     libraryDependencies ++= Dependencies.web.value,
     libraryDependencies ++= Dependencies.webTest.value,
     // sbt-scalajs-bundler defaults to webpack-cli 4.5.0 which ships with @webpack-cli/serve@^1.3.0.

@@ -80,6 +80,51 @@ object Dependencies {
     Seq("org.scalatest" %%% "scalatest" % scalatest % Test)
   )
 
+  // npm packages and ScalablyTyped ignores for the web app. material-ui is provided by a pre-packaged
+  // library, so its packages are ignored for facade generation.
+  val webNpmDependencies: Seq[(String, String)] = Seq(
+    "@mui/material" -> "5.11.16",
+    "@mui/icons-material" -> "5.11.16",
+    "@mui/joy" -> "5.0.0-alpha.74",
+    "@emotion/styled" -> "11.10.6",
+    "@emotion/react" -> "11.10.6",
+    "react-router" -> "5.1.2",
+    "react-router-dom" -> "5.1.2",
+    "react-google-recaptcha" -> "2.1.0",
+    "@types/react-google-recaptcha" -> "2.1.0",
+    "@mui/x-charts" -> "6.18.7"
+  )
+  val webStIgnore: List[String] = List(
+    "@mui/material",
+    "@mui/icons-material",
+    "@mui/joy",
+    "@mui/x-charts",
+    "react-router",
+    "react-router-dom",
+    "node",
+    "undici-types"
+  )
+
+  // npm packages pinned for React and its tooling (reactNpmDeps).
+  val reactNpmDependencies: Seq[(String, String)] = Seq(
+    "react" -> "18.2.0",
+    "@types/react" -> "18.0.33",
+    "react-dom" -> "18.2.0",
+    "@types/react-dom" -> "18.0.11",
+    "csstype" -> "2.6.11",
+    "react-proxy" -> "1.1.8",
+    "@types/prop-types" -> "15.7.3"
+  )
+
+  // npm dev dependencies for the custom webpack css loading (withCssLoading).
+  val cssNpmDevDependencies: Seq[(String, String)] = Seq(
+    "webpack-merge" -> "4.2.2",
+    "css-loader" -> "3.4.2",
+    "style-loader" -> "1.1.3",
+    "file-loader" -> "5.1.0",
+    "url-loader" -> "3.0.0"
+  )
+
   // Shared Scala.js time libraries used by baseWebSettings.
   val scalaJsTime: Def.Initialize[Seq[ModuleID]] = Def.setting(
     Seq(
