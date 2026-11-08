@@ -64,17 +64,6 @@ object Dependencies {
     )
   )
 
-  // lib/ui
-  val ui: Def.Initialize[Seq[ModuleID]] = Def.setting(
-    Seq(
-      "io.github.cquiroz" %%% "scala-java-time" % scalaJavaTime,
-      "org.scala-js" %%% "scala-js-macrotask-executor" % "1.1.1",
-      "com.olvind.st-material-ui" %%% "st-material-ui-icons-slinky" % "5.11.16",
-      "net.wiringbits" %%% "slinky-utils" % webappUtils,
-      "org.scalatest" %%% "scalatest" % scalatest % Test
-    )
-  )
-
   // web (Scala.js app)
   val web: Def.Initialize[Seq[ModuleID]] = Def.setting(
     Seq(
@@ -82,6 +71,7 @@ object Dependencies {
       "com.softwaremill.sttp.client3" %%% "core" % sttp,
       "org.scala-js" %%% "scala-js-macrotask-executor" % "1.1.1",
       "com.olvind.st-material-ui" %%% "st-material-ui-icons-slinky" % "5.11.16",
+      "net.wiringbits" %%% "slinky-utils" % webappUtils,
       "io.monix" %%% "monix-reactive" % "3.4.1",
       "com.softwaremill.sttp.tapir" %%% "tapir-sttp-client" % tapir
     )

@@ -150,7 +150,6 @@ jobs:
               - 'server/**'
             web:
               - 'web/**'
-              - 'lib/ui/**'
               - 'scripts/**'
 
       # Decide what to run. A push to main always runs everything (integration check);

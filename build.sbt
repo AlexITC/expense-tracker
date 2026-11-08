@@ -46,48 +46,6 @@ lazy val api = (crossProject(JSPlatform, JVMPlatform) in file("lib/api"))
     libraryDependencies ++= Dependencies.apiJs.value
   )
 
-// shared on the ui only
-lazy val ui = (project in file("lib/ui"))
-  .configure(baseLibSettings, commonSettings)
-  .configure(_.enablePlugins(ScalaJSPlugin, ScalaJSBundlerPlugin, ScalablyTypedConverterPlugin))
-  .dependsOn(api.js, common.js)
-  .settings(
-    // Scala.js UI boundary: casts to DOM/JS facades (e.g. event.target) are unavoidable here.
-    Compile / compile / wartremoverErrors -= Wart.AsInstanceOf,
-    name := "wiringbits-lib-ui",
-    useYarn := true,
-    yarnExtraArgs ++= yarnLockfileArgs,
-    Test / requireJsDomEnv := true,
-    Test / fork := false, // sjs needs this to run tests
-    stTypescriptVersion := "3.9.3",
-    // material-ui is provided by a pre-packaged library
-    stIgnore ++= List(
-      "@mui/material",
-      "@mui/icons-material",
-      "@mui/joy",
-      "@emotion/react",
-      "@emotion/styled",
-      "react-router",
-      "react-router-dom",
-      "node",
-      "undici-types"
-    ),
-    Compile / npmDependencies ++= Seq(
-      "@mui/material" -> "5.11.16",
-      "@mui/icons-material" -> "5.11.16",
-      "@mui/joy" -> "5.0.0-alpha.74",
-      "@emotion/react" -> "11.10.6",
-      "@emotion/styled" -> "11.10.6",
-      "react-router" -> "5.1.2",
-      "react-router-dom" -> "5.1.2"
-    ),
-    stFlavour := Flavour.Slinky,
-    stReactEnableTreeShaking := Selection.All,
-    stUseScalaJsDom := true,
-    Compile / stMinimize := Selection.All,
-    libraryDependencies ++= Dependencies.ui.value
-  )
-
 lazy val server = (project in file("server"))
   .dependsOn(common.jvm, api.jvm)
   .configure(baseServerSettings, commonSettings, playSettings)
@@ -107,7 +65,7 @@ lazy val server = (project in file("server"))
   )
 
 lazy val web = (project in file("web"))
-  .dependsOn(common.js, api.js, ui)
+  .dependsOn(common.js, api.js)
   .enablePlugins(ScalablyTypedConverterPlugin)
   .configure(
     baseWebSettings,
@@ -169,7 +127,6 @@ lazy val root = (project in file("."))
     common.js,
     api.jvm,
     api.js,
-    ui,
     server,
     web
   )
