@@ -142,10 +142,10 @@ object ReportsContent {
     val summaryRow: ReactElement = mui.Box.sx(new CSSPropertiesUtils {
       display = "flex"; gap = "12px"; marginBottom = "24px"; flexWrap = "wrap"
     })(
-      statCard("Total spent", totalSpend.bigDecimal.stripTrailingZeros.toPlainString),
-      statCard("Transactions", txCount.toString),
-      statCard("Avg / transaction", avgTx.bigDecimal.stripTrailingZeros.toPlainString),
-      statCard("Biggest expense", biggestLabel)
+      statCard(label = "Total spent", value = totalSpend.bigDecimal.stripTrailingZeros.toPlainString),
+      statCard(label = "Transactions", value = txCount.toString),
+      statCard(label = "Avg / transaction", value = avgTx.bigDecimal.stripTrailingZeros.toPlainString),
+      statCard(label = "Biggest expense", value = biggestLabel)
     )
 
     val dateControls: ReactElement = form(onSubmit := { e =>
@@ -182,7 +182,13 @@ object ReportsContent {
         .sx(new CSSPropertiesUtils { fontWeight = "700"; color = "var(--lc-text)"; marginBottom = "16px" }),
       dateControls,
       summaryRow,
-      MonthlyCategoryReport(filteredExpenses, filteredRefunds, fromMonth, toMonth, props.categories),
+      MonthlyCategoryReport(
+        filteredExpenses,
+        filteredRefunds,
+        fromMonth = fromMonth,
+        toMonth = toMonth,
+        props.categories
+      ),
       mui.Box.sx(new CSSPropertiesUtils { marginTop = "32px" })(
         CategoryBreakdownReport(filteredExpenses, filteredRefunds, props.categories)
       ),
@@ -203,7 +209,7 @@ object MonthlyCategoryReport {
       fromMonth: String,
       toMonth: String,
       categories: GetCategories.Response
-  ): KeyAddingStage = component(Props(expenses, refunds, fromMonth, toMonth, categories))
+  ): KeyAddingStage = component(Props(expenses, refunds, fromMonth = fromMonth, toMonth = toMonth, categories))
 
   case class Props(
       expenses: List[GetExpenses.Response.Expense],
@@ -224,7 +230,7 @@ object MonthlyCategoryReport {
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     val catMap: Map[UUID, String] = props.categories.data.map(c => c.id -> c.name).toMap
-    val months = monthsBetween(props.fromMonth, props.toMonth)
+    val months = monthsBetween(from = props.fromMonth, to = props.toMonth)
 
     val expenseTotals: Map[(String, String), BigDecimal] = props.expenses
       .flatMap { e =>
@@ -260,8 +266,8 @@ object MonthlyCategoryReport {
     }
 
     def cellTotal(month: String, cat: String): BigDecimal = totals.getOrElse((month, cat), BigDecimal(0))
-    def monthRowTotal(month: String): BigDecimal = usedCategories.map(cat => cellTotal(month, cat)).sum
-    def catColTotal(cat: String): BigDecimal = months.map(m => cellTotal(m, cat)).sum
+    def monthRowTotal(month: String): BigDecimal = usedCategories.map(cat => cellTotal(month = month, cat = cat)).sum
+    def catColTotal(cat: String): BigDecimal = months.map(m => cellTotal(month = m, cat = cat)).sum
     val grandTotal: BigDecimal = usedCategories.map(catColTotal).sum
 
     val headerRow: ReactElement = mui.TableRow(
@@ -284,7 +290,7 @@ object MonthlyCategoryReport {
           mui.TableCell(month).sx(new CSSPropertiesUtils { whiteSpace = "nowrap" }),
           Fragment(
             usedCategories.map { cat =>
-              val v = cellTotal(month, cat)
+              val v = cellTotal(month = month, cat = cat)
               mui
                 .TableCell(if (v == BigDecimal(0)) "—" else v.bigDecimal.stripTrailingZeros.toPlainString)
                 .withKey(cat)
@@ -465,7 +471,7 @@ object TopMerchantsReport {
       .sortBy(-_._2)
       .take(20)
       .zipWithIndex
-      .map { case ((name, total, count), i) => MerchantRow(i + 1, name, total, count) }
+      .map { case ((name, total, count), i) => MerchantRow(rank = i + 1, name, total, count = count) }
 
     Fragment(
       mui

@@ -57,7 +57,7 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
 
   def find(id: UUID, userId: UUID): Future[Option[ImportRule]] = Future {
     database.withConnection { implicit conn =>
-      ImportRuleDAO.find(id, userId)
+      ImportRuleDAO.find(id = id, userId = userId)
     }
   }
 
@@ -89,9 +89,9 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
     Future {
       ConstraintViolations.translating(conflictMappings*) {
         database.withTransaction { implicit conn =>
-          if (ImportRuleDAO.find(id, userId).isEmpty) throw new RuntimeException("Import rule not found")
+          if (ImportRuleDAO.find(id = id, userId = userId).isEmpty) throw new RuntimeException("Import rule not found")
           verifyReferencesOwned(action, userId)
-          ImportRuleDAO.update(id, userId, action, pattern, clock.instant())
+          ImportRuleDAO.update(id = id, userId = userId, action, pattern, clock.instant())
         }
       }
     }
@@ -101,15 +101,15 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
   private def verifyReferencesOwned(action: ImportRuleAction, userId: UUID)(implicit conn: Connection): Unit =
     action match {
       case ImportRuleAction.SetMerchant(merchantId) =>
-        if (MerchantDAO.find(merchantId, userId).isEmpty) throw new RuntimeException("Merchant not found")
+        if (MerchantDAO.find(id = merchantId, userId = userId).isEmpty) throw new RuntimeException("Merchant not found")
       case ImportRuleAction.SetCategory(categoryId) =>
-        if (CategoryDAO.find(categoryId, userId).isEmpty) throw new RuntimeException("Category not found")
+        if (CategoryDAO.find(id = categoryId, userId = userId).isEmpty) throw new RuntimeException("Category not found")
       case ImportRuleAction.Ignore => ()
     }
 
   def delete(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      ImportRuleDAO.delete(id, userId)
+      ImportRuleDAO.delete(id = id, userId = userId)
     }
   }
 }

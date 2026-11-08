@@ -151,7 +151,10 @@ object RefundList {
           val categoryId = if (newCategoryId.isEmpty) None else Try(UUID.fromString(newCategoryId)).toOption
           val notes = Option(newNotes.trim).filter(_.nonEmpty)
           props.ctx.api.client
-            .createRefund(CreateRefund.Request(amount, date, merchantId, categoryId, None, notes))
+            .createRefund(
+              CreateRefund
+                .Request(amount, date, merchantId = merchantId, categoryId = categoryId, expenseId = None, notes)
+            )
             .onComplete {
               case Success(_) =>
                 setNewAmount(""); setNewDate(""); setNewMerchantId("")
@@ -179,7 +182,10 @@ object RefundList {
           val categoryId = if (editCategoryId.isEmpty) None else Try(UUID.fromString(editCategoryId)).toOption
           val notes = Option(editNotes.trim).filter(_.nonEmpty)
           props.ctx.api.client
-            .updateRefund(refundId, UpdateRefund.Request(amount, date, merchantId, categoryId, notes))
+            .updateRefund(
+              refundId,
+              UpdateRefund.Request(amount, date, merchantId = merchantId, categoryId = categoryId, notes)
+            )
             .onComplete {
               case Success(_) =>
                 setEditingId(None); setEditAmount(""); setEditDate("")
@@ -279,7 +285,7 @@ object RefundList {
                   .size("small")
                   .variant("contained")
                   .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
-                  .onClick(_ => handleLinkToExpense(refundId, e.id))
+                  .onClick(_ => handleLinkToExpense(refundId = refundId, expenseId = e.id))
               )
               .withKey(e.id.toString)
           }*

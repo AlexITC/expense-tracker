@@ -82,7 +82,7 @@ object BankStatementReviewStore {
     val merchantsF = client.getMerchants
     val categoriesF = client.getCategories
     val rulesF = client.getImportRules
-    val expensesF = client.getExpensesFiltered(Some(from), Some(to), unlinkedOnly = true)
+    val expensesF = client.getExpensesFiltered(from = Some(from), to = Some(to), unlinkedOnly = true)
     val receiptsF = client.getReceipts.map(r => matchableReceipts(r.data)).recover { case _ => Nil }
     for {
       merchants <- merchantsF

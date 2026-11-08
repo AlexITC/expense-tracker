@@ -11,9 +11,9 @@ class DeleteCategoryAction @Inject() (categoriesRepository: CategoriesRepository
 
   def apply(categoryId: UUID, userId: UUID): Future[DeleteCategory.Response] = {
     for {
-      existing <- categoriesRepository.find(categoryId, userId)
+      existing <- categoriesRepository.find(id = categoryId, userId = userId)
       _ = if (existing.isEmpty) throw new RuntimeException("Category not found")
-      _ <- categoriesRepository.delete(categoryId, userId)
+      _ <- categoriesRepository.delete(id = categoryId, userId = userId)
     } yield DeleteCategory.Response()
   }
 }

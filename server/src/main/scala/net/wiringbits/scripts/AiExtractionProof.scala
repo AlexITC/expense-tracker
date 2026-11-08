@@ -23,10 +23,11 @@ object AiExtractionProof {
       AWSAccessKeyId(creds.accessKeyId()),
       AWSSecretAccessKey(creds.secretAccessKey()),
       Region.US_EAST_1,
-      "amazon.nova-pro-v1:0",
-      sys.env.getOrElse("BEDROCK_STATEMENT_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
+      modelId = "amazon.nova-pro-v1:0",
+      statementModelId =
+        sys.env.getOrElse("BEDROCK_STATEMENT_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
       sys.env.getOrElse("BEDROCK_STATEMENT_MAX_TOKENS", "16000").toInt,
-      sys.env.getOrElse("BEDROCK_SUGGESTIONS_MODEL_ID", "eu.amazon.nova-lite-v1:0"),
+      suggestionsModelId = sys.env.getOrElse("BEDROCK_SUGGESTIONS_MODEL_ID", "eu.amazon.nova-lite-v1:0"),
       BedrockConfig.Real
     )
     val client = new RealBedrockClient(config)
@@ -39,7 +40,7 @@ object AiExtractionProof {
         }
       } yield {
         val raw = Await.result(client.extractBankStatement(text), 300.seconds)
-        AiStatementExtractor.parseAndVerify(raw, config.statementModelId)
+        AiStatementExtractor.parseAndVerify(rawJson = raw, model = config.statementModelId)
       }
       result match {
         case Right(Right(r)) =>

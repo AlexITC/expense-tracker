@@ -52,7 +52,7 @@ class SavingsController @Inject() (
     logger.info(s"Update savings goal: $goalId")
     for {
       userId <- userIdF
-      response <- updateSavingsGoalAction(goalId, userId, request)
+      response <- updateSavingsGoalAction(goalId = goalId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -63,7 +63,7 @@ class SavingsController @Inject() (
     logger.info(s"Delete savings goal: $goalId")
     for {
       userId <- userIdF
-      response <- deleteSavingsGoalAction(goalId, userId)
+      response <- deleteSavingsGoalAction(goalId = goalId, userId = userId)
     } yield Right(response)
   }
 
@@ -73,7 +73,7 @@ class SavingsController @Inject() (
   ): Future[Either[ErrorResponse, GetSavingsAllocations.Response]] = handleRequest {
     for {
       userId <- userIdF
-      response <- getSavingsAllocationsAction(goalId, userId)
+      response <- getSavingsAllocationsAction(goalId = goalId, userId = userId)
     } yield Right(response)
   }
 
@@ -85,7 +85,7 @@ class SavingsController @Inject() (
     logger.info(s"Create savings allocation for goal: $goalId")
     for {
       userId <- userIdF
-      response <- createSavingsAllocationAction(goalId, userId, request)
+      response <- createSavingsAllocationAction(goalId = goalId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -98,7 +98,7 @@ class SavingsController @Inject() (
     logger.info(s"Update savings allocation: $allocationId")
     for {
       userId <- userIdF
-      response <- updateSavingsAllocationAction(goalId, allocationId, userId, request)
+      response <- updateSavingsAllocationAction(goalId = goalId, allocationId = allocationId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -110,7 +110,7 @@ class SavingsController @Inject() (
     logger.info(s"Delete savings allocation: $allocationId")
     for {
       userId <- userIdF
-      response <- deleteSavingsAllocationAction(goalId, allocationId, userId)
+      response <- deleteSavingsAllocationAction(goalId = goalId, allocationId = allocationId, userId = userId)
     } yield Right(response)
   }
 
@@ -120,7 +120,7 @@ class SavingsController @Inject() (
   ): Future[Either[ErrorResponse, GetSavingsEstimate.Response]] = handleRequest {
     for {
       userId <- userIdF
-      response <- getSavingsEstimateAction(userId, merchantId)
+      response <- getSavingsEstimateAction(userId = userId, merchantId = merchantId)
     } yield Right(response)
   }
 

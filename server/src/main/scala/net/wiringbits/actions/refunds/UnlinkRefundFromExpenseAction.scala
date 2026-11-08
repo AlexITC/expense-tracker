@@ -11,6 +11,6 @@ class UnlinkRefundFromExpenseAction @Inject() (refundsRepository: RefundsReposit
 
   def apply(refundId: UUID, userId: UUID): Future[UnlinkRefundFromExpense.Response] =
     for {
-      _ <- refundsRepository.unlinkFromExpense(refundId, userId)
+      _ <- refundsRepository.unlinkFromExpense(id = refundId, userId = userId)
     } yield UnlinkRefundFromExpense.Response()
 }

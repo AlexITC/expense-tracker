@@ -13,7 +13,14 @@ class UpdateMerchantAction @Inject() (merchantsRepository: MerchantsRepository)(
     for {
       _ <- validate(request)
       _ <- merchantsRepository
-        .update(merchantId, userId, request.name, request.notes, request.categoryId, request.taxId)
+        .update(
+          id = merchantId,
+          userId = userId,
+          request.name,
+          notes = request.notes,
+          request.categoryId,
+          taxId = request.taxId
+        )
     } yield UpdateMerchant.Response()
   }
 

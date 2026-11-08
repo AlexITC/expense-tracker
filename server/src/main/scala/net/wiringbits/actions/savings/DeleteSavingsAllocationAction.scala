@@ -11,9 +11,9 @@ class DeleteSavingsAllocationAction @Inject() (savingsRepository: SavingsReposit
 
   def apply(goalId: UUID, allocationId: UUID, userId: UUID): Future[DeleteSavingsAllocation.Response] = {
     for {
-      existing <- savingsRepository.findAllocation(allocationId, goalId, userId)
+      existing <- savingsRepository.findAllocation(id = allocationId, goalId = goalId, userId = userId)
       _ = if (existing.isEmpty) throw new RuntimeException("Savings allocation not found")
-      _ <- savingsRepository.deleteAllocation(allocationId, goalId, userId)
+      _ <- savingsRepository.deleteAllocation(id = allocationId, goalId = goalId, userId = userId)
     } yield DeleteSavingsAllocation.Response()
   }
 }

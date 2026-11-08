@@ -145,7 +145,7 @@ object MerchantReviewPage {
                       .withKey(m.id.toString)
                   }*
                 ),
-                paginationWidget(totalPages, currentPage)
+                paginationWidget(totalPages = totalPages, currentPage = currentPage)
               )
 
           case MerchantFilter.Confirmed =>
@@ -163,7 +163,7 @@ object MerchantReviewPage {
             else
               Fragment(
                 Fragment(paged.map(m => ConfirmedMerchantRow(m).withKey(m.id.toString))*),
-                paginationWidget(totalPages, currentPage)
+                paginationWidget(totalPages = totalPages, currentPage = currentPage)
               )
 
           case MerchantFilter.All =>
@@ -180,7 +180,7 @@ object MerchantReviewPage {
             else
               Fragment(
                 Fragment(paged.map(m => ConfirmedMerchantRow(m).withKey(m.id.toString))*),
-                paginationWidget(totalPages, currentPage)
+                paginationWidget(totalPages = totalPages, currentPage = currentPage)
               )
         }
       )

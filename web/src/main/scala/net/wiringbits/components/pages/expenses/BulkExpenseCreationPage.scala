@@ -173,7 +173,7 @@ object BulkExpenseCreationContent {
               case Some(m) => Future.successful(Some(m.id))
               case None =>
                 props.ctx.api.client
-                  .createMerchant(CreateMerchant.Request(merchantName, None, catIdOpt, None))
+                  .createMerchant(CreateMerchant.Request(merchantName, notes = None, catIdOpt, taxId = None))
                   .map(_.id)
                   .map(Some(_))
             }
@@ -204,7 +204,9 @@ object BulkExpenseCreationContent {
                     splits = rowSplits(catId, row.amount),
                     receiptId = None
                   )
-                  props.ctx.api.client.createExpenseFromRow(row.bankStatementId, rowId, req).map(_ => acc :+ rowId)
+                  props.ctx.api.client
+                    .createExpenseFromRow(bankStatementId = row.bankStatementId, rowId = rowId, req)
+                    .map(_ => acc :+ rowId)
               }
             }
           }
@@ -232,7 +234,9 @@ object BulkExpenseCreationContent {
               filteredRows.find(_.id == rowId) match {
                 case None => Future.successful(acc)
                 case Some(row) =>
-                  props.ctx.api.client.ignoreRow(row.bankStatementId, rowId).map(_ => acc :+ rowId)
+                  props.ctx.api.client
+                    .ignoreRow(bankStatementId = row.bankStatementId, rowId = rowId)
+                    .map(_ => acc :+ rowId)
               }
             }
           }
@@ -270,7 +274,7 @@ object BulkExpenseCreationContent {
         case _ => ()
       }
     merchantDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-      val (text, rsn) = MuiCompat.autocompleteInputChange(value, reason)
+      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
       setMerchantInput(text)
       if (rsn != "reset") setMerchantIdOpt(None)
     }
@@ -291,7 +295,7 @@ object BulkExpenseCreationContent {
         case _ => ()
       }
     categoryDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-      val (text, rsn) = MuiCompat.autocompleteInputChange(value, reason)
+      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
       setCategoryInput(text)
       if (rsn != "reset") setCategoryIdOpt(None)
     }

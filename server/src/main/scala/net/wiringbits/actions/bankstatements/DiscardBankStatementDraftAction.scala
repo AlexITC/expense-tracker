@@ -12,5 +12,7 @@ class DiscardBankStatementDraftAction @Inject() (bankStatementDraftRepository: B
 ) {
 
   def apply(draftId: UUID, userId: UUID): Future[BankStatementDraft.Discard.Response] =
-    bankStatementDraftRepository.delete(draftId, userId).map(deleted => BankStatementDraft.Discard.Response(deleted))
+    bankStatementDraftRepository
+      .delete(id = draftId, userId = userId)
+      .map(deleted => BankStatementDraft.Discard.Response(deleted))
 }

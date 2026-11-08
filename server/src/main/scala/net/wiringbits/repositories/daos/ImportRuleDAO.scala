@@ -25,15 +25,15 @@ object ImportRuleDAO {
       get[Instant]("updated_at")).map {
       case id ~ userId ~ action ~ pattern ~ merchantId ~ merchantName ~ categoryId ~ categoryName ~ autoCreated ~ createdAt ~ updatedAt =>
         ImportRule(
-          id,
-          userId,
-          ImportRuleAction.fromColumns(action, merchantId, categoryId),
-          pattern,
-          merchantName,
-          categoryName,
-          autoCreated,
-          createdAt,
-          updatedAt
+          id = id,
+          userId = userId,
+          action = ImportRuleAction.fromColumns(action, merchantId = merchantId, categoryId = categoryId),
+          pattern = pattern,
+          merchantName = merchantName,
+          categoryName = categoryName,
+          autoCreated = autoCreated,
+          createdAt = createdAt,
+          updatedAt = updatedAt
         )
     }
 

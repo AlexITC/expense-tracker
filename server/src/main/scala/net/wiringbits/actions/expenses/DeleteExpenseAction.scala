@@ -11,9 +11,9 @@ class DeleteExpenseAction @Inject() (expensesRepository: ExpensesRepository)(imp
 
   def apply(expenseId: UUID, userId: UUID): Future[DeleteExpense.Response] = {
     for {
-      existing <- expensesRepository.find(expenseId, userId)
+      existing <- expensesRepository.find(id = expenseId, userId = userId)
       _ = if (existing.isEmpty) throw new RuntimeException("Expense not found")
-      _ <- expensesRepository.delete(expenseId, userId)
+      _ <- expensesRepository.delete(id = expenseId, userId = userId)
     } yield DeleteExpense.Response()
   }
 }

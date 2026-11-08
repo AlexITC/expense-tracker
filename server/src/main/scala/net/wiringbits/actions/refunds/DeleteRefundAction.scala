@@ -11,6 +11,6 @@ class DeleteRefundAction @Inject() (refundsRepository: RefundsRepository)(implic
 
   def apply(refundId: UUID, userId: UUID): Future[DeleteRefund.Response] =
     for {
-      _ <- refundsRepository.delete(refundId, userId)
+      _ <- refundsRepository.delete(id = refundId, userId = userId)
     } yield DeleteRefund.Response()
 }

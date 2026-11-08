@@ -50,7 +50,7 @@ class MerchantsController @Inject() (
     logger.info(s"Update merchant: $merchantId")
     for {
       userId <- userIdF
-      response <- updateMerchantAction(merchantId, userId, request)
+      response <- updateMerchantAction(merchantId = merchantId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -61,7 +61,7 @@ class MerchantsController @Inject() (
     logger.info(s"Delete merchant: $merchantId")
     for {
       userId <- userIdF
-      response <- deleteMerchantAction(merchantId, userId)
+      response <- deleteMerchantAction(merchantId = merchantId, userId = userId)
     } yield Right(response)
   }
 
@@ -81,7 +81,7 @@ class MerchantsController @Inject() (
     logger.info(s"Review merchant: $merchantId")
     for {
       userId <- userIdF
-      response <- reviewMerchantAction(merchantId, userId, request)
+      response <- reviewMerchantAction(merchantId = merchantId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -93,7 +93,7 @@ class MerchantsController @Inject() (
     logger.info(s"Mark merchant $merchantId as duplicate of ${request.realMerchantId}")
     for {
       userId <- userIdF
-      response <- markMerchantAsDuplicateAction(merchantId, userId, request)
+      response <- markMerchantAsDuplicateAction(pendingId = merchantId, userId = userId, request)
     } yield Right(response)
   }
 

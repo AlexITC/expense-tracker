@@ -240,8 +240,8 @@ object BankStatementTemplateEditor {
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexWrap = "wrap"; gap = "12px"; marginBottom = "8px" })(
           textField("Bank name", m.bankName.getOrElse(""), v => setMeta(_.copy(bankName = optStr(v)))),
           selectField(
-            "Type",
-            m.productType.getOrElse(""),
+            label = "Type",
+            value = m.productType.getOrElse(""),
             List("credit", "debit"),
             v => setMeta(_.copy(productType = optStr(v)))
           ),
@@ -317,10 +317,20 @@ object BankStatementTemplateEditor {
                         )
                       ),
                     mui.TableCell(
-                      selectField("", t.txnType.getOrElse(""), txnTypes, v => setTxn(idx)(_.copy(txnType = optStr(v))))
+                      selectField(
+                        label = "",
+                        value = t.txnType.getOrElse(""),
+                        txnTypes,
+                        v => setTxn(idx)(_.copy(txnType = optStr(v)))
+                      )
                     ),
                     mui.TableCell(
-                      textField("", t.description, v => setTxn(idx)(_.copy(description = v)), multilineField = true)
+                      textField(
+                        label = "",
+                        value = t.description,
+                        v => setTxn(idx)(_.copy(description = v)),
+                        multilineField = true
+                      )
                     ),
                     mui.TableCell(
                       mui.Button

@@ -17,7 +17,7 @@ class McpRepository @Inject() (database: Database)(implicit ec: DatabaseExecutio
   def create(id: UUID, userId: UUID, tokenHash: String, createdAt: Instant): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
       McpDAO.deleteByUserId(userId)
-      McpDAO.create(id, userId, tokenHash, createdAt)
+      McpDAO.create(id = id, userId = userId, tokenHash, createdAt)
     }
   }
 

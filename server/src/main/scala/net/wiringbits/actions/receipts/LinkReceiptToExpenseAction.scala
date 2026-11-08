@@ -19,10 +19,10 @@ class LinkReceiptToExpenseAction @Inject() (
       request: LinkReceiptToExpense.Request
   ): Future[LinkReceiptToExpense.Response] =
     for {
-      receiptOpt <- receiptRepository.find(receiptId, userId)
+      receiptOpt <- receiptRepository.find(id = receiptId, userId = userId)
       _ = receiptOpt.getOrElse(throw new RuntimeException("Receipt not found"))
-      expenseOpt <- expensesRepository.find(request.expenseId, userId)
+      expenseOpt <- expensesRepository.find(id = request.expenseId, userId = userId)
       _ = if (expenseOpt.isEmpty) throw new RuntimeException("Expense not found")
-      _ <- receiptRepository.linkToExpense(receiptId, userId, request.expenseId)
+      _ <- receiptRepository.linkToExpense(id = receiptId, userId = userId, expenseId = request.expenseId)
     } yield LinkReceiptToExpense.Response()
 }

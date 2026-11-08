@@ -12,5 +12,5 @@ class DeleteImportRuleAction @Inject() (
 )(implicit ec: ExecutionContext) {
 
   def apply(ruleId: UUID, userId: UUID): Future[DeleteImportRule.Response] =
-    ruleRepository.delete(ruleId, userId).map(_ => DeleteImportRule.Response())
+    ruleRepository.delete(id = ruleId, userId = userId).map(_ => DeleteImportRule.Response())
 }

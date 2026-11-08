@@ -14,7 +14,7 @@ class ReviewMerchantAction @Inject() (
 
   def apply(merchantId: UUID, userId: UUID, request: ReviewMerchant.Request): Future[ReviewMerchant.Response] =
     for {
-      merchantOpt <- merchantsRepository.find(merchantId, userId)
+      merchantOpt <- merchantsRepository.find(id = merchantId, userId = userId)
       merchant = merchantOpt.getOrElse(throw new RuntimeException("Merchant not found"))
       _ = if (merchant.reviewed) throw new RuntimeException("Merchant is already reviewed")
       _ <- request.name match {
@@ -26,14 +26,14 @@ class ReviewMerchantAction @Inject() (
       _ <- request.categoryId match {
         case None => Future.unit
         case Some(catId) =>
-          categoriesRepository.find(catId, userId).flatMap {
+          categoriesRepository.find(id = catId, userId = userId).flatMap {
             case None => Future.failed(new RuntimeException("Category not found"))
             case Some(_) => Future.unit
           }
       }
       _ <- merchantsRepository.update(
-        merchantId,
-        userId,
+        id = merchantId,
+        userId = userId,
         name = request.name.getOrElse(merchant.name),
         notes = merchant.notes,
         categoryId = request.categoryId.orElse(merchant.categoryId),

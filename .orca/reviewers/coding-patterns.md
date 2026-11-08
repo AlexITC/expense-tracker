@@ -115,24 +115,3 @@ log it only after the user is authenticated/resolved, never before. Not: genuine
 system/background logs with no user in scope (startup, an unauthenticated webhook
 before the user is identified, a purely entity-keyed message where no userId is
 available).
-
-## Pass same-typed arguments by name
-When the method, function, or constructor being called declares two or more
-parameters of the SAME type (anywhere in the signature, not only adjacent), the
-call must pass those same-typed arguments by name. Same-typed positional
-arguments can be swapped with no compile error and no type error, silently
-passing the wrong values; the risk is highest for ids, `String`s, and booleans.
-Example: `merge(survivorId, loserId, userId)` takes three `UUID`s, so swapping
-the first two still compiles and would delete the wrong expense, whereas
-`merge(survivorId = s, loserId = l, userId = u)` makes a swap a visible diff.
-
-Flag a call that passes positional arguments to such a callee where the
-same-typed arguments are not named (naming only the same-typed ones is enough).
-Not: a call where every parameter has a distinct type, or the callee has fewer
-than two parameters of any one type; single-argument calls; infix/operator calls
-and lambda arguments, where names do not apply; varargs and collection/stdlib
-combinators (`map`, `zip`, `fold`, …).
-
-Never flag a call for USING named arguments — named arguments are fine anywhere,
-including where this rule does not require them. This rule flags only their
-absence where same-typed positional arguments appear.

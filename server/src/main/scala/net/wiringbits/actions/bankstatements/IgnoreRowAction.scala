@@ -19,7 +19,13 @@ class IgnoreRowAction @Inject() (
     logger.info(s"Ignore bank statement row: stmtId=$stmtId rowId=$rowId userId=$userId")
     val now = clock.instant()
     for {
-      _ <- bankStatementRepository.ignoreRow(stmtId, rowId, userId, now, now)
+      _ <- bankStatementRepository.ignoreRow(
+        stmtId = stmtId,
+        rowId = rowId,
+        userId = userId,
+        ignoredAt = now,
+        updatedAt = now
+      )
     } yield IgnoreRow.Response()
   }
 }

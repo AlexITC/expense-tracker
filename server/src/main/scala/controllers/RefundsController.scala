@@ -49,7 +49,7 @@ class RefundsController @Inject() (
     logger.info(s"Update refund: $refundId")
     for {
       userId <- userIdF
-      response <- updateRefundAction(refundId, userId, request)
+      response <- updateRefundAction(refundId = refundId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -60,7 +60,7 @@ class RefundsController @Inject() (
     logger.info(s"Delete refund: $refundId")
     for {
       userId <- userIdF
-      response <- deleteRefundAction(refundId, userId)
+      response <- deleteRefundAction(refundId = refundId, userId = userId)
     } yield Right(response)
   }
 
@@ -72,7 +72,7 @@ class RefundsController @Inject() (
     logger.info(s"Link refund to expense: refund=$refundId expense=${request.expenseId}")
     for {
       userId <- userIdF
-      response <- linkRefundToExpenseAction(refundId, userId, request)
+      response <- linkRefundToExpenseAction(refundId = refundId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -83,7 +83,7 @@ class RefundsController @Inject() (
     logger.info(s"Unlink refund from expense: $refundId")
     for {
       userId <- userIdF
-      response <- unlinkRefundFromExpenseAction(refundId, userId)
+      response <- unlinkRefundFromExpenseAction(refundId = refundId, userId = userId)
     } yield Right(response)
   }
 

@@ -24,17 +24,17 @@ object BankStatementDraftDAO {
       get[Instant]("updated_at")).map {
       case id ~ userId ~ documentId ~ sha256 ~ filename ~ storageKey ~ status ~ error ~ payload ~ createdAt ~ updatedAt =>
         BankStatementDraft(
-          id,
-          userId,
-          documentId,
-          sha256,
-          filename,
-          storageKey,
-          status,
-          error,
-          payload,
-          createdAt,
-          updatedAt
+          id = id,
+          userId = userId,
+          documentId = documentId,
+          sha256 = sha256,
+          filename = filename,
+          storageKey = storageKey,
+          status = status,
+          error = error,
+          payload = payload,
+          createdAt = createdAt,
+          updatedAt = updatedAt
         )
     }
 

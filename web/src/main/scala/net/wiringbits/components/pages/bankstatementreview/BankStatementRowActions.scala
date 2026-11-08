@@ -24,7 +24,7 @@ final case class BankStatementRowActions(
   import BankStatementReviewLogic.{patchRow, replaceRow}
 
   def ignore(rowId: UUID): Unit =
-    client.ignoreRow(stmtId, rowId).onComplete {
+    client.ignoreRow(bankStatementId = stmtId, rowId = rowId).onComplete {
       case Success(_) =>
         setError("")
         setSelectedRowIds(cur => cur - rowId)
@@ -34,7 +34,7 @@ final case class BankStatementRowActions(
     }
 
   def unignore(rowId: UUID): Unit =
-    client.unignoreRow(stmtId, rowId).onComplete {
+    client.unignoreRow(bankStatementId = stmtId, rowId = rowId).onComplete {
       case Success(_) =>
         setError("")
         updateRows(patchRow(_, rowId)(_.copy(ignoredAt = None)))
@@ -42,7 +42,7 @@ final case class BankStatementRowActions(
     }
 
   def unlink(rowId: UUID): Unit =
-    client.unlinkRow(stmtId, rowId).onComplete {
+    client.unlinkRow(bankStatementId = stmtId, rowId = rowId).onComplete {
       case Success(_) =>
         setError("")
         updateRows(patchRow(_, rowId)(_.copy(expenseId = None, expenseMerchantId = None, expenseCategoryId = None)))
@@ -52,7 +52,7 @@ final case class BankStatementRowActions(
     }
 
   def unlinkRefund(rowId: UUID): Unit =
-    client.unlinkRowRefund(stmtId, rowId).onComplete {
+    client.unlinkRowRefund(bankStatementId = stmtId, rowId = rowId).onComplete {
       case Success(_) =>
         setError("")
         updateRows(patchRow(_, rowId)(_.copy(refundId = None)))
@@ -72,7 +72,7 @@ final case class BankStatementRowActions(
 
   def refreshExpenses(): Unit = {
     val (from, to) = expenseWindow
-    client.getExpensesFiltered(Some(from), Some(to), unlinkedOnly = true).onComplete {
+    client.getExpensesFiltered(from = Some(from), to = Some(to), unlinkedOnly = true).onComplete {
       case Success(resp) => setExpenses(resp.data)
       case Failure(ex) => setError(ex.getMessage)
     }

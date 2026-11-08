@@ -136,8 +136,8 @@ object BankRowCreateRefundForm {
                 }
             }
             resp <- props.ctx.api.client.createRefundFromRow(
-              props.stmtId,
-              props.rowId,
+              bankStatementId = props.stmtId,
+              rowId = props.rowId,
               CreateRefundFromRow.Request(
                 amount = amt,
                 date = dt,

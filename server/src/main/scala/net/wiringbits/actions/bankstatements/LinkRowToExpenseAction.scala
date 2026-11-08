@@ -24,18 +24,24 @@ class LinkRowToExpenseAction @Inject() (
   ): Future[LinkRowToExpense.Response] = {
     logger.info(s"Link row to expense: stmtId=$stmtId rowId=$rowId expenseId=${request.expenseId} userId=$userId")
     for {
-      rowOpt <- bankStatementRepository.findRow(rowId, stmtId)
+      rowOpt <- bankStatementRepository.findRow(rowId = rowId, bankStatementId = stmtId)
       row = rowOpt.getOrElse(throw new RuntimeException("Bank statement row not found"))
-      _ <- bankStatementRepository.find(stmtId, userId).map {
+      _ <- bankStatementRepository.find(id = stmtId, userId = userId).map {
         case None => throw new RuntimeException("Bank statement not found")
         case _ => ()
       }
       _ = if (row.amount >= 0) throw new RuntimeException("Only debit rows (amount < 0) can be linked to expenses")
       _ = if (row.expenseId.isDefined) throw new RuntimeException("Row is already linked to an expense — unlink first")
       _ = if (row.ignoredAt.isDefined) throw new RuntimeException("Row is ignored — unignore first")
-      expenseOpt <- expensesRepository.find(request.expenseId, userId)
+      expenseOpt <- expensesRepository.find(id = request.expenseId, userId = userId)
       _ = if (expenseOpt.isEmpty) throw new RuntimeException("Expense not found")
-      _ <- bankStatementRepository.setRowExpenseId(stmtId, rowId, userId, request.expenseId, clock.instant())
+      _ <- bankStatementRepository.setRowExpenseId(
+        stmtId = stmtId,
+        rowId = rowId,
+        userId = userId,
+        expenseId = request.expenseId,
+        clock.instant()
+      )
     } yield LinkRowToExpense.Response()
   }
 }

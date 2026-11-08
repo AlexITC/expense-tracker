@@ -74,8 +74,20 @@ lazy val commonSettings: Project => Project = {
       //      Wart.Serializable,
       //      Wart.StringPlusAny,
       //      Wart.ToString,
-      Wart.TryPartial
-    )
+      Wart.TryPartial,
+      // From wiringbits-scala-newbie-warts (core-warts): flags calls that pass two or more same-typed
+      // arguments positionally, where an accidental swap would compile silently. Pass them by name.
+      Wart.custom("net.wiringbits.warts.NamedArguments")
+    ),
+    // `%%` resolves the JVM `_3` artifact even in Scala.js modules (no `_sjs1` suffix); the wart runs on
+    // the JVM at compile time.
+    libraryDependencies += "net.wiringbits" %% "core-warts" % "0.5.3",
+    wartremoverClasspaths ++= {
+      (Compile / dependencyClasspath).value.files
+        .find(_.name.contains("core-warts"))
+        .map(_.toURI.toString)
+        .toList
+    }
   )
 }
 // TODO: Reuse it in all projects
@@ -228,6 +240,12 @@ lazy val playSettings: Project => Project = {
       ),
       // remove play noisy warnings
       play.sbt.routes.RoutesKeys.routesImport := Seq.empty,
+      // Play routes and Twirl templates compile to generated Scala (under crossTarget) with positional
+      // reverse-router and template calls we cannot annotate. Exclude those generated source directories
+      // from all warts (NamedArguments in particular). wartremover matches the generated compilation-unit
+      // path, and wartremoverExcluded is read at project scope by the plugin, not `Compile / compile`.
+      // Referencing crossTarget (a setting) avoids the cycle that managedSources (a task) would create.
+      wartremoverExcluded ++= Seq(crossTarget.value / "routes", crossTarget.value / "twirl"),
       libraryDependencies ++= Seq(
         guice,
         evolutions,

@@ -23,7 +23,7 @@ class CreateMcpTokenAction @Inject() (
     val token = bytes.map(b => f"${b & 0xff}%02x").mkString
     val tokenHash = McpTokenHasher.hashHex(token)
     mcpRepository
-      .create(UuidCreator.getTimeOrderedEpoch(), userId, tokenHash, clock.instant())
+      .create(id = UuidCreator.getTimeOrderedEpoch(), userId = userId, tokenHash, clock.instant())
       .map(_ => CreateMcpToken.Response(McpApiToken.trusted(token)))
   }
 }

@@ -42,7 +42,9 @@ class BackgroundJobTypeRunner @Inject() (backgroundJobsRepository: BackgroundJob
     // Each pull performs a single claim attempt (followed by a poll delay when nothing was claimed), so the loop stops
     // as soon as the stream is cancelled and no job is claimed unless there is a free slot downstream.
     Source
-      .unfoldAsync(())(_ => claimNext(jobType, visibility, settings.pollInterval).map(job => Some(((), job))))
+      .unfoldAsync(())(_ =>
+        claimNext(jobType, visibility = visibility, pollInterval = settings.pollInterval).map(job => Some(((), job)))
+      )
       .collect { case Some(job) => job }
       // Unordered: an ordered mapAsync would let a slow job hold the slots of jobs completed after it
       .mapAsyncUnordered(settings.parallelism)(job => runOne(job, settings.timeout, dispatch))

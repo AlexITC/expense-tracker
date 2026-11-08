@@ -172,7 +172,8 @@ object BankStatementReviewContent {
 
     val tableRows = filterRows(statementRows, rowFilter, rowInfoById)
     val selectedInView = selectedRowIds.intersect(tableRows.map(_.id).toSet)
-    val bulkActive = bulkActionsEnabled(support.isDefined, selectedInView.size, bulkIgnore, bulkImport)
+    val bulkActive =
+      bulkActionsEnabled(support.isDefined, selectedInView.size, bulkIgnore = bulkIgnore, bulkImport = bulkImport)
 
     val countReady = statementRows.count(r => rowInfoById.get(r.id).exists(_.isReady))
     val countUnprocessed =

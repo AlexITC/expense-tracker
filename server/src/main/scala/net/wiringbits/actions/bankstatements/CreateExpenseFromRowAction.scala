@@ -30,9 +30,9 @@ class CreateExpenseFromRowAction @Inject() (
   ): Future[CreateExpenseFromRow.Response] = {
     logger.info(s"Create expense from row: stmtId=$stmtId rowId=$rowId userId=$userId amount=${request.amount}")
     for {
-      rowOpt <- bankStatementRepository.findRow(rowId, stmtId)
+      rowOpt <- bankStatementRepository.findRow(rowId = rowId, bankStatementId = stmtId)
       row = rowOpt.getOrElse(throw new RuntimeException("Bank statement row not found"))
-      _ <- bankStatementRepository.find(stmtId, userId).map {
+      _ <- bankStatementRepository.find(id = stmtId, userId = userId).map {
         case None => throw new RuntimeException("Bank statement not found")
         case _ => ()
       }
@@ -46,7 +46,7 @@ class CreateExpenseFromRowAction @Inject() (
         request.splits.map(s => (s.categoryId, s.amount))
       )
       _ <- expensesRepository
-        .countByMonth(userId, request.date.getYear, request.date.getMonthValue)
+        .countByMonth(userId, year = request.date.getYear, month = request.date.getMonthValue)
         .flatMap { count =>
           if (count >= 500)
             Future.failed(new RuntimeException("Maximum number of expenses for this month (500) reached"))
@@ -75,10 +75,16 @@ class CreateExpenseFromRowAction @Inject() (
         )
       }
       _ <- expensesRepository.create(expense, splits)
-      _ <- bankStatementRepository.setRowExpenseId(stmtId, rowId, userId, expenseId, clock.instant())
+      _ <- bankStatementRepository.setRowExpenseId(
+        stmtId = stmtId,
+        rowId = rowId,
+        userId = userId,
+        expenseId = expenseId,
+        clock.instant()
+      )
       _ <- request.receiptId match {
         case None => Future.unit
-        case Some(rId) => receiptRepository.linkToExpense(rId, userId, expenseId)
+        case Some(rId) => receiptRepository.linkToExpense(id = rId, userId = userId, expenseId = expenseId)
       }
     } yield CreateExpenseFromRow.Response(expenseId = expenseId)
   }

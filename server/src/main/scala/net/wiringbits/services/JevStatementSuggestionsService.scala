@@ -67,14 +67,22 @@ class JevStatementSuggestionsService @Inject() (jevClient: JevClient)(implicit e
         .foldLeft(Future.successful(Map.empty[UUID, AiSuggestions.RowSuggestion])) { case (accF, (first, group)) =>
           for {
             acc <- accF
-            suggestions <- resolveGroup(userId, statementId, first, group, merchants, categories, examples)
+            suggestions <- resolveGroup(
+              userId = userId,
+              statementId = statementId,
+              first,
+              group,
+              merchants,
+              categories,
+              examples
+            )
           } yield acc ++ suggestions.map(s => s.rowId -> s)
         }
         .map { resolved =>
           val suggestions = toResolve.flatMap { row =>
             historyHits
               .get(row.id)
-              .map(categoryId => AiSuggestions.RowSuggestion(row.id, Some(categoryId), None))
+              .map(categoryId => AiSuggestions.RowSuggestion(row.id, categoryId = Some(categoryId), merchantId = None))
               .orElse(resolved.get(row.id))
           }
           AiSuggestions(status = AiSuggestionsStatus.Done, model = modelId, rows = suggestions)
@@ -109,7 +117,14 @@ class JevStatementSuggestionsService @Inject() (jevClient: JevClient)(implicit e
         s"userId=$userId, statement $statementId description '$state' (${group.size} rows): " +
           s"category ${category.name} (confidence ${categoryChoice.confidence}), merchant $merchantLog"
       )
-      group.map(row => finalSuggestion(row.id, Some(category.id), merchant.map(_.id), merchants))
+      group.map(row =>
+        finalSuggestion(
+          row.id,
+          predictedCategoryId = Some(category.id),
+          chosenMerchantId = merchant.map(_.id),
+          merchants
+        )
+      )
     }
   }
 
@@ -136,17 +151,19 @@ class JevStatementSuggestionsService @Inject() (jevClient: JevClient)(implicit e
           else s"${oneLine(c.name)}. Examples: ${categoryExamples.mkString("; ")}"
         c.id.toString -> description
       }.toMap
-      jevClient.choose(state, "category", CategoryInstructions, criteria).flatMap { choice =>
-        categories.find(_.id.toString == choice.choice) match {
-          case Some(category) => Future.successful((category, choice))
-          case None =>
-            Future.failed(
-              new RuntimeException(
-                s"User $userId: JEV chose '${choice.choice}', which is not one of the offered categories"
+      jevClient
+        .choose(state = state, questionName = "category", instructions = CategoryInstructions, criteria)
+        .flatMap { choice =>
+          categories.find(_.id.toString == choice.choice) match {
+            case Some(category) => Future.successful((category, choice))
+            case None =>
+              Future.failed(
+                new RuntimeException(
+                  s"User $userId: JEV chose '${choice.choice}', which is not one of the offered categories"
+                )
               )
-            )
+          }
         }
-      }
     }
 
   /** The chosen merchant among `candidates` (None when JEV answers "none") with JEV's choice. */
@@ -170,7 +187,7 @@ class JevStatementSuggestionsService @Inject() (jevClient: JevClient)(implicit e
         s"""Pick the merchant that charged this bank transaction, an expense in the user's category "${oneLine(
             category.name
           )}". Choose "$NoMerchant" when no listed merchant fits."""
-      jevClient.choose(state, "merchant", instructions, criteria).map { choice =>
+      jevClient.choose(state = state, questionName = "merchant", instructions = instructions, criteria).map { choice =>
         val merchant = candidates.find(_.id.toString == choice.choice)
         if (merchant.isEmpty && choice.choice != NoMerchant)
           logger.warn(s"User $userId: JEV chose '${choice.choice}', which is not one of the offered merchants")

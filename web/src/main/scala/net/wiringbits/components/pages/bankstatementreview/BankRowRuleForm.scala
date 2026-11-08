@@ -177,7 +177,7 @@ object BankRowRuleForm {
         case _ => ()
       }
     acDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-      val (text, rsn) = MuiCompat.autocompleteInputChange(value, reason)
+      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
       setMerchantInput(text)
       if (rsn != "reset") setMerchantIdOpt(None)
     }
@@ -198,7 +198,7 @@ object BankRowRuleForm {
         case _ => ()
       }
     catDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-      val (text, rsn) = MuiCompat.autocompleteInputChange(value, reason)
+      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
       setCategoryInput(text)
       if (rsn != "reset") setCategoryIdOpt(None)
     }

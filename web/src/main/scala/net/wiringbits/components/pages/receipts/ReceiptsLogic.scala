@@ -30,7 +30,12 @@ object ReceiptsLogic {
     /** Count and append an item's outcome; only a running batch records anything. */
     def recorded(label: String, outcome: Either[String, Unit]): BatchState = this match {
       case Running(done, total, failed, rs) =>
-        Running(done + 1, total, if (outcome.isLeft) failed + 1 else failed, rs :+ (label -> outcome))
+        Running(
+          done = done + 1,
+          total = total,
+          failed = if (outcome.isLeft) failed + 1 else failed,
+          rs :+ (label -> outcome)
+        )
       case other => other
     }
 

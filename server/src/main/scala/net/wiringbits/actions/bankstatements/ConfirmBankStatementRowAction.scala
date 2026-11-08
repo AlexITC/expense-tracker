@@ -23,9 +23,9 @@ class ConfirmBankStatementRowAction @Inject() (
   ): Future[ConfirmBankStatementRow.Response] = {
     logger.info(s"Confirm bank statement row: stmtId=$bankStatementId rowId=$rowId userId=$userId")
     for {
-      viewOpt <- bankStatementRepository.find(bankStatementId, userId)
+      viewOpt <- bankStatementRepository.find(id = bankStatementId, userId = userId)
       _ = viewOpt.getOrElse(throw new RuntimeException("Bank statement not found"))
-      rowOpt <- bankStatementRepository.findRow(rowId, bankStatementId)
+      rowOpt <- bankStatementRepository.findRow(rowId = rowId, bankStatementId = bankStatementId)
       row = rowOpt.getOrElse(throw new RuntimeException("Bank statement row not found"))
       manuallyEdited =
         row.date != request.date || row.amount != request.amount || row.description != request.description

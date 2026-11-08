@@ -20,7 +20,7 @@ class BankStatementDraftRepository @Inject() (database: Database)(implicit ec: D
 
   def findByIdForUser(id: UUID, userId: UUID): Future[Option[BankStatementDraft]] = Future {
     database.withConnection { implicit conn =>
-      BankStatementDraftDAO.findByIdForUser(id, userId)
+      BankStatementDraftDAO.findByIdForUser(id = id, userId = userId)
     }
   }
 
@@ -62,13 +62,13 @@ class BankStatementDraftRepository @Inject() (database: Database)(implicit ec: D
 
   def updatePayload(id: UUID, userId: UUID, payload: String, updatedAt: Instant): Future[Unit] = Future {
     database.withConnection { implicit conn =>
-      BankStatementDraftDAO.updatePayload(id, userId, payload, updatedAt)
+      BankStatementDraftDAO.updatePayload(id = id, userId = userId, payload, updatedAt)
     }
   }
 
   def delete(id: UUID, userId: UUID): Future[Boolean] = Future {
     database.withConnection { implicit conn =>
-      BankStatementDraftDAO.delete(id, userId)
+      BankStatementDraftDAO.delete(id = id, userId = userId)
     }
   }
 }

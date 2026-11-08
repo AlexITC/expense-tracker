@@ -40,8 +40,8 @@ class UsersRepository @Inject() (
         UserTokensDAO.create(createToken)
         UserLogsDAO.create(
           UserLog.CreateUserLog(
-            UUID.randomUUID(),
-            request.id,
+            userLogId = UUID.randomUUID(),
+            userId = request.id,
             s"Account created, name = ${request.name}, email = ${request.email}"
           )
         )
@@ -72,7 +72,7 @@ class UsersRepository @Inject() (
       UsersDAO.updateName(userId, name)
       UserLogsDAO.create(
         UserLog.CreateUserLog(
-          UUID.randomUUID(),
+          userLogId = UUID.randomUUID(),
           userId = userId,
           "Profile updated"
         )
@@ -83,7 +83,7 @@ class UsersRepository @Inject() (
   def updatePassword(userId: UUID, password: String, emailMessage: EmailMessage): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
       UsersDAO.resetPassword(userId, password)
-      val request = UserLog.CreateUserLog(UUID.randomUUID(), userId, "Password was updated")
+      val request = UserLog.CreateUserLog(userLogId = UUID.randomUUID(), userId = userId, "Password was updated")
       UserLogsDAO.create(request)
       sendEmailLater(userId, emailMessage)
     }
@@ -94,7 +94,7 @@ class UsersRepository @Inject() (
       UsersDAO.verify(userId)
       UserLogsDAO.create(
         UserLog.CreateUserLog(
-          UUID.randomUUID(),
+          userLogId = UUID.randomUUID(),
           userId = userId,
           "Email verified"
         )
@@ -107,7 +107,7 @@ class UsersRepository @Inject() (
   def resetPassword(userId: UUID, password: String, emailMessage: EmailMessage): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
       UsersDAO.resetPassword(userId, password)
-      val request = UserLog.CreateUserLog(UUID.randomUUID(), userId, "Password was reset")
+      val request = UserLog.CreateUserLog(userLogId = UUID.randomUUID(), userId = userId, "Password was reset")
       UserLogsDAO.create(request)
       sendEmailLater(userId, emailMessage)
     }

@@ -14,10 +14,10 @@ class UnlinkRowRefundAction @Inject() (
 
   def apply(stmtId: UUID, rowId: UUID, userId: UUID): Future[UnlinkRowRefund.Response] =
     for {
-      _ <- bankStatementRepository.find(stmtId, userId).map {
+      _ <- bankStatementRepository.find(id = stmtId, userId = userId).map {
         case None => throw new RuntimeException("Bank statement not found")
         case _ => ()
       }
-      _ <- bankStatementRepository.clearRowRefundId(stmtId, rowId, userId, clock.instant())
+      _ <- bankStatementRepository.clearRowRefundId(stmtId = stmtId, rowId = rowId, userId = userId, clock.instant())
     } yield UnlinkRowRefund.Response()
 }

@@ -140,7 +140,7 @@ class ApiClient(config: ApiClient.Config)(implicit
     handleRequest(CategoriesEndpoints.delete, (categoryId, dummyUserId))
 
   def getExpenses: Future[GetExpenses.Response] =
-    getExpensesFiltered(None, None, false)
+    getExpensesFiltered(from = None, to = None, false)
 
   def getExpensesFiltered(
       from: Option[LocalDate],

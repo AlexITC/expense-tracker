@@ -47,7 +47,7 @@ class CategoriesController @Inject() (
     logger.info(s"Update category: $categoryId")
     for {
       userId <- userIdF
-      response <- updateCategoryAction(categoryId, userId, request)
+      response <- updateCategoryAction(categoryId = categoryId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -58,7 +58,7 @@ class CategoriesController @Inject() (
     logger.info(s"Delete category: $categoryId")
     for {
       userId <- userIdF
-      response <- deleteCategoryAction(categoryId, userId)
+      response <- deleteCategoryAction(categoryId = categoryId, userId = userId)
     } yield Right(response)
   }
 

@@ -19,9 +19,9 @@ class GetReceiptFileAction @Inject() (
   def apply(receiptId: UUID, userId: UUID): Future[(Array[Byte], String)] = {
     logger.info(s"Get receipt file: receiptId=$receiptId userId=$userId")
     for {
-      receiptOpt <- receiptRepository.find(receiptId, userId)
+      receiptOpt <- receiptRepository.find(id = receiptId, userId = userId)
       receipt = receiptOpt.getOrElse(throw new RuntimeException("Receipt not found"))
-      docOpt <- documentsRepository.find(receipt.documentId, userId)
+      docOpt <- documentsRepository.find(id = receipt.documentId, userId = userId)
       doc = docOpt.getOrElse(throw new RuntimeException("Document not found"))
       bytesOpt <- blobStorage.get(doc.storageKey)
       bytes = bytesOpt.getOrElse(throw new RuntimeException("File not found in storage"))

@@ -14,8 +14,8 @@ class UnlinkReceiptAction @Inject() (
 
   def apply(receiptId: UUID, userId: UUID): Future[UnlinkReceipt.Response] =
     for {
-      receiptOpt <- receiptRepository.find(receiptId, userId)
+      receiptOpt <- receiptRepository.find(id = receiptId, userId = userId)
       _ = receiptOpt.getOrElse(throw new RuntimeException("Receipt not found"))
-      _ <- receiptRepository.unlinkExpense(receiptId, userId)
+      _ <- receiptRepository.unlinkExpense(id = receiptId, userId = userId)
     } yield UnlinkReceipt.Response()
 }

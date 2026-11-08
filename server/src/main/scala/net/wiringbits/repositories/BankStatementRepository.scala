@@ -39,7 +39,7 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
   ): Future[UUID] = Future {
     database.withTransaction { implicit conn =>
       // The confirmed statement must reference a document owned by the same user.
-      if (DocumentDAO.find(stmt.documentId, stmt.userId).isEmpty)
+      if (DocumentDAO.find(id = stmt.documentId, userId = stmt.userId).isEmpty)
         throw new RuntimeException("Document not found")
       BankStatementDAO.create(stmt, metadata, extractionInfo)
       BankStatementRowDAO.createAll(rows)
@@ -50,7 +50,7 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
 
   def find(id: UUID, userId: UUID): Future[Option[BankStatementView]] = Future {
     database.withConnection { implicit conn =>
-      BankStatementDAO.find(id, userId)
+      BankStatementDAO.find(id = id, userId = userId)
     }
   }
 
@@ -62,7 +62,7 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
 
   def setAiSuggestions(id: UUID, userId: UUID, suggestions: AiSuggestions, updatedAt: Instant): Future[Unit] = Future {
     database.withConnection { implicit conn =>
-      BankStatementDAO.setAiSuggestions(id, userId, suggestions, updatedAt)
+      BankStatementDAO.setAiSuggestions(id = id, userId = userId, suggestions, updatedAt)
     }
   }
 
@@ -77,7 +77,7 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
       updatedAt: Instant
   ): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      BankStatementDAO.setAiSuggestions(id, userId, pending, updatedAt)
+      BankStatementDAO.setAiSuggestions(id = id, userId = userId, pending, updatedAt)
       BackgroundJobDAO.create(job)
     }
   }
@@ -102,7 +102,7 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
 
   def findByDocumentId(documentId: UUID, userId: UUID): Future[Option[BankStatement]] = Future {
     database.withConnection { implicit conn =>
-      BankStatementDAO.findByDocumentId(documentId, userId)
+      BankStatementDAO.findByDocumentId(documentId = documentId, userId = userId)
     }
   }
 
@@ -139,8 +139,8 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
   def setRowExpenseIdForUser(rowId: UUID, userId: UUID, expenseId: UUID, updatedAt: Instant): Future[Unit] = Future {
     ConstraintViolations.translating(RowExpenseIdUnique) {
       database.withTransaction { implicit conn =>
-        if (ExpenseDAO.find(expenseId, userId).isEmpty) throw new RuntimeException("Expense not found")
-        BankStatementRowDAO.setExpenseIdForUser(rowId, userId, expenseId, updatedAt)
+        if (ExpenseDAO.find(id = expenseId, userId = userId).isEmpty) throw new RuntimeException("Expense not found")
+        BankStatementRowDAO.setExpenseIdForUser(rowId = rowId, userId = userId, expenseId = expenseId, updatedAt)
       }
     }
   }
@@ -154,13 +154,13 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
   def findRowLinkedExpenses(bankStatementId: UUID, userId: UUID): Future[List[BankStatementRowLinkedExpense]] =
     Future {
       database.withConnection { implicit conn =>
-        BankStatementRowDAO.linkedExpenses(bankStatementId, userId)
+        BankStatementRowDAO.linkedExpenses(bankStatementId = bankStatementId, userId = userId)
       }
     }
 
   def findRow(rowId: UUID, bankStatementId: UUID): Future[Option[BankStatementRow]] = Future {
     database.withConnection { implicit conn =>
-      BankStatementRowDAO.findById(rowId, bankStatementId)
+      BankStatementRowDAO.findById(rowId = rowId, bankStatementId = bankStatementId)
     }
   }
 
@@ -168,53 +168,58 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
     Future {
       ConstraintViolations.translating(RowExpenseIdUnique) {
         database.withTransaction { implicit conn =>
-          val stmtOpt = BankStatementDAO.find(stmtId, userId)
+          val stmtOpt = BankStatementDAO.find(id = stmtId, userId = userId)
           if (stmtOpt.isEmpty) throw new RuntimeException("Bank statement not found")
-          if (ExpenseDAO.find(expenseId, userId).isEmpty) throw new RuntimeException("Expense not found")
-          BankStatementRowDAO.setExpenseId(rowId, stmtId, expenseId, updatedAt)
+          if (ExpenseDAO.find(id = expenseId, userId = userId).isEmpty) throw new RuntimeException("Expense not found")
+          BankStatementRowDAO.setExpenseId(rowId = rowId, bankStatementId = stmtId, expenseId = expenseId, updatedAt)
         }
       }
     }
 
   def clearRowExpenseId(stmtId: UUID, rowId: UUID, userId: UUID, updatedAt: Instant): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      val stmtOpt = BankStatementDAO.find(stmtId, userId)
+      val stmtOpt = BankStatementDAO.find(id = stmtId, userId = userId)
       if (stmtOpt.isEmpty) throw new RuntimeException("Bank statement not found")
-      BankStatementRowDAO.clearExpenseId(rowId, stmtId, updatedAt)
+      BankStatementRowDAO.clearExpenseId(rowId = rowId, bankStatementId = stmtId, updatedAt)
     }
   }
 
   def setRowRefundId(stmtId: UUID, rowId: UUID, userId: UUID, refundId: UUID, updatedAt: Instant): Future[Unit] =
     Future {
       database.withTransaction { implicit conn =>
-        val stmtOpt = BankStatementDAO.find(stmtId, userId)
+        val stmtOpt = BankStatementDAO.find(id = stmtId, userId = userId)
         if (stmtOpt.isEmpty) throw new RuntimeException("Bank statement not found")
-        BankStatementRowDAO.setRefundId(rowId, stmtId, refundId, updatedAt)
+        BankStatementRowDAO.setRefundId(rowId = rowId, bankStatementId = stmtId, refundId = refundId, updatedAt)
       }
     }
 
   def clearRowRefundId(stmtId: UUID, rowId: UUID, userId: UUID, updatedAt: Instant): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      val stmtOpt = BankStatementDAO.find(stmtId, userId)
+      val stmtOpt = BankStatementDAO.find(id = stmtId, userId = userId)
       if (stmtOpt.isEmpty) throw new RuntimeException("Bank statement not found")
-      BankStatementRowDAO.clearRefundId(rowId, stmtId, updatedAt)
+      BankStatementRowDAO.clearRefundId(rowId = rowId, bankStatementId = stmtId, updatedAt)
     }
   }
 
   def ignoreRow(stmtId: UUID, rowId: UUID, userId: UUID, ignoredAt: Instant, updatedAt: Instant): Future[Unit] =
     Future {
       database.withTransaction { implicit conn =>
-        val stmtOpt = BankStatementDAO.find(stmtId, userId)
+        val stmtOpt = BankStatementDAO.find(id = stmtId, userId = userId)
         if (stmtOpt.isEmpty) throw new RuntimeException("Bank statement not found")
-        BankStatementRowDAO.setIgnoredAt(rowId, stmtId, ignoredAt, updatedAt)
+        BankStatementRowDAO.setIgnoredAt(
+          rowId = rowId,
+          bankStatementId = stmtId,
+          ignoredAt = ignoredAt,
+          updatedAt = updatedAt
+        )
       }
     }
 
   def unignoreRow(stmtId: UUID, rowId: UUID, userId: UUID, updatedAt: Instant): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      val stmtOpt = BankStatementDAO.find(stmtId, userId)
+      val stmtOpt = BankStatementDAO.find(id = stmtId, userId = userId)
       if (stmtOpt.isEmpty) throw new RuntimeException("Bank statement not found")
-      BankStatementRowDAO.clearIgnoredAt(rowId, stmtId, updatedAt)
+      BankStatementRowDAO.clearIgnoredAt(rowId = rowId, bankStatementId = stmtId, updatedAt)
     }
   }
 
@@ -230,14 +235,14 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
   ): Future[Unit] = Future {
     database.withConnection { implicit conn =>
       BankStatementRowDAO.confirm(
-        rowId,
-        bankStatementId,
+        rowId = rowId,
+        bankStatementId = bankStatementId,
         date,
         amount,
         description,
         manuallyEdited,
-        confirmedAt,
-        updatedAt
+        confirmedAt = confirmedAt,
+        updatedAt = updatedAt
       )
     }
   }

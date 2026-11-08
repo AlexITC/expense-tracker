@@ -47,8 +47,8 @@ object BankRowLinkPicker {
     def handleLink(expenseId: UUID): Unit =
       props.ctx.api.client
         .linkRowToExpense(
-          props.stmtId,
-          props.rowId,
+          bankStatementId = props.stmtId,
+          rowId = props.rowId,
           net.wiringbits.api.models.bankstatements.LinkRowToExpense.Request(expenseId)
         )
         .onComplete {

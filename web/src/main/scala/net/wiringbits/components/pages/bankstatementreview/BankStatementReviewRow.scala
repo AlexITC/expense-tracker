@@ -145,8 +145,8 @@ object BankStatementReviewRow {
       // The receipt processing would attach, with View plus Detach (or Re-attach once the user opted out).
       def receiptControls(receipt: GetReceipts.Response.Receipt): ReactElement =
         Fragment(
-          if (props.receiptDetached) tintChip("Receipt detached", "var(--lc-text-2)")
-          else tintChip("🧾 Receipt", "var(--lc-brand)"),
+          if (props.receiptDetached) tintChip(lbl = "Receipt detached", textColor = "var(--lc-text-2)")
+          else tintChip(lbl = "🧾 Receipt", textColor = "var(--lc-brand)"),
           smallTextButton(
             "View",
             () => props.onReceiptAction(row.id, ReceiptAction.View(receipt.id, receipt.documentFilename))
@@ -161,18 +161,19 @@ object BankStatementReviewRow {
       // would link the row to an existing expense and the receipt controls when it would attach a receipt.
       def matchCell: ReactElement =
         if (row.expenseId.isDefined || row.refundId.isDefined)
-          tintChip(info.linkedMerchantName.getOrElse("Linked"), "var(--lc-brand)")
+          tintChip(lbl = info.linkedMerchantName.getOrElse("Linked"), textColor = "var(--lc-brand)")
         else if (info.verdict == RowRuleVerdict.Ignore)
-          tintChip("→ Ignore", "var(--lc-brand-dark)")
+          tintChip(lbl = "→ Ignore", textColor = "var(--lc-brand-dark)")
         else {
           val merchant = info.merchantName match {
-            case Some(name) => tintChip(name, "var(--lc-brand-dark)")
+            case Some(name) => tintChip(lbl = name, textColor = "var(--lc-brand-dark)")
             case None => suggestingOrDash
           }
           if (props.linksToExpense || props.matchedReceipt.isDefined)
             mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px"; alignItems = "center" })(
               merchant,
-              if (props.linksToExpense) tintChip("↔ Link existing", "var(--lc-brand)") else Fragment(),
+              if (props.linksToExpense) tintChip(lbl = "↔ Link existing", textColor = "var(--lc-brand)")
+              else Fragment(),
               props.matchedReceipt.fold[ReactElement](Fragment())(receiptControls)
             )
           else merchant
@@ -183,8 +184,8 @@ object BankStatementReviewRow {
       def categoryCell: ReactElement =
         if (row.expenseId.isDefined || row.refundId.isDefined)
           info.linkedCategory match {
-            case LinkedCategory.Named(name) => tintChip(name, "var(--lc-brand-dark)")
-            case LinkedCategory.Multiple => tintChip("Multiple", "var(--lc-text-2)")
+            case LinkedCategory.Named(name) => tintChip(lbl = name, textColor = "var(--lc-brand-dark)")
+            case LinkedCategory.Multiple => tintChip(lbl = "Multiple", textColor = "var(--lc-text-2)")
             case LinkedCategory.Unknown => dash
           }
         else if (info.verdict == RowRuleVerdict.Ignore) dash
@@ -192,7 +193,7 @@ object BankStatementReviewRow {
           info.resolved match {
             case Some(res) =>
               mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px"; alignItems = "center" })(
-                tintChip(info.categoryName.getOrElse(""), "var(--lc-brand-dark)"),
+                tintChip(lbl = info.categoryName.getOrElse(""), textColor = "var(--lc-brand-dark)"),
                 if (res.categoryFromAi)
                   (mui
                     .Typography("AI")
@@ -204,7 +205,9 @@ object BankStatementReviewRow {
             case None =>
               info.refund
                 .flatMap(_.categoryId)
-                .fold(suggestingOrDash)(_ => tintChip(info.categoryName.getOrElse(""), "var(--lc-brand-dark)"))
+                .fold(suggestingOrDash)(_ =>
+                  tintChip(lbl = info.categoryName.getOrElse(""), textColor = "var(--lc-brand-dark)")
+                )
           }
 
       def menu: ReactElement =

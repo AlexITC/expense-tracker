@@ -28,7 +28,7 @@ class MerchantsRepository @Inject() (database: Database)(implicit
       "merchant_tax_id_user_idx" -> "A merchant with that tax ID already exists"
     ) {
       database.withTransaction { implicit conn =>
-        if (request.categoryId.exists(cid => CategoryDAO.find(cid, request.userId).isEmpty))
+        if (request.categoryId.exists(cid => CategoryDAO.find(id = cid, userId = request.userId).isEmpty))
           throw new RuntimeException("Category not found")
         MerchantDAO.create(request)
       }
@@ -70,7 +70,7 @@ class MerchantsRepository @Inject() (database: Database)(implicit
 
   def find(id: UUID, userId: UUID): Future[Option[Merchant]] = Future {
     database.withConnection { implicit conn =>
-      MerchantDAO.find(id, userId)
+      MerchantDAO.find(id = id, userId = userId)
     }
   }
 
@@ -99,32 +99,40 @@ class MerchantsRepository @Inject() (database: Database)(implicit
       "merchant_tax_id_user_idx" -> "A merchant with that tax ID already exists"
     ) {
       database.withTransaction { implicit conn =>
-        if (MerchantDAO.find(id, userId).isEmpty) throw new RuntimeException("Merchant not found")
-        if (categoryId.exists(cid => CategoryDAO.find(cid, userId).isEmpty))
+        if (MerchantDAO.find(id = id, userId = userId).isEmpty) throw new RuntimeException("Merchant not found")
+        if (categoryId.exists(cid => CategoryDAO.find(id = cid, userId = userId).isEmpty))
           throw new RuntimeException("Category not found")
-        MerchantDAO.update(id, userId, name, notes, categoryId, taxId, clock.instant())
+        MerchantDAO.update(
+          id = id,
+          userId = userId,
+          name = name,
+          notes = notes,
+          categoryId = categoryId,
+          taxId = taxId,
+          updatedAt = clock.instant()
+        )
       }
     }
   }
 
   def markReviewed(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      MerchantDAO.markReviewed(id, userId, clock.instant())
+      MerchantDAO.markReviewed(id = id, userId = userId, clock.instant())
     }
   }
 
   def rePointAndDelete(pendingId: UUID, realId: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
       val now = clock.instant()
-      ExpenseDAO.updateMerchantId(pendingId, realId, userId, now)
-      RefundDAO.updateMerchantId(pendingId, realId, userId, now)
-      MerchantDAO.findAndDeletePending(pendingId, userId)
+      ExpenseDAO.updateMerchantId(pendingId = pendingId, realId = realId, userId = userId, now)
+      RefundDAO.updateMerchantId(pendingId = pendingId, realId = realId, userId = userId, now)
+      MerchantDAO.findAndDeletePending(pendingId = pendingId, userId = userId)
     }
   }
 
   def delete(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      MerchantDAO.delete(id, userId)
+      MerchantDAO.delete(id = id, userId = userId)
     }
   }
 }

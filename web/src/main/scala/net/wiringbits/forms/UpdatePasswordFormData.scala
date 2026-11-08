@@ -32,8 +32,8 @@ case class UpdatePasswordFormData(
       oldPassword <- formData.oldPassword.valueOpt
       password <- formData.password.valueOpt
     } yield UpdatePassword.Request(
-      oldPassword,
-      password
+      oldPassword = oldPassword,
+      newPassword = password
     )
   }
 }

@@ -16,7 +16,7 @@ class UpdateExpenseAction @Inject() (
 
   def apply(expenseId: UUID, userId: UUID, request: UpdateExpense.Request): Future[UpdateExpense.Response] = {
     for {
-      existing <- expensesRepository.find(expenseId, userId)
+      existing <- expensesRepository.find(id = expenseId, userId = userId)
       _ = if (existing.isEmpty) throw new RuntimeException("Expense not found")
       _ <- validator.validate(
         userId,
@@ -35,8 +35,8 @@ class UpdateExpenseAction @Inject() (
         )
       }
       _ <- expensesRepository.update(
-        expenseId,
-        userId,
+        id = expenseId,
+        userId = userId,
         request.amount,
         request.date,
         request.time,

@@ -26,11 +26,11 @@ class CreateRefundFromRowAction @Inject() (
   ): Future[CreateRefundFromRow.Response] = {
     logger.info(s"Create refund from row: stmtId=$stmtId rowId=$rowId userId=$userId amount=${request.amount}")
     for {
-      _ <- bankStatementRepository.find(stmtId, userId).map {
+      _ <- bankStatementRepository.find(id = stmtId, userId = userId).map {
         case None => throw new RuntimeException("Bank statement not found")
         case _ => ()
       }
-      rowOpt <- bankStatementRepository.findRow(rowId, stmtId)
+      rowOpt <- bankStatementRepository.findRow(rowId = rowId, bankStatementId = stmtId)
       row = rowOpt.getOrElse(throw new RuntimeException("Bank statement row not found"))
       _ = if (row.amount <= 0) throw new RuntimeException("Only credit rows (amount > 0) can create refunds")
       _ = if (row.refundId.isDefined) throw new RuntimeException("Row is already linked to a refund — unlink first")
@@ -50,7 +50,13 @@ class CreateRefundFromRowAction @Inject() (
         updatedAt = now
       )
       _ <- refundsRepository.create(refund)
-      _ <- bankStatementRepository.setRowRefundId(stmtId, rowId, userId, refundId, now)
+      _ <- bankStatementRepository.setRowRefundId(
+        stmtId = stmtId,
+        rowId = rowId,
+        userId = userId,
+        refundId = refundId,
+        now
+      )
     } yield CreateRefundFromRow.Response(refundId = refundId)
   }
 }

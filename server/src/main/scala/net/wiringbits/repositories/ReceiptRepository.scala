@@ -47,7 +47,7 @@ class ReceiptRepository @Inject() (database: Database)(implicit ec: DatabaseExec
     database.withTransaction { implicit conn =>
       DocumentDAO.create(document)
       ReceiptDAO.create(receipt)
-      TelegramDAO.createReceipt(telegramReceiptId, receipt.id, chatId, messageId)
+      TelegramDAO.createReceipt(id = telegramReceiptId, receiptId = receipt.id, chatId, messageId)
       BackgroundJobDAO.create(job)
       receipt.id
     }
@@ -61,7 +61,7 @@ class ReceiptRepository @Inject() (database: Database)(implicit ec: DatabaseExec
 
   def find(id: UUID, userId: UUID): Future[Option[Receipt]] = Future {
     database.withConnection { implicit conn =>
-      ReceiptDAO.find(id, userId)
+      ReceiptDAO.find(id = id, userId = userId)
     }
   }
 
@@ -81,13 +81,22 @@ class ReceiptRepository @Inject() (database: Database)(implicit ec: DatabaseExec
       parserVersion: Option[String]
   ): Future[Unit] = Future {
     database.withConnection { implicit conn =>
-      ReceiptDAO.updateParsed(id, amount, date, time, merchantName, taxId, parserVersion, clock.instant())
+      ReceiptDAO.updateParsed(
+        id,
+        amount,
+        date,
+        time,
+        merchantName = merchantName,
+        taxId = taxId,
+        parserVersion = parserVersion,
+        clock.instant()
+      )
     }
   }
 
   def updateStatus(id: UUID, userId: UUID, status: DocumentStatus): Future[Unit] = Future {
     database.withConnection { implicit conn =>
-      ReceiptDAO.updateStatus(id, userId, status, clock.instant())
+      ReceiptDAO.updateStatus(id = id, userId = userId, status, clock.instant())
     }
   }
 
@@ -102,9 +111,9 @@ class ReceiptRepository @Inject() (database: Database)(implicit ec: DatabaseExec
     database.withTransaction { implicit conn =>
       ExpenseDAO.create(expense)
       ExpenseCategorySplitDAO.createAll(splits)
-      ReceiptDAO.setExpenseId(id, userId, expense.id, clock.instant())
+      ReceiptDAO.setExpenseId(id = id, userId = userId, expenseId = expense.id, clock.instant())
       linkedRowId.foreach { rowId =>
-        BankStatementRowDAO.setExpenseIdForUser(rowId, userId, expense.id, clock.instant())
+        BankStatementRowDAO.setExpenseIdForUser(rowId = rowId, userId = userId, expenseId = expense.id, clock.instant())
       }
       expense.id
     }
@@ -113,46 +122,46 @@ class ReceiptRepository @Inject() (database: Database)(implicit ec: DatabaseExec
   def linkToExpense(id: UUID, userId: UUID, expenseId: UUID): Future[Unit] = Future {
     ConstraintViolations.translating(ReceiptExpenseIdUnique) {
       database.withTransaction { implicit conn =>
-        if (ExpenseDAO.find(expenseId, userId).isEmpty) throw new RuntimeException("Expense not found")
-        ReceiptDAO.setExpenseId(id, userId, expenseId, clock.instant())
+        if (ExpenseDAO.find(id = expenseId, userId = userId).isEmpty) throw new RuntimeException("Expense not found")
+        ReceiptDAO.setExpenseId(id = id, userId = userId, expenseId = expenseId, clock.instant())
       }
     }
   }
 
   def unlinkExpense(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withConnection { implicit conn =>
-      ReceiptDAO.clearExpenseId(id, userId, clock.instant())
+      ReceiptDAO.clearExpenseId(id = id, userId = userId, clock.instant())
     }
   }
 
   def linkToRefund(id: UUID, userId: UUID, refundId: UUID): Future[Unit] = Future {
     database.withConnection { implicit conn =>
-      ReceiptDAO.setRefundId(id, userId, refundId, clock.instant())
+      ReceiptDAO.setRefundId(id = id, userId = userId, refundId = refundId, clock.instant())
     }
   }
 
   def unlinkFromRefund(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withConnection { implicit conn =>
-      ReceiptDAO.clearRefundId(id, userId, clock.instant())
+      ReceiptDAO.clearRefundId(id = id, userId = userId, clock.instant())
     }
   }
 
   def ignoreReceipt(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withConnection { implicit conn =>
       val now = clock.instant()
-      ReceiptDAO.setIgnoredAt(id, userId, now, now)
+      ReceiptDAO.setIgnoredAt(id = id, userId = userId, ignoredAt = now, updatedAt = now)
     }
   }
 
   def unignoreReceipt(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withConnection { implicit conn =>
-      ReceiptDAO.clearIgnoredAt(id, userId, clock.instant())
+      ReceiptDAO.clearIgnoredAt(id = id, userId = userId, clock.instant())
     }
   }
 
   def setMerchantId(id: UUID, merchantId: UUID): Future[Unit] = Future {
     database.withConnection { implicit conn =>
-      ReceiptDAO.setMerchantId(id, merchantId, clock.instant())
+      ReceiptDAO.setMerchantId(id = id, merchantId = merchantId, clock.instant())
     }
   }
 }

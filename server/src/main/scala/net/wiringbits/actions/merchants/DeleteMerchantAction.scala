@@ -11,9 +11,9 @@ class DeleteMerchantAction @Inject() (merchantsRepository: MerchantsRepository)(
 
   def apply(merchantId: UUID, userId: UUID): Future[DeleteMerchant.Response] = {
     for {
-      existing <- merchantsRepository.find(merchantId, userId)
+      existing <- merchantsRepository.find(id = merchantId, userId = userId)
       _ = if (existing.isEmpty) throw new RuntimeException("Merchant not found")
-      _ <- merchantsRepository.delete(merchantId, userId)
+      _ <- merchantsRepository.delete(id = merchantId, userId = userId)
     } yield DeleteMerchant.Response()
   }
 }

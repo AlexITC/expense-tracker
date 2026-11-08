@@ -12,7 +12,7 @@ class UpdateCategoryAction @Inject() (categoriesRepository: CategoriesRepository
   def apply(categoryId: UUID, userId: UUID, request: UpdateCategory.Request): Future[UpdateCategory.Response] = {
     for {
       _ <- validate(request)
-      _ <- categoriesRepository.update(categoryId, userId, request.name)
+      _ <- categoriesRepository.update(id = categoryId, userId = userId, request.name)
     } yield UpdateCategory.Response()
   }
 

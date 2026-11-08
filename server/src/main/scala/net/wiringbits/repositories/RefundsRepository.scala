@@ -20,7 +20,7 @@ class RefundsRepository @Inject() (database: Database)(implicit ec: DatabaseExec
 
   def find(id: UUID, userId: UUID): Future[Option[Refund]] = Future {
     database.withConnection { implicit conn =>
-      RefundDAO.find(id, userId)
+      RefundDAO.find(id = id, userId = userId)
     }
   }
 
@@ -40,25 +40,34 @@ class RefundsRepository @Inject() (database: Database)(implicit ec: DatabaseExec
       notes: Option[String]
   ): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      RefundDAO.update(id, userId, amount, date, merchantId, categoryId, notes, clock.instant())
+      RefundDAO.update(
+        id = id,
+        userId = userId,
+        amount = amount,
+        date = date,
+        merchantId = merchantId,
+        categoryId = categoryId,
+        notes = notes,
+        updatedAt = clock.instant()
+      )
     }
   }
 
   def delete(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      RefundDAO.delete(id, userId)
+      RefundDAO.delete(id = id, userId = userId)
     }
   }
 
   def linkToExpense(id: UUID, userId: UUID, expenseId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      RefundDAO.setExpenseId(id, userId, expenseId, clock.instant())
+      RefundDAO.setExpenseId(id = id, userId = userId, expenseId = expenseId, clock.instant())
     }
   }
 
   def unlinkFromExpense(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      RefundDAO.clearExpenseId(id, userId, clock.instant())
+      RefundDAO.clearExpenseId(id = id, userId = userId, clock.instant())
     }
   }
 }

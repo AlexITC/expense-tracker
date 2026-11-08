@@ -174,9 +174,9 @@ object MerchantList {
         .createMerchant(
           CreateMerchant.Request(
             newName,
-            Option(newNotes.trim).filter(_.nonEmpty),
+            notes = Option(newNotes.trim).filter(_.nonEmpty),
             parseCategoryId(newCategoryId),
-            Option(newTaxId.trim).filter(_.nonEmpty)
+            taxId = Option(newTaxId.trim).filter(_.nonEmpty)
           )
         )
         .onComplete {
@@ -212,9 +212,9 @@ object MerchantList {
           merchantId,
           UpdateMerchant.Request(
             editName,
-            Option(editNotes.trim).filter(_.nonEmpty),
+            notes = Option(editNotes.trim).filter(_.nonEmpty),
             parseCategoryId(editCategoryId),
-            Option(editTaxId.trim).filter(_.nonEmpty)
+            taxId = Option(editTaxId.trim).filter(_.nonEmpty)
           )
         )
         .onComplete {
@@ -236,7 +236,7 @@ object MerchantList {
       else Fragment()
 
     val merchantCount = props.response.data.size
-    val atLimit = isAtLimit(merchantCount, props.maxMerchants)
+    val atLimit = isAtLimit(count = merchantCount, maxMerchants = props.maxMerchants)
 
     val createForm = form(onSubmit := { e =>
       e.preventDefault()
@@ -271,7 +271,7 @@ object MerchantList {
             .value(newTaxId)
             .size("small")
             .onChange(e => setNewTaxId(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-          categorySelector(newCategoryId, setNewCategoryId, "Default category", "create"),
+          categorySelector(value = newCategoryId, setNewCategoryId, label = "Default category", forTarget = "create"),
           mui.Button
             .normal()("Add")
             .variant("contained")
@@ -291,7 +291,7 @@ object MerchantList {
           rulePatternField
         ),
         mui
-          .Typography(usageLabel(merchantCount, props.maxMerchants))
+          .Typography(usageLabel(count = merchantCount, max = props.maxMerchants))
           .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" })
       )
     )
@@ -355,7 +355,12 @@ object MerchantList {
                 .value(editTaxId)
                 .size("small")
                 .onChange(e => setEditTaxId(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-              categorySelector(editCategoryId, setEditCategoryId, "Default category", "edit"),
+              categorySelector(
+                value = editCategoryId,
+                setEditCategoryId,
+                label = "Default category",
+                forTarget = "edit"
+              ),
               mui.Button
                 .normal()("Save")
                 .size("small")

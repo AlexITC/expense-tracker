@@ -18,11 +18,11 @@ class GetBankStatementAction @Inject() (bankStatementRepository: BankStatementRe
 
   def apply(id: UUID, userId: UUID): Future[GetBankStatement.Response] =
     for {
-      viewOpt <- bankStatementRepository.find(id, userId)
+      viewOpt <- bankStatementRepository.find(id = id, userId = userId)
       view = viewOpt.getOrElse(throw new RuntimeException("Bank statement not found"))
       _ = logger.info(s"Get bank statement $id for user $userId")
       rows <- bankStatementRepository.findRows(id)
-      linkedExpenses <- bankStatementRepository.findRowLinkedExpenses(id, userId)
+      linkedExpenses <- bankStatementRepository.findRowLinkedExpenses(bankStatementId = id, userId = userId)
       linkedByRowId = linkedExpenses.map(l => l.rowId -> l).toMap
     } yield GetBankStatement.Response(
       id = view.id,

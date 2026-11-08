@@ -36,13 +36,13 @@ class ExpenseValidator @Inject() (
           _ <- merchantId match {
             case None => Future.unit
             case Some(mId) =>
-              merchantsRepository.find(mId, userId).flatMap {
+              merchantsRepository.find(id = mId, userId = userId).flatMap {
                 case None => Future.failed(new RuntimeException("Merchant not found"))
                 case Some(_) => Future.unit
               }
           }
           _ <- Future.traverse(splits) { case (categoryId, _) =>
-            categoriesRepository.find(categoryId, userId).flatMap {
+            categoriesRepository.find(id = categoryId, userId = userId).flatMap {
               case None => Future.failed(new RuntimeException("Category not found"))
               case Some(_) => Future.unit
             }

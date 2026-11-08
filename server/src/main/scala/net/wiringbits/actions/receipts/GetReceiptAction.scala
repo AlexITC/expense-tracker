@@ -12,7 +12,7 @@ import scala.concurrent.{ExecutionContext, Future}
 class GetReceiptAction @Inject() (receiptRepository: ReceiptRepository)(implicit ec: ExecutionContext) {
 
   def apply(id: UUID, userId: UUID): Future[GetReceipt.Response] =
-    receiptRepository.find(id, userId).map { receiptOpt =>
+    receiptRepository.find(id = id, userId = userId).map { receiptOpt =>
       val r = receiptOpt.getOrElse(throw new RuntimeException("Receipt not found"))
       GetReceipt.Response(
         id = r.id,

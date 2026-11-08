@@ -460,7 +460,9 @@ object ExpenseList {
         setSplits: List[(String, String)] => Unit,
         amountStr: String
     ): ReactElement = {
-      val rows = splits.zipWithIndex.map { case ((catId, amt), i) => splitRow(catId, amt, i, splits, setSplits) }
+      val rows = splits.zipWithIndex.map { case ((catId, amt), i) =>
+        splitRow(catId = catId, amt = amt, i, splits, setSplits)
+      }
       val rem = splitRemainder(amountStr, splits)
       Container(
         flexDirection = FlexDirection.column,
@@ -576,7 +578,7 @@ object ExpenseList {
           setCurrentPage(0)
         }
         .sx(new CSSPropertiesUtils { flex = "1 1 auto" }),
-      if (isFilterActive(dateFilter, filterText))
+      if (isFilterActive(dateFilter = dateFilter, filterText = filterText))
         mui
           .Link("× Clear")
           .onClick(_ => clearFilters())

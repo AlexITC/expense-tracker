@@ -28,7 +28,7 @@ class TelegramLinkAction @Inject() (
         telegramApi.sendMessage(chatId, "Link token has expired. Generate a new one in the web app.")
       case Some(linkToken) =>
         for {
-          _ <- telegramRepository.createBotUser(UUID.randomUUID(), linkToken.userId, telegramUserId)
+          _ <- telegramRepository.createBotUser(id = UUID.randomUUID(), userId = linkToken.userId, telegramUserId)
           _ <- telegramRepository.deleteLinkToken(tokenHash)
           _ = logger.info(s"Telegram link: account linked userId=${linkToken.userId} telegramUserId=$telegramUserId")
           _ <- telegramApi.sendMessage(chatId, "Account linked! You can now submit expenses.")

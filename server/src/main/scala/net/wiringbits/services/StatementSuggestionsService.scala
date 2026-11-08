@@ -73,13 +73,21 @@ class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(impli
             suggestion <- historyHits
               .get(row.id)
               .fold(resolveRow(userId, row, merchants, categories, examples)) { categoryId =>
-                Future.successful(AiSuggestions.RowSuggestion(row.id, Some(categoryId), None))
+                Future.successful(AiSuggestions.RowSuggestion(row.id, categoryId = Some(categoryId), merchantId = None))
               }
           } yield suggestion :: acc
         }
         .map { reversed =>
           val suggestions = reversed.reverse
-          logResolved(userId, statementId, toResolve, suggestions, historyHits.keySet, categories, merchants)
+          logResolved(
+            userId = userId,
+            statementId = statementId,
+            toResolve,
+            suggestions,
+            historyHits.keySet,
+            categories,
+            merchants
+          )
           AiSuggestions(status = AiSuggestionsStatus.Done, model = modelId, rows = suggestions)
         }
     }
@@ -95,7 +103,7 @@ class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(impli
     for {
       category <- predictCategory(userId, row, categories, examples)
       merchantId <- category.fold(Future.successful(Option.empty[UUID]))(pickMerchant(userId, row, _, merchants))
-    } yield finalSuggestion(row.id, category.map(_.id), merchantId, merchants)
+    } yield finalSuggestion(row.id, predictedCategoryId = category.map(_.id), chosenMerchantId = merchantId, merchants)
 
   private def predictCategory(
       userId: UUID,
@@ -104,7 +112,7 @@ class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(impli
       examples: List[(UUID, String)]
   ): Future[Option[Category]] =
     bedrockClient.suggest(categoryPrompt(categories, examples, row)).map { raw =>
-      pickByName(userId, row, "category", parseAnswer(raw), categories)(_.name)
+      pickByName(userId, row, noun = "category", answer = parseAnswer(raw), categories)(_.name)
     }
 
   private def pickMerchant(
@@ -119,7 +127,7 @@ class StatementSuggestionsService @Inject() (bedrockClient: BedrockClient)(impli
       bedrockClient.suggest(merchantPrompt(category, candidates, row)).map { raw =>
         val answer = parseAnswer(raw)
         if (answer.trim.equalsIgnoreCase(NoMerchant)) None
-        else pickByName(userId, row, "merchant", answer, candidates)(_.name).map(_.id)
+        else pickByName(userId, row, noun = "merchant", answer = answer, candidates)(_.name).map(_.id)
       }
   }
 
@@ -173,7 +181,7 @@ object StatementSuggestionsService {
     val effective = ImportRuleMatcher.effectiveRules(rules, merchants.map(m => m.id -> m.name))
     val debits = rows.filter(_.amount < 0)
     val toResolve = debits.filter(r => RowRuleVerdict.verdict(effective, r.description) == RowRuleVerdict.NoRule)
-    RowSelection(toResolve, rows.size - debits.size, debits.size - toResolve.size)
+    RowSelection(toResolve, creditsSkipped = rows.size - debits.size, ruleSkipped = debits.size - toResolve.size)
   }
 
   /** Row id → category for the rows whose normalized description is in `history`. A category that is not among the
@@ -198,7 +206,11 @@ object StatementSuggestionsService {
       merchants: List[Merchant]
   ): AiSuggestions.RowSuggestion = {
     val merchant = chosenMerchantId.flatMap(id => merchants.find(_.id == id))
-    AiSuggestions.RowSuggestion(rowId, merchant.flatMap(_.categoryId).orElse(predictedCategoryId), merchant.map(_.id))
+    AiSuggestions.RowSuggestion(
+      rowId,
+      categoryId = merchant.flatMap(_.categoryId).orElse(predictedCategoryId),
+      merchantId = merchant.map(_.id)
+    )
   }
 
   /** The single candidate whose name equals `answer` ignoring case, accents and spacing; None when zero or several

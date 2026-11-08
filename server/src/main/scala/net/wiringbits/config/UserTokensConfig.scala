@@ -23,6 +23,6 @@ object UserTokensConfig {
     val resetPasswordExp = conf.get[FiniteDuration]("resetPassword.expirationTime")
     val hmacSecret = conf.get[String]("hmacSecret")
 
-    UserTokensConfig(emailVerificationExp, resetPasswordExp, hmacSecret)
+    UserTokensConfig(emailVerificationExp = emailVerificationExp, resetPasswordExp = resetPasswordExp, hmacSecret)
   }
 }

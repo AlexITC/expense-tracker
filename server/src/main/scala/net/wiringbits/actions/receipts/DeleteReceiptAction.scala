@@ -16,13 +16,13 @@ class DeleteReceiptAction @Inject() (
 
   def apply(receiptId: UUID, userId: UUID): Future[DeleteReceipt.Response] =
     for {
-      receiptOpt <- receiptRepository.find(receiptId, userId)
+      receiptOpt <- receiptRepository.find(id = receiptId, userId = userId)
       receipt = receiptOpt.getOrElse(throw new RuntimeException("Receipt not found"))
       _ = if (receipt.refundId.isDefined)
         throw new RuntimeException("Receipt is linked to a refund — unlink first")
-      docOpt <- documentsRepository.find(receipt.documentId, userId)
+      docOpt <- documentsRepository.find(id = receipt.documentId, userId = userId)
       doc = docOpt.getOrElse(throw new RuntimeException("Document not found"))
-      _ <- documentsRepository.delete(doc.id, userId)
+      _ <- documentsRepository.delete(id = doc.id, userId = userId)
       _ <- blobStorage.delete(doc.storageKey)
     } yield DeleteReceipt.Response(receiptId)
 }

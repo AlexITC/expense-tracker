@@ -16,5 +16,7 @@ class UpdateImportRuleAction @Inject() (ruleRepository: ImportRuleRepository)(im
         new RuntimeException(s"Rule pattern must be at least ${ImportRuleMatcher.MinPatternLength} characters")
       )
     else
-      ruleRepository.update(ruleId, userId, request.action, request.pattern).map(_ => UpdateImportRule.Response())
+      ruleRepository
+        .update(id = ruleId, userId = userId, request.action, request.pattern)
+        .map(_ => UpdateImportRule.Response())
 }

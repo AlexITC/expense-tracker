@@ -54,7 +54,7 @@ class CreateRefundAction @Inject() (
         _ <- request.merchantId match {
           case None => Future.unit
           case Some(mId) =>
-            merchantsRepository.find(mId, userId).flatMap {
+            merchantsRepository.find(id = mId, userId = userId).flatMap {
               case None => Future.failed(new RuntimeException("Merchant not found"))
               case Some(_) => Future.unit
             }
@@ -62,7 +62,7 @@ class CreateRefundAction @Inject() (
         _ <- request.categoryId match {
           case None => Future.unit
           case Some(cId) =>
-            categoriesRepository.find(cId, userId).flatMap {
+            categoriesRepository.find(id = cId, userId = userId).flatMap {
               case None => Future.failed(new RuntimeException("Category not found"))
               case Some(_) => Future.unit
             }
@@ -70,7 +70,7 @@ class CreateRefundAction @Inject() (
         _ <- request.expenseId match {
           case None => Future.unit
           case Some(eId) =>
-            expensesRepository.find(eId, userId).flatMap {
+            expensesRepository.find(id = eId, userId = userId).flatMap {
               case None => Future.failed(new RuntimeException("Expense not found"))
               case Some(_) => Future.unit
             }

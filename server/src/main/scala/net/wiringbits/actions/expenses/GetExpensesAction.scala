@@ -22,7 +22,7 @@ class GetExpensesAction @Inject() (
       unlinkedOnly: Boolean
   ): Future[GetExpenses.Response] = {
     for {
-      expenses <- expensesRepository.all(userId, from, to, unlinkedOnly)
+      expenses <- expensesRepository.all(userId, from = from, to = to, unlinkedOnly)
       merchants <- merchantsRepository.all(userId)
       splits <- expensesRepository.allSplits(userId)
       receipts <- receiptRepository.all(userId)

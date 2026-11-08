@@ -13,7 +13,7 @@ object Captcha extends WrappedString.Companion[Captcha] {
       .filter(_.nonEmpty)
       .map(ValidationResult.Valid(_, new Captcha(string)))
       .getOrElse {
-        ValidationResult.Invalid(string, "Invalid recaptcha")
+        ValidationResult.Invalid(input = string, error = "Invalid recaptcha")
       }
   }
 

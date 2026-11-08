@@ -18,7 +18,7 @@ class TextractCacheRepository @Inject() (database: Database)(implicit ec: Databa
 
   def find(sha256: String, apiType: String): Future[Option[TextractCache]] = Future {
     database.withConnection { implicit conn =>
-      TextractCacheDAO.find(sha256, apiType)
+      TextractCacheDAO.find(sha256 = sha256, apiType = apiType)
     }
   }
 }

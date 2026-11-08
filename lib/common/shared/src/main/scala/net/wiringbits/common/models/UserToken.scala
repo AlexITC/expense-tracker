@@ -14,7 +14,9 @@ object UserToken {
 
     // TODO: Improve this impl
     Try(
-      Option.when(isValid)(UserToken(UUID.fromString(splittedToken(0)), UUID.fromString(splittedToken(1))))
+      Option.when(isValid)(
+        UserToken(userId = UUID.fromString(splittedToken(0)), token = UUID.fromString(splittedToken(1)))
+      )
     ).toOption.flatten
   }
 

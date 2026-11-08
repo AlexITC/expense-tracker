@@ -50,7 +50,7 @@ class ReceiptsController @Inject() (
     logger.info(s"Upload receipt: kind=$kind, filename=$filename, size=${bytes.length}")
     for {
       userId <- userIdF
-      response <- uploadReceiptAction(userId, bytes, kind, filename)
+      response <- uploadReceiptAction(userId, bytes, kindStr = kind, filename = filename)
     } yield Right(response)
   }
 
@@ -67,7 +67,7 @@ class ReceiptsController @Inject() (
   ): Future[Either[ErrorResponse, GetReceipt.Response]] = handleRequest {
     for {
       userId <- userIdF
-      response <- getReceiptAction(receiptId, userId)
+      response <- getReceiptAction(id = receiptId, userId = userId)
     } yield Right(response)
   }
 
@@ -79,7 +79,7 @@ class ReceiptsController @Inject() (
     logger.info(s"Confirm receipt: $receiptId")
     for {
       userId <- userIdF
-      response <- confirmReceiptAction(receiptId, userId, request)
+      response <- confirmReceiptAction(receiptId = receiptId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -90,7 +90,7 @@ class ReceiptsController @Inject() (
     logger.info(s"Delete receipt: $receiptId")
     for {
       userId <- userIdF
-      response <- deleteReceiptAction(receiptId, userId)
+      response <- deleteReceiptAction(receiptId = receiptId, userId = userId)
     } yield Right(response)
   }
 
@@ -102,7 +102,7 @@ class ReceiptsController @Inject() (
     logger.info(s"Link receipt to expense: receipt=$receiptId expense=${request.expenseId}")
     for {
       userId <- userIdF
-      response <- linkReceiptToExpenseAction(receiptId, userId, request)
+      response <- linkReceiptToExpenseAction(receiptId = receiptId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -113,7 +113,7 @@ class ReceiptsController @Inject() (
     logger.info(s"Unlink receipt: $receiptId")
     for {
       userId <- userIdF
-      response <- unlinkReceiptAction(receiptId, userId)
+      response <- unlinkReceiptAction(receiptId = receiptId, userId = userId)
     } yield Right(response)
   }
 
@@ -125,7 +125,7 @@ class ReceiptsController @Inject() (
     logger.info(s"Link receipt to refund: receipt=$receiptId refund=${request.refundId}")
     for {
       userId <- userIdF
-      response <- linkReceiptToRefundAction(receiptId, userId, request)
+      response <- linkReceiptToRefundAction(receiptId = receiptId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -136,7 +136,7 @@ class ReceiptsController @Inject() (
     logger.info(s"Unlink receipt from refund: $receiptId")
     for {
       userId <- userIdF
-      response <- unlinkReceiptFromRefundAction(receiptId, userId)
+      response <- unlinkReceiptFromRefundAction(receiptId = receiptId, userId = userId)
     } yield Right(response)
   }
 
@@ -146,7 +146,7 @@ class ReceiptsController @Inject() (
   ): Future[Either[ErrorResponse, (Array[Byte], String, String)]] = handleRequest {
     for {
       userId <- userIdF
-      (bytes, filename) <- getReceiptFileAction(receiptId, userId)
+      (bytes, filename) <- getReceiptFileAction(receiptId = receiptId, userId = userId)
       mimeType = filename.toLowerCase.split('.').lastOption match {
         case Some("jpg") | Some("jpeg") => "image/jpeg"
         case Some("png") => "image/png"
@@ -165,7 +165,7 @@ class ReceiptsController @Inject() (
     logger.info(s"Ignore receipt: $receiptId")
     for {
       userId <- userIdF
-      response <- ignoreReceiptAction(receiptId, userId)
+      response <- ignoreReceiptAction(receiptId = receiptId, userId = userId)
     } yield Right(response)
   }
 
@@ -176,7 +176,7 @@ class ReceiptsController @Inject() (
     logger.info(s"Unignore receipt: $receiptId")
     for {
       userId <- userIdF
-      response <- unignoreReceiptAction(receiptId, userId)
+      response <- unignoreReceiptAction(receiptId = receiptId, userId = userId)
     } yield Right(response)
   }
 

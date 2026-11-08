@@ -47,7 +47,7 @@ class ImportRulesController @Inject() (
     logger.info(s"Update import rule: $ruleId")
     for {
       userId <- userIdF
-      response <- updateImportRuleAction(ruleId, userId, request)
+      response <- updateImportRuleAction(ruleId = ruleId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -58,7 +58,7 @@ class ImportRulesController @Inject() (
     logger.info(s"Delete import rule: $ruleId")
     for {
       userId <- userIdF
-      response <- deleteImportRuleAction(ruleId, userId)
+      response <- deleteImportRuleAction(ruleId = ruleId, userId = userId)
     } yield Right(response)
   }
 

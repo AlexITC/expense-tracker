@@ -17,17 +17,22 @@ object TelegramMessageParser {
     val lines = text.split("\n", -1).map(_.trim).filter(_.nonEmpty).toList
     lines match {
       case rawAmount :: merchant :: Nil =>
-        build(rawAmount, merchant, None, None)
+        build(rawAmount = rawAmount, merchant = merchant, category = None, notes = None)
       case rawAmount :: merchant :: third :: Nil =>
         if (third.startsWith(NotePrefix))
-          build(rawAmount, merchant, None, noteValue(third))
+          build(rawAmount = rawAmount, merchant = merchant, category = None, notes = noteValue(third))
         else
-          build(rawAmount, merchant, Some(third), None)
+          build(rawAmount = rawAmount, merchant = merchant, category = Some(third), notes = None)
       case rawAmount :: merchant :: third :: fourth :: Nil =>
         if (third.startsWith(NotePrefix))
           Left("Use line 3 for category and line 4 for note; 'note=' is only needed when skipping the category")
         else
-          build(rawAmount, merchant, Some(third), Some(fourth).filter(_.nonEmpty))
+          build(
+            rawAmount = rawAmount,
+            merchant = merchant,
+            category = Some(third),
+            notes = Some(fourth).filter(_.nonEmpty)
+          )
       case parts =>
         Left(s"Expected 2 to 4 lines (amount, merchant, optional category, optional note), got ${parts.length}")
     }
@@ -54,6 +59,6 @@ object TelegramMessageParser {
       Try(BigDecimal(rawAmount)).toOption match {
         case None => Left(s"Amount '$rawAmount' is not a valid number")
         case Some(amount) if amount <= 0 => Left(s"Amount must be positive, got $amount")
-        case Some(amount) => Right(ParsedMessage(amount, merchant, category, notes))
+        case Some(amount) => Right(ParsedMessage(amount, merchant, category = category, notes = notes))
       }
 }

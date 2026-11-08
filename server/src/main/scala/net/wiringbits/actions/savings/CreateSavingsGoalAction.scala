@@ -20,7 +20,14 @@ class CreateSavingsGoalAction @Inject() (savingsRepository: SavingsRepository)(i
       _ <- validate(userId, request)
       now = clock.instant()
       id = UuidCreator.getTimeOrderedEpoch()
-      create = SavingsGoal.Create(id, userId, request.name, request.targetAmount, now, now)
+      create = SavingsGoal.Create(
+        id = id,
+        userId = userId,
+        name = request.name,
+        targetAmount = request.targetAmount,
+        createdAt = now,
+        updatedAt = now
+      )
       _ <- savingsRepository.createGoal(create)
     } yield CreateSavingsGoal.Response(id)
   }

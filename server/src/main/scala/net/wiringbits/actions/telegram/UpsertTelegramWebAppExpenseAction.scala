@@ -49,16 +49,26 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
       category: Option[String],
       notes: Option[String]
   ): Future[Either[Error, Unit]] =
-    validate(merchantName, amount, category, notes) match {
+    validate(merchantName, amount, category = category, notes = notes) match {
       case Left(msg) => Future.successful(Left(Error.Invalid(msg)))
       case Right(()) =>
-        expensesRepository.find(expenseId, userId).flatMap {
+        expensesRepository.find(id = expenseId, userId = userId).flatMap {
           case None =>
             for {
               merchantId <- merchantsRepository.createPendingIfAbsent(userId, merchantName)
               catIdOpt <- resolveCategory(userId, category)
-              _ <- createExpense(userId, expenseId, amount, date, merchantId, catIdOpt, notes)
-              _ <- receiptId.fold(Future.unit)(rid => receiptRepository.linkToExpense(rid, userId, expenseId))
+              _ <- createExpense(
+                userId = userId,
+                expenseId = expenseId,
+                amount,
+                date,
+                merchantId = merchantId,
+                catIdOpt,
+                notes
+              )
+              _ <- receiptId.fold(Future.unit)(rid =>
+                receiptRepository.linkToExpense(id = rid, userId = userId, expenseId = expenseId)
+              )
               _ <- notifyTelegram(
                 userId = userId,
                 expenseId = expenseId,
@@ -72,9 +82,9 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
             for {
               merchantId <- merchantsRepository.createPendingIfAbsent(userId, merchantName)
               catIdOpt <- resolveCategory(userId, category)
-              splits <- buildUpdateSplits(userId, expenseId, catIdOpt, amount)
+              splits <- buildUpdateSplits(userId = userId, expenseId = expenseId, catIdOpt, amount)
               _ <- expensesRepository
-                .update(expenseId, userId, amount, date, existing.time, Some(merchantId), notes, splits)
+                .update(id = expenseId, userId = userId, amount, date, existing.time, Some(merchantId), notes, splits)
               _ <- notifyTelegram(
                 userId = userId,
                 expenseId = expenseId,
@@ -128,7 +138,13 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
       updatedAt = now
     )
     val splits = catIdOpt.toList.map { catId =>
-      ExpenseCategorySplit.Create(UuidCreator.getTimeOrderedEpoch(), userId, expenseId, catId, amount)
+      ExpenseCategorySplit.Create(
+        id = UuidCreator.getTimeOrderedEpoch(),
+        userId = userId,
+        expenseId = expenseId,
+        categoryId = catId,
+        amount
+      )
     }
     expensesRepository.create(expense, splits)
   }
@@ -142,16 +158,30 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
     catIdOpt match {
       case Some(catId) =>
         Future.successful(
-          List(ExpenseCategorySplit.Create(UuidCreator.getTimeOrderedEpoch(), userId, expenseId, catId, amount))
+          List(
+            ExpenseCategorySplit.Create(
+              id = UuidCreator.getTimeOrderedEpoch(),
+              userId = userId,
+              expenseId = expenseId,
+              categoryId = catId,
+              amount
+            )
+          )
         )
       case None =>
-        expensesRepository.findSplitsByExpenseId(expenseId, userId).map { existingSplits =>
+        expensesRepository.findSplitsByExpenseId(expenseId = expenseId, userId = userId).map { existingSplits =>
           val oldTotal = existingSplits.foldLeft(BigDecimal(0))(_ + _.amount)
           existingSplits.map { s =>
             val newAmount =
               if (oldTotal == 0) s.amount
               else (s.amount / oldTotal * amount).setScale(2, BigDecimal.RoundingMode.HALF_UP)
-            ExpenseCategorySplit.Create(UuidCreator.getTimeOrderedEpoch(), userId, expenseId, s.categoryId, newAmount)
+            ExpenseCategorySplit.Create(
+              id = UuidCreator.getTimeOrderedEpoch(),
+              userId = userId,
+              expenseId = expenseId,
+              categoryId = s.categoryId,
+              newAmount
+            )
           }
         }
     }

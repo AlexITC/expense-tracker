@@ -12,7 +12,7 @@ class UpdateSavingsGoalAction @Inject() (savingsRepository: SavingsRepository)(i
   def apply(goalId: UUID, userId: UUID, request: UpdateSavingsGoal.Request): Future[UpdateSavingsGoal.Response] = {
     for {
       _ <- validate(request)
-      _ <- savingsRepository.updateGoal(goalId, userId, request.name, request.targetAmount)
+      _ <- savingsRepository.updateGoal(id = goalId, userId = userId, request.name, request.targetAmount)
     } yield UpdateSavingsGoal.Response()
   }
 

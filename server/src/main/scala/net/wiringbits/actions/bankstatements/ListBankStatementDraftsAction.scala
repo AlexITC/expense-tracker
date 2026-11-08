@@ -14,7 +14,7 @@ class ListBankStatementDraftsAction @Inject() (bankStatementDraftRepository: Ban
   def apply(userId: UUID): Future[BankStatementDraft.Listing.Response] =
     bankStatementDraftRepository.listByUser(userId).map { drafts =>
       BankStatementDraft.Listing.Response(
-        drafts.map(d => BankStatementDraft.Summary(d.id, d.filename, d.status, d.error))
+        drafts.map(d => BankStatementDraft.Summary(d.id, filename = d.filename, status = d.status, d.error))
       )
     }
 }

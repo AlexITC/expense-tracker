@@ -26,7 +26,7 @@ class AiExtractBankStatementAction @Inject() (
 
   def apply(userId: UUID, request: AiExtractBankStatement.Request): Future[AiExtractBankStatement.Response] =
     for {
-      stmtOpt <- bankStatementRepository.find(request.bankStatementId, userId)
+      stmtOpt <- bankStatementRepository.find(id = request.bankStatementId, userId = userId)
       stmt = stmtOpt.getOrElse(throw new RuntimeException("Bank statement not found"))
       docOpt <- documentsRepository.findById(stmt.documentId)
       doc = docOpt.getOrElse(throw new RuntimeException("Document not found"))
@@ -38,7 +38,7 @@ class AiExtractBankStatementAction @Inject() (
       raw <- bedrockClient.extractBankStatement(text)
     } yield {
       val result = AiStatementExtractor
-        .parseAndVerify(raw, bedrockConfig.statementModelId)
+        .parseAndVerify(rawJson = raw, model = bedrockConfig.statementModelId)
         .fold(err => throw new RuntimeException(err), identity)
       logger.info(
         s"AI extract for ${request.bankStatementId}: model=${result.model} transactions=${result.transactions.size} " +

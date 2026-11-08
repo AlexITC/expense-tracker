@@ -12,9 +12,9 @@ class GetSavingsAllocationsAction @Inject() (savingsRepository: SavingsRepositor
 
   def apply(goalId: UUID, userId: UUID): Future[GetSavingsAllocations.Response] = {
     for {
-      existing <- savingsRepository.findGoal(goalId, userId)
+      existing <- savingsRepository.findGoal(id = goalId, userId = userId)
       _ = if (existing.isEmpty) throw new RuntimeException("Savings goal not found")
-      allocations <- savingsRepository.allAllocations(goalId, userId)
+      allocations <- savingsRepository.allAllocations(goalId = goalId, userId = userId)
     } yield GetSavingsAllocations.Response(allocations.map(toAllocation))
   }
 

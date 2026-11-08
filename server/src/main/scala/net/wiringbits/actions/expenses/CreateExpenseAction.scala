@@ -32,7 +32,7 @@ class CreateExpenseAction @Inject() (
         request.splits.map(s => (s.categoryId, s.amount))
       )
       _ <- expensesRepository
-        .countByMonth(userId, request.date.getYear, request.date.getMonthValue)
+        .countByMonth(userId, year = request.date.getYear, month = request.date.getMonthValue)
         .flatMap { count =>
           if (count >= 500)
             Future.failed(new RuntimeException("Maximum number of expenses for this month (500) reached"))

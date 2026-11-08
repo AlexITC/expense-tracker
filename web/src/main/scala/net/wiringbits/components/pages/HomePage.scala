@@ -70,7 +70,7 @@ object HomePage {
       paragraph(
         Fragment(
           texts.userProfileDescription,
-          link(texts.tryIt.toLowerCase, "https://template-demo.wiringbits.net/signin")
+          link(msg = texts.tryIt.toLowerCase, url = "https://template-demo.wiringbits.net/signin")
         )
       ),
       br(),
@@ -82,10 +82,10 @@ object HomePage {
       paragraph(
         Fragment(
           texts.swaggerIntegrationDescription,
-          link(texts.tryIt.toLowerCase, "https://template-demo.wiringbits.net/api/docs/index.html")
+          link(msg = texts.tryIt.toLowerCase, url = "https://template-demo.wiringbits.net/api/docs/index.html")
         )
       ),
-      image("/img/home/swagger.png", texts.swaggerIntegration, "screenshot"),
+      image(srcImg = "/img/home/swagger.png", altImg = texts.swaggerIntegration, classImg = "screenshot"),
       br(),
       br()
     )
@@ -93,11 +93,11 @@ object HomePage {
     val dataLoadingFragment = Fragment(
       title(texts.consistentDataLoading),
       paragraph(texts.consistentDataLoadingDescription),
-      image("/img/home/async-component-snippet.png", texts.swaggerIntegration, "snippet"),
+      image(srcImg = "/img/home/async-component-snippet.png", altImg = texts.swaggerIntegration, classImg = "snippet"),
       paragraph(texts.dataIsBeingLoaded),
-      image("/img/home/async-progress.png", texts.swaggerIntegration, "screenshot"),
+      image(srcImg = "/img/home/async-progress.png", altImg = texts.swaggerIntegration, classImg = "screenshot"),
       paragraph(texts.problemFetchingData),
-      image("/img/home/async-retry.png", texts.swaggerIntegration, "screenshot"),
+      image(srcImg = "/img/home/async-retry.png", altImg = texts.swaggerIntegration, classImg = "screenshot"),
       br(),
       br()
     )

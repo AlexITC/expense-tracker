@@ -14,12 +14,12 @@ class DeleteDocumentAction @Inject() (documentsRepository: DocumentsRepository, 
 
   def apply(documentId: UUID, userId: UUID): Future[DeleteDocument.Response] = {
     for {
-      docOpt <- documentsRepository.find(documentId, userId)
+      docOpt <- documentsRepository.find(id = documentId, userId = userId)
       doc = docOpt.getOrElse(throw new RuntimeException("Document not found"))
       // S3 delete is idempotent — missing object is treated as success by S3BlobStorage.
       // Skip for legacy rows that predate storage (empty storageKey).
       _ <- if (doc.storageKey.nonEmpty) blobStorage.delete(doc.storageKey) else Future.unit
-      _ <- documentsRepository.delete(documentId, userId)
+      _ <- documentsRepository.delete(id = documentId, userId = userId)
     } yield DeleteDocument.Response(documentId)
   }
 }

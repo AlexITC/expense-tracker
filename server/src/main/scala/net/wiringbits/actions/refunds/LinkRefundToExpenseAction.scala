@@ -18,10 +18,10 @@ class LinkRefundToExpenseAction @Inject() (
       request: LinkRefundToExpense.Request
   ): Future[LinkRefundToExpense.Response] =
     for {
-      refundOpt <- refundsRepository.find(refundId, userId)
+      refundOpt <- refundsRepository.find(id = refundId, userId = userId)
       _ = if (refundOpt.isEmpty) throw new RuntimeException("Refund not found")
-      expenseOpt <- expensesRepository.find(request.expenseId, userId)
+      expenseOpt <- expensesRepository.find(id = request.expenseId, userId = userId)
       _ = if (expenseOpt.isEmpty) throw new RuntimeException("Expense not found")
-      _ <- refundsRepository.linkToExpense(refundId, userId, request.expenseId)
+      _ <- refundsRepository.linkToExpense(id = refundId, userId = userId, expenseId = request.expenseId)
     } yield LinkRefundToExpense.Response()
 }

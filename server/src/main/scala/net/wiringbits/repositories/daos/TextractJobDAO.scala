@@ -22,7 +22,18 @@ object TextractJobDAO {
       get[Instant]("created_at") ~
       get[Instant]("updated_at")).map {
       case id ~ userId ~ documentId ~ apiType ~ jobId ~ status ~ attempts ~ lastPolledAt ~ createdAt ~ updatedAt =>
-        TextractJob(id, userId, documentId, apiType, jobId, status, attempts, lastPolledAt, createdAt, updatedAt)
+        TextractJob(
+          id = id,
+          userId = userId,
+          documentId = documentId,
+          apiType = apiType,
+          jobId = jobId,
+          status = status,
+          attempts = attempts,
+          lastPolledAt = lastPolledAt,
+          createdAt = createdAt,
+          updatedAt = updatedAt
+        )
     }
 
   def create(req: TextractJob.Create)(implicit conn: Connection): Unit = {
