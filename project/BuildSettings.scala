@@ -1,6 +1,8 @@
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 
+import org.scalablytyped.converter.Selection
+import org.scalablytyped.converter.plugin.ScalablyTypedConverterGenSourcePlugin.autoImport.stMinimize
 import org.scalablytyped.converter.plugin.ScalablyTypedPluginBase.autoImport._
 import org.scalajs.sbtplugin.ScalaJSPlugin
 import org.scalajs.sbtplugin.ScalaJSPlugin.autoImport._
@@ -32,6 +34,16 @@ object BuildSettings {
 
   lazy val commonSettings: Project => Project = {
     _.settings(
+      // Options every module wants: a fixed source encoding, the standard warning set, and more
+      // detailed type-error output. Module-specific extras live in the base* settings below.
+      scalacOptions ++= Seq(
+        "-encoding",
+        "utf-8", // Specify character encoding used by source files.
+        "-deprecation",
+        "-feature",
+        "-unchecked",
+        "-explaintypes" // Explain type errors in more detail.
+      ),
       // Enable fatal warnings only when running in the CI
       scalacOptions ++= {
         sys.env
@@ -40,9 +52,6 @@ object BuildSettings {
           .map(_ => Seq("-Werror"))
           .getOrElse(Seq.empty[String])
       },
-      // ScalablyTyped-generated inline code uses scala.scalajs.runtime.linkingInfo which was deprecated
-      // in Scala.js 1.18.0. We can't fix it in the generated code, so suppress the warning.
-      scalacOptions += "-Wconf:cat=deprecation&origin=scala.scalajs.runtime.*:s",
       Compile / compile / wartremoverErrors ++= List(
         Wart.ArrayEquals,
         //      Wart.Any,
@@ -80,15 +89,21 @@ object BuildSettings {
     )
   }
 
-  // TODO: Reuse it in all projects
+  // Shared by every Scala.js module (lib/common.js, lib/api.js, web).
+  lazy val scalaJsModuleSettings: Project => Project = _.settings(
+    useYarn := true,
+    yarnExtraArgs ++= yarnLockfileArgs,
+    Test / fork := false, // sjs needs this to run tests
+    stUseScalaJsDom := true,
+    Compile / stMinimize := Selection.All,
+    // ScalablyTyped-generated inline code uses scala.scalajs.runtime.linkingInfo which was deprecated
+    // in Scala.js 1.18.0. We can't fix the generated code, so suppress the warning. Only Scala.js
+    // modules reference it, so it belongs here rather than in commonSettings.
+    scalacOptions += "-Wconf:cat=deprecation&origin=scala.scalajs.runtime.*:s"
+  )
+
   lazy val baseServerSettings: Project => Project = {
     _.settings(
-      scalacOptions ++= Seq(
-        "-unchecked",
-        "-deprecation",
-        "-feature"
-      ),
-      Compile / doc / scalacOptions ++= Seq("-no-link-warnings"),
       // Some options are very noisy when using the console and prevent us using it smoothly, let's disable them
       Compile / console / scalacOptions ~= (_.filterNot(consoleDisabledOptions.contains))
     )
@@ -98,34 +113,14 @@ object BuildSettings {
   lazy val baseWebSettings: Project => Project =
     _.enablePlugins(ScalaJSPlugin)
       .settings(
-        scalacOptions ++= Seq(
-          "-deprecation", // Emit warning and location for usages of deprecated APIs.
-          "-explaintypes", // Explain type errors in more detail.
-          "-feature", // Emit warning and location for usages of features that should be imported explicitly.
-          "-unchecked" // Enable additional warnings where generated code depends on assumptions.
-        ),
         scalaJSUseMainModuleInitializer := true,
         /* disabled because it somehow triggers many warnings */
         scalaJSLinkerConfig := scalaJSLinkerConfig.value.withSourceMap(false),
         /* for slinky */
         libraryDependencies += Dependencies.slinkyHot.value,
         libraryDependencies ++= Dependencies.scalaJsTime.value,
-        Test / fork := false, // sjs needs this to run tests
         Test / requireJsDomEnv := true
       )
-
-  // Used only by the lib projects
-  // TODO: This should go to commonSettings instead
-  lazy val baseLibSettings: Project => Project = _.settings(
-    scalacOptions ++= Seq(
-      "-deprecation", // Emit warning and location for usages of deprecated APIs.
-      "-encoding",
-      "utf-8", // Specify character encoding used by source files.
-      "-explaintypes", // Explain type errors in more detail.
-      "-feature", // Emit warning and location for usages of features that should be imported explicitly.
-      "-unchecked" // Enable additional warnings where generated code depends on assumptions.
-    )
-  )
 
   /** Implement the `build` task defined above. Most of this is really just to copy the index.html file around.
     */
@@ -182,15 +177,7 @@ object BuildSettings {
     _.settings(
       stTypescriptVersion := "3.9.3",
       stIgnore += "react-proxy",
-      Compile / npmDependencies ++= Seq(
-        "react" -> "18.2.0",
-        "@types/react" -> "18.0.33",
-        "react-dom" -> "18.2.0",
-        "@types/react-dom" -> "18.0.11",
-        "csstype" -> "2.6.11",
-        "react-proxy" -> "1.1.8",
-        "@types/prop-types" -> "15.7.3"
-      )
+      Compile / npmDependencies ++= Dependencies.reactNpmDependencies
     )
 
   lazy val withCssLoading: Project => Project =
@@ -198,13 +185,7 @@ object BuildSettings {
       /* custom webpack file to include css */
       Compile / webpackConfigFile := Some((ThisBuild / baseDirectory).value / "custom.webpack.config.js"),
       Test / webpackConfigFile := None, // it is important to avoid the custom webpack config in tests to get them passing
-      Compile / npmDevDependencies ++= Seq(
-        "webpack-merge" -> "4.2.2",
-        "css-loader" -> "3.4.2",
-        "style-loader" -> "1.1.3",
-        "file-loader" -> "5.1.0",
-        "url-loader" -> "3.0.0"
-      )
+      Compile / npmDevDependencies ++= Dependencies.cssNpmDevDependencies
     )
 
   lazy val bundlerSettings: Project => Project =
