@@ -111,7 +111,9 @@ jobs:
           # v3: dropped the ScalablyTyped dirs (now their own cache below). Because the
           # cache version is derived from the paths, this can't restore a v2 entry, so
           # dependencies re-resolve once on the cutover and the v3 cache is saved after.
-          key: sbt-deps-v3-${{ hashFiles('**/*.sbt', 'project/**') }}
+          # Hash the build-definition files that drive resolution. project/*.scala is
+          # included because versions and dependency lists live in project/Dependencies.scala.
+          key: sbt-deps-v3-${{ hashFiles('build.sbt', 'project/*.sbt', 'project/*.scala', 'project/build.properties') }}
           restore-keys: sbt-deps-v3-
 
       # ScalablyTyped artifacts: the .d.ts->Scala parse cache (~/.cache/scalablytyped) and
