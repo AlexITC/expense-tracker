@@ -45,6 +45,9 @@ lazy val server = (project in file("server"))
     // The backend should not produce inferred Any. Anorm (dynamically typed column values) and the sttp
     // uri interpolator are the exceptions, suppressed at their definitions.
     Compile / compile / wartremoverErrors += Wart.Any,
+    // Flag implicit toString (e.g. an object spliced into a string). The one deliberate use is suppressed
+    // at its definition. Server-only: web has unrelated toString uses in its JS-facade code.
+    Compile / compile / wartremoverErrors += Wart.ToString,
     name := "wiringbits-server",
     fork := true,
     // In CI, run suites in parallel in a single JVM sharing the one Postgres container (scaled to cores via
