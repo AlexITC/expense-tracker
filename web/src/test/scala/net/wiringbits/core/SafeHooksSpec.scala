@@ -1,14 +1,9 @@
 package net.wiringbits.core
 
-import org.scalajs.dom
-import org.scalatest.BeforeAndAfterEach
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 import slinky.core.FunctionalComponent
-import slinky.web.ReactDOM
 import slinky.web.html.*
-
-import scala.compiletime.uninitialized
 
 /** Confirms the SafeHooks wrapper threads String dependency keys through to React's comparison (via useMemo, which
   * recomputes synchronously). HookDepsProbeSpec proves the underlying per-type behaviour.
@@ -22,29 +17,21 @@ object SafeHooksSpec {
   }
 }
 
-class SafeHooksSpec extends AnyWordSpec with BeforeAndAfterEach {
+class SafeHooksSpec extends AnyWordSpec with ReactTestDom {
   import SafeHooksSpec.*
 
-  private var container: dom.Element = uninitialized
-
   override def beforeEach(): Unit = {
-    container = dom.document.createElement("div")
-    dom.document.body.appendChild(container)
+    super.beforeEach()
     computes = 0
-  }
-
-  override def afterEach(): Unit = {
-    ReactDOM.unmountComponentAtNode(container)
-    dom.document.body.removeChild(container)
   }
 
   "useMemo" should {
     "recompute once when the String key is constant across renders" in {
-      (0 until 3).foreach(n => ReactDOM.render(probe(Props("k", n)), container))
+      (0 until 3).foreach(n => render(probe(Props("k", n))))
       computes must be(1)
     }
     "recompute on each render when the String key changes" in {
-      (0 until 3).foreach(n => ReactDOM.render(probe(Props(n.toString, n)), container))
+      (0 until 3).foreach(n => render(probe(Props(n.toString, n))))
       computes must be(3)
     }
   }

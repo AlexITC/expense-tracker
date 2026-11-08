@@ -12,31 +12,17 @@ import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewLo
   RowInfo
 }
 import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewRow.{ReceiptAction, RowAction}
+import net.wiringbits.core.ReactTestDom
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.BrowserRouter
 import org.scalajs.dom
-import org.scalatest.BeforeAndAfterEach
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 import slinky.core.facade.{Fragment, ReactElement}
-import slinky.web.ReactDOM
 
 import java.time.{Instant, LocalDate}
 import java.util.UUID
-import scala.compiletime.uninitialized
 
-class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
-
-  private var container: dom.Element = uninitialized
-
-  override def beforeEach(): Unit = {
-    container = dom.document.createElement("div")
-    dom.document.body.appendChild(container)
-  }
-
-  override def afterEach(): Unit = {
-    ReactDOM.unmountComponentAtNode(container)
-    dom.document.body.removeChild(container)
-  }
+class BankStatementReviewRowSpec extends AnyWordSpec with ReactTestDom {
 
   private def row(description: String): GetBankStatement.StatementRowData =
     GetBankStatement.StatementRowData(
@@ -111,16 +97,15 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
       onReceiptAction = onReceiptAction
     )
 
-  private def renderProps(rowProps: List[BankStatementReviewRow.Props]) =
-    ReactDOM.render(
+  private def renderProps(rowProps: List[BankStatementReviewRow.Props]): Unit =
+    render(
       BrowserRouter(basename = "")(
         mui.Table(
           mui.TableBody(
             Fragment(rowProps.map(p => (BankStatementReviewRow(p).withKey(p.row.id.toString): ReactElement))*)
           )
         )
-      ): ReactElement,
-      container
+      ): ReactElement
     )
 
   private def render(rows: List[(GetBankStatement.StatementRowData, RowInfo)], onAction: (UUID, RowAction) => Unit) =
@@ -130,7 +115,7 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
     val buttons = container.querySelectorAll("button")
     val matching = (0 until buttons.length).map(buttons(_)).filter(_.textContent == label)
     matching.length mustBe 1
-    matching.head.asInstanceOf[dom.html.Element].click()
+    act(matching.head.asInstanceOf[dom.html.Element].click())
   }
 
   private def amountText: String = container.querySelectorAll("td")(2).textContent
@@ -153,10 +138,10 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
       render(List(r -> readyInfo), (id, action) => received = received :+ (id -> action))
 
       val buttons = container.querySelectorAll("button")
-      buttons(buttons.length - 1).asInstanceOf[dom.html.Element].click()
+      act(buttons(buttons.length - 1).asInstanceOf[dom.html.Element].click())
       val items = dom.document.body.querySelectorAll("[role=menuitem]")
       items.length mustBe 3
-      items(2).asInstanceOf[dom.html.Element].click()
+      act(items(2).asInstanceOf[dom.html.Element].click())
 
       received mustBe List(r.id -> RowAction.Ignore)
     }
@@ -184,8 +169,8 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
       render(List(r -> readyInfo), (id, action) => received = received :+ (id -> action))
       def clickMenuItem(index: Int): Unit = {
         val buttons = container.querySelectorAll("button")
-        buttons(buttons.length - 1).asInstanceOf[dom.html.Element].click()
-        dom.document.body.querySelectorAll("[role=menuitem]")(index).asInstanceOf[dom.html.Element].click()
+        act(buttons(buttons.length - 1).asInstanceOf[dom.html.Element].click())
+        act(dom.document.body.querySelectorAll("[role=menuitem]")(index).asInstanceOf[dom.html.Element].click())
       }
       clickMenuItem(0)
       clickMenuItem(1)
@@ -207,13 +192,14 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
         var received = List.empty[(UUID, RowAction)]
         render(List(r -> linkedInfo), (id, action) => received = received :+ (id -> action))
         val buttons = container.querySelectorAll("button")
-        buttons(buttons.length - 1).asInstanceOf[dom.html.Element].click()
+        act(buttons(buttons.length - 1).asInstanceOf[dom.html.Element].click())
         val items = dom.document.body.querySelectorAll("[role=menuitem]")
         items.length mustBe 1
         items(0).textContent mustBe label
-        items(0).asInstanceOf[dom.html.Element].click()
+        act(items(0).asInstanceOf[dom.html.Element].click())
         received mustBe List(r.id -> expected)
-        ReactDOM.unmountComponentAtNode(container)
+      // Each case renders a row with a distinct key, so the next render unmounts this row (and its menu);
+      // no explicit unmount needed between iterations.
       }
     }
 
@@ -328,7 +314,7 @@ class BankStatementReviewRowSpec extends AnyWordSpec with BeforeAndAfterEach {
       val r = row("SUPERMARKET")
       var toggled = List.empty[(UUID, Boolean)]
       renderProps(List(props(r, readyInfo, (_, _) => (), (id, checked) => toggled = toggled :+ (id -> checked))))
-      container.querySelector("input[type=checkbox]").asInstanceOf[dom.html.Element].click()
+      act(container.querySelector("input[type=checkbox]").asInstanceOf[dom.html.Element].click())
       toggled mustBe List(r.id -> true)
     }
 

@@ -6,34 +6,18 @@ import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{GetImportRules, GetMerchants, ImportRuleAction}
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.common.models.Email
-import net.wiringbits.core.I18nLang
+import net.wiringbits.core.{I18nLang, ReactTestDom}
 import net.wiringbits.models.AuthState
 import net.wiringbits.{API, AppContext}
-import org.scalajs.dom
-import org.scalatest.BeforeAndAfterEach
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 import slinky.core.facade.ReactElement
-import slinky.web.ReactDOM
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.BrowserRouter
 
 import java.time.Instant
 import java.util.UUID
-import scala.compiletime.uninitialized
 
-class ImportRuleListSpec extends AnyWordSpec with BeforeAndAfterEach {
-
-  private var container: dom.Element = uninitialized
-
-  override def beforeEach(): Unit = {
-    container = dom.document.createElement("div")
-    dom.document.body.appendChild(container)
-  }
-
-  override def afterEach(): Unit = {
-    ReactDOM.unmountComponentAtNode(container)
-    dom.document.body.removeChild(container)
-  }
+class ImportRuleListSpec extends AnyWordSpec with ReactTestDom {
 
   // ImportRuleList never calls ctx.api at render time, so null is safe here.
   private def testCtx(): AppContext = {
@@ -162,20 +146,19 @@ class ImportRuleListSpec extends AnyWordSpec with BeforeAndAfterEach {
   "ImportRuleList" should {
     "render without throwing (guards against withKey element-reuse crashes)" in {
       // Guards against withKey element-reuse crashes: each rule card uses .withKey(r.id.toString)
-      noException should be thrownBy ReactDOM.render(
+      noException should be thrownBy render(
         ImportRuleList(
           testCtx(),
           sampleRulesResponse,
           sampleMerchantsResponse,
           sampleCategoriesResponse,
           () => ()
-        ): ReactElement,
-        container
+        ): ReactElement
       )
     }
 
     "render the category name for a set_category rule" in {
-      ReactDOM.render(
+      render(
         BrowserRouter(basename = "")(
           ImportRuleList(
             testCtx(),
@@ -184,8 +167,7 @@ class ImportRuleListSpec extends AnyWordSpec with BeforeAndAfterEach {
             sampleCategoriesResponse,
             () => ()
           )
-        ): ReactElement,
-        container
+        ): ReactElement
       )
       container.textContent must include("→ Coffee")
     }

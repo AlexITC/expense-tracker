@@ -1,16 +1,13 @@
 package net.wiringbits.components
 
-import org.scalajs.dom
-import org.scalatest.BeforeAndAfterEach
+import net.wiringbits.core.ReactTestDom
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 import slinky.core.FunctionalComponent
 import slinky.core.facade.Hooks
-import slinky.web.ReactDOM
 import slinky.web.html.*
 
 import java.util.UUID
-import scala.compiletime.uninitialized
 import scala.scalajs.js
 
 /** Proves how React hook dependency lists actually behave in Slinky, so the "use only primitives in deps" rule rests on
@@ -81,25 +78,17 @@ object HookDepsProbeSpec {
   }
 }
 
-class HookDepsProbeSpec extends AnyWordSpec with BeforeAndAfterEach {
+class HookDepsProbeSpec extends AnyWordSpec with ReactTestDom {
   import HookDepsProbeSpec.*
 
-  private var container: dom.Element = uninitialized
-
   override def beforeEach(): Unit = {
-    container = dom.document.createElement("div")
-    dom.document.body.appendChild(container)
+    super.beforeEach()
     counts = scala.collection.mutable.Map.empty
-  }
-
-  override def afterEach(): Unit = {
-    ReactDOM.unmountComponentAtNode(container)
-    dom.document.body.removeChild(container)
   }
 
   /** Render the memo probe 3 times into the same container; useMemo recomputes synchronously so the count is final. */
   private def memoRecomputes(strategy: String): Int = {
-    (0 until 3).foreach(n => ReactDOM.render(memoProbe(Props(strategy, n)), container))
+    (0 until 3).foreach(n => render(memoProbe(Props(strategy, n))))
     counts.getOrElse(strategy, 0)
   }
 

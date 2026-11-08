@@ -5,36 +5,21 @@ import monix.reactive.subjects.Var
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.expenses.{GetExpenses, MergeDetailsSource}
 import net.wiringbits.common.models.Email
-import net.wiringbits.core.I18nLang
+import net.wiringbits.core.{I18nLang, ReactTestDom}
 import net.wiringbits.models.AuthState
 import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Tier}
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.BrowserRouter
 import net.wiringbits.{API, AppContext}
 import org.scalajs.dom
-import org.scalatest.BeforeAndAfterEach
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 import slinky.core.facade.ReactElement
-import slinky.web.ReactDOM
 
 import java.time.{Instant, LocalDate}
 import java.util.UUID
 import scala.collection.mutable.ListBuffer
-import scala.compiletime.uninitialized
 
-class ExpenseDuplicatesPanelSpec extends AnyWordSpec with BeforeAndAfterEach {
-
-  private var container: dom.Element = uninitialized
-
-  override def beforeEach(): Unit = {
-    container = dom.document.createElement("div")
-    dom.document.body.appendChild(container)
-  }
-
-  override def afterEach(): Unit = {
-    ReactDOM.unmountComponentAtNode(container)
-    dom.document.body.removeChild(container)
-  }
+class ExpenseDuplicatesPanelSpec extends AnyWordSpec with ReactTestDom {
 
   // ExpenseDuplicatesPanel only calls ctx.api from View receipt, which is not rendered without receipt filenames.
   private def testCtx(): AppContext = {
@@ -82,7 +67,7 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with BeforeAndAfterEach {
       onBulkMerge: () => Unit = () => (),
       bulkMerging: Boolean = false
   ): Unit =
-    ReactDOM.render(
+    render(
       BrowserRouter(basename = "")(
         ExpenseDuplicatesPanel(
           ctx = testCtx(),
@@ -98,8 +83,7 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with BeforeAndAfterEach {
           onBulkMerge = onBulkMerge,
           bulkMerging = bulkMerging
         )
-      ): ReactElement,
-      container
+      ): ReactElement
     )
 
   private def buttonLabels: List[String] = {
@@ -124,7 +108,7 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with BeforeAndAfterEach {
     val buttons = container.querySelectorAll("button")
     val matching = (0 until buttons.length).map(buttons(_)).filter(_.textContent == label)
     matching.length mustBe 1
-    matching.head.asInstanceOf[dom.html.Element].click()
+    act(matching.head.asInstanceOf[dom.html.Element].click())
   }
 
   private def lastLineOf(columnTitle: String): String = {
@@ -170,14 +154,14 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with BeforeAndAfterEach {
     "report onToggleSelected when a card checkbox is clicked" in {
       val toggled = ListBuffer.empty[(Candidate, Boolean)]
       render((_, _) => (), onToggleSelected = (c, checked) => toggled += (c -> checked))
-      checkboxes(1).click()
+      act(checkboxes(1).click())
       toggled.toList must be(List(candidate -> true))
     }
 
     "report onToggleAll when the select-all checkbox is clicked" in {
       val toggled = ListBuffer.empty[Boolean]
       render((_, _) => (), onToggleAll = checked => toggled += checked)
-      checkboxes.head.click()
+      act(checkboxes.head.click())
       toggled.toList must be(List(true))
     }
 
@@ -219,7 +203,7 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with BeforeAndAfterEach {
       var calls = 0
       render((_, _) => (), selected = Set(ExpenseList.dismissKey(candidate)), onBulkMerge = () => calls += 1)
       bulkButton.textContent must be("Merge selected (1)")
-      bulkButton.click()
+      act(bulkButton.click())
       calls must be(1)
     }
   }

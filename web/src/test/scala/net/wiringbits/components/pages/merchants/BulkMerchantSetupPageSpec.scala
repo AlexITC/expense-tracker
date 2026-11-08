@@ -7,33 +7,18 @@ import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction}
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.common.models.Email
-import net.wiringbits.core.I18nLang
+import net.wiringbits.core.{I18nLang, ReactTestDom}
 import net.wiringbits.models.AuthState
 import net.wiringbits.{API, AppContext}
 import org.scalajs.dom
-import org.scalatest.BeforeAndAfterEach
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
-import scala.compiletime.uninitialized
 import slinky.core.facade.ReactElement
-import slinky.web.ReactDOM
 
 import java.time.{Instant, LocalDate}
 import java.util.UUID
 
-class BulkMerchantSetupPageSpec extends AnyWordSpec with BeforeAndAfterEach {
-
-  private var container: dom.Element = uninitialized
-
-  override def beforeEach(): Unit = {
-    container = dom.document.createElement("div")
-    dom.document.body.appendChild(container)
-  }
-
-  override def afterEach(): Unit = {
-    ReactDOM.unmountComponentAtNode(container)
-    dom.document.body.removeChild(container)
-  }
+class BulkMerchantSetupPageSpec extends AnyWordSpec with ReactTestDom {
 
   // DescriptionRow calls ctx.api only on user interaction (Assign/Ignore buttons),
   // so null is safe for render-only tests.
@@ -97,7 +82,7 @@ class BulkMerchantSetupPageSpec extends AnyWordSpec with BeforeAndAfterEach {
       merchants: List[GetMerchants.Response.Merchant],
       categories: List[GetCategories.Response.Category]
   ): Unit =
-    ReactDOM.render(
+    render(
       DescriptionRow(
         DescriptionRow.Props(
           description = description,
@@ -107,18 +92,19 @@ class BulkMerchantSetupPageSpec extends AnyWordSpec with BeforeAndAfterEach {
           ctx = testCtx(),
           onDone = (_, _, _) => ()
         )
-      ): ReactElement,
-      container
+      ): ReactElement
     )
 
   private def clickAssign(): Unit =
-    container
-      .querySelectorAll("button")
-      .toList
-      .find(_.textContent == "Assign")
-      .getOrElse(fail("Assign button not found"))
-      .asInstanceOf[dom.html.Element]
-      .click()
+    act {
+      container
+        .querySelectorAll("button")
+        .toList
+        .find(_.textContent == "Assign")
+        .getOrElse(fail("Assign button not found"))
+        .asInstanceOf[dom.html.Element]
+        .click()
+    }
 
   "findUnmatchedGroups" should {
     val otherRow = sampleRows.head.copy(id = UUID.randomUUID(), description = "UNKNOWN SHOP 42")
@@ -159,7 +145,7 @@ class BulkMerchantSetupPageSpec extends AnyWordSpec with BeforeAndAfterEach {
       noException should be thrownBy {
         val inputs = container.querySelectorAll("input")
         inputs.length must be > 0
-        inputs.item(0).asInstanceOf[dom.HTMLInputElement].click()
+        act(inputs.item(0).asInstanceOf[dom.HTMLInputElement].click())
       }
     }
 
@@ -168,7 +154,7 @@ class BulkMerchantSetupPageSpec extends AnyWordSpec with BeforeAndAfterEach {
       noException should be thrownBy {
         val inputs = container.querySelectorAll("input")
         inputs.length must be > 1
-        inputs.item(1).asInstanceOf[dom.HTMLInputElement].click()
+        act(inputs.item(1).asInstanceOf[dom.HTMLInputElement].click())
       }
     }
 
