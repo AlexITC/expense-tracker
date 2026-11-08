@@ -52,7 +52,9 @@ object AiExtractionProof {
           )
           r.transactions.foreach { t =>
             val flag = if (t.txnType.exists(_ != "purchase")) s"  <-- ${t.txnType.getOrElse("?")}" else ""
-            println(f"  ${t.date}%s  ${t.amount}%10s  ${t.txnType.getOrElse("-")}%-9s ${t.description}%s$flag%s")
+            println(
+              String.format("  %s  %10s  %-9s %s%s", t.date, t.amount, t.txnType.getOrElse("-"), t.description, flag)
+            )
           }
         case Right(Left(e)) => println(s"$name: EXTRACT/VERIFY ERROR: $e")
         case Left(e) => println(s"$name: PDF ERROR: $e")

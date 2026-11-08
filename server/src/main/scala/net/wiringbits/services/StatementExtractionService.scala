@@ -13,6 +13,7 @@ import play.api.libs.json.{JsValue, Json}
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.util.HexFormat
 import java.time.Clock
 import javax.inject.Inject
 import scala.concurrent.duration.*
@@ -251,5 +252,5 @@ class StatementExtractionService @Inject() (
   }
 
   private def sha256Hex(s: String): String =
-    MessageDigest.getInstance("SHA-256").digest(s.getBytes(StandardCharsets.UTF_8)).map(b => f"$b%02x").mkString
+    HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(s.getBytes(StandardCharsets.UTF_8)))
 }

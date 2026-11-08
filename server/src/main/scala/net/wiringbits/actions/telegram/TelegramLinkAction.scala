@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory
 
 import java.security.MessageDigest
 import java.time.Clock
+import java.util.HexFormat
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
@@ -37,9 +38,5 @@ class TelegramLinkAction @Inject() (
   }
 
   private def hashHex(s: String): String =
-    MessageDigest
-      .getInstance("SHA-256")
-      .digest(s.getBytes("UTF-8"))
-      .map(b => f"${b & 0xff}%02x")
-      .mkString
+    HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(s.getBytes("UTF-8")))
 }

@@ -31,6 +31,9 @@ package object daos {
       case Some(j) => jsValueToStatement.set(stmt, idx, j)
     }
 
+  // Anorm hands column values in as Any (database values are dynamically typed), so the Any wart is
+  // unavoidable in these Column decoders.
+  @SuppressWarnings(Array("org.wartremover.warts.Any"))
   implicit val jsValueColumn: Column[JsValue] = Column.nonNull { case (value, meta) =>
     val MetaDataItem(qualified, _, _) = meta
     value match {
@@ -63,6 +66,7 @@ package object daos {
     js.validate[AiSuggestions].asEither.left.map(e => TypeDoesNotMatch(s"Cannot parse AiSuggestions: $e"))
   }
 
+  @SuppressWarnings(Array("org.wartremover.warts.Any"))
   implicit val citextToString: Column[String] = Column.nonNull { case (value, meta) =>
     val MetaDataItem(qualified, _, clazz) = meta
     value match {
@@ -170,6 +174,7 @@ package object daos {
   implicit val localTimeToStatement: ToStatement[LocalTime] = (stmt, idx, value) =>
     stmt.setTime(idx, java.sql.Time.valueOf(value))
 
+  @SuppressWarnings(Array("org.wartremover.warts.Any"))
   implicit val localDateColumn: Column[LocalDate] = Column.nonNull { case (value, meta) =>
     value match {
       case d: java.sql.Date => Right(d.toLocalDate)
@@ -182,6 +187,7 @@ package object daos {
     }
   }
 
+  @SuppressWarnings(Array("org.wartremover.warts.Any"))
   implicit val localTimeColumn: Column[LocalTime] = Column.nonNull { case (value, meta) =>
     value match {
       case t: java.sql.Time => Right(t.toLocalTime)

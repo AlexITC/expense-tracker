@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory
 
 import java.security.MessageDigest
 import java.time.{Clock, LocalDate}
+import java.util.HexFormat
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
@@ -170,8 +171,8 @@ class TelegramPhotoAction @Inject() (
 
   // The message is sent before the row that references it is stored; when storing fails, nothing would ever edit the
   // message again, so it is turned into a failure text before the error propagates.
-  private def withOrphanCleanup(userId: UUID, chatId: Long, messageId: Option[Long])(
-      store: => Future[?]
+  private def withOrphanCleanup[A](userId: UUID, chatId: Long, messageId: Option[Long])(
+      store: => Future[A]
   ): Future[Unit] =
     store.map(_ => ()).recoverWith { case e =>
       val cleanup = messageId.fold(Future.unit) { id =>
@@ -191,5 +192,5 @@ class TelegramPhotoAction @Inject() (
     }
 
   private def computeSha256(bytes: Array[Byte]): String =
-    MessageDigest.getInstance("SHA-256").digest(bytes).map(b => f"${b & 0xff}%02x").mkString
+    HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
 }

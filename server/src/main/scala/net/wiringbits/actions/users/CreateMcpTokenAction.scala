@@ -8,6 +8,7 @@ import net.wiringbits.repositories.McpRepository
 
 import java.security.SecureRandom
 import java.time.Clock
+import java.util.HexFormat
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
@@ -20,7 +21,7 @@ class CreateMcpTokenAction @Inject() (
   def apply(userId: UUID): Future[CreateMcpToken.Response] = {
     val bytes = new Array[Byte](16)
     secureRandom.nextBytes(bytes)
-    val token = bytes.map(b => f"${b & 0xff}%02x").mkString
+    val token = HexFormat.of().formatHex(bytes)
     val tokenHash = McpTokenHasher.hashHex(token)
     mcpRepository
       .create(id = UuidCreator.getTimeOrderedEpoch(), userId = userId, tokenHash, clock.instant())
