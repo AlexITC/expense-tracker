@@ -12,7 +12,6 @@ import scala.jdk.FutureConverters.CompletionStageOps
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.{Future, blocking}
 
-@SuppressWarnings(Array("net.wiringbits.warts.NamedArguments")) // AWS SDK is a Java API with no parameter names
 class EmailApiAWSImpl @Inject() (
     emailConfig: EmailConfig,
     awsConfig: AWSConfig

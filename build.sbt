@@ -81,7 +81,7 @@ lazy val commonSettings: Project => Project = {
     ),
     // `%%` resolves the JVM `_3` artifact even in Scala.js modules (no `_sjs1` suffix); the wart runs on
     // the JVM at compile time.
-    libraryDependencies += "net.wiringbits" %% "core-warts" % "0.5.2",
+    libraryDependencies += "net.wiringbits" %% "core-warts" % "0.5.3",
     wartremoverClasspaths ++= {
       (Compile / dependencyClasspath).value.files
         .find(_.name.contains("core-warts"))

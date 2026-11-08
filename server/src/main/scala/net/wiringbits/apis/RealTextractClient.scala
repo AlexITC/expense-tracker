@@ -30,7 +30,6 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
 import scala.jdk.FutureConverters.*
 
-@SuppressWarnings(Array("net.wiringbits.warts.NamedArguments")) // AWS SDK is a Java API with no parameter names
 class RealTextractClient(awsConfig: AWSConfig)(implicit ec: ExecutionContext) extends TextractClient {
 
   private val client: TextractAsyncClient = {

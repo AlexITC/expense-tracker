@@ -17,7 +17,6 @@ import software.amazon.awssdk.services.bedrockruntime.model.{
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.FutureConverters.*
 
-@SuppressWarnings(Array("net.wiringbits.warts.NamedArguments")) // AWS SDK is a Java API with no parameter names
 class RealBedrockClient(config: BedrockConfig)(implicit ec: ExecutionContext) extends BedrockClient {
 
   private val SuggestionsMaxTokens = 4096
