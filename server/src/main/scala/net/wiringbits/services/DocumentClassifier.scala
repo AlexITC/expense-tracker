@@ -73,13 +73,23 @@ class DocumentClassifier @Inject() (jevClient: JevClient, jevConfig: JevConfig)(
 
   private def ask(state: String): Future[DocumentClassification] =
     for {
-      typeChoice <- jevClient.choose(state, TypeQuestion, TypeInstructions, TypeCriteria)
+      typeChoice <- jevClient.choose(
+        state = state,
+        questionName = TypeQuestion,
+        instructions = TypeInstructions,
+        TypeCriteria
+      )
       documentClass <- ClassByKey.get(typeChoice.choice) match {
         case Some(documentClass) => Future.successful(documentClass)
         case None =>
           Future.failed(new RuntimeException(s"JEV chose '${typeChoice.choice}', which is not a document type key"))
       }
-      injectionChoice <- jevClient.choose(state, InjectionQuestion, InjectionInstructions, InjectionCriteria)
+      injectionChoice <- jevClient.choose(
+        state = state,
+        questionName = InjectionQuestion,
+        instructions = InjectionInstructions,
+        InjectionCriteria
+      )
     } yield DocumentClassification(
       documentClass = documentClass,
       confidence = typeChoice.confidence,

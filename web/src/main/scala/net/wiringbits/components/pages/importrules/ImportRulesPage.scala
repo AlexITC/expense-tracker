@@ -163,11 +163,19 @@ object ImportRuleList {
             case Some(existing) => Future.successful(existing.id)
             case None =>
               props.ctx.api.client
-                .createMerchant(CreateMerchant.Request(name, None, None, None))
+                .createMerchant(CreateMerchant.Request(name, notes = None, None, taxId = None))
                 .map { resp =>
                   setLocalMerchants(cur =>
                     cur :+ GetMerchants.Response
-                      .Merchant(resp.id, resp.name, None, None, None, reviewed = false, java.time.Instant.now())
+                      .Merchant(
+                        resp.id,
+                        resp.name,
+                        notes = None,
+                        None,
+                        taxId = None,
+                        reviewed = false,
+                        java.time.Instant.now()
+                      )
                   )
                   resp.id
                 }
@@ -326,7 +334,7 @@ object ImportRuleList {
           case _ => ()
         }
       acDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-        val (text, rsn) = MuiCompat.autocompleteInputChange(value, reason)
+        val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
         onInputChange(text)
         if (rsn != "reset") onIdChange(None)
       }
@@ -353,7 +361,7 @@ object ImportRuleList {
           case _ => ()
         }
       acDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-        val (text, rsn) = MuiCompat.autocompleteInputChange(value, reason)
+        val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
         onInputChange(text)
         if (rsn != "reset") onIdChange(None)
       }

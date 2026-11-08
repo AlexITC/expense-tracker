@@ -52,7 +52,10 @@ object BankStatementReviewLogic {
   /** The bank statements list, filtered to this statement's account; independent of browser history. */
   def backToListPath(stmt: GetBankStatement.Response): String =
     BankStatementsLogic.listPath(
-      account = Some(BankStatementsLogic.accountKey(stmt.bankName, stmt.productType, stmt.accountLast4)),
+      account = Some(
+        BankStatementsLogic
+          .accountKey(bankName = stmt.bankName, productType = stmt.productType, accountLast4 = stmt.accountLast4)
+      ),
       name = ""
     )
 
@@ -164,8 +167,9 @@ object BankStatementReviewLogic {
     else
       verdict match {
         case RowRuleVerdict.SetMerchant(merchantId) =>
-          merchants.find(_.id == merchantId).map(m => RefundPrefill(Some(m.id), m.categoryId))
-        case RowRuleVerdict.SetCategory(categoryId) => Some(RefundPrefill(None, Some(categoryId)))
+          merchants.find(_.id == merchantId).map(m => RefundPrefill(merchantId = Some(m.id), categoryId = m.categoryId))
+        case RowRuleVerdict.SetCategory(categoryId) =>
+          Some(RefundPrefill(merchantId = None, categoryId = Some(categoryId)))
         case RowRuleVerdict.Ignore | RowRuleVerdict.NoRule => None
       }
 

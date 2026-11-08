@@ -19,6 +19,13 @@ class GetSavingsGoalsAction @Inject() (savingsRepository: SavingsRepository)(imp
   private def toGoal(pair: (SavingsGoal, BigDecimal)): GetSavingsGoals.Response.Goal = {
     val (goal, balance) = pair
     val progress = goal.targetAmount.map(target => balance / target)
-    GetSavingsGoals.Response.Goal(goal.id, goal.name, goal.targetAmount, balance, progress, goal.createdAt)
+    GetSavingsGoals.Response.Goal(
+      goal.id,
+      goal.name,
+      targetAmount = goal.targetAmount,
+      balance,
+      progress = progress,
+      goal.createdAt
+    )
   }
 }

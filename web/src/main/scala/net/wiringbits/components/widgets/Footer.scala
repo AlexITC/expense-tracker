@@ -63,13 +63,13 @@ object Footer {
       flex = Some(1),
       child = Fragment(
         title("Projects"),
-        link("CollabUML", "https://collabuml.com"),
-        link("The Stakenet Block Explorer", "https://xsnexplorer.io/"),
-        link("The Stakenet Orderbook", "https://orderbook.stakenet.io/XSN_BTC"),
-        link("Pull Request Attention", "https://prattention.com"),
-        link("CazaDescuentos", "https://cazadescuentos.net"),
-        link("safer.chat", "https://safer.chat"),
-        link("Crypto Coin Alerts", "https://github.com/AlexITC/crypto-coin-alerts")
+        link(text = "CollabUML", url = "https://collabuml.com"),
+        link(text = "The Stakenet Block Explorer", url = "https://xsnexplorer.io/"),
+        link(text = "The Stakenet Orderbook", url = "https://orderbook.stakenet.io/XSN_BTC"),
+        link(text = "Pull Request Attention", url = "https://prattention.com"),
+        link(text = "CazaDescuentos", url = "https://cazadescuentos.net"),
+        link(text = "safer.chat", url = "https://safer.chat"),
+        link(text = "Crypto Coin Alerts", url = "https://github.com/AlexITC/crypto-coin-alerts")
       )
     )
 
@@ -80,7 +80,7 @@ object Footer {
         Container(
           child = Fragment(
             subtitle(texts.contact),
-            link(props.ctx.contactEmail.string, s"mailto:${props.ctx.contactEmail.string}")
+            link(text = props.ctx.contactEmail.string, url = s"mailto:${props.ctx.contactEmail.string}")
           )
         ),
         Container(

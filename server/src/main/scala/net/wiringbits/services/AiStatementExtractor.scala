@@ -80,8 +80,8 @@ object AiStatementExtractor {
         else {
           val m = json \ "metadata"
           val (periodStart, periodEnd) = resolvePeriod(
-            (m \ "periodStart").asOpt[LocalDate],
-            (m \ "periodEnd").asOpt[LocalDate],
+            start = (m \ "periodStart").asOpt[LocalDate],
+            end = (m \ "periodEnd").asOpt[LocalDate],
             (m \ "periodMonth").asOpt[String]
           )
           val meta = Meta(
@@ -109,7 +109,19 @@ object AiStatementExtractor {
   ): (Boolean, Option[String]) = {
     val txns = rows.map { case (amount, runningBalance) => Txn(LocalDate.MIN, amount, "", runningBalance, None) }
     val (reconciled, discrepancy, _) =
-      verify(Meta(None, None, None, None, None, None, openingBalance, closingBalance), txns)
+      verify(
+        Meta(
+          bankName = None,
+          productType = None,
+          currency = None,
+          accountLast4 = None,
+          periodStart = None,
+          periodEnd = None,
+          openingBalance = openingBalance,
+          closingBalance = closingBalance
+        ),
+        txns
+      )
     (reconciled, discrepancy)
   }
 

@@ -46,9 +46,25 @@ class CreateBankStatementDraftAction @Inject() (
       alreadyUploaded <- blobStorage.exists(storageKey)
       _ <- if (alreadyUploaded) Future.unit else blobStorage.put(storageKey, bytes)
       now = clock.instant()
-      documentLink = resolveDocument(existingDoc, userId, sha256, storageKey, filename, now)
+      documentLink = resolveDocument(
+        existingDoc,
+        userId,
+        sha256 = sha256,
+        storageKey = storageKey,
+        filename = filename,
+        now
+      )
       draftId = UuidCreator.getTimeOrderedEpoch()
-      draft = DraftRecord.Create(draftId, userId, documentLink.documentId, sha256, filename, storageKey, now, now)
+      draft = DraftRecord.Create(
+        id = draftId,
+        userId = userId,
+        documentId = documentLink.documentId,
+        sha256 = sha256,
+        filename = filename,
+        storageKey = storageKey,
+        createdAt = now,
+        updatedAt = now
+      )
       job = BackgroundJobData.Create(
         id = UUID.randomUUID(),
         `type` = BackgroundJobType.ExtractBankStatementDraft,
@@ -68,7 +84,7 @@ class CreateBankStatementDraftAction @Inject() (
         s"Created statement draft $draftId (processing) for user $userId, document ${documentLink.documentId} " +
           s"($linkLabel); enqueued extraction job"
       )
-      ApiDraft.Data(draftId, filename, DraftRecord.Status.Processing, None, None)
+      ApiDraft.Data(draftId, filename = filename, status = DraftRecord.Status.Processing, None, None)
     }
   }
 

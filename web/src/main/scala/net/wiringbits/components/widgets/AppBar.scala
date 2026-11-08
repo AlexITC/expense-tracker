@@ -52,28 +52,28 @@ object AppBar {
     val menu = auth match {
       case AuthState.Authenticated(_) =>
         Fragment(
-          NavLinkButton("/", texts.home, onButtonClick),
-          NavLinkButton("/dashboard", texts.dashboard, onButtonClick),
-          NavLinkButton("/categories", texts.categories, onButtonClick),
-          NavLinkButton("/merchants", texts.merchants, onButtonClick),
-          NavLinkButton("/merchant-review", texts.merchantReview, onButtonClick),
-          NavLinkButton("/import-rules", texts.importRules, onButtonClick),
-          NavLinkButton("/expenses", texts.expenses, onButtonClick),
-          NavLinkButton("/refunds", texts.refunds, onButtonClick),
-          NavLinkButton("/receipts", texts.receipts, onButtonClick),
-          NavLinkButton("/bank-statements", texts.bankStatements, onButtonClick),
-          NavLinkButton("/savings", texts.savings, onButtonClick),
-          NavLinkButton("/about", texts.about, onButtonClick),
-          NavLinkButton("/me", texts.profile, onButtonClick),
-          NavLinkButton("/signout", texts.signOut, onButtonClick)
+          NavLinkButton(path = "/", text = texts.home, onButtonClick),
+          NavLinkButton(path = "/dashboard", text = texts.dashboard, onButtonClick),
+          NavLinkButton(path = "/categories", text = texts.categories, onButtonClick),
+          NavLinkButton(path = "/merchants", text = texts.merchants, onButtonClick),
+          NavLinkButton(path = "/merchant-review", text = texts.merchantReview, onButtonClick),
+          NavLinkButton(path = "/import-rules", text = texts.importRules, onButtonClick),
+          NavLinkButton(path = "/expenses", text = texts.expenses, onButtonClick),
+          NavLinkButton(path = "/refunds", text = texts.refunds, onButtonClick),
+          NavLinkButton(path = "/receipts", text = texts.receipts, onButtonClick),
+          NavLinkButton(path = "/bank-statements", text = texts.bankStatements, onButtonClick),
+          NavLinkButton(path = "/savings", text = texts.savings, onButtonClick),
+          NavLinkButton(path = "/about", text = texts.about, onButtonClick),
+          NavLinkButton(path = "/me", text = texts.profile, onButtonClick),
+          NavLinkButton(path = "/signout", text = texts.signOut, onButtonClick)
         )
 
       case AuthState.Unauthenticated =>
         Fragment(
-          NavLinkButton("/", texts.home, onButtonClick),
-          NavLinkButton("/about", texts.about, onButtonClick),
-          NavLinkButton("/signup", texts.signUp, onButtonClick),
-          NavLinkButton("/signin", texts.signIn, onButtonClick)
+          NavLinkButton(path = "/", text = texts.home, onButtonClick),
+          NavLinkButton(path = "/about", text = texts.about, onButtonClick),
+          NavLinkButton(path = "/signup", text = texts.signUp, onButtonClick),
+          NavLinkButton(path = "/signin", text = texts.signIn, onButtonClick)
         )
     }
 

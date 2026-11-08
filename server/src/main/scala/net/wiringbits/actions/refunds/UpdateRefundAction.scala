@@ -16,15 +16,15 @@ class UpdateRefundAction @Inject() (
   def apply(refundId: UUID, userId: UUID, request: UpdateRefund.Request): Future[UpdateRefund.Response] =
     for {
       _ <- validate(userId, request)
-      refundOpt <- refundsRepository.find(refundId, userId)
+      refundOpt <- refundsRepository.find(id = refundId, userId = userId)
       _ = if (refundOpt.isEmpty) throw new RuntimeException("Refund not found")
       _ <- refundsRepository.update(
-        refundId,
-        userId,
+        id = refundId,
+        userId = userId,
         request.amount,
         request.date,
-        request.merchantId,
-        request.categoryId,
+        merchantId = request.merchantId,
+        categoryId = request.categoryId,
         request.notes
       )
     } yield UpdateRefund.Response()
@@ -39,7 +39,7 @@ class UpdateRefundAction @Inject() (
         _ <- request.merchantId match {
           case None => Future.unit
           case Some(mId) =>
-            merchantsRepository.find(mId, userId).flatMap {
+            merchantsRepository.find(id = mId, userId = userId).flatMap {
               case None => Future.failed(new RuntimeException("Merchant not found"))
               case Some(_) => Future.unit
             }
@@ -47,7 +47,7 @@ class UpdateRefundAction @Inject() (
         _ <- request.categoryId match {
           case None => Future.unit
           case Some(cId) =>
-            categoriesRepository.find(cId, userId).flatMap {
+            categoriesRepository.find(id = cId, userId = userId).flatMap {
               case None => Future.failed(new RuntimeException("Category not found"))
               case Some(_) => Future.unit
             }

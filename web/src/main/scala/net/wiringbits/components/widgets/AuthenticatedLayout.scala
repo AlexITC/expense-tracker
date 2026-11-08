@@ -24,29 +24,32 @@ object AuthenticatedLayout {
     NavGroup(
       "Process",
       List(
-        NavItem("/receipts", "Receipts"),
-        NavItem("/bank-statements", "Bank statements")
+        NavItem(path = "/receipts", label = "Receipts"),
+        NavItem(path = "/bank-statements", label = "Bank statements")
       )
     ),
     NavGroup(
       "Ledger",
       List(
-        NavItem("/expenses", "Expenses"),
-        NavItem("/refunds", "Refunds")
+        NavItem(path = "/expenses", label = "Expenses"),
+        NavItem(path = "/refunds", label = "Refunds")
       )
     ),
     NavGroup(
       "Organize",
       List(
-        NavItem("/merchants", "Merchants"),
-        NavItem("/merchant-review", "Review"),
-        NavItem("/import-rules", "Import rules"),
-        NavItem("/categories", "Categories")
+        NavItem(path = "/merchants", label = "Merchants"),
+        NavItem(path = "/merchant-review", label = "Review"),
+        NavItem(path = "/import-rules", label = "Import rules"),
+        NavItem(path = "/categories", label = "Categories")
       )
     ),
-    NavGroup("Goals", List(NavItem("/savings", "Savings"))),
-    NavGroup("Analyse", List(NavItem("/reports", "Reports"), NavItem("/charts", "Charts"))),
-    NavGroup("Account", List(NavItem("/me", "Account")))
+    NavGroup("Goals", List(NavItem(path = "/savings", label = "Savings"))),
+    NavGroup(
+      "Analyse",
+      List(NavItem(path = "/reports", label = "Reports"), NavItem(path = "/charts", label = "Charts"))
+    ),
+    NavGroup("Account", List(NavItem(path = "/me", label = "Account")))
   )
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>

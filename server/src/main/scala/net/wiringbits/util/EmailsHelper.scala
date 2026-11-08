@@ -69,7 +69,7 @@ class EmailsHelper @Inject() (
         userId = user.id,
         expiresAt = Instant.now(clock).plus(userTokensConfig.resetPasswordExp.toHours, ChronoUnit.HOURS)
       )
-    val message = EmailMessage.forgotPassword(user.name, webAppConfig.host, emailParameter)
+    val message = EmailMessage.forgotPassword(user.name, url = webAppConfig.host, emailParameter = emailParameter)
 
     for {
       _ <- userTokensRepository.create(createToken)

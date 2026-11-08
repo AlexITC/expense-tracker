@@ -18,10 +18,10 @@ class LinkReceiptToRefundAction @Inject() (
       request: LinkReceiptToRefund.Request
   ): Future[LinkReceiptToRefund.Response] =
     for {
-      receiptOpt <- receiptRepository.find(receiptId, userId)
+      receiptOpt <- receiptRepository.find(id = receiptId, userId = userId)
       _ = receiptOpt.getOrElse(throw new RuntimeException("Receipt not found"))
-      refundOpt <- refundsRepository.find(request.refundId, userId)
+      refundOpt <- refundsRepository.find(id = request.refundId, userId = userId)
       _ = if (refundOpt.isEmpty) throw new RuntimeException("Refund not found")
-      _ <- receiptRepository.linkToRefund(receiptId, userId, request.refundId)
+      _ <- receiptRepository.linkToRefund(id = receiptId, userId = userId, refundId = request.refundId)
     } yield LinkReceiptToRefund.Response()
 }

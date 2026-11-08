@@ -20,6 +20,6 @@ object SwaggerConfig {
     val contact = apiInfoConfig.get[String]("contact")
     val title = apiInfoConfig.get[String]("title")
     val description = apiInfoConfig.get[String]("description")
-    SwaggerConfig(basePath, Info(version, contact, title, description))
+    SwaggerConfig(basePath, Info(version = version, contact = contact, title = title, description = description))
   }
 }

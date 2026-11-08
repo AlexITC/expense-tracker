@@ -40,10 +40,10 @@ object BedrockConfig {
       AWSAccessKeyId(accessKeyId),
       AWSSecretAccessKey(secretAccessKey),
       Region.of(region),
-      modelId,
-      statementModelId,
+      modelId = modelId,
+      statementModelId = statementModelId,
       statementMaxTokens,
-      suggestionsModelId,
+      suggestionsModelId = suggestionsModelId,
       mode
     )
   }

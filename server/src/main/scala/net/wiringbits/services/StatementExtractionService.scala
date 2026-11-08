@@ -54,8 +54,8 @@ class StatementExtractionService @Inject() (
             case Some(content) if content.trim.nonEmpty =>
               logger.info(s"[$label] escalating: ${stage.entryName}")
               extractReconciling(
-                label,
-                content,
+                label = label,
+                text = content,
                 attemptNo = 1,
                 prevFailure = None,
                 bestSoFar = Some(prev),
@@ -70,16 +70,24 @@ class StatementExtractionService @Inject() (
 
     for {
       r1 <- extractReconciling(
-        label,
-        text,
+        label = label,
+        text = text,
         attemptNo = 1,
         prevFailure = None,
         bestSoFar = None,
         stage = ExtractionSource.PdfText
       )
-      r2 <- rung(r1, ExtractionSource.BdaMarkdown, fetchBdaMarkdown(sha256, storageKey))
-      r3 <- rung(r2, ExtractionSource.TextractTables, combinedRepresentation(label, sha256, storageKey, text))
-      r4 <- rung(r3, ExtractionSource.BdaCustom, fetchBdaCustom(sha256, storageKey).map(_.map(Json.prettyPrint)))
+      r2 <- rung(r1, ExtractionSource.BdaMarkdown, fetchBdaMarkdown(sha256 = sha256, storageKey = storageKey))
+      r3 <- rung(
+        r2,
+        ExtractionSource.TextractTables,
+        combinedRepresentation(label = label, sha256 = sha256, storageKey = storageKey, text = text)
+      )
+      r4 <- rung(
+        r3,
+        ExtractionSource.BdaCustom,
+        fetchBdaCustom(sha256 = sha256, storageKey = storageKey).map(_.map(Json.prettyPrint))
+      )
     } yield {
       logger.info(s"[$label] extraction done: reconciled=${r4.reconciled} transactions=${r4.transactions.size}")
       r4
@@ -93,8 +101,8 @@ class StatementExtractionService @Inject() (
       text: String
   ): Future[Option[String]] =
     for {
-      tables <- fetchDocumentTables(label, sha256, storageKey)
-      md <- fetchBdaMarkdown(sha256, storageKey)
+      tables <- fetchDocumentTables(label = label, sha256 = sha256, storageKey = storageKey)
+      md <- fetchBdaMarkdown(sha256 = sha256, storageKey = storageKey)
     } yield {
       val sections = List(
         Option.when(tables.trim.nonEmpty)("=== TEXTRACT TABLES ===\n\n" + tables),
@@ -105,47 +113,55 @@ class StatementExtractionService @Inject() (
     }
 
   private def fetchBdaMarkdown(sha256: String, storageKey: String): Future[Option[String]] =
-    textractCache.find(sha256, BdaStandardType).flatMap {
+    textractCache.find(sha256 = sha256, apiType = BdaStandardType).flatMap {
       case Some(cached) => Future.successful((cached.response \ "markdown").asOpt[String])
       case None =>
         bdaClient.standardMarkdown(storageKey).flatMap {
           case Some(md) =>
             textractCache
-              .create(TextractCache.Create(sha256, BdaStandardType, Json.obj("markdown" -> md), clock.instant()))
+              .create(
+                TextractCache
+                  .Create(sha256 = sha256, apiType = BdaStandardType, Json.obj("markdown" -> md), clock.instant())
+              )
               .map(_ => Some(md))
           case None => Future.successful(None)
         }
     }
 
   private def fetchBdaCustom(sha256: String, storageKey: String): Future[Option[JsValue]] =
-    textractCache.find(sha256, BdaCustomType).flatMap {
+    textractCache.find(sha256 = sha256, apiType = BdaCustomType).flatMap {
       case Some(cached) => Future.successful(Some(cached.response))
       case None =>
         bdaClient.customExtraction(storageKey).flatMap {
           case Some(json) =>
             textractCache
-              .create(TextractCache.Create(sha256, BdaCustomType, json, clock.instant()))
+              .create(TextractCache.Create(sha256 = sha256, apiType = BdaCustomType, json, clock.instant()))
               .map(_ => Some(json))
           case None => Future.successful(None)
         }
     }
 
   private def fetchDocumentTables(label: String, sha256: String, storageKey: String): Future[String] =
-    fetchDocumentBlocks(label, sha256, storageKey).map(TextractTableSerializer.serialize)
+    fetchDocumentBlocks(label = label, sha256 = sha256, storageKey = storageKey).map(TextractTableSerializer.serialize)
 
   private def fetchDocumentBlocks(label: String, sha256: String, storageKey: String): Future[Seq[JsValue]] =
-    textractCache.find(sha256, TextractApiType.AnalyzeDocument).flatMap {
+    textractCache.find(sha256 = sha256, apiType = TextractApiType.AnalyzeDocument).flatMap {
       case Some(cached) =>
         Future.successful((cached.response \ "Blocks").asOpt[Seq[JsValue]].getOrElse(Nil))
       case None =>
-        textractClient.startDocumentAnalysis(sha256, storageKey).flatMap { jobId =>
+        textractClient.startDocumentAnalysis(sha256 = sha256, storageKey = storageKey).flatMap { jobId =>
           assembleAllDocumentPages(jobId, nextToken = None, acc = Vector.empty, polls = 0).flatMap {
             case (status, blocks) =>
               if ((status == "SUCCEEDED" || status == "PARTIAL_SUCCESS") && blocks.nonEmpty) {
                 textractCache
                   .create(
                     TextractCache
-                      .Create(sha256, TextractApiType.AnalyzeDocument, Json.obj("Blocks" -> blocks), clock.instant())
+                      .Create(
+                        sha256 = sha256,
+                        apiType = TextractApiType.AnalyzeDocument,
+                        Json.obj("Blocks" -> blocks),
+                        clock.instant()
+                      )
                   )
                   .map(_ => blocks)
               } else {
@@ -185,7 +201,7 @@ class StatementExtractionService @Inject() (
       stage: ExtractionSource
   ): Future[ExtractionResult] =
     cachedExtractBankStatement(text, prevFailure).flatMap { raw =>
-      AiStatementExtractor.parseAndVerify(raw, bedrockConfig.statementModelId) match {
+      AiStatementExtractor.parseAndVerify(rawJson = raw, model = bedrockConfig.statementModelId) match {
         case Right(parsed) =>
           val result = parsed.copy(source = Some(stage)) // tag which ladder stage produced this candidate
           if (result.reconciled) Future.successful(result)
@@ -200,7 +216,7 @@ class StatementExtractionService @Inject() (
               Future.successful(best)
             } else {
               logger.info(s"[$label] attempt $attemptNo did not reconcile ($failure); retrying with feedback")
-              extractReconciling(label, text, attemptNo + 1, Some(failure), Some(best), stage)
+              extractReconciling(label = label, text = text, attemptNo + 1, Some(failure), Some(best), stage)
             }
           }
 
@@ -216,19 +232,19 @@ class StatementExtractionService @Inject() (
             }
           } else {
             logger.info(s"[$label] attempt $attemptNo produced no usable result ($error); retrying with feedback")
-            extractReconciling(label, text, attemptNo + 1, Some(error), bestSoFar, stage)
+            extractReconciling(label = label, text = text, attemptNo + 1, Some(error), bestSoFar, stage)
           }
       }
     }
 
   private def cachedExtractBankStatement(text: String, feedback: Option[String]): Future[String] = {
     val key = sha256Hex(s"${bedrockConfig.statementModelId}\u0000${feedback.getOrElse("")}\u0000$text")
-    textractCache.find(key, BedrockType).flatMap {
+    textractCache.find(sha256 = key, apiType = BedrockType).flatMap {
       case Some(cached) => Future.successful((cached.response \ "raw").asOpt[String].getOrElse(""))
       case None =>
         bedrockClient.extractBankStatement(text, feedback).flatMap { raw =>
           textractCache
-            .create(TextractCache.Create(key, BedrockType, Json.obj("raw" -> raw), clock.instant()))
+            .create(TextractCache.Create(sha256 = key, apiType = BedrockType, Json.obj("raw" -> raw), clock.instant()))
             .map(_ => raw)
         }
     }

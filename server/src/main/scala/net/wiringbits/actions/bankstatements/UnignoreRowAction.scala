@@ -14,6 +14,6 @@ class UnignoreRowAction @Inject() (
 
   def apply(stmtId: UUID, rowId: UUID, userId: UUID): Future[UnignoreRow.Response] =
     for {
-      _ <- bankStatementRepository.unignoreRow(stmtId, rowId, userId, clock.instant())
+      _ <- bankStatementRepository.unignoreRow(stmtId = stmtId, rowId = rowId, userId = userId, clock.instant())
     } yield UnignoreRow.Response()
 }

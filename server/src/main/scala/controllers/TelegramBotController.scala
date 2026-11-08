@@ -28,7 +28,7 @@ class TelegramBotController @Inject() (
   private def receiveUpdate(input: (String, String)): Future[Either[Unit, Unit]] = {
     val (secretToken, body) = input
     logger.info("Telegram webhook received")
-    if (!constantTimeEquals(secretToken, telegramConfig.webhookSecret)) {
+    if (!constantTimeEquals(a = secretToken, b = telegramConfig.webhookSecret)) {
       logger.warn("Telegram webhook: rejected — invalid secret token")
       Future.successful(Right(()))
     } else {
@@ -59,14 +59,14 @@ class TelegramBotController @Inject() (
               "Send one item per line:\n\namount\nmerchant\ncategory (optional)\n\nExample:\n10.50\nAmazon\nShopping\n\nSend a photo or PDF to save a receipt.\n\nCommands:\n/link <token> — link your account\n/help — this message"
             )
           case (Some(text), _, _) if text.startsWith("/link ") =>
-            telegramLinkAction(text.stripPrefix("/link ").trim, telegramUserId, chatId)
+            telegramLinkAction(text.stripPrefix("/link ").trim, telegramUserId = telegramUserId, chatId = chatId)
           case (Some(text), _, _) =>
-            telegramHandleTextAction(text, telegramUserId, chatId)
+            telegramHandleTextAction(text, telegramUserId = telegramUserId, chatId = chatId)
           case (_, Some(photo), _) =>
             val fileId = (photo \ "file_id").as[String]
             telegramPhotoAction(fileId, telegramUserId, chatId)
           case (_, _, Some(fileId)) =>
-            telegramPhotoAction(fileId, telegramUserId, chatId, documentFilenameOpt)
+            telegramPhotoAction(fileId, telegramUserId = telegramUserId, chatId = chatId, documentFilenameOpt)
           case _ =>
             logger.info(s"Telegram webhook: unhandled message type, ignoring")
             Future.unit

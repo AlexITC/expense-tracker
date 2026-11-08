@@ -50,11 +50,11 @@ class ParseReceiptAction @Inject() (
     } yield ()
 
   private def parse(doc: Document, receipt: Receipt): Future[Unit] =
-    textractCacheRepository.find(doc.sha256, TextractApiType.AnalyzeExpense).flatMap {
+    textractCacheRepository.find(sha256 = doc.sha256, apiType = TextractApiType.AnalyzeExpense).flatMap {
       case None =>
         logger.error(s"No AnalyzeExpense cache for document ${doc.id} (userId=${receipt.userId}), marking Unsupported")
         for {
-          _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Unsupported)
+          _ <- receiptRepository.updateStatus(id = receipt.id, userId = receipt.userId, DocumentStatus.Unsupported)
           _ <- notifier.updateReceiptMessage(
             documentId = doc.id,
             userId = receipt.userId,
@@ -95,21 +95,22 @@ class ParseReceiptAction @Inject() (
                         matchingRule match {
                           case Some(rule) =>
                             rule.action.merchantIdOpt match {
-                              case Some(mid) => receiptRepository.setMerchantId(receipt.id, mid)
+                              case Some(mid) => receiptRepository.setMerchantId(id = receipt.id, merchantId = mid)
                               case None => Future.unit
                             }
                           case None =>
                             merchantsRepository.createPendingIfAbsent(doc.userId, name).flatMap { merchantId =>
                               for {
-                                _ <- receiptRepository.setMerchantId(receipt.id, merchantId)
-                                _ <- ruleRepository.createSetMerchantIfAbsent(doc.userId, merchantId, name)
+                                _ <- receiptRepository.setMerchantId(id = receipt.id, merchantId = merchantId)
+                                _ <- ruleRepository
+                                  .createSetMerchantIfAbsent(userId = doc.userId, merchantId = merchantId, name)
                               } yield ()
                             }
                         }
                     }
                   case _ => Future.unit
                 }
-                _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Parsed)
+                _ <- receiptRepository.updateStatus(id = receipt.id, userId = receipt.userId, DocumentStatus.Parsed)
                 _ <- notifier.updateReceiptMessage(
                   documentId = doc.id,
                   userId = receipt.userId,
@@ -125,7 +126,8 @@ class ParseReceiptAction @Inject() (
             case Left(DocumentParser.UnsupportedKind(kind)) =>
               logger.warn(s"Document ${doc.id} (userId=${receipt.userId}) has unsupported kind '$kind'")
               for {
-                _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Unsupported)
+                _ <- receiptRepository
+                  .updateStatus(id = receipt.id, userId = receipt.userId, DocumentStatus.Unsupported)
                 _ <- notifier.updateReceiptMessage(
                   documentId = doc.id,
                   userId = receipt.userId,
@@ -136,7 +138,8 @@ class ParseReceiptAction @Inject() (
             case Left(DocumentParser.ParseError(reason)) =>
               logger.warn(s"Document ${doc.id} (userId=${receipt.userId}) parse failed: $reason")
               for {
-                _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.ParseFailed)
+                _ <- receiptRepository
+                  .updateStatus(id = receipt.id, userId = receipt.userId, DocumentStatus.ParseFailed)
                 _ <- notifier.updateReceiptMessage(
                   documentId = doc.id,
                   userId = receipt.userId,
@@ -165,8 +168,10 @@ class ParseReceiptAction @Inject() (
             Future.successful(None)
           } else
             for {
-              result <- documentClassifier.classify(doc.userId, s"document ${doc.id}", text)
-              _ <- result.persistWith(documentsRepository.updateClassification(doc.id, doc.userId, _))
+              result <- documentClassifier.classify(doc.userId, subject = s"document ${doc.id}", text = text)
+              _ <- result.persistWith(c =>
+                documentsRepository.updateClassification(id = doc.id, userId = doc.userId, c)
+              )
             } yield result.rejection(DocumentClassifier.acceptedFor(doc.kind)).map { cls =>
               logger.info(s"userId=${doc.userId}, document ${doc.id} looks like $cls after Textract, advising user")
               DocumentTelegramNotifier.notATicketMessage(cls)

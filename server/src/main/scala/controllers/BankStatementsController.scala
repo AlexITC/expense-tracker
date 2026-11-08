@@ -63,7 +63,7 @@ class BankStatementsController @Inject() (
   ): Future[Either[ErrorResponse, BankStatementDraft.Data]] = handleRequest {
     for {
       userId <- userIdF
-      response <- getBankStatementDraftAction(draftId, userId)
+      response <- getBankStatementDraftAction(draftId = draftId, userId = userId)
     } yield Right(response)
   }
 
@@ -74,7 +74,7 @@ class BankStatementsController @Inject() (
   ): Future[Either[ErrorResponse, BankStatementDraft.Data]] = handleRequest {
     for {
       userId <- userIdF
-      response <- updateBankStatementDraftAction(draftId, userId, request)
+      response <- updateBankStatementDraftAction(draftId = draftId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -85,7 +85,7 @@ class BankStatementsController @Inject() (
   ): Future[Either[ErrorResponse, BankStatementDraft.Confirm.Response]] = handleRequest {
     for {
       userId <- userIdF
-      response <- confirmBankStatementDraftAction(draftId, userId, request.acceptWarnings)
+      response <- confirmBankStatementDraftAction(draftId = draftId, userId = userId, request.acceptWarnings)
     } yield Right(response)
   }
 
@@ -95,7 +95,7 @@ class BankStatementsController @Inject() (
   ): Future[Either[ErrorResponse, BankStatementDraft.Discard.Response]] = handleRequest {
     for {
       userId <- userIdF
-      response <- discardBankStatementDraftAction(draftId, userId)
+      response <- discardBankStatementDraftAction(draftId = draftId, userId = userId)
     } yield Right(response)
   }
 
@@ -121,7 +121,7 @@ class BankStatementsController @Inject() (
   ): Future[Either[ErrorResponse, GetBankStatement.Response]] = handleRequest {
     for {
       userId <- userIdF
-      response <- getBankStatementAction(bankStatementId, userId)
+      response <- getBankStatementAction(id = bankStatementId, userId = userId)
     } yield Right(response)
   }
 
@@ -132,7 +132,7 @@ class BankStatementsController @Inject() (
     logger.info(s"Regenerate AI suggestions: stmt=$bankStatementId")
     for {
       userId <- userIdF
-      response <- regenerateAiSuggestionsAction(bankStatementId, userId)
+      response <- regenerateAiSuggestionsAction(bankStatementId = bankStatementId, userId = userId)
     } yield Right(response)
   }
 
@@ -145,7 +145,12 @@ class BankStatementsController @Inject() (
     logger.info(s"Confirm bank statement row: stmt=$bankStatementId row=$rowId")
     for {
       userId <- userIdF
-      response <- confirmBankStatementRowAction(bankStatementId, rowId, userId, request)
+      response <- confirmBankStatementRowAction(
+        bankStatementId = bankStatementId,
+        rowId = rowId,
+        userId = userId,
+        request
+      )
     } yield Right(response)
   }
 
@@ -156,7 +161,7 @@ class BankStatementsController @Inject() (
     logger.info(s"Delete bank statement: $bankStatementId")
     for {
       userId <- userIdF
-      response <- deleteBankStatementAction(bankStatementId, userId)
+      response <- deleteBankStatementAction(bankStatementId = bankStatementId, userId = userId)
     } yield Right(response)
   }
 
@@ -169,7 +174,7 @@ class BankStatementsController @Inject() (
     logger.info(s"Create expense from bank statement row: stmt=$bankStatementId row=$rowId")
     for {
       userId <- userIdF
-      response <- createExpenseFromRowAction(bankStatementId, rowId, userId, request)
+      response <- createExpenseFromRowAction(stmtId = bankStatementId, rowId = rowId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -182,7 +187,7 @@ class BankStatementsController @Inject() (
     logger.info(s"Link bank statement row to expense: stmt=$bankStatementId row=$rowId expense=${request.expenseId}")
     for {
       userId <- userIdF
-      response <- linkRowToExpenseAction(bankStatementId, rowId, userId, request)
+      response <- linkRowToExpenseAction(stmtId = bankStatementId, rowId = rowId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -194,7 +199,7 @@ class BankStatementsController @Inject() (
     logger.info(s"Unlink bank statement row: stmt=$bankStatementId row=$rowId")
     for {
       userId <- userIdF
-      response <- unlinkRowAction(bankStatementId, rowId, userId)
+      response <- unlinkRowAction(stmtId = bankStatementId, rowId = rowId, userId = userId)
     } yield Right(response)
   }
 
@@ -206,7 +211,7 @@ class BankStatementsController @Inject() (
     logger.info(s"Ignore bank statement row: stmt=$bankStatementId row=$rowId")
     for {
       userId <- userIdF
-      response <- ignoreRowAction(bankStatementId, rowId, userId)
+      response <- ignoreRowAction(stmtId = bankStatementId, rowId = rowId, userId = userId)
     } yield Right(response)
   }
 
@@ -218,7 +223,7 @@ class BankStatementsController @Inject() (
     logger.info(s"Unignore bank statement row: stmt=$bankStatementId row=$rowId")
     for {
       userId <- userIdF
-      response <- unignoreRowAction(bankStatementId, rowId, userId)
+      response <- unignoreRowAction(stmtId = bankStatementId, rowId = rowId, userId = userId)
     } yield Right(response)
   }
 
@@ -231,7 +236,7 @@ class BankStatementsController @Inject() (
     logger.info(s"Create refund from bank statement row: stmt=$bankStatementId row=$rowId")
     for {
       userId <- userIdF
-      response <- createRefundFromRowAction(bankStatementId, rowId, userId, request)
+      response <- createRefundFromRowAction(stmtId = bankStatementId, rowId = rowId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -243,7 +248,7 @@ class BankStatementsController @Inject() (
     logger.info(s"Unlink refund from bank statement row: stmt=$bankStatementId row=$rowId")
     for {
       userId <- userIdF
-      response <- unlinkRowRefundAction(bankStatementId, rowId, userId)
+      response <- unlinkRowRefundAction(stmtId = bankStatementId, rowId = rowId, userId = userId)
     } yield Right(response)
   }
 

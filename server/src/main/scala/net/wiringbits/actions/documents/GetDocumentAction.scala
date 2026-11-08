@@ -16,7 +16,7 @@ class GetDocumentAction @Inject() (
 
   def apply(id: UUID, userId: UUID): Future[GetDocument.Response] =
     for {
-      docOpt <- documentsRepository.find(id, userId)
+      docOpt <- documentsRepository.find(id = id, userId = userId)
       doc = docOpt.getOrElse(throw new RuntimeException("Document not found"))
       statementRows <- resolveStatementRows(doc, userId)
     } yield GetDocument.Response(
@@ -34,7 +34,7 @@ class GetDocumentAction @Inject() (
   ): Future[Option[List[GetDocument.StatementRowData]]] =
     if (doc.kind != DocumentKind.BankStatementPdf) Future.successful(None)
     else
-      bankStatementRepository.findByDocumentId(doc.id, userId).flatMap {
+      bankStatementRepository.findByDocumentId(documentId = doc.id, userId = userId).flatMap {
         case None => Future.successful(Some(Nil))
         case Some(stmt) =>
           bankStatementRepository.findRows(stmt.id).map { rows =>

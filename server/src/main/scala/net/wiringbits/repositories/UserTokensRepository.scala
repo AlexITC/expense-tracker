@@ -35,7 +35,7 @@ class UserTokensRepository @Inject() (
 
   def delete(tokenId: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      UserTokensDAO.delete(tokenId, userId: UUID)
+      UserTokensDAO.delete(tokenId = tokenId, userId = userId)
     }
   }
 }

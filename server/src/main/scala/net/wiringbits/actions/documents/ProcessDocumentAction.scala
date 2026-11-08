@@ -74,7 +74,7 @@ class ProcessDocumentAction @Inject() (
         case Some(rejected) =>
           logger.info(s"userId=${doc.userId}, document ${doc.id} rejected as $rejected, skipping Textract")
           for {
-            _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Unsupported)
+            _ <- receiptRepository.updateStatus(id = receipt.id, userId = receipt.userId, DocumentStatus.Unsupported)
             _ <- notifier.updateReceiptMessage(
               documentId = doc.id,
               userId = doc.userId,
@@ -118,8 +118,10 @@ class ProcessDocumentAction @Inject() (
                 case Right(text) =>
                   for {
                     // FAIL-OPEN, on purpose: an inconclusive result (JEV error, low confidence) never rejects.
-                    result <- documentClassifier.classify(doc.userId, s"document ${doc.id}", text)
-                    _ <- result.persistWith(documentsRepository.updateClassification(doc.id, doc.userId, _))
+                    result <- documentClassifier.classify(doc.userId, subject = s"document ${doc.id}", text = text)
+                    _ <- result.persistWith(c =>
+                      documentsRepository.updateClassification(id = doc.id, userId = doc.userId, c)
+                    )
                   } yield Some(result)
               }
           }
@@ -135,20 +137,20 @@ class ProcessDocumentAction @Inject() (
   private def analyze(doc: Document, receipt: Receipt): Future[Unit] = {
     logger.info(s"Processing document ${doc.id} (userId=${doc.userId}, sha256=${doc.sha256}, kind=${doc.kind})")
     for {
-      _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Processing)
-      cachedOpt <- textractCacheRepository.find(doc.sha256, TextractApiType.AnalyzeExpense)
+      _ <- receiptRepository.updateStatus(id = receipt.id, userId = receipt.userId, DocumentStatus.Processing)
+      cachedOpt <- textractCacheRepository.find(sha256 = doc.sha256, apiType = TextractApiType.AnalyzeExpense)
       _ <- cachedOpt match {
         case Some(_) =>
           logger.info(
             s"Textract cache hit for receipt ${receipt.id} (userId=${receipt.userId}), enqueuing parse directly"
           )
           for {
-            _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Analyzed)
+            _ <- receiptRepository.updateStatus(id = receipt.id, userId = receipt.userId, DocumentStatus.Analyzed)
             _ <- enqueueParseReceipt(doc.id)
           } yield ()
         case None =>
           for {
-            jobId <- textractClient.startExpenseAnalysis(doc.sha256, doc.storageKey)
+            jobId <- textractClient.startExpenseAnalysis(sha256 = doc.sha256, storageKey = doc.storageKey)
             now = clock.instant()
             _ <- textractJobRepository.create(
               TextractJob.Create(

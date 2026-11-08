@@ -13,10 +13,10 @@ class GetBankStatementDraftAction @Inject() (bankStatementDraftRepository: BankS
 ) {
 
   def apply(draftId: UUID, userId: UUID): Future[BankStatementDraft.Data] =
-    bankStatementDraftRepository.findByIdForUser(draftId, userId).map {
+    bankStatementDraftRepository.findByIdForUser(id = draftId, userId = userId).map {
       case Some(draft) =>
         val payload = draft.payload.map(Json.parse(_).as[BankStatementDraft.Payload])
-        BankStatementDraft.Data(draft.id, draft.filename, draft.status, draft.error, payload)
+        BankStatementDraft.Data(draft.id, filename = draft.filename, status = draft.status, draft.error, payload)
       case None =>
         throw new RuntimeException("Draft not found")
     }

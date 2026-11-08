@@ -11,7 +11,7 @@ class GetSavingsEstimateAction @Inject() (savingsRepository: SavingsRepository)(
 
   def apply(userId: UUID, merchantId: UUID): Future[GetSavingsEstimate.Response] = {
     for {
-      typicalAmount <- savingsRepository.medianAmountByMerchant(userId, merchantId)
+      typicalAmount <- savingsRepository.medianAmountByMerchant(userId = userId, merchantId = merchantId)
     } yield GetSavingsEstimate.Response(typicalAmount)
   }
 }

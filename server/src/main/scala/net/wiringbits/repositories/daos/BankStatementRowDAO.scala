@@ -28,20 +28,20 @@ object BankStatementRowDAO {
       get[Instant]("updated_at")).map {
       case id ~ bankStatementId ~ index ~ date ~ amount ~ description ~ manuallyEdited ~ confirmedAt ~ expenseId ~ refundId ~ ignoredAt ~ txnType ~ createdAt ~ updatedAt =>
         BankStatementRow(
-          id,
-          bankStatementId,
-          index,
-          date,
-          amount,
-          description,
-          manuallyEdited,
-          confirmedAt,
-          expenseId,
-          refundId,
-          ignoredAt,
-          txnType,
-          createdAt,
-          updatedAt
+          id = id,
+          bankStatementId = bankStatementId,
+          index = index,
+          date = date,
+          amount = amount,
+          description = description,
+          manuallyEdited = manuallyEdited,
+          confirmedAt = confirmedAt,
+          expenseId = expenseId,
+          refundId = refundId,
+          ignoredAt = ignoredAt,
+          txnType = txnType,
+          createdAt = createdAt,
+          updatedAt = updatedAt
         )
     }
 
@@ -138,7 +138,8 @@ object BankStatementRowDAO {
       conn: Connection
   ): List[BankStatementRowLinkedExpense] = {
     val linkedParser = (get[UUID]("id") ~ get[Option[UUID]]("merchant_id") ~ get[Option[UUID]]("category_id")).map {
-      case rowId ~ merchantId ~ categoryId => BankStatementRowLinkedExpense(rowId, merchantId, categoryId)
+      case rowId ~ merchantId ~ categoryId =>
+        BankStatementRowLinkedExpense(rowId = rowId, merchantId = merchantId, categoryId = categoryId)
     }
     SQL"""
       SELECT bsr.id, e.merchant_id, ecs.category_id

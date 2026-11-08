@@ -69,7 +69,7 @@ class TelegramWebAppController @Inject() (
         )
       )
     } else {
-      authenticate(init_data, dev_user_id).flatMap {
+      authenticate(initDataParam = init_data, devUserIdParam = dev_user_id).flatMap {
         case Left(msg) =>
           Future.successful(Unauthorized(msg))
         case Right(userId) =>
@@ -78,7 +78,7 @@ class TelegramWebAppController @Inject() (
               Try(UUID.fromString(receiptId)).fold(
                 _ => Future.successful(BadRequest("Invalid receipt ID")),
                 id =>
-                  receiptRepository.find(id, userId).flatMap {
+                  receiptRepository.find(id = id, userId = userId).flatMap {
                     case None => Future.successful(NotFound("Receipt not found"))
                     case Some(r) =>
                       val targetExpenseId = UuidCreator.getTimeOrderedEpoch()
@@ -87,7 +87,7 @@ class TelegramWebAppController @Inject() (
                         cats <- categoriesRepository.all(userId)
                         resolvedMerchant <- r.merchantId match {
                           case None => Future.successful(None)
-                          case Some(mid) => merchantsRepository.find(mid, userId)
+                          case Some(mid) => merchantsRepository.find(id = mid, userId = userId)
                         }
                       } yield {
                         val prefillMerchant = resolvedMerchant.map(_.name).orElse(r.merchantName)
@@ -121,7 +121,7 @@ class TelegramWebAppController @Inject() (
               Try(UUID.fromString(expenseId)).fold(
                 _ => Future.successful(BadRequest("Invalid expense ID")),
                 id =>
-                  expensesRepository.find(id, userId).flatMap {
+                  expensesRepository.find(id = id, userId = userId).flatMap {
                     case None => Future.successful(NotFound("Expense not found"))
                     case Some(e) =>
                       for {
@@ -129,9 +129,9 @@ class TelegramWebAppController @Inject() (
                         cats <- categoriesRepository.all(userId)
                         merchantName <- e.merchantId match {
                           case None => Future.successful(None)
-                          case Some(mid) => merchantsRepository.find(mid, userId).map(_.map(_.name))
+                          case Some(mid) => merchantsRepository.find(id = mid, userId = userId).map(_.map(_.name))
                         }
-                        splits <- expensesRepository.findSplitsByExpenseId(id, userId)
+                        splits <- expensesRepository.findSplitsByExpenseId(expenseId = id, userId = userId)
                       } yield {
                         val prefillCategory = splits.headOption
                           .flatMap(s => cats.find(_.id == s.categoryId))
@@ -174,7 +174,7 @@ class TelegramWebAppController @Inject() (
     if (!telegramConfig.webAppDevMode && effectiveInitData.isEmpty) {
       Future.successful(Unauthorized("Missing authentication"))
     } else {
-      authenticate(effectiveInitData, dev_user_id).flatMap {
+      authenticate(initDataParam = effectiveInitData, devUserIdParam = dev_user_id).flatMap {
         case Left(msg) => Future.successful(Unauthorized(msg))
         case Right(userId) =>
           Try(UUID.fromString(id)).fold(
@@ -187,14 +187,14 @@ class TelegramWebAppController @Inject() (
                     case Left(err) => Future.successful(BadRequest(err))
                     case Right(req) =>
                       upsertExpenseAction(
-                        userId,
-                        expenseId,
-                        req.receiptId,
-                        req.amount,
-                        req.date,
-                        req.merchantName,
-                        req.category,
-                        req.notes
+                        userId = userId,
+                        expenseId = expenseId,
+                        receiptId = req.receiptId,
+                        amount = req.amount,
+                        date = req.date,
+                        merchantName = req.merchantName,
+                        category = req.category,
+                        notes = req.notes
                       ).map {
                         case Left(UpsertExpenseError.Invalid(msg)) =>
                           UnprocessableEntity(Json.obj("error" -> msg))
@@ -216,7 +216,7 @@ class TelegramWebAppController @Inject() (
       receiptId = (json \ "receiptId").asOpt[String].flatMap(s => Try(UUID.fromString(s)).toOption)
       category = (json \ "category").asOpt[String]
       notes = (json \ "notes").asOpt[String]
-    } yield UpsertExpenseRequest(receiptId, amount, date, merchantName, category, notes)
+    } yield UpsertExpenseRequest(receiptId, amount, date, merchantName, category = category, notes = notes)
 
   private def authenticate(
       initDataParam: Option[String],

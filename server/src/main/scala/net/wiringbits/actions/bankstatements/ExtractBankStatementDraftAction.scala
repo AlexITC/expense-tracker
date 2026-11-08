@@ -49,10 +49,9 @@ class ExtractBankStatementDraftAction @Inject() (
           bytesOpt <- blobStorage.get(draft.storageKey)
           bytes = bytesOpt.getOrElse(throw new RuntimeException("Statement file not found in storage"))
           text = PdfTextExtractor.extract(bytes).fold(err => throw new RuntimeException(err), identity)
-          classification <- documentClassifier.classify(draft.userId, s"draft $draftId", text)
-          _ <- classification.persistWith(
-            documentsRepository.updateClassification(draft.documentId, draft.userId, _)
-          )
+          classification <- documentClassifier.classify(draft.userId, subject = s"draft $draftId", text = text)
+          _ <- classification
+            .persistWith(c => documentsRepository.updateClassification(id = draft.documentId, userId = draft.userId, c))
           _ <- classification.rejection(Set(DocumentClass.BankStatement)) match {
             case Some(documentClass) => reject(draft, documentClass)
             case None => extract(draft, text)
@@ -75,7 +74,12 @@ class ExtractBankStatementDraftAction @Inject() (
 
   private def extract(draft: DraftRecord, text: String): Future[Unit] =
     for {
-      result <- extractionService.extract(s"draft ${draft.id}", draft.sha256, draft.storageKey, text)
+      result <- extractionService.extract(
+        label = s"draft ${draft.id}",
+        sha256 = draft.sha256,
+        storageKey = draft.storageKey,
+        text = text
+      )
       payload = ExtractBankStatementDraftAction.toPayload(result)
       _ <- bankStatementDraftRepository.markReady(draft.id, Json.toJson(payload).toString, clock.instant())
     } yield ()

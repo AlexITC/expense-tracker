@@ -33,7 +33,7 @@ class CategoriesRepository @Inject() (database: Database)(implicit
 
   def find(id: UUID, userId: UUID): Future[Option[Category]] = Future {
     database.withConnection { implicit conn =>
-      CategoryDAO.find(id, userId)
+      CategoryDAO.find(id = id, userId = userId)
     }
   }
 
@@ -41,10 +41,17 @@ class CategoriesRepository @Inject() (database: Database)(implicit
   def getOrCreate(userId: UUID, name: String): Future[Category] = Future {
     database.withTransaction { implicit conn =>
       val now = clock.instant()
-      val request = Category.Create(UuidCreator.getTimeOrderedEpoch(), userId, name, now, now)
+      val request =
+        Category.Create(
+          id = UuidCreator.getTimeOrderedEpoch(),
+          userId = userId,
+          name = name,
+          createdAt = now,
+          updatedAt = now
+        )
       CategoryDAO
         .createIfAbsent(request)
-        .flatMap(CategoryDAO.find(_, userId))
+        .flatMap(cid => CategoryDAO.find(id = cid, userId = userId))
         .orElse(CategoryDAO.findByName(userId, name))
         .getOrElse(throw new RuntimeException("Category not found"))
     }
@@ -54,14 +61,14 @@ class CategoriesRepository @Inject() (database: Database)(implicit
     Future {
       ConstraintViolations.translating("category_user_id_name_unique" -> "A category with that name already exists") {
         database.withTransaction { implicit conn =>
-          CategoryDAO.update(id, userId, name, clock.instant())
+          CategoryDAO.update(id = id, userId = userId, name, clock.instant())
         }
       }
     }
 
   def delete(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      CategoryDAO.delete(id, userId)
+      CategoryDAO.delete(id = id, userId = userId)
     }
   }
 }

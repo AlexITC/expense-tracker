@@ -18,14 +18,14 @@ class MarkMerchantAsDuplicateAction @Inject() (
       request: MarkMerchantAsDuplicate.Request
   ): Future[MarkMerchantAsDuplicate.Response] =
     for {
-      pendingOpt <- merchantsRepository.find(pendingId, userId)
+      pendingOpt <- merchantsRepository.find(id = pendingId, userId = userId)
       pending = pendingOpt.getOrElse(throw new RuntimeException("Merchant not found"))
       _ = if (pending.reviewed) throw new RuntimeException("Merchant is already reviewed")
       _ = if (pending.id == request.realMerchantId)
         throw new RuntimeException("Cannot mark a merchant as a duplicate of itself")
-      realOpt <- merchantsRepository.find(request.realMerchantId, userId)
+      realOpt <- merchantsRepository.find(id = request.realMerchantId, userId = userId)
       _ = if (realOpt.isEmpty) throw new RuntimeException("Real merchant not found")
-      _ <- ruleRepository.createSetMerchantIfAbsent(userId, request.realMerchantId, pending.name)
-      _ <- merchantsRepository.rePointAndDelete(pendingId, request.realMerchantId, userId)
+      _ <- ruleRepository.createSetMerchantIfAbsent(userId = userId, merchantId = request.realMerchantId, pending.name)
+      _ <- merchantsRepository.rePointAndDelete(pendingId = pendingId, realId = request.realMerchantId, userId = userId)
     } yield MarkMerchantAsDuplicate.Response()
 }

@@ -118,7 +118,9 @@ object BankStatementsLogic {
       val byId = all.map(x => x.id -> x.documentFilename).toMap
       val names = s.overlappingStatementIds.flatMap(byId.get)
       val missing = s.overlappingStatementIds.size - names.size
-      val parts = names ++ Option.when(missing > 0)(plural(missing, "other statement", "other statements"))
+      val parts = names ++ Option.when(missing > 0)(
+        plural(missing, singular = "other statement", pluralForm = "other statements")
+      )
       s"⚠ Possible duplicate — overlaps ${parts.mkString(", ")}"
     }
 
@@ -138,7 +140,7 @@ object BankStatementsLogic {
       s"Account: ${BankStatementList.accountLabelOf(s)}",
       s"Period: ${s.periodStart} → ${s.periodEnd}",
       s"Rows: ${rows.size}",
-      s"${plural(linked, "linked expense", "linked expenses")} will be kept but unlinked from this statement.",
+      s"${plural(linked, singular = "linked expense", pluralForm = "linked expenses")} will be kept but unlinked from this statement.",
       "This action cannot be undone."
     )
   }

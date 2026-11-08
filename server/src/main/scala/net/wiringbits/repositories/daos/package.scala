@@ -254,24 +254,24 @@ package object daos {
       case id ~ userId ~ documentId ~ amount ~ date ~ time ~ merchantName ~ taxId ~ merchantId ~ expenseId ~ refundId ~
           ignoredAt ~ manuallyEdited ~ parserVersion ~ status ~ createdAt ~ updatedAt ~ filename =>
         Receipt(
-          id,
-          userId,
-          documentId,
-          amount,
-          date,
-          time,
-          merchantName,
-          taxId,
-          merchantId,
-          expenseId,
-          refundId,
-          ignoredAt,
-          manuallyEdited,
-          parserVersion,
-          status,
-          createdAt,
-          updatedAt,
-          filename
+          id = id,
+          userId = userId,
+          documentId = documentId,
+          amount = amount,
+          date = date,
+          time = time,
+          merchantName = merchantName,
+          taxId = taxId,
+          merchantId = merchantId,
+          expenseId = expenseId,
+          refundId = refundId,
+          ignoredAt = ignoredAt,
+          manuallyEdited = manuallyEdited,
+          parserVersion = parserVersion,
+          status = status,
+          createdAt = createdAt,
+          updatedAt = updatedAt,
+          documentFilename = filename
         )
     }
 
@@ -323,7 +323,17 @@ package object daos {
       get[Instant]("created_at") ~
       get[Instant]("updated_at") ~
       get[BigDecimal]("balance")).map { case id ~ userId ~ name ~ targetAmount ~ createdAt ~ updatedAt ~ balance =>
-      (SavingsGoal(id, userId, name, targetAmount, createdAt, updatedAt), balance)
+      (
+        SavingsGoal(
+          id = id,
+          userId = userId,
+          name = name,
+          targetAmount = targetAmount,
+          createdAt = createdAt,
+          updatedAt = updatedAt
+        ),
+        balance
+      )
     }
 
   val savingsAllocationParser: RowParser[SavingsAllocation] =
@@ -337,6 +347,16 @@ package object daos {
       get[Instant]("created_at") ~
       get[Instant]("updated_at")).map {
       case id ~ userId ~ goalId ~ amount ~ date ~ note ~ merchantId ~ createdAt ~ updatedAt =>
-        SavingsAllocation(id, userId, goalId, amount, date, note, merchantId, createdAt, updatedAt)
+        SavingsAllocation(
+          id = id,
+          userId = userId,
+          goalId = goalId,
+          amount = amount,
+          date = date,
+          note = note,
+          merchantId = merchantId,
+          createdAt = createdAt,
+          updatedAt = updatedAt
+        )
     }
 }

@@ -12,5 +12,5 @@ class IgnoreReceiptAction @Inject() (
 )(implicit ec: ExecutionContext) {
 
   def apply(receiptId: UUID, userId: UUID): Future[IgnoreReceipt.Response] =
-    receiptRepository.ignoreReceipt(receiptId, userId).map(_ => IgnoreReceipt.Response())
+    receiptRepository.ignoreReceipt(id = receiptId, userId = userId).map(_ => IgnoreReceipt.Response())
 }

@@ -21,19 +21,19 @@ class CreateSavingsAllocationAction @Inject() (savingsRepository: SavingsReposit
       request: CreateSavingsAllocation.Request
   ): Future[CreateSavingsAllocation.Response] = {
     for {
-      _ <- validate(goalId, userId, request)
+      _ <- validate(goalId = goalId, userId = userId, request)
       now = clock.instant()
       id = UuidCreator.getTimeOrderedEpoch()
       create = SavingsAllocation.Create(
-        id,
-        userId,
-        goalId,
+        id = id,
+        userId = userId,
+        goalId = goalId,
         request.amount,
         request.date,
         request.note,
         request.merchantId,
-        now,
-        now
+        createdAt = now,
+        updatedAt = now
       )
       _ <- savingsRepository.createAllocation(create)
     } yield CreateSavingsAllocation.Response(id)
@@ -43,7 +43,7 @@ class CreateSavingsAllocationAction @Inject() (savingsRepository: SavingsReposit
     if (request.amount == 0) Future.failed(new RuntimeException("Amount must not be zero"))
     else
       for {
-        existing <- savingsRepository.findGoal(goalId, userId)
+        existing <- savingsRepository.findGoal(id = goalId, userId = userId)
         _ = if (existing.isEmpty) throw new RuntimeException("Savings goal not found")
       } yield ()
   }

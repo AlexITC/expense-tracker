@@ -20,14 +20,14 @@ object EmailMessage {
          |<a href="$url/verify-email/$emailParameter">Confirm email address</a>
          |""".stripMargin
 
-    EmailMessage(subject, body)
+    EmailMessage(subject = subject, body = body)
   }
 
   def confirm(name: Name): EmailMessage = {
     val subject = "Your email has been confirmed"
     val body = s"Hi ${name.string.htmlEscape}, Thanks for confirming your email.".stripMargin
 
-    EmailMessage(subject, body)
+    EmailMessage(subject = subject, body = body)
   }
 
   def forgotPassword(name: Name, url: String, emailParameter: String): EmailMessage = {
@@ -41,7 +41,7 @@ object EmailMessage {
          |If you did not perform this request, you can safely ignore this email.
          |""".stripMargin
 
-    EmailMessage(subject, body)
+    EmailMessage(subject = subject, body = body)
   }
 
   def resetPassword(name: Name): EmailMessage = {
@@ -52,7 +52,7 @@ object EmailMessage {
          |If this was not you, click the 'Forgot password' link on the sign in page and follow the steps to reset your password.
          |""".stripMargin
 
-    EmailMessage(subject, body)
+    EmailMessage(subject = subject, body = body)
   }
 
   def updatePassword(name: Name): EmailMessage = {
@@ -63,7 +63,7 @@ object EmailMessage {
          |If this was not you, click the 'Forgot password' link on the sign in page and follow the steps to reset your password.
          |""".stripMargin
 
-    EmailMessage(subject, body)
+    EmailMessage(subject = subject, body = body)
   }
 
 }

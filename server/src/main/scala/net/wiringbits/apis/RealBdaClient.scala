@@ -23,6 +23,7 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
 import scala.jdk.FutureConverters.*
 
+@SuppressWarnings(Array("net.wiringbits.warts.NamedArguments")) // AWS SDK is a Java API with no parameter names
 class RealBdaClient(awsConfig: AWSConfig, bdaConfig: BdaConfig, actorSystem: ActorSystem)(implicit ec: ExecutionContext)
     extends BdaClient {
 

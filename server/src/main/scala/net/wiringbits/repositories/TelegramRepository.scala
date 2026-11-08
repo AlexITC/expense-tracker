@@ -14,7 +14,7 @@ class TelegramRepository @Inject() (database: Database)(implicit ec: DatabaseExe
 
   def createLinkToken(token: String, userId: UUID, expiresAt: Instant): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      TelegramDAO.createLinkToken(UUID.randomUUID(), token, userId, expiresAt)
+      TelegramDAO.createLinkToken(id = UUID.randomUUID(), token, userId = userId, expiresAt)
     }
   }
 
@@ -32,7 +32,7 @@ class TelegramRepository @Inject() (database: Database)(implicit ec: DatabaseExe
 
   def createBotUser(id: UUID, userId: UUID, telegramUserId: Long): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      TelegramDAO.createBotUser(id, userId, telegramUserId)
+      TelegramDAO.createBotUser(id = id, userId = userId, telegramUserId)
     }
   }
 

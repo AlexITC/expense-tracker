@@ -23,10 +23,10 @@ case class Document(
   /** The stored AI classification, when the document was classified (all four columns are set together). */
   def classification: Option[DocumentClassification] =
     DocumentClassification.fromColumns(
-      aiClassification,
-      aiClassificationConfidence,
-      aiInjectionSuspected,
-      aiInjectionConfidence
+      documentClass = aiClassification,
+      confidence = aiClassificationConfidence,
+      injectionSuspected = aiInjectionSuspected,
+      injectionConfidence = aiInjectionConfidence
     )
 }
 

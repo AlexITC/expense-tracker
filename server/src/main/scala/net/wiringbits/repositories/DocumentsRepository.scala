@@ -38,7 +38,7 @@ class DocumentsRepository @Inject() (database: Database)(implicit ec: DatabaseEx
 
   def find(id: UUID, userId: UUID): Future[Option[Document]] = Future {
     database.withConnection { implicit conn =>
-      DocumentDAO.find(id, userId)
+      DocumentDAO.find(id = id, userId = userId)
     }
   }
 
@@ -56,13 +56,13 @@ class DocumentsRepository @Inject() (database: Database)(implicit ec: DatabaseEx
 
   def updateClassification(id: UUID, userId: UUID, classification: DocumentClassification): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      DocumentDAO.updateClassification(id, userId, classification, clock.instant())
+      DocumentDAO.updateClassification(id = id, userId = userId, classification, clock.instant())
     }
   }
 
   def delete(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withConnection { implicit conn =>
-      DocumentDAO.delete(id, userId)
+      DocumentDAO.delete(id = id, userId = userId)
     }
   }
 }

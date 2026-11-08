@@ -16,11 +16,11 @@ class DeleteBankStatementAction @Inject() (
 
   def apply(bankStatementId: UUID, userId: UUID): Future[DeleteBankStatement.Response] =
     for {
-      viewOpt <- bankStatementRepository.find(bankStatementId, userId)
+      viewOpt <- bankStatementRepository.find(id = bankStatementId, userId = userId)
       view = viewOpt.getOrElse(throw new RuntimeException("Bank statement not found"))
-      docOpt <- documentsRepository.find(view.documentId, userId)
+      docOpt <- documentsRepository.find(id = view.documentId, userId = userId)
       doc = docOpt.getOrElse(throw new RuntimeException("Document not found"))
-      _ <- documentsRepository.delete(doc.id, userId)
+      _ <- documentsRepository.delete(id = doc.id, userId = userId)
       _ <- blobStorage.delete(doc.storageKey)
     } yield DeleteBankStatement.Response(bankStatementId)
 }

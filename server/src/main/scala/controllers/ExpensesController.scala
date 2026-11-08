@@ -31,7 +31,7 @@ class ExpensesController @Inject() (
   ): Future[Either[ErrorResponse, GetExpenses.Response]] = handleRequest {
     for {
       userId <- userIdF
-      response <- getExpensesAction(userId, from, to, unlinkedOnly)
+      response <- getExpensesAction(userId, from = from, to = to, unlinkedOnly)
     } yield Right(response)
   }
 
@@ -54,7 +54,7 @@ class ExpensesController @Inject() (
     logger.info(s"Update expense: $expenseId")
     for {
       userId <- userIdF
-      response <- updateExpenseAction(expenseId, userId, request)
+      response <- updateExpenseAction(expenseId = expenseId, userId = userId, request)
     } yield Right(response)
   }
 
@@ -65,7 +65,7 @@ class ExpensesController @Inject() (
     logger.info(s"Delete expense: $expenseId")
     for {
       userId <- userIdF
-      response <- deleteExpenseAction(expenseId, userId)
+      response <- deleteExpenseAction(expenseId = expenseId, userId = userId)
     } yield Right(response)
   }
 

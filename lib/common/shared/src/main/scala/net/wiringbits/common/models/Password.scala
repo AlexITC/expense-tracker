@@ -14,7 +14,7 @@ object Password extends WrappedString.Companion[Password] {
     Option
       .when(isValid)(ValidationResult.Valid(string, new Password(string)))
       .getOrElse {
-        ValidationResult.Invalid(string, "Invalid password")
+        ValidationResult.Invalid(input = string, error = "Invalid password")
       }
   }
 

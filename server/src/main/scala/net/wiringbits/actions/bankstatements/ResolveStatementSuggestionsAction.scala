@@ -60,8 +60,8 @@ class ResolveStatementSuggestionsAction @Inject() (
       history <- bankStatementRepository.categoryHistory(userId)
       rules = importRules.map(_.transformInto[ImportRuleMatcher.Rule])
       suggestions <- suggestionsService.resolve(
-        userId,
-        statement.id,
+        userId = userId,
+        statementId = statement.id,
         modelId,
         rows,
         rules,
@@ -74,12 +74,14 @@ class ResolveStatementSuggestionsAction @Inject() (
   }
 
   private def store(statement: BankStatement, suggestions: AiSuggestions): Future[Unit] =
-    bankStatementRepository.setAiSuggestions(statement.id, statement.userId, suggestions, clock.instant()).map { _ =>
-      logger.info(
-        s"Stored AI suggestions for userId=${statement.userId}, statement ${statement.id}: " +
-          s"status ${suggestions.status.entryName}, ${suggestions.rows.size} rows, model ${suggestions.model}"
-      )
-    }
+    bankStatementRepository
+      .setAiSuggestions(id = statement.id, userId = statement.userId, suggestions, clock.instant())
+      .map { _ =>
+        logger.info(
+          s"Stored AI suggestions for userId=${statement.userId}, statement ${statement.id}: " +
+            s"status ${suggestions.status.entryName}, ${suggestions.rows.size} rows, model ${suggestions.model}"
+        )
+      }
 
   // Always re-raise the original cause so the executor records it, even if the Failed write itself fails.
   private def recordFailure(statement: BankStatement, modelId: String, ex: Throwable): Future[Nothing] = {

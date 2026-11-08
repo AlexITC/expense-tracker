@@ -131,9 +131,9 @@ object ChartsData {
       from: YearMonth = YearMonth.now().minusMonths(5),
       to: YearMonth = YearMonth.now()
   ): MonthlyChart = {
-    val months = monthsInRange(from, to)
-    val debits = debitsInRange(expenses, from, to)
-    val refs = refundsInRange(refunds, from, to)
+    val months = monthsInRange(from = from, to = to)
+    val debits = debitsInRange(expenses, from = from, to = to)
+    val refs = refundsInRange(refunds, from = from, to = to)
     val totals = months.map { ym =>
       val expTotal = debits
         .filter(e => YearMonth.of(e.date.getYear, e.date.getMonth) == ym)
@@ -153,8 +153,8 @@ object ChartsData {
       from: YearMonth = YearMonth.now().minusMonths(5),
       to: YearMonth = YearMonth.now()
   ): MerchantChart = {
-    val debits = debitsInRange(expenses, from, to)
-    val refs = refundsInRange(refunds, from, to)
+    val debits = debitsInRange(expenses, from = from, to = to)
+    val refs = refundsInRange(refunds, from = from, to = to)
     val refByMerchant = refs
       .groupMapReduce(r => r.merchantName.getOrElse("Unknown"))(_.amount)(_ + _)
     val top = debits
@@ -180,9 +180,9 @@ object ChartsData {
       to: YearMonth = YearMonth.now(),
       maxCats: Int = 7
   ): StackedMonthlyChart = {
-    val months = monthsInRange(from, to)
-    val debits = debitsInRange(expenses, from, to)
-    val refs = refundsInRange(refunds, from, to)
+    val months = monthsInRange(from = from, to = to)
+    val debits = debitsInRange(expenses, from = from, to = to)
+    val refs = refundsInRange(refunds, from = from, to = to)
     val catMap = categories.data.map(c => c.id -> c.name).toMap
 
     val expCellTotals: Map[(YearMonth, String), BigDecimal] = debits
@@ -239,11 +239,11 @@ object ChartsData {
       maxSlices: Int = 5
   ): Seq[PieSlice] = {
     val catMap = categories.data.map(c => c.id -> c.name).toMap
-    val refs = refundsInRange(refunds, from, to)
+    val refs = refundsInRange(refunds, from = from, to = to)
     val refByCategory = refs
       .groupMapReduce(r => r.categoryName.getOrElse("Uncategorised"))(_.amount)(_ + _)
 
-    val all = debitsInRange(expenses, from, to)
+    val all = debitsInRange(expenses, from = from, to = to)
       .flatMap { e =>
         if (e.splits.isEmpty)
           List(("Uncategorised", e.amount.abs))
@@ -266,7 +266,7 @@ object ChartsData {
       from: YearMonth = YearMonth.now().minusMonths(5),
       to: YearMonth = YearMonth.now()
   ): Seq[Double] =
-    monthly(expenses, refunds, from, to).values.scanLeft(0.0)(_ + _).tail
+    monthly(expenses, refunds, from = from, to = to).values.scanLeft(0.0)(_ + _).tail
 }
 
 object ChartsContent {
@@ -316,8 +316,8 @@ object ChartsContent {
 
     val stacked = ChartsData.stackedMonthly(props.expenses, props.refunds, props.categories, from, to)
     val pieSlices = ChartsData.categoryBreakdown(props.expenses, props.refunds, props.categories, from, to)
-    val cumul = ChartsData.cumulativeMonthly(props.expenses, props.refunds, from, to)
-    val monthly = ChartsData.monthly(props.expenses, props.refunds, from, to)
+    val cumul = ChartsData.cumulativeMonthly(props.expenses, props.refunds, from = from, to = to)
+    val monthly = ChartsData.monthly(props.expenses, props.refunds, from = from, to = to)
     val merchants = ChartsData.topMerchants(props.expenses, props.refunds, from = from, to = to)
 
     val totalSpend: Double = pieSlices.map(_.value).sum
@@ -371,10 +371,10 @@ object ChartsContent {
     val summaryRow: ReactElement = mui.Box.sx(new CSSPropertiesUtils {
       display = "flex"; gap = "12px"; marginBottom = "24px"; flexWrap = "wrap"
     })(
-      statCard("Total spent", f"$$${totalSpend}%.2f"),
-      statCard("Avg / month", f"$$${avgPerMonth}%.2f"),
-      statCard("Transactions", txCount.toString),
-      statCard("Top category", topCatLabel)
+      statCard(label = "Total spent", value = f"$$${totalSpend}%.2f"),
+      statCard(label = "Avg / month", value = f"$$${avgPerMonth}%.2f"),
+      statCard(label = "Transactions", value = txCount.toString),
+      statCard(label = "Top category", value = topCatLabel)
     )
 
     val dateControls: ReactElement = form(onSubmit := { e =>
@@ -389,25 +389,25 @@ object ChartsContent {
           .size("small")
           .variant("outlined")
           .`type`("button")
-          .onClick(_ => applyRange(YearMonth.now(), YearMonth.now())),
+          .onClick(_ => applyRange(f = YearMonth.now(), t = YearMonth.now())),
         mui.Button
           .normal()("3M")
           .size("small")
           .variant("outlined")
           .`type`("button")
-          .onClick(_ => applyRange(YearMonth.now().minusMonths(2), YearMonth.now())),
+          .onClick(_ => applyRange(f = YearMonth.now().minusMonths(2), t = YearMonth.now())),
         mui.Button
           .normal()("1Y")
           .size("small")
           .variant("outlined")
           .`type`("button")
-          .onClick(_ => applyRange(YearMonth.now().minusMonths(11), YearMonth.now())),
+          .onClick(_ => applyRange(f = YearMonth.now().minusMonths(11), t = YearMonth.now())),
         mui.Button
           .normal()("All time")
           .size("small")
           .variant("outlined")
           .`type`("button")
-          .onClick(_ => applyRange(allTimeFrom, YearMonth.now()))
+          .onClick(_ => applyRange(f = allTimeFrom, t = YearMonth.now()))
       ),
       mui.Box.sx(new CSSPropertiesUtils {
         display = "flex"; alignItems = "center"; gap = "16px"; marginBottom = "24px"; flexWrap = "wrap"

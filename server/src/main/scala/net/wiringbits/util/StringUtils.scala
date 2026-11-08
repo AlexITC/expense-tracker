@@ -13,7 +13,8 @@ object StringUtils {
   object Implicits {
 
     implicit class StringUtilsExt(val string: String) extends AnyVal {
-      def mask(prefix: Int = 2, suffix: Int = 2): String = StringUtils.mask(string, prefix, suffix)
+      def mask(prefix: Int = 2, suffix: Int = 2): String =
+        StringUtils.mask(string, prefixSize = prefix, suffixSize = suffix)
     }
   }
 }

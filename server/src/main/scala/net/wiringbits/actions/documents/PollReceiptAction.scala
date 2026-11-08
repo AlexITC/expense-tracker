@@ -55,11 +55,11 @@ class PollReceiptAction @Inject() (
     s == DocumentStatus.Parsed || s == DocumentStatus.Unsupported || s == DocumentStatus.ParseFailed
 
   private def poll(doc: net.wiringbits.repositories.models.Document, receipt: Receipt): Future[Unit] =
-    textractCacheRepository.find(doc.sha256, TextractApiType.AnalyzeExpense).flatMap {
+    textractCacheRepository.find(sha256 = doc.sha256, apiType = TextractApiType.AnalyzeExpense).flatMap {
       case Some(_) =>
         logger.info(s"Cache hit for document ${doc.id} (userId=${receipt.userId}), going directly to parse")
         for {
-          _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Analyzed)
+          _ <- receiptRepository.updateStatus(id = receipt.id, userId = receipt.userId, DocumentStatus.Analyzed)
           _ <- enqueueParseReceipt(doc.id)
         } yield ()
       case None =>
@@ -77,7 +77,7 @@ class PollReceiptAction @Inject() (
             logger
               .info(s"TextractJob already succeeded for document ${doc.id} (userId=${receipt.userId}), enqueuing parse")
             for {
-              _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Analyzed)
+              _ <- receiptRepository.updateStatus(id = receipt.id, userId = receipt.userId, DocumentStatus.Analyzed)
               _ <- enqueueParseReceipt(doc.id)
             } yield ()
           case TextractJob.Status.Failed =>
@@ -106,10 +106,15 @@ class PollReceiptAction @Inject() (
           )
           for {
             _ <- textractCacheRepository.create(
-              TextractCache.Create(doc.sha256, TextractApiType.AnalyzeExpense, assembled, clock.instant())
+              TextractCache.Create(
+                sha256 = doc.sha256,
+                apiType = TextractApiType.AnalyzeExpense,
+                assembled,
+                clock.instant()
+              )
             )
             _ <- textractJobRepository.markSucceeded(job.id)
-            _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Analyzed)
+            _ <- receiptRepository.updateStatus(id = receipt.id, userId = receipt.userId, DocumentStatus.Analyzed)
             _ <- enqueueParseReceipt(doc.id)
           } yield ()
         case "FAILED" =>
@@ -140,7 +145,7 @@ class PollReceiptAction @Inject() (
 
   private def markUnsupported(receipt: Receipt): Future[Unit] =
     for {
-      _ <- receiptRepository.updateStatus(receipt.id, receipt.userId, DocumentStatus.Unsupported)
+      _ <- receiptRepository.updateStatus(id = receipt.id, userId = receipt.userId, DocumentStatus.Unsupported)
       _ <- notifier.updateReceiptMessage(
         documentId = receipt.documentId,
         userId = receipt.userId,

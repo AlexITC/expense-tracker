@@ -32,17 +32,17 @@ object BankStatementDAO {
       case id ~ documentId ~ userId ~ bankName ~ productType ~ currency ~ accountLast4 ~
           periodStart ~ periodEnd ~ createdAt ~ updatedAt =>
         BankStatement(
-          id,
-          documentId,
-          userId,
-          bankName,
-          productType,
-          currency,
-          accountLast4,
-          periodStart,
-          periodEnd,
-          createdAt,
-          updatedAt
+          id = id,
+          documentId = documentId,
+          userId = userId,
+          bankName = bankName,
+          productType = productType,
+          currency = currency,
+          accountLast4 = accountLast4,
+          periodStart = periodStart,
+          periodEnd = periodEnd,
+          createdAt = createdAt,
+          updatedAt = updatedAt
         )
     }
 
@@ -67,22 +67,22 @@ object BankStatementDAO {
           periodStart ~ periodEnd ~ createdAt ~ updatedAt ~ filename ~ totalRows ~ processedRows ~
           extractionInfo ~ aiSuggestions =>
         BankStatementView(
-          id,
-          documentId,
-          userId,
-          bankName,
-          productType,
-          currency,
-          accountLast4,
-          periodStart,
-          periodEnd,
-          createdAt,
-          updatedAt,
-          filename,
-          totalRows,
-          processedRows,
-          extractionInfo,
-          aiSuggestions
+          id = id,
+          documentId = documentId,
+          userId = userId,
+          bankName = bankName,
+          productType = productType,
+          currency = currency,
+          accountLast4 = accountLast4,
+          periodStart = periodStart,
+          periodEnd = periodEnd,
+          createdAt = createdAt,
+          updatedAt = updatedAt,
+          documentFilename = filename,
+          totalRows = totalRows,
+          processedRows = processedRows,
+          extractionInfo = extractionInfo,
+          aiSuggestions = aiSuggestions
         )
     }
 

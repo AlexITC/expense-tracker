@@ -289,7 +289,7 @@ object ReceiptList {
     def handleFilesBatch(files: List[dom.File]): Unit =
       if (files.nonEmpty) {
         val total = files.length
-        setBatch(BatchState.Running(0, total, 0, Nil))
+        setBatch(BatchState.Running(done = 0, total = total, failed = 0, Nil))
         setError("")
         def loop(remaining: List[dom.File]): Unit =
           remaining match {
@@ -300,7 +300,7 @@ object ReceiptList {
               reader.onload = { _ =>
                 val buffer = reader.result.asInstanceOf[js.typedarray.ArrayBuffer]
                 val bytes = new js.typedarray.Int8Array(buffer).toArray
-                props.ctx.api.client.uploadReceipt(bytes, uploadKind, file.name).onComplete {
+                props.ctx.api.client.uploadReceipt(bytes, kind = uploadKind, filename = file.name).onComplete {
                   case Success(resp) =>
                     if (localReceipts.exists(_.id == resp.id)) {
                       setBatch(_.recorded(file.name, Left("Already uploaded (duplicate)")))
@@ -371,11 +371,11 @@ object ReceiptList {
               Some(amount),
               Some(date),
               time,
-              merchantId,
-              notes,
+              merchantId = merchantId,
+              notes = notes,
               splits,
-              form.parsedMerchantName,
-              form.rowId
+              parsedMerchantName = form.parsedMerchantName,
+              rowId = form.rowId
             )
         )
         .onComplete {
@@ -478,7 +478,7 @@ object ReceiptList {
 
     def handleBatchConfirm(ids: List[UUID]): Unit = {
       val total = ids.length
-      setBatchConfirm(BatchState.Running(0, total, 0, Nil))
+      setBatchConfirm(BatchState.Running(done = 0, total = total, failed = 0, Nil))
       def loop(remaining: List[UUID]): Unit =
         remaining match {
           case Nil =>
@@ -558,7 +558,7 @@ object ReceiptList {
                   mui.Button
                     .normal()("Link")
                     .size("small")
-                    .onClick(_ => handleLinkToExpense(receiptId, e.id))
+                    .onClick(_ => handleLinkToExpense(receiptId = receiptId, expenseId = e.id))
                 )
               ).withKey(e.id.toString)
             }*
@@ -591,7 +591,7 @@ object ReceiptList {
           case _ => ()
         }
       acDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-        val (text, rsn) = MuiCompat.autocompleteInputChange(value, reason)
+        val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
         updateForm(f => f.copy(merchantInput = text, merchantId = if (rsn != "reset") "" else f.merchantId))
       }
       (mui.Autocomplete.withProps(acProps).withKey("merchant-ac"): ReactElement)
@@ -629,7 +629,7 @@ object ReceiptList {
           case _ => ()
         }
       catDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-        val (text, rsn) = MuiCompat.autocompleteInputChange(value, reason)
+        val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
         if (rsn != "reset")
           setSplits(splits.zipWithIndex.map { case ((ci, cin, a), j) =>
             if (j == i) ("", text, a) else (ci, cin, a)
@@ -668,7 +668,7 @@ object ReceiptList {
     ): ReactElement = {
       val rows =
         splits.zipWithIndex.map { case ((catId, catInput, amt), i) =>
-          splitRow(catId, catInput, amt, i, splits, setSplits)
+          splitRow(catId = catId, catInput = catInput, amt = amt, i, splits, setSplits)
         }
       val rem = splitRemainder(amountStr, splits)
       Container(

@@ -446,7 +446,7 @@ object DocumentParser {
     val summaryFields = docs.flatMap(d => (d \ "SummaryFields").asOpt[JsArray].map(_.value.toList).getOrElse(Nil))
     val lineItemGroups = docs.flatMap(d => (d \ "LineItemGroups").asOpt[JsArray].map(_.value.toList).getOrElse(Nil))
     val lineItems = extractLineItems(lineItemGroups)
-    val (amount, currency) = extractAmountAndCurrency(summaryFields, lineItemGroups)
+    val (amount, currency) = extractAmountAndCurrency(fields = summaryFields, groups = lineItemGroups)
     ParsedData(
       vendor_name = extractVendorName(summaryFields),
       tax_id = extractTaxId(summaryFields),

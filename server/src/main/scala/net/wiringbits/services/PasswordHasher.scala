@@ -10,6 +10,7 @@ trait PasswordHasher {
 /** bcrypt-based hasher. `logRounds` controls the cost: production uses the default 10, while tests bind a lower value
   * so the real algorithm runs with cheap parameters instead of a fake hash.
   */
+@SuppressWarnings(Array("net.wiringbits.warts.NamedArguments")) // BCrypt is a Java API with no parameter names
 class BcryptPasswordHasher(logRounds: Int) extends PasswordHasher {
   override def hash(password: String): String = BCrypt.hashpw(password, BCrypt.gensalt(logRounds))
   override def check(password: String, hashedPassword: String): Boolean = BCrypt.checkpw(password, hashedPassword)

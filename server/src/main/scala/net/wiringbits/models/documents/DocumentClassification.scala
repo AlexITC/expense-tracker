@@ -24,5 +24,10 @@ object DocumentClassification {
       confidence <- confidence
       injectionSuspected <- injectionSuspected
       injectionConfidence <- injectionConfidence
-    } yield DocumentClassification(documentClass, confidence, injectionSuspected, injectionConfidence)
+    } yield DocumentClassification(
+      documentClass,
+      confidence = confidence,
+      injectionSuspected,
+      injectionConfidence = injectionConfidence
+    )
 }

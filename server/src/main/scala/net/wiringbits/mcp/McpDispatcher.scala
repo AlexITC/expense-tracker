@@ -80,7 +80,7 @@ class McpDispatcher @Inject() (
         } else {
           name match {
             case McpTools.ListExpenses =>
-              toolResult(id, getExpensesAction(userId, None, None, false).map(Json.toJson(_)))
+              toolResult(id, getExpensesAction(userId, from = None, to = None, false).map(Json.toJson(_)))
             case McpTools.ListCategories => toolResult(id, getCategoriesAction(userId).map(Json.toJson(_)))
             case McpTools.ListBankStatementRows =>
               val grouped = for {

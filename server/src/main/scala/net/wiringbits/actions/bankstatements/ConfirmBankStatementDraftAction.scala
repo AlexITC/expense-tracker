@@ -30,9 +30,9 @@ class ConfirmBankStatementDraftAction @Inject() (
 
   def apply(draftId: UUID, userId: UUID, acceptWarnings: Boolean): Future[BankStatementDraft.Confirm.Response] =
     for {
-      existing <- bankStatementDraftRepository.findByIdForUser(draftId, userId)
+      existing <- bankStatementDraftRepository.findByIdForUser(id = draftId, userId = userId)
       draft = existing.getOrElse(throw new RuntimeException("Draft not found"))
-      document <- documentsRepository.find(draft.documentId, userId)
+      document <- documentsRepository.find(id = draft.documentId, userId = userId)
       _ = if (document.isEmpty) throw new RuntimeException("The draft's document was not found")
       payloadStr = draft.payload.getOrElse(throw new RuntimeException("The draft is not ready to confirm yet"))
       payload = Json.parse(payloadStr).as[BankStatementDraft.Payload]
@@ -92,7 +92,7 @@ class ConfirmBankStatementDraftAction @Inject() (
     )
     for {
       _ <- bankStatementRepository.createConfirmedStatement(stmt, metadata, rows, extractionInfo, job)
-      _ <- bankStatementDraftRepository.delete(draft.id, userId)
+      _ <- bankStatementDraftRepository.delete(id = draft.id, userId = userId)
     } yield {
       logger.info(
         s"Confirmed statement draft ${draft.id} for user $userId into statement $stmtId (document ${draft.documentId}) (${payload.transactions.size} rows), enqueued suggestions job ${job.id}"
@@ -107,8 +107,8 @@ class ConfirmBankStatementDraftAction @Inject() (
 
   private def requireReconciled(payload: BankStatementDraft.Payload): Unit = {
     val (reconciled, discrepancy) = AiStatementExtractor.reconcile(
-      payload.metadata.openingBalance,
-      payload.metadata.closingBalance,
+      openingBalance = payload.metadata.openingBalance,
+      closingBalance = payload.metadata.closingBalance,
       payload.transactions.map(t => (t.amount, t.runningBalance))
     )
     if (!reconciled)
@@ -132,7 +132,14 @@ class ConfirmBankStatementDraftAction @Inject() (
     ).flatten
     (bankName, productType, currency, accountLast4, m.periodStart, m.periodEnd) match {
       case (Some(bn), Some(pt), Some(cur), Some(l4), Some(ps), Some(pe)) =>
-        BankStatement.Metadata(bn, pt, cur, l4, ps, pe)
+        BankStatement.Metadata(
+          bankName = bn,
+          productType = pt,
+          currency = cur,
+          accountLast4 = l4,
+          periodStart = ps,
+          periodEnd = pe
+        )
       case _ =>
         throw new RuntimeException(s"Missing required metadata: ${missing.mkString(", ")}")
     }

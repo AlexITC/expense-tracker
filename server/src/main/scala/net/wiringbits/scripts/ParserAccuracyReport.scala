@@ -97,8 +97,9 @@ object ParserAccuracyReport {
 
     val acc = labeled.foldLeft(Acc()) { case (acc, (userId, receipt)) =>
       val docOpt = DocumentDAO.findById(receipt.documentId)
-      val cacheOpt = docOpt.flatMap(d => TextractCacheDAO.find(d.sha256, TextractApiType.AnalyzeExpense))
-      val expenseOpt = receipt.expenseId.flatMap(eid => ExpenseDAO.find(eid, userId))
+      val cacheOpt =
+        docOpt.flatMap(d => TextractCacheDAO.find(sha256 = d.sha256, apiType = TextractApiType.AnalyzeExpense))
+      val expenseOpt = receipt.expenseId.flatMap(eid => ExpenseDAO.find(id = eid, userId = userId))
 
       (cacheOpt, expenseOpt) match {
         case (None, _) => acc.copy(noCache = acc.noCache + 1)
@@ -205,8 +206,8 @@ object ParserAccuracyReport {
     def fieldBlock(name: String, s: FieldStats): Unit = {
       println(s"--- $name ---")
       println(s"  scored:                  ${s.scored}")
-      println(s"  matched:                 ${s.matched}  (${pct(s.matched, s.scored)})")
-      println(s"  wrong:                   ${s.wrong}  (${pct(s.wrong, s.scored)})")
+      println(s"  matched:                 ${s.matched}  (${pct(n = s.matched, d = s.scored)})")
+      println(s"  wrong:                   ${s.wrong}  (${pct(n = s.wrong, d = s.scored)})")
       println(s"    mismatch, RECOVERABLE: ${s.mismatchRecoverable}")
       println(s"    mismatch, ABSENT:      ${s.mismatchAbsent}")
       println(s"    missed,   RECOVERABLE: ${s.missedRecoverable}")

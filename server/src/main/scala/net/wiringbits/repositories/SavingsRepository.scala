@@ -31,7 +31,7 @@ class SavingsRepository @Inject() (database: Database)(implicit ec: DatabaseExec
 
   def findGoal(id: UUID, userId: UUID): Future[Option[SavingsGoal]] = Future {
     database.withConnection { implicit conn =>
-      SavingsGoalDAO.find(id, userId)
+      SavingsGoalDAO.find(id = id, userId = userId)
     }
   }
 
@@ -47,14 +47,14 @@ class SavingsRepository @Inject() (database: Database)(implicit ec: DatabaseExec
         "savings_goal_user_id_name_unique" -> "A savings goal with that name already exists"
       ) {
         database.withTransaction { implicit conn =>
-          SavingsGoalDAO.update(id, userId, name, targetAmount, clock.instant())
+          SavingsGoalDAO.update(id = id, userId = userId, name, targetAmount, clock.instant())
         }
       }
     }
 
   def deleteGoal(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      SavingsGoalDAO.delete(id, userId)
+      SavingsGoalDAO.delete(id = id, userId = userId)
     }
   }
 
@@ -66,13 +66,13 @@ class SavingsRepository @Inject() (database: Database)(implicit ec: DatabaseExec
 
   def allAllocations(goalId: UUID, userId: UUID): Future[List[SavingsAllocation]] = Future {
     database.withConnection { implicit conn =>
-      SavingsAllocationDAO.all(goalId, userId)
+      SavingsAllocationDAO.all(goalId = goalId, userId = userId)
     }
   }
 
   def findAllocation(id: UUID, goalId: UUID, userId: UUID): Future[Option[SavingsAllocation]] = Future {
     database.withConnection { implicit conn =>
-      SavingsAllocationDAO.find(id, goalId, userId)
+      SavingsAllocationDAO.find(id = id, goalId = goalId, userId = userId)
     }
   }
 
@@ -86,19 +86,28 @@ class SavingsRepository @Inject() (database: Database)(implicit ec: DatabaseExec
       merchantId: Option[UUID]
   ): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      SavingsAllocationDAO.update(id, goalId, userId, amount, date, note, merchantId, clock.instant())
+      SavingsAllocationDAO.update(
+        id = id,
+        goalId = goalId,
+        userId = userId,
+        amount,
+        date,
+        note,
+        merchantId,
+        clock.instant()
+      )
     }
   }
 
   def deleteAllocation(id: UUID, goalId: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      SavingsAllocationDAO.delete(id, goalId, userId)
+      SavingsAllocationDAO.delete(id = id, goalId = goalId, userId = userId)
     }
   }
 
   def medianAmountByMerchant(userId: UUID, merchantId: UUID): Future[Option[BigDecimal]] = Future {
     database.withConnection { implicit conn =>
-      ExpenseDAO.medianAmountByMerchant(userId, merchantId)
+      ExpenseDAO.medianAmountByMerchant(userId = userId, merchantId = merchantId)
     }
   }
 }

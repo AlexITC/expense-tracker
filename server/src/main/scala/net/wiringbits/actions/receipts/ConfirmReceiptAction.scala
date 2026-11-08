@@ -21,7 +21,7 @@ class ConfirmReceiptAction @Inject() (
 
   def apply(receiptId: UUID, userId: UUID, request: ConfirmReceipt.Request): Future[ConfirmReceipt.Response] =
     for {
-      receiptOpt <- receiptRepository.find(receiptId, userId)
+      receiptOpt <- receiptRepository.find(id = receiptId, userId = userId)
       receipt = receiptOpt.getOrElse(throw new RuntimeException("Receipt not found"))
       _ <-
         if (receipt.status != DocumentStatus.Parsed)
@@ -41,7 +41,7 @@ class ConfirmReceiptAction @Inject() (
         request.splits.map(s => (s.categoryId, s.amount))
       )
       _ <- expensesRepository
-        .countByMonth(userId, date.getYear, date.getMonthValue)
+        .countByMonth(userId, year = date.getYear, month = date.getMonthValue)
         .flatMap { count =>
           if (count >= 500)
             Future.failed(new RuntimeException("Maximum number of expenses for this month (500) reached"))
@@ -69,10 +69,10 @@ class ConfirmReceiptAction @Inject() (
           amount = s.amount
         )
       }
-      createdExpenseId <- receiptRepository.confirm(receiptId, userId, expense, splits, request.rowId)
+      createdExpenseId <- receiptRepository.confirm(id = receiptId, userId = userId, expense, splits, request.rowId)
       _ <- (request.parsedMerchantName, request.merchantId) match {
         case (Some(parsedName), Some(mId)) =>
-          ruleRepository.createSetMerchantIfAbsent(userId, mId, parsedName)
+          ruleRepository.createSetMerchantIfAbsent(userId = userId, merchantId = mId, parsedName)
         case _ => Future.unit
       }
     } yield ConfirmReceipt.Response(Some(createdExpenseId))

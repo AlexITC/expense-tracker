@@ -31,7 +31,7 @@ class TelegramExpenseAction @Inject() (
     val normalizedName = ImportRuleMatcher.normalize(msg.merchantName)
     val date = LocalDate.now(clock)
 
-    expensesRepository.countByMonth(userId, date.getYear, date.getMonthValue).flatMap { count =>
+    expensesRepository.countByMonth(userId, year = date.getYear, month = date.getMonthValue).flatMap { count =>
       if (count >= 500)
         Future.successful(Left("Maximum number of expenses for this month (500) reached"))
       else
@@ -52,7 +52,7 @@ class TelegramExpenseAction @Inject() (
                       case ImportRuleAction.Ignore =>
                         Future.successful(Left(s"Transaction skipped: matches an ignore rule for '$safeName'"))
                       case ImportRuleAction.SetMerchant(id) =>
-                        merchantsRepository.find(id, userId).map(Right(_))
+                        merchantsRepository.find(id = id, userId = userId).map(Right(_))
                       case ImportRuleAction.SetCategory(_) =>
                         Future.successful(Right(Option.empty[Merchant]))
                     }
@@ -102,7 +102,14 @@ class TelegramExpenseAction @Inject() (
                                   updatedAt = now
                                 )
                               )
-                              expenseId <- buildExpense(userId, msg.amount, merchantId, catId, date, msg.notes)
+                              expenseId <- buildExpense(
+                                userId = userId,
+                                msg.amount,
+                                merchantId = merchantId,
+                                categoryId = catId,
+                                date,
+                                msg.notes
+                              )
                             } yield Right(expenseId)
                         }
                   }
@@ -125,7 +132,14 @@ class TelegramExpenseAction @Inject() (
                               )
                             )
                           case Some(catId) =>
-                            buildExpense(userId, msg.amount, merchant.id, catId, date, msg.notes).map(Right(_))
+                            buildExpense(
+                              userId = userId,
+                              msg.amount,
+                              merchantId = merchant.id,
+                              categoryId = catId,
+                              date,
+                              msg.notes
+                            ).map(Right(_))
                         }
                       } yield outcome
                   }
@@ -157,7 +171,13 @@ class TelegramExpenseAction @Inject() (
       updatedAt = now
     )
     val splits = List(
-      ExpenseCategorySplit.Create(UuidCreator.getTimeOrderedEpoch(), userId, expenseId, categoryId, amount)
+      ExpenseCategorySplit.Create(
+        id = UuidCreator.getTimeOrderedEpoch(),
+        userId = userId,
+        expenseId = expenseId,
+        categoryId = categoryId,
+        amount
+      )
     )
     expensesRepository.create(expense, splits).map(_ => expenseId)
   }

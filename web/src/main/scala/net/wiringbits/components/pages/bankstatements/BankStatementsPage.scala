@@ -390,7 +390,7 @@ object BankStatementList {
     // visible statements that are also adjacent in the full timeline.
     val stmtItems: Seq[ReactElement] =
       timeline.zip(cards).flatMap { case ((s, older), card) =>
-        val gap = older.flatMap(gapWarning(s, _)).toSeq
+        val gap = older.flatMap(o => gapWarning(newer = s, older = o)).toSeq
         card +: gap
       }
 

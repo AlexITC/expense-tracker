@@ -21,6 +21,9 @@ class S3BlobStorage @Inject() (awsConfig: AWSConfig)(implicit ec: ExecutionConte
 
   private val s3Config = awsConfig.s3
 
+  @SuppressWarnings(
+    Array("net.wiringbits.warts.NamedArguments")
+  ) // AwsBasicCredentials is a Java API with no parameter names
   private val client: S3AsyncClient = {
     val credentials = AwsBasicCredentials.create(awsConfig.accessKeyId.string, awsConfig.secretAccessKey.string)
     val builder = S3AsyncClient

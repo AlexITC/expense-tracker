@@ -35,7 +35,7 @@ class RegenerateAiSuggestionsAction @Inject() (
       updatedAt = now
     )
     for {
-      _ <- bankStatementRepository.requestAiSuggestions(bankStatementId, userId, pending, job, now)
+      _ <- bankStatementRepository.requestAiSuggestions(id = bankStatementId, userId = userId, pending, job, now)
     } yield {
       logger.info(s"Requested AI suggestions for statement $bankStatementId, enqueued suggestions job ${job.id}")
       RegenerateAiSuggestions.Response(pending)

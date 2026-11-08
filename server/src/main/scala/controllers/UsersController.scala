@@ -39,7 +39,7 @@ class UsersController @Inject() (
     val token = request.token
     logger.info(s"Verify user's email: ${token.userId}")
     for {
-      response <- verifyUserEmailAction(token.userId, token.token)
+      response <- verifyUserEmailAction(userId = token.userId, token = token.token)
     } yield Right(response)
   }
 
@@ -55,7 +55,7 @@ class UsersController @Inject() (
     handleRequest {
       logger.info(s"Reset user's password: ${request.token.userId}")
       for {
-        response <- resetPasswordAction(request.token.userId, request.token.token, request.password)
+        response <- resetPasswordAction(userId = request.token.userId, token = request.token.token, request.password)
       } yield Right(response)
     }
 

@@ -140,10 +140,12 @@ object ReconcileContent {
       setSubmitting(true)
       val stmtId = props.stmt.id
       val linkFutures: List[Future[Unit]] = autoLinkPairs.map { case (row, expId) =>
-        props.ctx.api.client.linkRowToExpense(stmtId, row.id, LinkRowToExpense.Request(expId)).map(_ => ())
+        props.ctx.api.client
+          .linkRowToExpense(bankStatementId = stmtId, rowId = row.id, LinkRowToExpense.Request(expId))
+          .map(_ => ())
       }
       val createFutures: List[Future[Unit]] = qualifyingCreateNewRows.map { case (row, req) =>
-        props.ctx.api.client.createExpenseFromRow(stmtId, row.id, req).map(_ => ())
+        props.ctx.api.client.createExpenseFromRow(bankStatementId = stmtId, rowId = row.id, req).map(_ => ())
       }
       Future.sequence(linkFutures ++ createFutures).onComplete {
         case Success(_) =>

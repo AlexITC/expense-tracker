@@ -43,8 +43,8 @@ object SavingsPage {
                 props.ctx,
                 goals,
                 merchants,
-                () => forceRefresh(),
-                () => forceRefreshGoals(),
+                onRefresh = () => forceRefresh(),
+                onGoalsRefresh = () => forceRefreshGoals(),
                 expandedGoalId,
                 id => setExpandedGoalId(id)
               ),
@@ -68,7 +68,17 @@ object SavingsGoalList {
       expandedGoalId: Option[UUID],
       onExpandedChange: Option[UUID] => Unit
   ): KeyAddingStage =
-    component(Props(ctx, goals, merchants, onRefresh, onGoalsRefresh, expandedGoalId, onExpandedChange))
+    component(
+      Props(
+        ctx,
+        goals,
+        merchants,
+        onRefresh = onRefresh,
+        onGoalsRefresh = onGoalsRefresh,
+        expandedGoalId,
+        onExpandedChange
+      )
+    )
 
   case class Props(
       ctx: AppContext,
@@ -317,8 +327,8 @@ object SavingsAllocationSection {
           props.goalId,
           allocations,
           props.merchantMap,
-          () => forceRefresh(),
-          props.onGoalsRefresh
+          onRefresh = () => forceRefresh(),
+          onGoalsRefresh = props.onGoalsRefresh
         ),
       progressIndicator = () => Loader(props.ctx),
       watchedObjects = List(timesRefreshing)
@@ -335,7 +345,7 @@ object SavingsAllocationList {
       onRefresh: () => Unit,
       onGoalsRefresh: () => Unit
   ): KeyAddingStage =
-    component(Props(ctx, goalId, allocations, merchantMap, onRefresh, onGoalsRefresh))
+    component(Props(ctx, goalId, allocations, merchantMap, onRefresh = onRefresh, onGoalsRefresh = onGoalsRefresh))
 
   case class Props(
       ctx: AppContext,
@@ -403,8 +413,8 @@ object SavingsAllocationList {
           val note = Option(editNote.trim).filter(_.nonEmpty)
           props.ctx.api.client
             .updateSavingsAllocation(
-              props.goalId,
-              allocationId,
+              goalId = props.goalId,
+              allocationId = allocationId,
               UpdateSavingsAllocation.Request(amount, date, note, merchantId)
             )
             .onComplete {
@@ -415,7 +425,7 @@ object SavingsAllocationList {
 
     def handleDelete(allocationId: UUID): Unit =
       props.ctx.api.client
-        .deleteSavingsAllocation(props.goalId, allocationId)
+        .deleteSavingsAllocation(goalId = props.goalId, allocationId = allocationId)
         .onComplete {
           case Success(_) => props.onRefresh(); props.onGoalsRefresh()
           case Failure(ex) => setError(ex.getMessage)
@@ -465,7 +475,11 @@ object SavingsAllocationList {
           .value(newNote)
           .size("small")
           .onChange(e => setNewNote(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-        merchantSelectField(newMerchantId, v => { setNewMerchantId(v); fetchEstimate(v) }, "Merchant (optional)"),
+        merchantSelectField(
+          selectedId = newMerchantId,
+          v => { setNewMerchantId(v); fetchEstimate(v) },
+          label = "Merchant (optional)"
+        ),
         if (estimate.nonEmpty)
           mui.Typography(estimate).sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" })
         else Fragment(),
@@ -507,7 +521,7 @@ object SavingsAllocationList {
               .value(editNote)
               .size("small")
               .onChange(e => setEditNote(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-            merchantSelectField(editMerchantId, setEditMerchantId, "Merchant"),
+            merchantSelectField(selectedId = editMerchantId, setEditMerchantId, label = "Merchant"),
             mui.Button
               .normal()("Save")
               .size("small")

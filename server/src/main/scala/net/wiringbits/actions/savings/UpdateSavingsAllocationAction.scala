@@ -16,11 +16,11 @@ class UpdateSavingsAllocationAction @Inject() (savingsRepository: SavingsReposit
       request: UpdateSavingsAllocation.Request
   ): Future[UpdateSavingsAllocation.Response] = {
     for {
-      _ <- validate(goalId, allocationId, userId, request)
+      _ <- validate(goalId = goalId, allocationId = allocationId, userId = userId, request)
       _ <- savingsRepository.updateAllocation(
-        allocationId,
-        goalId,
-        userId,
+        id = allocationId,
+        goalId = goalId,
+        userId = userId,
         request.amount,
         request.date,
         request.note,
@@ -38,7 +38,7 @@ class UpdateSavingsAllocationAction @Inject() (savingsRepository: SavingsReposit
     if (request.amount == 0) Future.failed(new RuntimeException("Amount must not be zero"))
     else
       for {
-        existing <- savingsRepository.findAllocation(allocationId, goalId, userId)
+        existing <- savingsRepository.findAllocation(id = allocationId, goalId = goalId, userId = userId)
         _ = if (existing.isEmpty) throw new RuntimeException("Savings allocation not found")
       } yield ()
   }

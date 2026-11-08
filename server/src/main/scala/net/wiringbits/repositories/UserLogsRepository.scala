@@ -19,7 +19,7 @@ class UserLogsRepository @Inject() (database: Database)(implicit ec: DatabaseExe
 
   def create(userId: UUID, message: String): Future[Unit] = Future {
     database.withConnection { implicit conn =>
-      val request = UserLog.CreateUserLog(UUID.randomUUID(), userId, message)
+      val request = UserLog.CreateUserLog(userLogId = UUID.randomUUID(), userId = userId, message)
       UserLogsDAO.create(request)
     }
   }

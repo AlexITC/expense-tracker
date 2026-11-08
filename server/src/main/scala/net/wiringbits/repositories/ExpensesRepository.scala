@@ -39,7 +39,7 @@ class ExpensesRepository @Inject() (database: Database)(implicit
       unlinkedOnly: Boolean
   ): Future[List[Expense]] = Future {
     database.withConnection { implicit conn =>
-      ExpenseDAO.all(userId, from, to, unlinkedOnly)
+      ExpenseDAO.all(userId, from = from, to = to, unlinkedOnly)
     }
   }
 
@@ -51,7 +51,7 @@ class ExpensesRepository @Inject() (database: Database)(implicit
 
   def find(id: UUID, userId: UUID): Future[Option[Expense]] = Future {
     database.withConnection { implicit conn =>
-      ExpenseDAO.find(id, userId)
+      ExpenseDAO.find(id = id, userId = userId)
     }
   }
 
@@ -66,27 +66,27 @@ class ExpensesRepository @Inject() (database: Database)(implicit
       splits: List[ExpenseCategorySplit.Create]
   ): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      ExpenseDAO.update(id, userId, amount, date, time, merchantId, notes, clock.instant())
-      ExpenseCategorySplitDAO.deleteByExpenseId(id, userId)
+      ExpenseDAO.update(id = id, userId = userId, amount, date, time, merchantId, notes, clock.instant())
+      ExpenseCategorySplitDAO.deleteByExpenseId(expenseId = id, userId = userId)
       ExpenseCategorySplitDAO.createAll(splits)
     }
   }
 
   def countByMonth(userId: UUID, year: Int, month: Int): Future[Long] = Future {
     database.withConnection { implicit conn =>
-      ExpenseDAO.countByMonth(userId, year, month)
+      ExpenseDAO.countByMonth(userId, year = year, month = month)
     }
   }
 
   def findSplitsByExpenseId(expenseId: UUID, userId: UUID): Future[List[ExpenseCategorySplit]] = Future {
     database.withConnection { implicit conn =>
-      ExpenseCategorySplitDAO.findByExpenseId(expenseId, userId)
+      ExpenseCategorySplitDAO.findByExpenseId(expenseId = expenseId, userId = userId)
     }
   }
 
   def delete(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withConnection { implicit conn =>
-      ExpenseDAO.delete(id, userId)
+      ExpenseDAO.delete(id = id, userId = userId)
     }
   }
 
@@ -109,8 +109,8 @@ class ExpensesRepository @Inject() (database: Database)(implicit
         validated.receipt.foreach(receipt =>
           relinkReceipt(receipt = receipt, survivorId = survivorId, userId = userId, now = now)
         )
-        RefundDAO.reassignExpense(loserId, survivorId, userId, now)
-        ExpenseDAO.delete(loserId, userId)
+        RefundDAO.reassignExpense(fromExpenseId = loserId, toExpenseId = survivorId, userId = userId, now)
+        ExpenseDAO.delete(id = loserId, userId = userId)
       }
     }
   }
@@ -173,9 +173,13 @@ class ExpensesRepository @Inject() (database: Database)(implicit
         .zip(ExpenseDAO.find(id = loserId, userId = userId))
         .toRight(ExpenseNotFound)
       (survivor, loser) = expenses
-      _ <- Either.cond(BankStatementRowDAO.existsForExpense(survivorId, userId), (), SurvivorWithoutRow)
-      _ <- Either.cond(!BankStatementRowDAO.existsForExpense(loserId, userId), (), LoserWithRow)
-      receipt = ReceiptDAO.findByExpenseId(loserId, userId)
+      _ <- Either.cond(
+        BankStatementRowDAO.existsForExpense(expenseId = survivorId, userId = userId),
+        (),
+        SurvivorWithoutRow
+      )
+      _ <- Either.cond(!BankStatementRowDAO.existsForExpense(expenseId = loserId, userId = userId), (), LoserWithRow)
+      receipt = ReceiptDAO.findByExpenseId(expenseId = loserId, userId = userId)
       _ <- checkReceiptGuards(
         loserReceipt = receipt,
         survivorId = survivorId,
@@ -194,7 +198,12 @@ class ExpensesRepository @Inject() (database: Database)(implicit
   )(implicit conn: Connection): Either[MergeError, Unit] = {
     import MergeError.*
     loserReceipt match {
-      case Some(_) => Either.cond(ReceiptDAO.findByExpenseId(survivorId, userId).isEmpty, (), SurvivorWithReceipt)
+      case Some(_) =>
+        Either.cond(
+          ReceiptDAO.findByExpenseId(expenseId = survivorId, userId = userId).isEmpty,
+          (),
+          SurvivorWithReceipt
+        )
       case None => Either.cond(keepDetailsFrom == MergeDetailsSource.Row, (), OrphanDetailsNotSupported)
     }
   }
@@ -202,8 +211,8 @@ class ExpensesRepository @Inject() (database: Database)(implicit
   private def relinkReceipt(receipt: Receipt, survivorId: UUID, userId: UUID, now: Instant)(implicit
       conn: Connection
   ): Unit = {
-    ReceiptDAO.clearExpenseId(receipt.id, userId, now)
-    ReceiptDAO.setExpenseId(receipt.id, userId, survivorId, now)
+    ReceiptDAO.clearExpenseId(id = receipt.id, userId = userId, now)
+    ReceiptDAO.setExpenseId(id = receipt.id, userId = userId, expenseId = survivorId, now)
   }
 }
 

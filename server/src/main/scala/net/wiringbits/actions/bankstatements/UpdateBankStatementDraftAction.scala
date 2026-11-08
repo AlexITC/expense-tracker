@@ -20,22 +20,22 @@ class UpdateBankStatementDraftAction @Inject() (bankStatementDraftRepository: Ba
 
   def apply(draftId: UUID, userId: UUID, request: BankStatementDraft.Update.Request): Future[BankStatementDraft.Data] =
     for {
-      existing <- bankStatementDraftRepository.findByIdForUser(draftId, userId)
+      existing <- bankStatementDraftRepository.findByIdForUser(id = draftId, userId = userId)
       draft = existing.getOrElse(throw new RuntimeException("Draft not found"))
       _ = if (draft.status != "ready") throw new RuntimeException("The draft is still being extracted")
       recomputed = recompute(request.payload)
       _ <- bankStatementDraftRepository.updatePayload(
-        draftId,
-        userId,
+        id = draftId,
+        userId = userId,
         Json.toJson(recomputed).toString,
         clock.instant()
       )
-    } yield BankStatementDraft.Data(draft.id, draft.filename, "ready", None, Some(recomputed))
+    } yield BankStatementDraft.Data(draft.id, filename = draft.filename, status = "ready", None, Some(recomputed))
 
   private def recompute(payload: BankStatementDraft.Payload): BankStatementDraft.Payload = {
     val (reconciled, discrepancy) = AiStatementExtractor.reconcile(
-      payload.metadata.openingBalance,
-      payload.metadata.closingBalance,
+      openingBalance = payload.metadata.openingBalance,
+      closingBalance = payload.metadata.closingBalance,
       payload.transactions.map(t => (t.amount, t.runningBalance))
     )
     payload.copy(reconciled = reconciled, discrepancy = discrepancy)

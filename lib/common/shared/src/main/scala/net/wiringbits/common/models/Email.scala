@@ -15,7 +15,7 @@ object Email extends WrappedString.Companion[Email] {
     Option
       .when(valid)(ValidationResult.Valid(string, new Email(string)))
       .getOrElse {
-        ValidationResult.Invalid(string, "Invalid email")
+        ValidationResult.Invalid(input = string, error = "Invalid email")
       }
   }
 

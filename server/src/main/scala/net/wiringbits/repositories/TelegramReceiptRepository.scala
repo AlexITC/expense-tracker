@@ -13,7 +13,7 @@ class TelegramReceiptRepository @Inject() (database: Database)(implicit ec: Data
 
   def create(id: UUID, receiptId: UUID, chatId: Long, expenseMessageId: Option[Long] = None): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      TelegramDAO.createReceipt(id, receiptId, chatId, expenseMessageId)
+      TelegramDAO.createReceipt(id = id, receiptId = receiptId, chatId, expenseMessageId)
     }
   }
 

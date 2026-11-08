@@ -34,7 +34,7 @@ object BankStatementBulkRuns {
       remaining match {
         case Nil => setBulkIgnore(_.finished); setSelectedRowIds(Set.empty)
         case rowId :: rest =>
-          client.ignoreRow(stmtId, rowId).onComplete {
+          client.ignoreRow(bankStatementId = stmtId, rowId = rowId).onComplete {
             case Success(_) =>
               updateRows(patchRow(_, rowId)(_.copy(ignoredAt = Some(Instant.now()))))
               setBulkIgnore(_.recorded(rowId, Right(())))
@@ -72,7 +72,14 @@ object BankStatementBulkRuns {
         case Nil =>
           setBulkImport(_.finished)
           setSelectedRowIds(Set.empty)
-          showToast(bulkImportSummary(counts.linked, counts.created, counts.ignored, counts.failed))
+          showToast(
+            bulkImportSummary(
+              linked = counts.linked,
+              created = counts.created,
+              ignored = counts.ignored,
+              failed = counts.failed
+            )
+          )
           onFinished()
         case rowId :: rest =>
           def advance(outcome: Either[String, Unit], next: Counts, nextLinked: Set[UUID]): Unit = {
@@ -93,7 +100,7 @@ object BankStatementBulkRuns {
               ) match {
                 case BulkRowDecision.Fail(message) => fail(message)
                 case BulkRowDecision.Ignore =>
-                  client.ignoreRow(stmtId, rowId).onComplete {
+                  client.ignoreRow(bankStatementId = stmtId, rowId = rowId).onComplete {
                     case Success(_) =>
                       updateRows(patchRow(_, rowId)(_.copy(ignoredAt = Some(Instant.now()))))
                       succeed(counts.copy(ignored = counts.ignored + 1))
@@ -101,7 +108,7 @@ object BankStatementBulkRuns {
                   }
                 case BulkRowDecision.Link(expenseId) =>
                   client
-                    .linkRowToExpense(stmtId, rowId, LinkRowToExpense.Request(expenseId))
+                    .linkRowToExpense(bankStatementId = stmtId, rowId = rowId, LinkRowToExpense.Request(expenseId))
                     .onComplete {
                       case Success(_) =>
                         val expense = expenseList.find(_.id == expenseId)
@@ -132,7 +139,7 @@ object BankStatementBulkRuns {
                     splits = List(CreateExpenseFromRow.Split(res.categoryId, row.amount.abs)),
                     receiptId = receiptId
                   )
-                  client.createExpenseFromRow(stmtId, rowId, req).onComplete {
+                  client.createExpenseFromRow(bankStatementId = stmtId, rowId = rowId, req).onComplete {
                     case Success(resp) =>
                       updateRows(
                         patchRow(_, rowId)(
@@ -156,7 +163,7 @@ object BankStatementBulkRuns {
                     expenseId = None,
                     notes = Some(row.description).filter(_.nonEmpty)
                   )
-                  client.createRefundFromRow(stmtId, rowId, req).onComplete {
+                  client.createRefundFromRow(bankStatementId = stmtId, rowId = rowId, req).onComplete {
                     case Success(resp) =>
                       updateRows(patchRow(_, rowId)(_.copy(refundId = Some(resp.refundId))))
                       succeed(counts.copy(created = counts.created + 1))
@@ -165,6 +172,6 @@ object BankStatementBulkRuns {
               }
           }
       }
-    loop(ids, Counts(0, 0, 0, 0), Set.empty)
+    loop(ids, Counts(linked = 0, created = 0, ignored = 0, failed = 0), Set.empty)
   }
 }

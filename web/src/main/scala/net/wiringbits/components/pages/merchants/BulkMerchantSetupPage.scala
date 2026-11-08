@@ -133,7 +133,7 @@ object BulkMerchantSetupContent {
       setPageChanging(true)
       setPage(n)
       history.push(s"/bank-statements/bulk-setup?page=${n + 1}")
-      dom.window.scrollTo(0, 0)
+      dom.window.scrollTo(x = 0, y = 0)
     }
 
     val unmatchedGroups: List[(String, List[GetAllRows.RowData])] =
@@ -376,7 +376,7 @@ object DescriptionRow {
         case _ => ()
       }
     merchantDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-      val (text, rsn) = MuiCompat.autocompleteInputChange(value, reason)
+      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
       setMerchantInput(text)
       if (rsn != "reset") setMerchantIdOpt(None)
     }
@@ -398,7 +398,7 @@ object DescriptionRow {
         case _ => ()
       }
     categoryDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-      val (text, rsn) = MuiCompat.autocompleteInputChange(value, reason)
+      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
       setCategoryInput(text)
       if (rsn != "reset") setCategoryIdOpt(None)
     }

@@ -33,7 +33,7 @@ class DocumentsController @Inject() (
   ): Future[Either[ErrorResponse, GetDocument.Response]] = handleRequest {
     for {
       userId <- userIdF
-      response <- getDocumentAction(documentId, userId)
+      response <- getDocumentAction(id = documentId, userId = userId)
     } yield Right(response)
   }
 
@@ -44,7 +44,7 @@ class DocumentsController @Inject() (
     logger.info(s"Delete document: $documentId")
     for {
       userId <- userIdF
-      response <- deleteDocumentAction(documentId, userId)
+      response <- deleteDocumentAction(documentId = documentId, userId = userId)
     } yield Right(response)
   }
 

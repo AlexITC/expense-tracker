@@ -141,7 +141,7 @@ object BankRowCreateExpenseForm {
       pattern: String
   ): Option[String] =
     if (optIn && merchantName.isEmpty && categoryIdOpt.isDefined && hint == RuleHint.NeedsAlias)
-      aliasToCreate(pattern, "")
+      aliasToCreate(pattern = pattern, merchantName = "")
     else None
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
@@ -186,7 +186,15 @@ object BankRowCreateExpenseForm {
     // merchant/category fields are still untouched so user edits are never overwritten.
     val aiSuggestionKey = props.aiSuggestion.map(s => s"${s.merchantId}|${s.categoryId}").getOrElse("")
     SafeHooks.useEffect(aiSuggestionKey)(() => {
-      if (isPristine(props.row, merchantIdOpt, merchantInput, categoryIdOpt, categoryInput)) {
+      if (
+        isPristine(
+          props.row,
+          merchantIdOpt = merchantIdOpt,
+          merchantInput = merchantInput,
+          categoryIdOpt = categoryIdOpt,
+          categoryInput = categoryInput
+        )
+      ) {
         initMerchant.foreach { m =>
           setMerchantInput(m.name)
           setMerchantIdOpt(Some(m.id))
@@ -308,15 +316,23 @@ object BankRowCreateExpenseForm {
               splits = splits,
               receiptId = receiptId
             )
-            resp <- props.ctx.api.client.createExpenseFromRow(props.stmtId, props.row.id, req)
+            resp <- props.ctx.api.client.createExpenseFromRow(bankStatementId = props.stmtId, rowId = props.row.id, req)
           } yield (resp.expenseId, resolvedMerchantId, resolvedCategoryId)
 
           fExpense.onComplete {
             case Failure(ex) => setError(ex.getMessage)
             case Success((expenseId, resolvedMerchantId, resolvedCategoryId)) =>
-              val aliasOpt = if (hint == RuleHint.NeedsAlias) aliasToCreate(rulePattern, merchantName) else None
+              val aliasOpt =
+                if (hint == RuleHint.NeedsAlias) aliasToCreate(pattern = rulePattern, merchantName = merchantName)
+                else None
               val categoryRuleOpt =
-                categoryRuleToCreate(hint, merchantName, resolvedCategoryId, categoryRuleOptIn, rulePattern)
+                categoryRuleToCreate(
+                  hint,
+                  merchantName = merchantName,
+                  resolvedCategoryId,
+                  categoryRuleOptIn,
+                  pattern = rulePattern
+                )
               val ruleRequestOpt = (resolvedMerchantId, aliasOpt, resolvedCategoryId, categoryRuleOpt) match {
                 case (Some(mid), Some(alias), _, _) =>
                   Some(

@@ -72,18 +72,18 @@ object StatementPipelineEval {
         key,
         secret,
         region,
-        statementModelId,
-        statementModelId,
+        modelId = statementModelId,
+        statementModelId = statementModelId,
         16000,
-        suggestionsModelId,
+        suggestionsModelId = suggestionsModelId,
         BedrockConfig.Real
       )
     val bdaConfig = BdaConfig(
       BdaConfig.Real,
-      sys.env("BDA_PROFILE_ARN"),
-      sys.env("BDA_STANDARD_PROJECT_ARN"),
-      sys.env("BDA_BANK_STATEMENT_BLUEPRINT_ARN"),
-      sys.env("BDA_OUTPUT_S3_URI")
+      profileArn = sys.env("BDA_PROFILE_ARN"),
+      standardProjectArn = sys.env("BDA_STANDARD_PROJECT_ARN"),
+      bankStatementBlueprintArn = sys.env("BDA_BANK_STATEMENT_BLUEPRINT_ARN"),
+      outputS3Uri = sys.env("BDA_OUTPUT_S3_URI")
     )
 
     val bedrock = new RealBedrockClient(bedrockConfig)
@@ -111,7 +111,10 @@ object StatementPipelineEval {
         // On a re-run the ladder is served from textract_cache and never reads S3; EVAL_SKIP_UPLOAD avoids S3 then.
         if (!sys.env.contains("EVAL_SKIP_UPLOAD")) Await.result(blob.put(s"eval-seed567/$label", bytes), 2.minutes)
         val text = PdfTextExtractor.extract(bytes).fold(e => throw new RuntimeException(s"PDF text: $e"), identity)
-        val result = Await.result(service.extract(label, sha, s"eval-seed567/$label", text), 10.minutes)
+        val result = Await.result(
+          service.extract(label = label, sha256 = sha, storageKey = s"eval-seed567/$label", text = text),
+          10.minutes
+        )
 
         // Provenance comes straight from the result the ladder returns.
         val producedBy = result.source.map(_.entryName).getOrElse("unknown")

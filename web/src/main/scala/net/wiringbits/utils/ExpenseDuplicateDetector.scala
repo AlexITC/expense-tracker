@@ -56,7 +56,7 @@ object ExpenseDuplicateDetector {
       survivors.flatMap { survivor =>
         losersByAmount
           .getOrElse(survivor.amount, Nil)
-          .filter((loser, _) => withinWindow(survivor, loser))
+          .filter((loser, _) => withinWindow(survivor = survivor, loser = loser))
           .map((loser, receiptId) => (survivor, loser, receiptId))
       }
     }
@@ -78,7 +78,7 @@ object ExpenseDuplicateDetector {
     pairs
       .map { (survivor, loser, receiptId) =>
         val ambiguous = survivorCounts(survivor.id) > 1 || loserCounts(loser.id) > 1
-        Candidate(survivor, loser, receiptId, tierFor(survivor, loser), ambiguous)
+        Candidate(survivor = survivor, loser = loser, receiptId, tierFor(survivor = survivor, loser = loser), ambiguous)
       }
       .sortBy(c => (-c.survivor.date.toEpochDay, c.survivor.id.toString, c.loser.id.toString))
   }

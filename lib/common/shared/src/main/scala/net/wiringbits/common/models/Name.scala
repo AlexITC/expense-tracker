@@ -15,7 +15,7 @@ object Name extends WrappedString.Companion[Name] {
     Option
       .when(isValid)(ValidationResult.Valid(string, new Name(string)))
       .getOrElse {
-        ValidationResult.Invalid(string, "Invalid name")
+        ValidationResult.Invalid(input = string, error = "Invalid name")
       }
   }
 
