@@ -11,23 +11,8 @@ Global / excludeLintKeys += webpackExtraArgs
 Global / excludeLintKeys += webpackDevServerPort
 Global / excludeLintKeys += stMinimize
 
-val pekkoVersion = "1.6.0"
-
-ThisBuild / dependencyOverrides ++= Seq(
-  "org.apache.pekko" %% "pekko-actor" % pekkoVersion,
-  "org.apache.pekko" %% "pekko-actor-typed" % pekkoVersion,
-  "org.apache.pekko" %% "pekko-stream" % pekkoVersion,
-  "org.apache.pekko" %% "pekko-slf4j" % pekkoVersion,
-  "org.apache.pekko" %% "pekko-serialization-jackson" % pekkoVersion
-)
-
-val playJson = "3.0.6"
-val sttp = "3.11.0"
-val webappUtils = "0.7.2"
-val anorm = "3.0.0"
-val scalaJavaTime = "2.6.0"
-val tapir = "1.13.19"
-val chimney = "1.10.0"
+// Dependency versions and module dependency groups live in project/Dependencies.scala.
+ThisBuild / dependencyOverrides ++= Dependencies.pekkoOverrides
 
 val consoleDisabledOptions = Seq("-Werror", "-Ywarn-unused", "-Ywarn-unused-import")
 
@@ -118,11 +103,8 @@ lazy val baseWebSettings: Project => Project =
       /* disabled because it somehow triggers many warnings */
       scalaJSLinkerConfig := scalaJSLinkerConfig.value.withSourceMap(false),
       /* for slinky */
-      libraryDependencies ++= Seq("me.shadaj" %%% "slinky-hot" % "0.7.5"),
-      libraryDependencies ++= Seq(
-        "io.github.cquiroz" %%% "scala-java-time" % scalaJavaTime,
-        "io.github.cquiroz" %%% "scala-java-time-tzdb" % scalaJavaTime
-      ),
+      libraryDependencies += Dependencies.slinkyHot.value,
+      libraryDependencies ++= Dependencies.scalaJsTime.value,
       Test / fork := false, // sjs needs this to run tests
       Test / requireJsDomEnv := true
     )
@@ -246,18 +228,8 @@ lazy val playSettings: Project => Project = {
       // path, and wartremoverExcluded is read at project scope by the plugin, not `Compile / compile`.
       // Referencing crossTarget (a setting) avoids the cycle that managedSources (a task) would create.
       wartremoverExcluded ++= Seq(crossTarget.value / "routes", crossTarget.value / "twirl"),
-      libraryDependencies ++= Seq(
-        guice,
-        evolutions,
-        jdbc,
-        ws,
-        "com.google.inject" % "guice" % "6.0.0"
-      ),
-      // test
-      libraryDependencies ++= Seq(
-        "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.2" % Test,
-        "org.scalatestplus" %% "mockito-4-11" % "3.2.18.0" % Test
-      )
+      libraryDependencies ++= Dependencies.playBundle,
+      libraryDependencies ++= Dependencies.playTest
     )
 }
 
@@ -268,11 +240,7 @@ lazy val common = (crossProject(JSPlatform, JVMPlatform) in file("lib/common"))
     libraryDependencies ++= Seq()
   )
   .jvmSettings(
-    libraryDependencies ++= Seq(
-      "org.playframework" %% "play-json" % playJson,
-      "net.wiringbits" %% "webapp-common" % webappUtils,
-      "org.scalatest" %% "scalatest" % "3.2.20" % Test
-    )
+    libraryDependencies ++= Dependencies.commonJvm
   )
   .jsSettings(
     useYarn := true,
@@ -280,12 +248,7 @@ lazy val common = (crossProject(JSPlatform, JVMPlatform) in file("lib/common"))
     Test / fork := false, // sjs needs this to run tests
     stUseScalaJsDom := true,
     Compile / stMinimize := Selection.All,
-    libraryDependencies ++= Seq(
-      "io.github.cquiroz" %%% "scala-java-time" % scalaJavaTime,
-      "org.playframework" %%% "play-json" % playJson,
-      "net.wiringbits" %%% "webapp-common" % webappUtils,
-      "org.scalatest" %%% "scalatest" % "3.2.20" % Test
-    )
+    libraryDependencies ++= Dependencies.commonJs.value
   )
 
 // shared apis
@@ -294,13 +257,7 @@ lazy val api = (crossProject(JSPlatform, JVMPlatform) in file("lib/api"))
   .configure(baseLibSettings, commonSettings)
   .jsConfigure(_.enablePlugins(ScalaJSPlugin, ScalaJSBundlerPlugin, ScalablyTypedConverterPlugin))
   .jvmSettings(
-    libraryDependencies ++= Seq(
-      "org.playframework" %% "play-json" % playJson,
-      "com.softwaremill.sttp.client3" %% "core" % sttp,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-play" % tapir,
-      "com.softwaremill.sttp.tapir" %% "tapir-sttp-client" % tapir,
-      "org.scalatest" %% "scalatest" % "3.2.20" % Test
-    )
+    libraryDependencies ++= Dependencies.apiJvm
   )
   .jsSettings(
     useYarn := true,
@@ -308,13 +265,7 @@ lazy val api = (crossProject(JSPlatform, JVMPlatform) in file("lib/api"))
     Test / fork := false, // sjs needs this to run tests
     stUseScalaJsDom := true,
     Compile / stMinimize := Selection.All,
-    libraryDependencies ++= Seq(
-      "org.playframework" %%% "play-json" % playJson,
-      "org.scalatest" %%% "scalatest" % "3.2.20" % Test,
-      "com.softwaremill.sttp.client3" %%% "core" % sttp,
-      "com.softwaremill.sttp.tapir" %%% "tapir-json-play" % tapir,
-      "com.softwaremill.sttp.tapir" %%% "tapir-sttp-client" % tapir
-    )
+    libraryDependencies ++= Dependencies.apiJs.value
   )
 
 // shared on the ui only
@@ -356,13 +307,7 @@ lazy val ui = (project in file("lib/ui"))
     stReactEnableTreeShaking := Selection.All,
     stUseScalaJsDom := true,
     Compile / stMinimize := Selection.All,
-    libraryDependencies ++= Seq(
-      "io.github.cquiroz" %%% "scala-java-time" % scalaJavaTime,
-      "org.scala-js" %%% "scala-js-macrotask-executor" % "1.1.1",
-      "com.olvind.st-material-ui" %%% "st-material-ui-icons-slinky" % "5.11.16",
-      "net.wiringbits" %%% "slinky-utils" % webappUtils,
-      "org.scalatest" %%% "scalatest" % "3.2.20" % Test
-    )
+    libraryDependencies ++= Dependencies.ui.value
   )
 
 lazy val server = (project in file("server"))
@@ -380,42 +325,7 @@ lazy val server = (project in file("server"))
     // background_jobs-queue specs use IsolatedPostgresSpec so their global DELETE can't race a concurrent suite.
     Test / fork := !sys.env.get("CI").exists(_.nonEmpty),
     Test / parallelExecution := sys.env.get("CI").exists(_.nonEmpty),
-    libraryDependencies ++= Seq(
-      "org.playframework.anorm" %% "anorm" % anorm,
-      "org.playframework.anorm" %% "anorm-postgres" % anorm,
-      "org.playframework.anorm" %% "anorm-pekko" % anorm,
-      "org.playframework" %% "play-json" % playJson,
-      "org.postgresql" % "postgresql" % "42.7.11",
-      "de.svenkubiak" % "jBCrypt" % "0.4.3",
-      "commons-validator" % "commons-validator" % "1.10.1",
-      "com.dimafeng" %% "testcontainers-scala-scalatest" % "0.44.1" % "test",
-      "com.dimafeng" %% "testcontainers-scala-postgresql" % "0.44.1" % "test",
-      "com.dimafeng" %% "testcontainers-scala-localstack-v2" % "0.44.1" % "test",
-      "com.softwaremill.sttp.client3" %% "core" % sttp % "test",
-      "com.softwaremill.sttp.client3" %% "async-http-client-backend-future" % sttp % "test",
-      // "net.wiringbits" %% "admin-data-explorer-play-server" % webappUtils,
-      "software.amazon.awssdk" % "ses" % "2.44.9",
-      "software.amazon.awssdk" % "s3" % "2.44.9",
-      "software.amazon.awssdk" % "textract" % "2.44.9",
-      "software.amazon.awssdk" % "bedrockruntime" % "2.44.9",
-      "software.amazon.awssdk" % "bedrockdataautomationruntime" % "2.44.9",
-      "jakarta.xml.bind" % "jakarta.xml.bind-api" % "4.0.5",
-      "org.apache.commons" % "commons-text" % "1.15.0",
-      "org.apache.pdfbox" % "pdfbox" % "3.0.3",
-      // JAX-B dependencies for JDK 9+, required to use play sessions
-      "javax.xml.bind" % "jaxb-api" % "2.3.1",
-      "javax.annotation" % "javax.annotation-api" % "1.3.2",
-      "javax.el" % "javax.el-api" % "3.0.0",
-      "org.glassfish" % "javax.el" % "3.0.0",
-      "io.scalaland" %% "chimney" % chimney,
-      "com.softwaremill.sttp.tapir" %% "tapir-swagger-ui-bundle" % tapir,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-play" % tapir,
-      "com.softwaremill.sttp.tapir" %% "tapir-play-server" % tapir,
-      "org.apache.pekko" %% "pekko-stream" % pekkoVersion,
-      "com.github.f4b6a3" % "uuid-creator" % "5.3.3",
-      "com.bot4s" %% "telegram-core" % "7.0.0",
-      "com.softwaremill.sttp.client4" %% "okhttp-backend" % "4.0.13"
-    )
+    libraryDependencies ++= Dependencies.server
   )
 
 lazy val webBuildInfoSettings: Project => Project = _.enablePlugins(BuildInfoPlugin)
@@ -484,17 +394,8 @@ lazy val web = (project in file("web"))
       "@types/react-google-recaptcha" -> "2.1.0",
       "@mui/x-charts" -> "6.18.7"
     ),
-    libraryDependencies ++= Seq(
-      "org.playframework" %%% "play-json" % playJson,
-      "com.softwaremill.sttp.client3" %%% "core" % sttp,
-      "org.scala-js" %%% "scala-js-macrotask-executor" % "1.1.1",
-      "com.olvind.st-material-ui" %%% "st-material-ui-icons-slinky" % "5.11.16",
-      "io.monix" %%% "monix-reactive" % "3.4.1",
-      "com.softwaremill.sttp.tapir" %%% "tapir-sttp-client" % tapir
-    ),
-    libraryDependencies ++= Seq(
-      "org.scalatest" %%% "scalatest" % "3.2.20" % Test
-    ),
+    libraryDependencies ++= Dependencies.web.value,
+    libraryDependencies ++= Dependencies.webTest.value,
     // sbt-scalajs-bundler defaults to webpack-cli 4.5.0 which ships with @webpack-cli/serve@^1.3.0.
     // yarn now resolves that range to 1.7.0, which requires internal APIs added in webpack-cli 4.7+.
     // Upgrading to 4.10.0 (latest 4.x) pins the correct @webpack-cli/serve@^1.7.0 from the start.
