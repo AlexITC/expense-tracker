@@ -34,8 +34,16 @@ object BuildSettings {
 
   lazy val commonSettings: Project => Project = {
     _.settings(
-      // Warnings enabled for every module. Module-specific extras live in the base* settings below.
-      scalacOptions ++= Seq("-deprecation", "-feature", "-unchecked"),
+      // Options every module wants: a fixed source encoding, the standard warning set, and more
+      // detailed type-error output. Module-specific extras live in the base* settings below.
+      scalacOptions ++= Seq(
+        "-encoding",
+        "utf-8", // Specify character encoding used by source files.
+        "-deprecation",
+        "-feature",
+        "-unchecked",
+        "-explaintypes" // Explain type errors in more detail.
+      ),
       // Enable fatal warnings only when running in the CI
       scalacOptions ++= {
         sys.env
@@ -44,9 +52,6 @@ object BuildSettings {
           .map(_ => Seq("-Werror"))
           .getOrElse(Seq.empty[String])
       },
-      // ScalablyTyped-generated inline code uses scala.scalajs.runtime.linkingInfo which was deprecated
-      // in Scala.js 1.18.0. We can't fix it in the generated code, so suppress the warning.
-      scalacOptions += "-Wconf:cat=deprecation&origin=scala.scalajs.runtime.*:s",
       Compile / compile / wartremoverErrors ++= List(
         Wart.ArrayEquals,
         //      Wart.Any,
@@ -90,7 +95,11 @@ object BuildSettings {
     yarnExtraArgs ++= yarnLockfileArgs,
     Test / fork := false, // sjs needs this to run tests
     stUseScalaJsDom := true,
-    Compile / stMinimize := Selection.All
+    Compile / stMinimize := Selection.All,
+    // ScalablyTyped-generated inline code uses scala.scalajs.runtime.linkingInfo which was deprecated
+    // in Scala.js 1.18.0. We can't fix the generated code, so suppress the warning. Only Scala.js
+    // modules reference it, so it belongs here rather than in commonSettings.
+    scalacOptions += "-Wconf:cat=deprecation&origin=scala.scalajs.runtime.*:s"
   )
 
   lazy val baseServerSettings: Project => Project = {
@@ -104,7 +113,6 @@ object BuildSettings {
   lazy val baseWebSettings: Project => Project =
     _.enablePlugins(ScalaJSPlugin)
       .settings(
-        scalacOptions += "-explaintypes", // Explain type errors in more detail.
         scalaJSUseMainModuleInitializer := true,
         /* disabled because it somehow triggers many warnings */
         scalaJSLinkerConfig := scalaJSLinkerConfig.value.withSourceMap(false),
@@ -113,15 +121,6 @@ object BuildSettings {
         libraryDependencies ++= Dependencies.scalaJsTime.value,
         Test / requireJsDomEnv := true
       )
-
-  // Used only by the lib projects
-  lazy val baseLibSettings: Project => Project = _.settings(
-    scalacOptions ++= Seq(
-      "-encoding",
-      "utf-8", // Specify character encoding used by source files.
-      "-explaintypes" // Explain type errors in more detail.
-    )
-  )
 
   /** Implement the `build` task defined above. Most of this is really just to copy the index.html file around.
     */

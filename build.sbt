@@ -15,7 +15,7 @@ Global / excludeLintKeys += stMinimize
 ThisBuild / dependencyOverrides ++= Dependencies.pekkoOverrides
 
 lazy val common = (crossProject(JSPlatform, JVMPlatform) in file("lib/common"))
-  .configure(baseLibSettings, commonSettings)
+  .configure(commonSettings)
   .jsConfigure(_.enablePlugins(ScalaJSPlugin, ScalaJSBundlerPlugin, ScalablyTypedConverterPlugin))
   .jsConfigure(scalaJsModuleSettings)
   .jvmSettings(
@@ -28,7 +28,7 @@ lazy val common = (crossProject(JSPlatform, JVMPlatform) in file("lib/common"))
 // shared apis
 lazy val api = (crossProject(JSPlatform, JVMPlatform) in file("lib/api"))
   .dependsOn(common)
-  .configure(baseLibSettings, commonSettings)
+  .configure(commonSettings)
   .jsConfigure(_.enablePlugins(ScalaJSPlugin, ScalaJSBundlerPlugin, ScalablyTypedConverterPlugin))
   .jsConfigure(scalaJsModuleSettings)
   .jvmSettings(
