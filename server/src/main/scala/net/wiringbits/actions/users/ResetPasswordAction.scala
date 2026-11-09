@@ -4,7 +4,7 @@ import net.wiringbits.api.models.users.ResetPassword
 import net.wiringbits.common.models.Password
 import net.wiringbits.config.UserTokensConfig
 import net.wiringbits.repositories.{UserTokensRepository, UsersRepository}
-import net.wiringbits.services.PasswordHasher
+import net.wiringbits.util.PasswordHasher
 import net.wiringbits.util.{EmailMessage, TokensHelper}
 import net.wiringbits.validations.ValidateUserToken
 

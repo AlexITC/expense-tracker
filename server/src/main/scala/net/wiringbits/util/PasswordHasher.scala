@@ -1,4 +1,4 @@
-package net.wiringbits.services
+package net.wiringbits.util
 
 import org.mindrot.jbcrypt.BCrypt
 

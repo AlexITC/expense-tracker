@@ -9,7 +9,7 @@ import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, Ba
 import net.wiringbits.repositories.BankStatementRepository
 import net.wiringbits.repositories.daos.DocumentDAO
 import net.wiringbits.repositories.models.{BackgroundJobData, BankStatement, BankStatementRow, Document}
-import net.wiringbits.services.{BcryptPasswordHasher, PasswordHasher}
+import net.wiringbits.util.{BcryptPasswordHasher, PasswordHasher}
 import org.scalatest.time.SpanSugar.convertIntToGrainOfTime
 import org.scalatestplus.play.guice.GuiceOneServerPerSuite
 import play.api.db.Database
