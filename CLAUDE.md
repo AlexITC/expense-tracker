@@ -6,6 +6,7 @@
 | Running locally | [docs/guide/local-setup.md](docs/guide/local-setup.md) |
 | Frontend (Scala.js / MUI) | [docs/guide/frontend.md](docs/guide/frontend.md) |
 | Backend (Play / Tapir) | [docs/guide/backend.md](docs/guide/backend.md) |
+| Server architecture (layers, packages) | [docs/guide/architecture.md](docs/guide/architecture.md) |
 | Database & infra | [docs/guide/data-infra.md](docs/guide/data-infra.md) |
 | Testing | [docs/guide/testing.md](docs/guide/testing.md) |
 | CI checklist | [docs/guide/ci-checklist.md](docs/guide/ci-checklist.md) |
