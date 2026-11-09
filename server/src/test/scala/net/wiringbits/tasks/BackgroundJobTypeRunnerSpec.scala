@@ -1,4 +1,5 @@
 package net.wiringbits.tasks
+import net.wiringbits.tasks.runner.BackgroundJobTypeRunner
 
 import net.wiringbits.config.BackgroundJobsExecutorConfig.TypeSettings
 import net.wiringbits.core.{IsolatedPostgresSpec, RepositoryComponents, RepositorySpec}

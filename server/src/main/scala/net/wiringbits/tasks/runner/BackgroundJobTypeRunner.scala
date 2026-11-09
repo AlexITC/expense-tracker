@@ -1,4 +1,4 @@
-package net.wiringbits.tasks
+package net.wiringbits.tasks.runner
 
 import com.google.inject.Inject
 import net.wiringbits.config.BackgroundJobsExecutorConfig

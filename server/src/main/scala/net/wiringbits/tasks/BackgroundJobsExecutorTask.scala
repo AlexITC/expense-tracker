@@ -5,6 +5,7 @@ import org.apache.pekko.stream.scaladsl.Sink
 import com.google.inject.Inject
 import net.wiringbits.actions.documents.{ParseReceiptAction, PollReceiptAction, ProcessDocumentAction}
 import net.wiringbits.actions.bankstatements.{ExtractBankStatementDraftAction, ResolveStatementSuggestionsAction}
+import net.wiringbits.tasks.runner.BackgroundJobTypeRunner
 import net.wiringbits.apis.EmailApi
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.config.BackgroundJobsExecutorConfig
