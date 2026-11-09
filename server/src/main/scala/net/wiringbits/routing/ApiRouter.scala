@@ -1,5 +1,6 @@
-package controllers
+package net.wiringbits.routing
 
+import controllers.*
 import net.wiringbits.api.endpoints.*
 import net.wiringbits.config.SwaggerConfig
 import org.apache.pekko.actor.ActorSystem

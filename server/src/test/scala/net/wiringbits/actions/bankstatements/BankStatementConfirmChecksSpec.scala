@@ -2,6 +2,7 @@ package net.wiringbits.actions.bankstatements
 
 import net.wiringbits.api.models.bankstatements.ConfirmWarningKind
 import net.wiringbits.repositories.models.BankStatement
+import net.wiringbits.validations.BankStatementConfirmChecks
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 

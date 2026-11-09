@@ -1,4 +1,5 @@
 package net.wiringbits.repositories
+import net.wiringbits.repositories.support.ConstraintViolations
 
 import net.wiringbits.executors.DatabaseExecutionContext
 import net.wiringbits.repositories.daos.{
@@ -95,7 +96,7 @@ class ExpensesRepository @Inject() (database: Database)(implicit
     * details.
     */
   def merge(survivorId: UUID, loserId: UUID, userId: UUID, keepDetailsFrom: MergeDetailsSource): Future[Unit] = Future {
-    ConstraintViolations.translating(ReceiptRepository.ReceiptExpenseIdUnique) {
+    ConstraintViolations.translating(ConstraintViolations.ReceiptExpenseIdUnique) {
       database.withTransaction { implicit conn =>
         val validated =
           validateMerge(survivorId = survivorId, loserId = loserId, userId = userId, keepDetailsFrom = keepDetailsFrom)

@@ -1,8 +1,12 @@
-package net.wiringbits.repositories
+package net.wiringbits.repositories.support
 
 import org.postgresql.util.PSQLException
 
 object ConstraintViolations {
+
+  /** The receipt-to-expense link constraint, referenced from more than one repository. */
+  val ReceiptExpenseIdUnique: (String, String) =
+    "receipt_expense_id_unique" -> "That expense is already linked to another receipt"
 
   /** Run a DB write and translate a unique/exclusion constraint violation into a domain error (a `RuntimeException`
     * carrying the user-facing message). Each pair maps a constraint/index name to its message; the first whose name

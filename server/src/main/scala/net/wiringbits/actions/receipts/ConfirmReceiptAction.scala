@@ -1,7 +1,7 @@
 package net.wiringbits.actions.receipts
 
 import com.github.f4b6a3.uuid.UuidCreator
-import net.wiringbits.actions.expenses.ExpenseValidator
+import net.wiringbits.validations.ExpenseValidator
 import net.wiringbits.api.models.receipts.ConfirmReceipt
 import net.wiringbits.models.documents.DocumentStatus
 import net.wiringbits.repositories.{ExpensesRepository, ImportRuleRepository, ReceiptRepository}

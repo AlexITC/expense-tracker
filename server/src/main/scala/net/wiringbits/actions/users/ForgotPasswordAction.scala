@@ -4,7 +4,7 @@ import net.wiringbits.api.models.users.ForgotPassword
 import net.wiringbits.apis.ReCaptchaApi
 import net.wiringbits.repositories.UsersRepository
 import net.wiringbits.repositories.models.User
-import net.wiringbits.util.EmailsHelper
+import net.wiringbits.services.EmailsHelper
 import net.wiringbits.validations.{ValidateCaptcha, ValidateVerifiedUser}
 
 import javax.inject.Inject

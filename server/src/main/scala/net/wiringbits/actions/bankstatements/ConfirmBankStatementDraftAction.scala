@@ -1,4 +1,5 @@
 package net.wiringbits.actions.bankstatements
+import net.wiringbits.validations.BankStatementConfirmChecks
 
 import com.github.f4b6a3.uuid.UuidCreator
 import io.scalaland.chimney.dsl.*

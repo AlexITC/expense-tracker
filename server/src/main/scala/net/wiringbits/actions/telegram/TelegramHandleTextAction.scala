@@ -2,7 +2,7 @@ package net.wiringbits.actions.telegram
 
 import net.wiringbits.apis.TelegramApi
 import net.wiringbits.repositories.TelegramRepository
-import net.wiringbits.services.TelegramMessageParser
+import net.wiringbits.services.{TelegramExpenseService, TelegramMessageParser}
 import org.slf4j.LoggerFactory
 
 import javax.inject.Inject
@@ -11,7 +11,7 @@ import scala.concurrent.{ExecutionContext, Future}
 class TelegramHandleTextAction @Inject() (
     telegramRepository: TelegramRepository,
     telegramApi: TelegramApi,
-    telegramExpenseAction: TelegramExpenseAction
+    telegramExpenseService: TelegramExpenseService
 )(implicit ec: ExecutionContext) {
 
   private val logger = LoggerFactory.getLogger(this.getClass)
@@ -33,7 +33,7 @@ class TelegramHandleTextAction @Inject() (
               s"Could not parse: $err\n\nFormat (one per line):\namount\nmerchant\ncategory (optional)"
             )
           case Right(parsed) =>
-            telegramExpenseAction(botUser.userId, parsed).flatMap {
+            telegramExpenseService(botUser.userId, parsed).flatMap {
               case Left(err) =>
                 logger.info(s"Telegram text: expense failed userId=${botUser.userId} err=$err")
                 telegramApi.sendMessage(chatId, s"Error: $err")

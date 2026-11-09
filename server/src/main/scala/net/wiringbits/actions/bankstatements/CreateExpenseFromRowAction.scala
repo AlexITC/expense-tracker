@@ -3,7 +3,7 @@ package net.wiringbits.actions.bankstatements
 import com.github.f4b6a3.uuid.UuidCreator
 import io.scalaland.chimney.dsl.*
 import net.wiringbits.api.models.bankstatements.CreateExpenseFromRow
-import net.wiringbits.actions.expenses.ExpenseValidator
+import net.wiringbits.validations.ExpenseValidator
 import net.wiringbits.repositories.models.{Expense, ExpenseCategorySplit}
 import net.wiringbits.repositories.{BankStatementRepository, ExpensesRepository, ReceiptRepository}
 import org.slf4j.LoggerFactory

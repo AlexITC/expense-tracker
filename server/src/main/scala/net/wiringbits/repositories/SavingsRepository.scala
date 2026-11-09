@@ -1,4 +1,5 @@
 package net.wiringbits.repositories
+import net.wiringbits.repositories.support.ConstraintViolations
 
 import net.wiringbits.executors.DatabaseExecutionContext
 import net.wiringbits.repositories.daos.{ExpenseDAO, SavingsAllocationDAO, SavingsGoalDAO}

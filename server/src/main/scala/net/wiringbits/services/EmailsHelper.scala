@@ -1,10 +1,11 @@
-package net.wiringbits.util
+package net.wiringbits.services
 
 import net.wiringbits.apis.EmailApi
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.config.{UserTokensConfig, WebAppConfig}
 import net.wiringbits.repositories.UserTokensRepository
 import net.wiringbits.repositories.models.{User, UserToken, UserTokenType}
+import net.wiringbits.util.{EmailMessage, TokenGenerator, TokensHelper}
 
 import java.time.temporal.ChronoUnit
 import java.time.{Clock, Instant}

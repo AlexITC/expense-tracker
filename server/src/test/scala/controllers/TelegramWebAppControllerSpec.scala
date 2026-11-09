@@ -1,6 +1,10 @@
 package controllers
 
-import net.wiringbits.actions.telegram.UpsertTelegramWebAppExpenseAction
+import net.wiringbits.actions.telegram.{
+  AuthenticateTelegramWebAppAction,
+  GetTelegramWebAppPrefillAction,
+  UpsertTelegramWebAppExpenseAction
+}
 import net.wiringbits.actions.telegram.UpsertTelegramWebAppExpenseAction.Error as UpsertExpenseError
 import net.wiringbits.config.TelegramConfig
 import net.wiringbits.repositories.models.{BotUser, Expense, Receipt}
@@ -45,17 +49,18 @@ class TelegramWebAppControllerSpec extends AnyWordSpec with Matchers with ScalaF
       merchantsRepo: MerchantsRepository = mock[MerchantsRepository],
       categoriesRepo: CategoriesRepository = mock[CategoriesRepository],
       upsertExpenseAction: UpsertTelegramWebAppExpenseAction = mock[UpsertTelegramWebAppExpenseAction]
-  ): TelegramWebAppController =
+  ): TelegramWebAppController = {
+    val authenticateAction = new AuthenticateTelegramWebAppAction(config, telegramRepo)
+    val getPrefillAction =
+      new GetTelegramWebAppPrefillAction(receiptRepo, expensesRepo, merchantsRepo, categoriesRepo)
     new TelegramWebAppController(
       Helpers.stubControllerComponents(),
       config,
-      telegramRepo,
-      receiptRepo,
-      expensesRepo,
-      merchantsRepo,
-      categoriesRepo,
+      authenticateAction,
+      getPrefillAction,
       upsertExpenseAction
     )
+  }
 
   /** Builds a correctly-signed Telegram initData string for the given botToken and telegramUserId. */
   private def signedInitData(botToken: String, telegramUserId: Long): String = {

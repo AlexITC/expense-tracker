@@ -3,6 +3,7 @@ package net.wiringbits.actions.telegram
 import net.wiringbits.api.models.merchants.{ImportRuleAction, ImportRuleActionKind}
 import net.wiringbits.config.MerchantsConfig
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
+import net.wiringbits.services.TelegramExpenseService
 import net.wiringbits.services.TelegramMessageParser.ParsedMessage
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
@@ -14,8 +15,8 @@ import scala.concurrent.Future
 
 class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
 
-  private def newAction(maxPerUser: Int = 400)(using repositories: RepositoryComponents): TelegramExpenseAction =
-    new TelegramExpenseAction(
+  private def newAction(maxPerUser: Int = 400)(using repositories: RepositoryComponents): TelegramExpenseService =
+    new TelegramExpenseService(
       repositories.merchants,
       repositories.categories,
       repositories.expenses,

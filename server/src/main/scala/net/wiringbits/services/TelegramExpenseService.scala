@@ -1,4 +1,4 @@
-package net.wiringbits.actions.telegram
+package net.wiringbits.services
 
 import com.github.f4b6a3.uuid.UuidCreator
 import io.scalaland.chimney.dsl.*
@@ -15,7 +15,7 @@ import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 
-class TelegramExpenseAction @Inject() (
+class TelegramExpenseService @Inject() (
     merchantsRepository: MerchantsRepository,
     categoriesRepository: CategoriesRepository,
     expensesRepository: ExpensesRepository,

@@ -3,7 +3,7 @@ package net.wiringbits.actions.users
 import com.github.f4b6a3.uuid.UuidCreator
 import net.wiringbits.api.models.users.CreateMcpToken
 import net.wiringbits.common.models.McpApiToken
-import net.wiringbits.mcp.McpTokenHasher
+import net.wiringbits.util.McpTokenHasher
 import net.wiringbits.repositories.McpRepository
 
 import java.security.SecureRandom
