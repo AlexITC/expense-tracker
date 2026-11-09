@@ -1,4 +1,5 @@
 package net.wiringbits.repositories
+import net.wiringbits.repositories.support.ConstraintViolations
 
 import net.wiringbits.common.models.{Email, Name}
 import net.wiringbits.config.UserTokensConfig

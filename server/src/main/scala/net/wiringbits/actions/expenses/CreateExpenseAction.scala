@@ -1,4 +1,5 @@
 package net.wiringbits.actions.expenses
+import net.wiringbits.validations.ExpenseValidator
 
 import com.github.f4b6a3.uuid.UuidCreator
 import io.scalaland.chimney.dsl.*

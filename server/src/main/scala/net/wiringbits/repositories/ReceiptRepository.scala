@@ -1,4 +1,5 @@
 package net.wiringbits.repositories
+import net.wiringbits.repositories.support.ConstraintViolations
 
 import net.wiringbits.executors.DatabaseExecutionContext
 import net.wiringbits.models.documents.DocumentStatus
@@ -20,7 +21,6 @@ import javax.inject.Inject
 import scala.concurrent.Future
 
 class ReceiptRepository @Inject() (database: Database)(implicit ec: DatabaseExecutionContext, clock: Clock) {
-  import ReceiptRepository._
 
   def createWithDocument(
       document: Document.Create,
@@ -120,7 +120,7 @@ class ReceiptRepository @Inject() (database: Database)(implicit ec: DatabaseExec
   }
 
   def linkToExpense(id: UUID, userId: UUID, expenseId: UUID): Future[Unit] = Future {
-    ConstraintViolations.translating(ReceiptExpenseIdUnique) {
+    ConstraintViolations.translating(ConstraintViolations.ReceiptExpenseIdUnique) {
       database.withTransaction { implicit conn =>
         if (ExpenseDAO.find(id = expenseId, userId = userId).isEmpty) throw new RuntimeException("Expense not found")
         ReceiptDAO.setExpenseId(id = id, userId = userId, expenseId = expenseId, clock.instant())
@@ -164,9 +164,4 @@ class ReceiptRepository @Inject() (database: Database)(implicit ec: DatabaseExec
       ReceiptDAO.setMerchantId(id = id, merchantId = merchantId, clock.instant())
     }
   }
-}
-
-object ReceiptRepository {
-  val ReceiptExpenseIdUnique: (String, String) =
-    "receipt_expense_id_unique" -> "That expense is already linked to another receipt"
 }

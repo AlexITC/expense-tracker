@@ -1,4 +1,4 @@
-package net.wiringbits.actions.expenses
+package net.wiringbits.validations
 
 import net.wiringbits.common.ExpenseSplits
 import net.wiringbits.repositories.{CategoriesRepository, MerchantsRepository}

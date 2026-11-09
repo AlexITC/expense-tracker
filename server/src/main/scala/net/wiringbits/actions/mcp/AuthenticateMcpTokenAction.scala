@@ -1,6 +1,6 @@
 package net.wiringbits.actions.mcp
 
-import net.wiringbits.mcp.McpTokenHasher
+import net.wiringbits.util.McpTokenHasher
 import net.wiringbits.repositories.McpRepository
 
 import java.util.UUID

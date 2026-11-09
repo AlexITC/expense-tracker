@@ -2,6 +2,7 @@ package net.wiringbits.actions.expenses
 
 import net.wiringbits.common.ExpenseSplits
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
+import net.wiringbits.validations.ExpenseValidator
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
 import utils.RepositoryUtils

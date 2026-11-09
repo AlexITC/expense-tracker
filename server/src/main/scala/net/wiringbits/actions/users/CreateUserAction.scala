@@ -7,8 +7,8 @@ import net.wiringbits.config.UserTokensConfig
 import net.wiringbits.repositories
 import net.wiringbits.repositories.UsersRepository
 import net.wiringbits.repositories.models.User
-import net.wiringbits.services.PasswordHasher
-import net.wiringbits.util.{EmailsHelper, TokenGenerator, TokensHelper}
+import net.wiringbits.services.{EmailsHelper, PasswordHasher}
+import net.wiringbits.util.{TokenGenerator, TokensHelper}
 import net.wiringbits.validations.ValidateCaptcha
 
 import java.time.Instant

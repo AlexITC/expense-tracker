@@ -1,4 +1,4 @@
-package net.wiringbits.actions.bankstatements
+package net.wiringbits.validations
 
 import net.wiringbits.api.models.bankstatements.{ConfirmWarning, ConfirmWarningKind}
 import net.wiringbits.repositories.models.BankStatement

@@ -1,4 +1,5 @@
 package net.wiringbits.repositories
+import net.wiringbits.repositories.support.ConstraintViolations
 
 import com.github.f4b6a3.uuid.UuidCreator
 import net.wiringbits.executors.DatabaseExecutionContext

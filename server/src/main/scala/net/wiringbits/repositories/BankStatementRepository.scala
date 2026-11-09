@@ -1,4 +1,5 @@
 package net.wiringbits.repositories
+import net.wiringbits.repositories.support.ConstraintViolations
 
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, ExtractionInfo}
 import net.wiringbits.executors.DatabaseExecutionContext
