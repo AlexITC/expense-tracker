@@ -1,32 +1,10 @@
 ---
-description: Server layering — no same-layer peer calls, dependencies point downward, external services isolated behind their own class
+description: Server architecture — external services behind their own client class, write-time tenant/ownership integrity in repositories, interface trait implementations kept in one file
 files: server/src/main/scala
 ---
 
-Review changes under `server/src/main/scala` for layering violations. Flag clear
-cases on added/changed lines; name the offending call and where the logic
-belongs instead.
-
-## Layers call downward, never sideways
-
-The layers run controllers → actions → repositories → daos, with models as
-shared leaves. A class must not call a **sibling in its own layer**:
-
-- a controller must not use another controller,
-- an action must not call another action,
-- a repository must not call another repository.
-
-Only models may be used freely by their siblings. When two classes in a layer
-need the same behaviour, that shared logic belongs one layer down (an action
-two actions share becomes a repository/dao call or a shared model) — not a
-sideways call.
-
-Flag, for example: an `Action` that constructs or calls another `*Action`; a
-controller that calls another controller; a repository that calls another
-repository.
-
-Not: calls in the correct direction (controller → action → repository → dao),
-or any use of models.
+Review changes under `server/src/main/scala` for the rules below. Flag clear
+cases on added/changed lines; name the offending code and what to do instead.
 
 ## Repositories enforce write-time tenant/ownership integrity
 

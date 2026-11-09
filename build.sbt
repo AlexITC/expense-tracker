@@ -42,12 +42,21 @@ lazy val server = (project in file("server"))
   .dependsOn(common.jvm, api.jvm)
   .configure(baseServerSettings, commonSettings, playSettings)
   .settings(
-    // The backend should not produce inferred Any. Anorm (dynamically typed column values) and the sttp
-    // uri interpolator are the exceptions, suppressed at their definitions.
-    Compile / compile / wartremoverErrors += Wart.Any,
-    // Flag implicit toString (e.g. an object spliced into a string). The one deliberate use is suppressed
-    // at its definition. Server-only: web has unrelated toString uses in its JS-facade code.
-    Compile / compile / wartremoverErrors += Wart.ToString,
+    // Server-only wart tightenings, appended to the shared set.
+    //  - Any: the backend should not produce inferred Any. Anorm (dynamically typed column values) and the
+    //    sttp uri interpolator are the exceptions, suppressed at their definitions.
+    //  - ToString: flag implicit toString (e.g. an object spliced into a string); the one deliberate use is
+    //    suppressed at its definition. Web has unrelated toString uses in its JS-facade code, so it is here.
+    //  - Layering: enforce the server layers (controllers -> actions -> repositories -> daos) via the
+    //    external layering-warts wart, configured by .wartremover-layering.conf at the repo root.
+    Compile / compile / wartremoverErrors ++= Seq(
+      Wart.Any,
+      Wart.ToString,
+      Wart.custom("net.wiringbits.warts.Layering")
+    ),
+    // Put layering-warts (and its HOCON parser, typesafe config) on the wart classloader. This resolves the
+    // artifact and its transitive deps onto that classloader only, so it stays off the server's own classpath.
+    wartremoverDependencies += "net.wiringbits" %% "layering-warts" % "0.6.1",
     name := "wiringbits-server",
     fork := true,
     // In CI, run suites in parallel in a single JVM sharing the one Postgres container (scaled to cores via
