@@ -80,7 +80,7 @@ object BuildSettings {
       // Compile-only wart: wartremoverDependencies puts it (and its transitive deps) on the wart
       // classloader without adding it to the app classpath. `%%` resolves the JVM `_3` artifact even in
       // Scala.js modules (wartremoverCrossVersion is binary); the wart runs on the JVM at compile time.
-      wartremoverDependencies += "net.wiringbits" %% "core-warts" % Dependencies.coreWarts
+      wartremoverDependencies += "net.wiringbits" %% "core-warts" % Dependencies.wiringbitsWarts
     )
   }
 
@@ -100,7 +100,21 @@ object BuildSettings {
   lazy val baseServerSettings: Project => Project = {
     _.settings(
       // Some options are very noisy when using the console and prevent us using it smoothly, let's disable them
-      Compile / console / scalacOptions ~= (_.filterNot(consoleDisabledOptions.contains))
+      Compile / console / scalacOptions ~= (_.filterNot(consoleDisabledOptions.contains)),
+      // Server-only wart tightenings, appended to the shared set in commonSettings.
+      //  - Any: the backend should not produce inferred Any. Anorm (dynamically typed column values) and the
+      //    sttp uri interpolator are the exceptions, suppressed at their definitions.
+      //  - ToString: flag implicit toString (e.g. an object spliced into a string); the one deliberate use is
+      //    suppressed at its definition. Server-scoped because web's JS-facade code has unrelated toString uses.
+      //  - Layering: enforce the server layers (controllers -> actions -> repositories -> daos) via the
+      //    external layering-warts wart, configured by server/.wartremover-layering.conf.
+      Compile / compile / wartremoverErrors ++= Seq(
+        Wart.Any,
+        Wart.ToString,
+        Wart.custom("net.wiringbits.warts.Layering")
+      ),
+      // Compile-only wart on the wart classloader, same wiring as core-warts in commonSettings.
+      wartremoverDependencies += "net.wiringbits" %% "layering-warts" % Dependencies.wiringbitsWarts
     )
   }
 

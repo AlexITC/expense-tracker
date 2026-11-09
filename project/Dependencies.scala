@@ -23,8 +23,8 @@ object Dependencies {
   val scalatest = "3.2.20"
 
   // Compile-only custom warts, loaded via wartremoverDependencies; never shipped on the app classpath.
-  val coreWarts = "0.5.3"
-  val layeringWarts = "0.6.1"
+  // core-warts and layering-warts are published together from the same repo, so they share one version.
+  val wiringbitsWarts = "0.6.1"
 
   // Pekko is pinned across the whole build (ThisBuild / dependencyOverrides).
   val pekkoOverrides: Seq[ModuleID] = Seq(
