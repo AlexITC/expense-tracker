@@ -77,15 +77,10 @@ object BuildSettings {
         // arguments positionally, where an accidental swap would compile silently. Pass them by name.
         Wart.custom("net.wiringbits.warts.NamedArguments")
       ),
-      // `%%` resolves the JVM `_3` artifact even in Scala.js modules (no `_sjs1` suffix); the wart runs on
-      // the JVM at compile time.
-      libraryDependencies += "net.wiringbits" %% "core-warts" % "0.5.3",
-      wartremoverClasspaths ++= {
-        (Compile / dependencyClasspath).value.files
-          .find(_.name.contains("core-warts"))
-          .map(_.toURI.toString)
-          .toList
-      }
+      // Compile-only wart: wartremoverDependencies puts it (and its transitive deps) on the wart
+      // classloader without adding it to the app classpath. `%%` resolves the JVM `_3` artifact even in
+      // Scala.js modules (wartremoverCrossVersion is binary); the wart runs on the JVM at compile time.
+      wartremoverDependencies += "net.wiringbits" %% "core-warts" % Dependencies.coreWarts
     )
   }
 

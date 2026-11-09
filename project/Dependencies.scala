@@ -22,6 +22,10 @@ object Dependencies {
   val chimney = "1.10.0"
   val scalatest = "3.2.20"
 
+  // Compile-only custom warts, loaded via wartremoverDependencies; never shipped on the app classpath.
+  val coreWarts = "0.5.3"
+  val layeringWarts = "0.6.1"
+
   // Pekko is pinned across the whole build (ThisBuild / dependencyOverrides).
   val pekkoOverrides: Seq[ModuleID] = Seq(
     "org.apache.pekko" %% "pekko-actor" % pekko,
