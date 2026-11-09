@@ -30,6 +30,9 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
 import scala.jdk.FutureConverters.*
 
+// TODO(layering): folding this client and TextractClient's result types into one file
+// (companion object) removes the apis -> apis edge; same-file siblings are exempt.
+// See docs/guide/architecture.md
 class RealTextractClient(awsConfig: AWSConfig)(implicit ec: ExecutionContext) extends TextractClient {
 
   private val client: TextractAsyncClient = {

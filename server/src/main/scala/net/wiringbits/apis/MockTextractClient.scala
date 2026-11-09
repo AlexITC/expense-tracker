@@ -22,6 +22,9 @@ import scala.jdk.CollectionConverters.*
   *
   * To simulate failure scenarios, set `failJobId` to the JobId that should return FAILED.
   */
+// TODO(layering): folding this client and TextractClient's result types into one file
+// (companion object) removes the apis -> apis edge; same-file siblings are exempt.
+// See docs/guide/architecture.md
 class MockTextractClient(
     inProgressPolls: Int = 2,
     pageCount: Int = 2

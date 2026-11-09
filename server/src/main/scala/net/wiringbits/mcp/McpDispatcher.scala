@@ -13,6 +13,9 @@ import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 
+// TODO(layering): the tools and protocol this dispatches should sit below the MCP layer
+// (McpTools -> net.wiringbits.mcp.tools, McpProtocol -> shared), leaving no sibling calls.
+// See docs/guide/architecture.md
 class McpDispatcher @Inject() (
     getExpensesAction: GetExpensesAction,
     getCategoriesAction: GetCategoriesAction,

@@ -67,21 +67,28 @@ the conf wins.
 
 ## Reaching the target (behavior-neutral code moves)
 
-The config above is the end-state; each move below makes a piece of it compile.
-None change behavior. Done first, in their own PRs off `main`; the layering PR
-rebases onto `main` once they land.
+The conf is active and compiles today. It still permits four edges the target
+forbids; each is kept with a `TODO(layering)` naming the move that removes it.
+None of the moves change behavior. Each is its own PR; when it lands, the edge
+(and its `TODO`) drops.
 
-- **`PasswordHasher` → `util`** — done (PR #103). Drops `validations → services`
-  on rebase.
-- **Remove the `apis` self-edge.** It only remains because `TextractClient` is a
-  port whose companion holds result types its impls construct. Move those types
-  to `apis.models` (`clientmodels`), then `apis → apis` goes away.
+- **`PasswordHasher` → `util`** — done on `main` (PR #103). Drops
+  `validations → services` once this branch rebases.
+- **Remove the `apis` self-edge.** It only remains because `TextractClient`'s
+  companion holds result types its `Mock`/`Real` impls construct. Consolidate the
+  client and those types into one file; same-file siblings are exempt, so
+  `apis → apis` goes away.
 - **Split MCP to mirror HTTP.** Move `McpTools`/`McpBankStatementRows` to
   `net.wiringbits.mcp.tools` (handlers) and `McpProtocol` to the shared leaf, so
   the `mcp` router no longer references siblings.
 - **Split the job scheduler from the job runner.** Move `BackgroundJobTypeRunner`
   to `net.wiringbits.tasks.runner`, so `tasks` (the scheduler) no longer
   references a sibling.
+- **Remove the `services` self-edge.** A service must not call a sibling service.
+  Four pairs still do (`TelegramExpenseService → TelegramMessageParser`,
+  `JevStatementSuggestionsService → StatementSuggestionsService`,
+  `StatementExtractionService → {AiStatementExtractor, TextractTableSerializer}`).
+  Lift the shared piece into the calling action or a leaf both can reach.
 
 ## Optional refinements (naming/organization; not required)
 
