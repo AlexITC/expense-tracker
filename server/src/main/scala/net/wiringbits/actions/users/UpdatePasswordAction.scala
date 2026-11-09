@@ -2,7 +2,7 @@ package net.wiringbits.actions.users
 
 import net.wiringbits.api.models.users.UpdatePassword
 import net.wiringbits.repositories.UsersRepository
-import net.wiringbits.services.PasswordHasher
+import net.wiringbits.util.PasswordHasher
 import net.wiringbits.util.EmailMessage
 import net.wiringbits.validations.ValidatePasswordMatches
 

@@ -67,17 +67,15 @@ the conf wins.
 
 ## Reaching the target (behavior-neutral code moves)
 
-The conf is active and compiles today. It still permits four edges the target
+The conf is active and compiles today. It still permits three edges the target
 forbids; each is kept with a `TODO(layering)` naming the move that removes it.
 None of the moves change behavior. Each is its own PR; when it lands, the edge
 (and its `TODO`) drops.
 
-- **`PasswordHasher` → `util`** — done on `main` (PR #103). Drops
-  `validations → services` once this branch rebases.
-- **Remove the `apis` self-edge.** It only remains because `TextractClient`'s
-  companion holds result types its `Mock`/`Real` impls construct. Consolidate the
-  client and those types into one file; same-file siblings are exempt, so
-  `apis → apis` goes away.
+Already landed: `PasswordHasher → util` (PR #103) dropped `validations → services`;
+consolidating the Textract client and its result types into one file (PR #104)
+dropped `apis → apis`.
+
 - **Split MCP to mirror HTTP.** Move `McpTools`/`McpBankStatementRows` to
   `net.wiringbits.mcp.tools` (handlers) and `McpProtocol` to the shared leaf, so
   the `mcp` router no longer references siblings.

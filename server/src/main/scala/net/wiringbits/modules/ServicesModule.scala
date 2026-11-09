@@ -14,7 +14,8 @@ import net.wiringbits.apis.{
   TextractClient
 }
 import net.wiringbits.config.{AWSConfig, BdaConfig, BedrockConfig, JevConfig, TextractConfig}
-import net.wiringbits.services.{BcryptPasswordHasher, BlobStorage, PasswordHasher, S3BlobStorage}
+import net.wiringbits.services.{BlobStorage, S3BlobStorage}
+import net.wiringbits.util.{BcryptPasswordHasher, PasswordHasher}
 import org.apache.pekko.actor.ActorSystem
 import play.api.libs.ws.WSClient
 
