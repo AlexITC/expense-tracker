@@ -6,6 +6,8 @@ package net.wiringbits.models
   * is written — migrate the column if you rename one.
   */
 trait DbEnum {
+  // The stored value is intentionally the enum case name, which is what toString returns.
+  @SuppressWarnings(Array("org.wartremover.warts.ToString"))
   def entryName: String = toString
 }
 
