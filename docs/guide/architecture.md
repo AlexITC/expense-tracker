@@ -17,10 +17,12 @@ the conf wins.
 
 | Layer | Package(s) | Role |
 |---|---|---|
-| **Entrypoints** (protocol-specific; translate protocol ⇄ core; no domain logic, no DB) | | |
+| **Entrypoints** (protocol-specific; translate protocol ⇄ core; no domain logic, no DB; no self-edges) | | |
 | HTTP controllers | `controllers` | Tapir `serverLogic` wiring |
-| MCP | `net.wiringbits.mcp` | MCP tools |
-| Background jobs | `net.wiringbits.tasks` | scheduled / queued work |
+| MCP router | `net.wiringbits.mcp` | dispatches to the MCP tools |
+| MCP tools | `net.wiringbits.mcp.tools` | MCP handlers (one per tool) |
+| Job scheduler | `net.wiringbits.tasks` | polls/schedules, dispatches to the job runner |
+| Job runner | `net.wiringbits.tasks.runner` | dispatches a job type to actions |
 | Ops scripts | `net.wiringbits.scripts` | one-off tooling |
 | Router | `net.wiringbits.routing` | API router |
 | DI | `net.wiringbits.modules` | Guice wiring |
@@ -63,25 +65,32 @@ the conf wins.
 - **Actions don't call actions.** Shared logic goes to a repository method or a
   service (see [backend.md](backend.md) for the concrete pattern).
 
-## Target refinements (code changes; tracked for a parallel PR)
+## Reaching the target (behavior-neutral code moves)
 
-These require moving or renaming code, so they are not in the layering PR. None
-change behavior; they tighten the structure further.
+The config above is the end-state; each move below makes a piece of it compile.
+None change behavior. Done first, in their own PRs off `main`; the layering PR
+rebases onto `main` once they land.
 
-- **MCP mirrors HTTP.** HTTP is `routing` (router) → `controllers` (independent
-  handlers) → actions, with the contract in lib/api. MCP crams the router
-  (`McpDispatcher`), the handlers (`McpTools`, `McpBankStatementRows`), and the
-  protocol types (`McpProtocol`) into one package, which is why `mcp` needs a
-  self-edge. Split them so the tools are independent handlers and the self-edge
-  goes away.
-- **`PasswordHasher` → `util`.** It is a stateless helper, not shared business
-  logic; it is the only reason `validations → services` exists. Move it, then
-  drop that edge.
+- **`PasswordHasher` → `util`** — done (PR #103). Drops `validations → services`
+  on rebase.
 - **Remove the `apis` self-edge.** It only remains because `TextractClient` is a
   port whose companion holds result types its impls construct. Move those types
-  to `clientmodels`, then drop `apis → apis`.
+  to `apis.models` (`clientmodels`), then `apis → apis` goes away.
+- **Split MCP to mirror HTTP.** Move `McpTools`/`McpBankStatementRows` to
+  `net.wiringbits.mcp.tools` (handlers) and `McpProtocol` to the shared leaf, so
+  the `mcp` router no longer references siblings.
+- **Split the job scheduler from the job runner.** Move `BackgroundJobTypeRunner`
+  to `net.wiringbits.tasks.runner`, so `tasks` (the scheduler) no longer
+  references a sibling.
+
+## Optional refinements (naming/organization; not required)
+
+- **Group the server-global packages.** Put `config`, `util`, `models`,
+  `executors` under one `net.wiringbits.shared.*` parent (keeping the subpackage
+  names), leaving the cross-compiled lib (`net.wiringbits.api`, `common`) as-is.
+  The `shared` leaf then reads as one server prefix plus the two lib packages.
 - **Scope the contract off persistence.** A few daos/repositories reference
-  `api.models`; once removed, the contract can leave the global leaf.
+  `api.models`; once removed, the contract need not be globally reachable.
 - **Renames:** `apis` → `clients` (+ `apis.models` → `clients.models`);
   `net.wiringbits.api` (lib/api) → `contract`; `repositories.support` →
   `repositories.constraints`; and `net.wiringbits.models` is mislabeled (secret
