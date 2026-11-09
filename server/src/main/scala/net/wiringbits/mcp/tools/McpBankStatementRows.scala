@@ -1,4 +1,4 @@
-package net.wiringbits.mcp
+package net.wiringbits.mcp.tools
 
 import net.wiringbits.api.models.bankstatements.{GetAllRows, GetBankStatements}
 import play.api.libs.json.{JsArray, JsObject, JsValue, Json}

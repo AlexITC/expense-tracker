@@ -1,4 +1,5 @@
 package net.wiringbits.mcp
+import net.wiringbits.models.McpProtocol
 
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec

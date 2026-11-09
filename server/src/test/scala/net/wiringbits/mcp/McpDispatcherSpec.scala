@@ -1,4 +1,5 @@
 package net.wiringbits.mcp
+import net.wiringbits.models.McpProtocol
 
 import net.wiringbits.actions.bankstatements.{GetAllRowsAction, GetBankStatementsAction}
 import net.wiringbits.actions.categories.GetCategoriesAction

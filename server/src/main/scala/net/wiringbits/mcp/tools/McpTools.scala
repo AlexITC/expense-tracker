@@ -1,4 +1,4 @@
-package net.wiringbits.mcp
+package net.wiringbits.mcp.tools
 
 import play.api.libs.json.{JsObject, Json}
 

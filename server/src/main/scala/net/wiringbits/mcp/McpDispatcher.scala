@@ -3,7 +3,8 @@ package net.wiringbits.mcp
 import net.wiringbits.actions.bankstatements.{GetAllRowsAction, GetBankStatementsAction}
 import net.wiringbits.actions.categories.GetCategoriesAction
 import net.wiringbits.actions.expenses.GetExpensesAction
-import net.wiringbits.mcp.McpProtocol.*
+import net.wiringbits.mcp.tools.{McpBankStatementRows, McpTools}
+import net.wiringbits.models.McpProtocol.*
 import org.slf4j.LoggerFactory
 import play.api.libs.json.{JsObject, JsValue, Json}
 import sttp.model.StatusCode

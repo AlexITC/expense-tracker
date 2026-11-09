@@ -1,4 +1,4 @@
-package net.wiringbits.mcp
+package net.wiringbits.models
 
 import play.api.libs.json.*
 

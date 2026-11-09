@@ -2,7 +2,8 @@ package controllers
 
 import net.wiringbits.actions.mcp.AuthenticateMcpTokenAction
 import net.wiringbits.api.endpoints.McpEndpoints
-import net.wiringbits.mcp.{McpDispatcher, McpProtocol}
+import net.wiringbits.mcp.McpDispatcher
+import net.wiringbits.models.McpProtocol
 import org.slf4j.LoggerFactory
 import play.api.libs.json.Json
 import sttp.capabilities.WebSockets
