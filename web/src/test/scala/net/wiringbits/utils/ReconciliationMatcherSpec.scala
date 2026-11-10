@@ -60,7 +60,8 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       date: LocalDate = baseDate,
       mId: Option[UUID] = Some(merchantId),
       splits: List[GetExpenses.Response.Split] = Nil,
-      rowIds: List[UUID] = Nil
+      rowIds: List[UUID] = Nil,
+      receiptIds: List[UUID] = Nil
   ): GetExpenses.Response.Expense =
     GetExpenses.Response.Expense(
       id = UUID.randomUUID(),
@@ -72,7 +73,7 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       notes = None,
       splits = splits,
       createdAt = Instant.now(),
-      receiptIds = Nil,
+      receiptIds = receiptIds,
       rowIds = rowIds
     )
 
@@ -377,6 +378,75 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       val expense = makeExpense(mId = None, splits = List(split(UUID.randomUUID())))
       ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.NoRule, List(expense)) must be(
         ReconciliationMatcher.AutoLink(expense.id)
+      )
+    }
+
+    "auto-link a receipt-backed expense even when its merchant disagrees with the verdict" in {
+      val otherMerchantId = UUID.randomUUID()
+      val expense = makeExpense(mId = Some(merchantId), receiptIds = List(UUID.randomUUID()))
+      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.SetMerchant(otherMerchantId), List(expense)) must be(
+        ReconciliationMatcher.AutoLink(expense.id)
+      )
+    }
+
+    "not match a receipt-backed expense outside the window" in {
+      val otherMerchantId = UUID.randomUUID()
+      val expense =
+        makeExpense(date = baseDate.minusDays(4), mId = Some(merchantId), receiptIds = List(UUID.randomUUID()))
+      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.SetMerchant(otherMerchantId), List(expense)) must be(
+        ReconciliationMatcher.CreateNew
+      )
+    }
+
+    "propose review when several receipt-backed expenses match exactly" in {
+      val otherMerchantId = UUID.randomUUID()
+      val e1 = makeExpense(mId = Some(merchantId), receiptIds = List(UUID.randomUUID()))
+      val e2 = makeExpense(mId = Some(merchantId), receiptIds = List(UUID.randomUUID()))
+      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.SetMerchant(otherMerchantId), List(e1, e2)) must be(
+        ReconciliationMatcher.NeedsReview(List(e1.id, e2.id))
+      )
+    }
+
+    "prefer an exact verdict-matching expense over a near receipt-backed one" in {
+      val exact = makeExpense(mId = Some(merchantId))
+      val nearWithReceipt =
+        makeExpense(amount = BigDecimal("100.50"), mId = Some(UUID.randomUUID()), receiptIds = List(UUID.randomUUID()))
+      ReconciliationMatcher.matchRow(
+        makeRow(),
+        RowRuleVerdict.SetMerchant(merchantId),
+        List(nearWithReceipt, exact)
+      ) must be(ReconciliationMatcher.AutoLink(exact.id))
+    }
+
+    "not match an expense without receipts whose merchant disagrees with the verdict" in {
+      val otherMerchantId = UUID.randomUUID()
+      val expense = makeExpense(mId = Some(merchantId))
+      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.SetMerchant(otherMerchantId), List(expense)) must be(
+        ReconciliationMatcher.CreateNew
+      )
+    }
+
+    "auto-link a near-amount receipt-backed expense whose merchant disagrees with the verdict" in {
+      val otherMerchantId = UUID.randomUUID()
+      val expense = makeExpense(amount = BigDecimal("100.50"), receiptIds = List(UUID.randomUUID()))
+      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.SetMerchant(otherMerchantId), List(expense)) must be(
+        ReconciliationMatcher.AutoLink(expense.id)
+      )
+    }
+
+    "prefer the receipt-backed expense among near-amount candidates" in {
+      val plain = makeExpense(amount = BigDecimal("100.50"))
+      val withReceipt = makeExpense(amount = BigDecimal("100.50"), receiptIds = List(UUID.randomUUID()))
+      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.NoRule, List(plain, withReceipt)) must be(
+        ReconciliationMatcher.AutoLink(withReceipt.id)
+      )
+    }
+
+    "prefer the receipt-backed expense among exact candidates" in {
+      val plain = makeExpense()
+      val withReceipt = makeExpense(receiptIds = List(UUID.randomUUID()))
+      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.NoRule, List(plain, withReceipt)) must be(
+        ReconciliationMatcher.AutoLink(withReceipt.id)
       )
     }
   }

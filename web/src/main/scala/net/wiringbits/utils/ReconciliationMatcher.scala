@@ -86,8 +86,10 @@ object ReconciliationMatcher {
 
   /** Proposes how to resolve a single row against the user's expenses. An expense qualifies when it is unlinked, its
     * date is between 0 and 3 days before the row's date, and it agrees with the row's rule verdict (same merchant for
-    * SetMerchant, a split in the category for SetCategory). Exact-amount candidates win; otherwise candidates within
-    * ±1.00 are used.
+    * SetMerchant, a split in the category for SetCategory). An unlinked, in-window expense with an attached receipt
+    * qualifies even when it disagrees with the verdict, since the receipt already vouches for the purchase.
+    * Exact-amount candidates win; otherwise candidates within ±1.00 are used. Within the chosen tier, receipt-backed
+    * candidates win over the rest; tiers are never compared against each other.
     */
   def matchRow(
       row: GetBankStatement.StatementRowData,
@@ -103,12 +105,13 @@ object ReconciliationMatcher {
             case None => _ => true
           }
       }
-    val eligible = expenses.filter(e => isMatchRowCandidate(row, e) && constraint(e))
+    val eligible = expenses.filter(e => isMatchRowCandidate(row, e) && (constraint(e) || e.receiptIds.nonEmpty))
     val exact = eligible.filter(_.amount.abs == row.amount.abs)
-    val candidates =
+    val tier =
       if (exact.nonEmpty) exact
       else eligible.filter(e => (row.amount.abs - e.amount.abs).abs <= NearAmountTolerance)
-    actionFor(candidates)
+    val receiptBacked = tier.filter(_.receiptIds.nonEmpty)
+    actionFor(if (receiptBacked.nonEmpty) receiptBacked else tier)
   }
 
   /** Finds the receipt for a row. A receipt qualifies when its amount equals the row's absolute amount exactly and its
