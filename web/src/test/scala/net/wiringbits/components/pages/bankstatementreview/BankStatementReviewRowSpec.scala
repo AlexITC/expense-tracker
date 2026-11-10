@@ -144,8 +144,8 @@ class BankStatementReviewRowSpec extends AnyWordSpec with ReactTestDom {
       val buttons = container.querySelectorAll("button")
       act(buttons(buttons.length - 1).asInstanceOf[dom.html.Element].click())
       val items = dom.document.body.querySelectorAll("[role=menuitem]")
-      items.length mustBe 3
-      act(items(2).asInstanceOf[dom.html.Element].click())
+      items.length mustBe 4
+      act(items(3).asInstanceOf[dom.html.Element].click())
 
       received mustBe List(r.id -> RowAction.Ignore)
     }
@@ -167,7 +167,7 @@ class BankStatementReviewRowSpec extends AnyWordSpec with ReactTestDom {
       received mustBe List(r.id -> RowAction.OpenRefundForm)
     }
 
-    "report the menu's Link and Create rule items for its own row" in {
+    "report the menu's Link, Create expense and Create rule items for its own row" in {
       val r = row("SUPERMARKET")
       var received = List.empty[(UUID, RowAction)]
       render(List(r -> readyInfo), (id, action) => received = received :+ (id -> action))
@@ -178,7 +178,12 @@ class BankStatementReviewRowSpec extends AnyWordSpec with ReactTestDom {
       }
       clickMenuItem(0)
       clickMenuItem(1)
-      received mustBe List(r.id -> RowAction.OpenLinkPicker, r.id -> RowAction.OpenRuleForm)
+      clickMenuItem(2)
+      received mustBe List(
+        r.id -> RowAction.OpenLinkPicker,
+        r.id -> RowAction.OpenExpenseForm,
+        r.id -> RowAction.OpenRuleForm
+      )
     }
 
     // A linked or ignored row's menu must only offer the undo action, and Unlink must reach the right handler.

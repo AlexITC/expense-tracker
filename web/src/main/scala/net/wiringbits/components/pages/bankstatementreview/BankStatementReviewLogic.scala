@@ -321,16 +321,18 @@ object BankStatementReviewLogic {
     row.expenseId.flatMap(_ => row.expenseMerchantId).flatMap(mid => merchants.find(_.id == mid)).map(_.name)
 
   /** The entries of a row's "…" menu: a linked or ignored row can only be undone; an open row can be linked, get a rule
-    * or be ignored.
+    * or be ignored, and an open debit can also become a new expense even when its primary action confirms a match.
     */
   enum RowMenuItem {
-    case LinkExpense, CreateRule, Ignore, Unlink, UnlinkRefund, Unignore
+    case LinkExpense, CreateExpense, CreateRule, Ignore, Unlink, UnlinkRefund, Unignore
   }
 
   def menuItemsFor(row: GetBankStatement.StatementRowData): List[RowMenuItem] =
     if (row.expenseId.isDefined) List(RowMenuItem.Unlink)
     else if (row.refundId.isDefined) List(RowMenuItem.UnlinkRefund)
     else if (row.ignoredAt.isDefined) List(RowMenuItem.Unignore)
+    else if (row.amount < 0)
+      List(RowMenuItem.LinkExpense, RowMenuItem.CreateExpense, RowMenuItem.CreateRule, RowMenuItem.Ignore)
     else List(RowMenuItem.LinkExpense, RowMenuItem.CreateRule, RowMenuItem.Ignore)
 
   /** The single primary button a row shows. Ready rows open the prefilled create form for review instead of importing
@@ -341,18 +343,18 @@ object BankStatementReviewLogic {
     case Linked, Unignore, IgnoreByRule, ConfirmLink, ReviewExpense, ReviewRefund, CreateRefund, CreateExpense
   }
 
-  /** `hasExpenseMatch` is whether the row has a unique (AutoLink) expense match; it only affects ready debits. */
+  /** `matchedExpense` is the row's unique (AutoLink) expense match, if any; it only affects ready debits. */
   def primaryActionFor(
       row: GetBankStatement.StatementRowData,
       isReady: Boolean,
       verdict: RowRuleVerdict.Verdict,
-      hasExpenseMatch: Boolean = false
+      matchedExpense: Option[MatchedExpense]
   ): PrimaryAction =
     if (row.expenseId.isDefined || row.refundId.isDefined) PrimaryAction.Linked
     else if (row.ignoredAt.isDefined) PrimaryAction.Unignore
     else if (isReady && verdict == RowRuleVerdict.Ignore) PrimaryAction.IgnoreByRule
     else if (isReady && row.amount > 0) PrimaryAction.ReviewRefund
-    else if (isReady && hasExpenseMatch) PrimaryAction.ConfirmLink
+    else if (isReady && matchedExpense.isDefined) PrimaryAction.ConfirmLink
     else if (isReady) PrimaryAction.ReviewExpense
     else if (row.amount > 0) PrimaryAction.CreateRefund
     else PrimaryAction.CreateExpense

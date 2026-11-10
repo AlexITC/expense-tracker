@@ -241,68 +241,79 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
   }
 
   "primaryActionFor" should {
-    import BankStatementReviewLogic.{PrimaryAction, primaryActionFor}
+    import BankStatementReviewLogic.{LinkedCategory, MatchedExpense, PrimaryAction, primaryActionFor}
     val negative = sampleRow()
+    val match1 = MatchedExpense(UUID.randomUUID(), None, LinkedCategory.Unknown)
     val positive = sampleRow().copy(amount = BigDecimal("45.00"))
     val setMerchant = RowRuleVerdict.SetMerchant(UUID.randomUUID())
 
     "review a ready negative row with a SetMerchant verdict as an expense" in {
-      primaryActionFor(negative, isReady = true, setMerchant) mustBe PrimaryAction.ReviewExpense
+      primaryActionFor(negative, isReady = true, setMerchant, None) mustBe PrimaryAction.ReviewExpense
     }
 
     "review a ready positive row as a refund" in {
-      primaryActionFor(positive, isReady = true, RowRuleVerdict.NoRule) mustBe PrimaryAction.ReviewRefund
+      primaryActionFor(positive, isReady = true, RowRuleVerdict.NoRule, None) mustBe PrimaryAction.ReviewRefund
     }
 
     "ignore a ready row with an Ignore verdict in one click" in {
-      primaryActionFor(negative, isReady = true, RowRuleVerdict.Ignore) mustBe PrimaryAction.IgnoreByRule
+      primaryActionFor(negative, isReady = true, RowRuleVerdict.Ignore, None) mustBe PrimaryAction.IgnoreByRule
     }
 
     "show Linked for a linked row even when it is ready" in {
-      primaryActionFor(negative.copy(expenseId = Some(UUID.randomUUID())), isReady = true, setMerchant) mustBe
+      primaryActionFor(negative.copy(expenseId = Some(UUID.randomUUID())), isReady = true, setMerchant, None) mustBe
         PrimaryAction.Linked
-      primaryActionFor(positive.copy(refundId = Some(UUID.randomUUID())), isReady = true, setMerchant) mustBe
+      primaryActionFor(positive.copy(refundId = Some(UUID.randomUUID())), isReady = true, setMerchant, None) mustBe
         PrimaryAction.Linked
     }
 
     "offer Unignore for an ignored row" in {
-      primaryActionFor(negative.copy(ignoredAt = Some(Instant.now())), isReady = false, RowRuleVerdict.Ignore) mustBe
+      primaryActionFor(
+        negative.copy(ignoredAt = Some(Instant.now())),
+        isReady = false,
+        RowRuleVerdict.Ignore,
+        None
+      ) mustBe
         PrimaryAction.Unignore
     }
 
     "create an expense for a not-ready negative row" in {
-      primaryActionFor(negative, isReady = false, RowRuleVerdict.NoRule) mustBe PrimaryAction.CreateExpense
+      primaryActionFor(negative, isReady = false, RowRuleVerdict.NoRule, None) mustBe PrimaryAction.CreateExpense
     }
 
     "create a refund for a not-ready positive row" in {
-      primaryActionFor(positive, isReady = false, RowRuleVerdict.NoRule) mustBe PrimaryAction.CreateRefund
+      primaryActionFor(positive, isReady = false, RowRuleVerdict.NoRule, None) mustBe PrimaryAction.CreateRefund
     }
 
     "confirm the link for a ready negative row with an expense match" in {
-      primaryActionFor(negative, isReady = true, setMerchant, hasExpenseMatch = true) mustBe PrimaryAction.ConfirmLink
+      primaryActionFor(
+        negative,
+        isReady = true,
+        setMerchant,
+        matchedExpense = Some(match1)
+      ) mustBe PrimaryAction.ConfirmLink
     }
 
     "review the expense for a ready negative row without an expense match" in {
-      primaryActionFor(negative, isReady = true, setMerchant, hasExpenseMatch = false) mustBe
+      primaryActionFor(negative, isReady = true, setMerchant, matchedExpense = None) mustBe
         PrimaryAction.ReviewExpense
     }
 
     "ignore the expense match for Ignore verdicts, credits, ignored and linked rows" in {
-      primaryActionFor(negative, isReady = true, RowRuleVerdict.Ignore, hasExpenseMatch = true) mustBe
+      primaryActionFor(negative, isReady = true, RowRuleVerdict.Ignore, matchedExpense = Some(match1)) mustBe
         PrimaryAction.IgnoreByRule
-      primaryActionFor(positive, isReady = true, RowRuleVerdict.NoRule, hasExpenseMatch = true) mustBe
+      primaryActionFor(positive, isReady = true, RowRuleVerdict.NoRule, matchedExpense = Some(match1)) mustBe
         PrimaryAction.ReviewRefund
       primaryActionFor(
         negative.copy(ignoredAt = Some(Instant.now())),
         isReady = false,
         RowRuleVerdict.NoRule,
-        hasExpenseMatch = true
+        matchedExpense = Some(match1)
       ) mustBe PrimaryAction.Unignore
       primaryActionFor(
         negative.copy(expenseId = Some(UUID.randomUUID())),
         isReady = true,
         setMerchant,
-        hasExpenseMatch = true
+        matchedExpense = Some(match1)
       ) mustBe PrimaryAction.Linked
     }
   }
@@ -551,7 +562,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       val row = sampleRow().copy(amount = BigDecimal("10.00"))
       val info = rowInfo(List(rule(ImportRuleActionKind.Ignore, "SUPERMARKET", None)), Nil, Nil, None, row)
       info.isReady mustBe true
-      BankStatementReviewLogic.primaryActionFor(row, info.isReady, info.verdict) mustBe
+      BankStatementReviewLogic.primaryActionFor(row, info.isReady, info.verdict, None) mustBe
         BankStatementReviewLogic.PrimaryAction.IgnoreByRule
     }
 
@@ -586,7 +597,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       info.isReady mustBe true
       info.merchantName mustBe Some("Walmart")
       info.categoryName mustBe Some("Groceries")
-      BankStatementReviewLogic.primaryActionFor(row, info.isReady, info.verdict) mustBe
+      BankStatementReviewLogic.primaryActionFor(row, info.isReady, info.verdict, None) mustBe
         BankStatementReviewLogic.PrimaryAction.ReviewRefund
     }
 
@@ -662,8 +673,13 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       menuItemsFor(sampleRow().copy(ignoredAt = Some(Instant.now()))) mustBe List(RowMenuItem.Unignore)
     }
 
-    "offer link, rule and ignore for an unprocessed row" in {
+    "offer link, create expense, rule and ignore for an unprocessed debit row" in {
       menuItemsFor(sampleRow("UNKNOWN SHOP")) mustBe
+        List(RowMenuItem.LinkExpense, RowMenuItem.CreateExpense, RowMenuItem.CreateRule, RowMenuItem.Ignore)
+    }
+
+    "offer link, rule and ignore for an unprocessed credit row" in {
+      menuItemsFor(sampleRow("UNKNOWN SHOP").copy(amount = BigDecimal("45.00"))) mustBe
         List(RowMenuItem.LinkExpense, RowMenuItem.CreateRule, RowMenuItem.Ignore)
     }
   }

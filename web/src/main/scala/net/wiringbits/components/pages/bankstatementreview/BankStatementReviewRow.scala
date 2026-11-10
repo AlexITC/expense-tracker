@@ -68,7 +68,7 @@ object BankStatementReviewRow {
           row,
           isReady = info.isReady,
           verdict = info.verdict,
-          hasExpenseMatch = props.matchedExpense.isDefined
+          matchedExpense = props.matchedExpense
         ) match {
           case PrimaryAction.Linked =>
             (mui.Button
@@ -255,6 +255,7 @@ object BankStatementReviewRow {
               menuItemsFor(row).map { item =>
                 val (label, action) = item match {
                   case RowMenuItem.LinkExpense => ("Link to existing expense", RowAction.OpenLinkPicker)
+                  case RowMenuItem.CreateExpense => ("Create new expense", RowAction.OpenExpenseForm)
                   case RowMenuItem.CreateRule => ("Create import rule", RowAction.OpenRuleForm)
                   case RowMenuItem.Ignore => ("Ignore", RowAction.Ignore)
                   case RowMenuItem.Unlink => ("Unlink", RowAction.Unlink)
