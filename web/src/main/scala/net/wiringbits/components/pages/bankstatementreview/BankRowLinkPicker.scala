@@ -11,12 +11,14 @@ import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewLo
   linkPickerEntries
 }
 import net.wiringbits.core.SafeHooks
+import net.wiringbits.utils.ReceiptFileViewer
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.Container
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 
+import java.time.LocalDate
 import java.util.UUID
 import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Success}
@@ -30,6 +32,9 @@ object BankRowLinkPicker {
       ctx: AppContext,
       /** The expense this row uniquely matches; shown first, above the manual list. */
       matchedExpenseId: Option[UUID],
+      /** This row's amount and date, used to rank the manual list by closeness. */
+      rowAmount: BigDecimal,
+      rowDate: LocalDate,
       categories: List[GetCategories.Response.Category],
       onSuccess: UUID => Unit,
       onCancel: () => Unit
@@ -64,7 +69,7 @@ object BankRowLinkPicker {
           case Failure(ex) => setError(ex.getMessage)
         }
 
-    val (matched, listed) = linkPickerEntries(expenses, filter, props.matchedExpenseId)
+    val (matched, listed) = linkPickerEntries(expenses, filter, props.matchedExpenseId, props.rowAmount, props.rowDate)
 
     def matchedBox(e: GetExpenses.Response.Expense): ReactElement = {
       val categoryLabel = expenseCategory(e, props.categories) match {
@@ -83,14 +88,23 @@ object BankRowLinkPicker {
           }),
         e.notes.fold[ReactElement](Fragment())(n => mui.Typography(n).sx(secondaryStyling)),
         mui.Typography(s"${e.amount} · ${e.date}").sx(secondaryStyling),
-        if (e.receiptIds.nonEmpty) mui.Typography("🧾 Receipt").sx(secondaryStyling) else Fragment(),
-        (mui.Button
-          .normal()("Link this expense")
-          .variant("contained")
-          .color("primary")
-          .size("small")
-          .onClick(_ => handleLink(e.id))
-          .build: ReactElement)
+        e.receiptIds.headOption.fold[ReactElement](Fragment())(receiptId =>
+          (mui.Button
+            .normal()("🧾 Open receipt")
+            .size("small")
+            .onClick(_ => ReceiptFileViewer.openInNewTab(props.ctx.api.client, receiptId, setError))
+            .build: ReactElement)
+        ),
+        (mui
+          .Tooltip("Links this row to this expense, keeping its merchant, category and notes")(
+            (mui.Button
+              .normal()("Link this expense")
+              .variant("contained")
+              .color("primary")
+              .size("small")
+              .onClick(_ => handleLink(e.id))
+              .build: ReactElement)
+          ): ReactElement)
       )
     }
 

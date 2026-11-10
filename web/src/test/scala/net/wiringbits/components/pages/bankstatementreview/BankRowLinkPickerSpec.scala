@@ -99,6 +99,8 @@ class BankRowLinkPickerSpec extends AnyWordSpec with ReactTestDom {
             rowId = rowId,
             ctx = testCtx(client),
             matchedExpenseId = matchedExpenseId,
+            rowAmount = BigDecimal("12.34"),
+            rowDate = LocalDate.of(2024, 3, 7),
             categories = List(category),
             onSuccess = onSuccess,
             onCancel = () => ()
@@ -128,7 +130,7 @@ class BankRowLinkPickerSpec extends AnyWordSpec with ReactTestDom {
       text must include("Matched expense")
       text must include("Matched Shop · Groceries")
       text must include("weekly run")
-      text must include("🧾 Receipt")
+      buttons("🧾 Open receipt").length mustBe 1
       buttons("Link this expense").length mustBe 1
       text.indexOf("Matched Shop") must be < text.indexOf("Shop 1")
       buttons("Link").length mustBe 20
@@ -140,7 +142,7 @@ class BankRowLinkPickerSpec extends AnyWordSpec with ReactTestDom {
       val reported = ListBuffer.empty[UUID]
       renderPicker(client, Some(matched.id), id => reported += id)
 
-      container.textContent must not include "🧾 Receipt"
+      buttons("🧾 Open receipt") mustBe empty
       act(buttons("Link this expense").head.click())
 
       client.linked.toList mustBe List(matched.id)

@@ -295,22 +295,30 @@ object BankStatementReviewLogic {
     }
 
   /** What the link picker lists: the matched expense (if any) pinned first regardless of the filter or the cap, then up
-    * to 20 other expenses whose date, amount, merchant or notes contain the filter (case-insensitive).
+    * to 20 other expenses not yet linked to a row, ranked by how close their amount and date are to this row's, so the
+    * plausible matches surface instead of the whole history. A non-empty filter searches that same unlinked set by
+    * date, amount, merchant or notes (case-insensitive), still ranked by closeness.
     */
   def linkPickerEntries(
       expenses: List[GetExpenses.Response.Expense],
       filter: String,
-      matchedId: Option[UUID]
+      matchedId: Option[UUID],
+      rowAmount: BigDecimal,
+      rowDate: LocalDate
   ): (Option[GetExpenses.Response.Expense], List[GetExpenses.Response.Expense]) = {
     val f = filter.toLowerCase
     val matched = matchedId.flatMap(id => expenses.find(_.id == id))
-    val rest = expenses.filter { e =>
-      !matchedId.contains(e.id) && (
-        f.isEmpty || e.date.toString.contains(f) || e.amount.toString.contains(f) ||
+    val candidates = expenses.filter(e => !matchedId.contains(e.id) && e.rowIds.isEmpty)
+    val textMatched =
+      if (f.isEmpty) candidates
+      else
+        candidates.filter { e =>
+          e.date.toString.contains(f) || e.amount.toString.contains(f) ||
           e.merchantName.exists(_.toLowerCase.contains(f)) || e.notes.exists(_.toLowerCase.contains(f))
-      )
-    }
-    (matched, rest.take(20))
+        }
+    val ranked =
+      textMatched.sortBy(e => ((e.amount.abs - rowAmount.abs).abs, Math.abs(e.date.toEpochDay - rowDate.toEpochDay)))
+    (matched, ranked.take(20))
   }
 
   /** The linked expense's merchant name, when it has one and it is in the loaded merchant list. */
