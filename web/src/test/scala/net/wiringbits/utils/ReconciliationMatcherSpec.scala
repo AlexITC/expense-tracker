@@ -254,6 +254,52 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(ignoreRule), Nil)
       result(row.id) must be(ReconciliationMatcher.CreateNew)
     }
+
+    "produce AutoLink for a receipt-backed expense whose merchant differs from the rule's merchant" in {
+      val row = makeRow()
+      val expense = makeExpense(mId = Some(UUID.randomUUID()), receiptIds = List(UUID.randomUUID()))
+      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule), Nil)
+      result(row.id) must be(ReconciliationMatcher.AutoLink(expense.id))
+    }
+
+    "produce AutoLink for a receipt-backed expense when the row matches no rule" in {
+      val row = makeRow(description = "UNRECOGNIZED VENDOR XYZ")
+      val expense = makeExpense(receiptIds = List(UUID.randomUUID()))
+      val result = ReconciliationMatcher.reconcile(List(row), List(expense), List(matchingRule), Nil)
+      result(row.id) must be(ReconciliationMatcher.AutoLink(expense.id))
+    }
+
+    "produce NeedsReview when two receipt-backed expenses match" in {
+      val row = makeRow()
+      val e1 = makeExpense(receiptIds = List(UUID.randomUUID()))
+      val e2 = makeExpense(mId = None, receiptIds = List(UUID.randomUUID()))
+      val plain = makeExpense()
+      val result = ReconciliationMatcher.reconcile(List(row), List(e1, e2, plain), List(matchingRule), Nil)
+      result(row.id) must be(ReconciliationMatcher.NeedsReview(List(e1.id, e2.id)))
+    }
+
+    "fall back to the rule-based match when the receipt-backed expense is outside the ±3-day window" in {
+      val row = makeRow(date = baseDate)
+      val outside = makeExpense(date = baseDate.plusDays(4), receiptIds = List(UUID.randomUUID()))
+      val ruleMatch = makeExpense()
+      val result = ReconciliationMatcher.reconcile(List(row), List(outside, ruleMatch), List(matchingRule), Nil)
+      result(row.id) must be(ReconciliationMatcher.AutoLink(ruleMatch.id))
+    }
+
+    "fall back to the rule-based match when the receipt-backed expense only has a near amount" in {
+      val row = makeRow()
+      val near = makeExpense(amount = BigDecimal("100.50"), receiptIds = List(UUID.randomUUID()))
+      val ruleMatch = makeExpense()
+      val result = ReconciliationMatcher.reconcile(List(row), List(near, ruleMatch), List(matchingRule), Nil)
+      result(row.id) must be(ReconciliationMatcher.AutoLink(ruleMatch.id))
+    }
+
+    "produce CreateNew when the only receipt-backed expense has a near amount and no rule matches" in {
+      val row = makeRow(description = "UNRECOGNIZED VENDOR XYZ")
+      val near = makeExpense(amount = BigDecimal("100.50"), receiptIds = List(UUID.randomUUID()))
+      val result = ReconciliationMatcher.reconcile(List(row), List(near), List(matchingRule), Nil)
+      result(row.id) must be(ReconciliationMatcher.CreateNew)
+    }
   }
 
   "matchRow" should {

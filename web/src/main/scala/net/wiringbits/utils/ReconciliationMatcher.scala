@@ -54,7 +54,9 @@ object ReconciliationMatcher {
   }
 
   /** Auto-reconcile's matching. It intentionally keeps a symmetric ±3-day window and exact amounts only, so it can
-    * propose different links than `matchRow`, which the review page uses.
+    * propose different links than `matchRow`, which the review page uses. Unlinked, in-window, exact-amount expenses
+    * with an attached receipt are tried first and win regardless of the row's rules, since the receipt already vouches
+    * for the purchase. Only when there are none does the rule's merchant decide the candidates.
     */
   def reconcile(
       rows: List[GetBankStatement.StatementRowData],
@@ -68,17 +70,24 @@ object ReconciliationMatcher {
     rows
       .filter(row => row.expenseId.isEmpty && row.ignoredAt.isEmpty)
       .map { row =>
-        val action = RowRuleVerdict.ruleMerchantId(effective, row.description) match {
-          case Some(ruleMerchantId) =>
-            val candidates = unlinkedExpenses.filter { expense =>
-              val amountMatch = row.amount.abs == expense.amount.abs
-              val merchantMatch = expense.merchantId.contains(ruleMerchantId)
-              val dateMatch = Math.abs(row.date.toEpochDay - expense.date.toEpochDay) <= MaxDateDifferenceDays
-              amountMatch && merchantMatch && dateMatch
-            }
-            actionFor(candidates)
-          case None => CreateNew
+        val receiptBacked = unlinkedExpenses.filter { e =>
+          e.receiptIds.nonEmpty && row.amount.abs == e.amount.abs &&
+          Math.abs(row.date.toEpochDay - e.date.toEpochDay) <= MaxDateDifferenceDays
         }
+        val action =
+          if (receiptBacked.nonEmpty) actionFor(receiptBacked)
+          else
+            RowRuleVerdict.ruleMerchantId(effective, row.description) match {
+              case Some(ruleMerchantId) =>
+                val candidates = unlinkedExpenses.filter { expense =>
+                  val amountMatch = row.amount.abs == expense.amount.abs
+                  val merchantMatch = expense.merchantId.contains(ruleMerchantId)
+                  val dateMatch = Math.abs(row.date.toEpochDay - expense.date.toEpochDay) <= MaxDateDifferenceDays
+                  amountMatch && merchantMatch && dateMatch
+                }
+                actionFor(candidates)
+              case None => CreateNew
+            }
         row.id -> action
       }
       .toMap
