@@ -93,7 +93,7 @@ object BankStatementReviewRow {
               .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
               .onClick(_ => act(RowAction.OpenRefundForm))
               .build: ReactElement)
-          case PrimaryAction.ReviewExpense =>
+          case PrimaryAction.ReviewExpense | PrimaryAction.ConfirmLink =>
             (mui.Button
               .normal()("Confirm")
               .size("small")

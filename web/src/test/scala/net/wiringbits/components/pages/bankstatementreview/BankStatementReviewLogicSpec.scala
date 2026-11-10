@@ -277,6 +277,153 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
     "create a refund for a not-ready positive row" in {
       primaryActionFor(positive, isReady = false, RowRuleVerdict.NoRule) mustBe PrimaryAction.CreateRefund
     }
+
+    "confirm the link for a ready negative row with an expense match" in {
+      primaryActionFor(negative, isReady = true, setMerchant, hasExpenseMatch = true) mustBe PrimaryAction.ConfirmLink
+    }
+
+    "review the expense for a ready negative row without an expense match" in {
+      primaryActionFor(negative, isReady = true, setMerchant, hasExpenseMatch = false) mustBe
+        PrimaryAction.ReviewExpense
+    }
+
+    "ignore the expense match for Ignore verdicts, credits, ignored and linked rows" in {
+      primaryActionFor(negative, isReady = true, RowRuleVerdict.Ignore, hasExpenseMatch = true) mustBe
+        PrimaryAction.IgnoreByRule
+      primaryActionFor(positive, isReady = true, RowRuleVerdict.NoRule, hasExpenseMatch = true) mustBe
+        PrimaryAction.ReviewRefund
+      primaryActionFor(
+        negative.copy(ignoredAt = Some(Instant.now())),
+        isReady = false,
+        RowRuleVerdict.NoRule,
+        hasExpenseMatch = true
+      ) mustBe PrimaryAction.Unignore
+      primaryActionFor(
+        negative.copy(expenseId = Some(UUID.randomUUID())),
+        isReady = true,
+        setMerchant,
+        hasExpenseMatch = true
+      ) mustBe PrimaryAction.Linked
+    }
+  }
+
+  "matchedExpense" should {
+    import BankStatementReviewLogic.{LinkedCategory, MatchedExpense, matchedExpense}
+    val groceries = UUID.randomUUID()
+    val dining = UUID.randomUUID()
+    val categories = List(
+      GetCategories.Response.Category(groceries, "Groceries", Instant.EPOCH),
+      GetCategories.Response.Category(dining, "Dining", Instant.EPOCH)
+    )
+    val merchantId = UUID.randomUUID()
+    val merchants =
+      List(GetMerchants.Response.Merchant(merchantId, "Corner Shop", None, None, None, reviewed = true, Instant.EPOCH))
+
+    def split(categoryId: UUID) = GetExpenses.Response.Split(UUID.randomUUID(), categoryId, BigDecimal("5.00"))
+    def expense(
+        splits: List[GetExpenses.Response.Split],
+        merchantId: Option[UUID] = None,
+        merchantName: Option[String] = None
+    ) = GetExpenses.Response.Expense(
+      id = UUID.randomUUID(),
+      amount = BigDecimal("10.00"),
+      date = LocalDate.of(2024, 3, 7),
+      time = None,
+      merchantId = merchantId,
+      merchantName = merchantName,
+      notes = None,
+      splits = splits,
+      createdAt = Instant.EPOCH
+    )
+    def autoLink(e: GetExpenses.Response.Expense) = Some(ReconciliationMatcher.AutoLink(e.id))
+
+    "label a single-category expense with its category and merchant name" in {
+      val e = expense(List(split(groceries), split(groceries)), merchantName = Some("Corner Shop"))
+      matchedExpense(autoLink(e), List(e), categories, Nil) mustBe
+        Some(MatchedExpense(e.id, Some("Corner Shop"), LinkedCategory.Named("Groceries")))
+    }
+
+    "label a multi-category expense as Multiple" in {
+      val e = expense(List(split(groceries), split(dining)))
+      matchedExpense(autoLink(e), List(e), categories, Nil).map(_.category) mustBe Some(LinkedCategory.Multiple)
+    }
+
+    "label the category Unknown when it is not loaded or there are no splits" in {
+      val missing = expense(List(split(UUID.randomUUID())))
+      val noSplits = expense(Nil)
+      matchedExpense(autoLink(missing), List(missing), categories, Nil).map(_.category) mustBe
+        Some(LinkedCategory.Unknown)
+      matchedExpense(autoLink(noSplits), List(noSplits), categories, Nil).map(_.category) mustBe
+        Some(LinkedCategory.Unknown)
+    }
+
+    "fall back to the merchant list for the merchant name" in {
+      val e = expense(List(split(groceries)), merchantId = Some(merchantId))
+      matchedExpense(autoLink(e), List(e), categories, merchants).flatMap(_.merchantName) mustBe Some("Corner Shop")
+    }
+
+    "be None without a unique match to a loaded expense" in {
+      val e = expense(List(split(groceries)))
+      matchedExpense(Some(ReconciliationMatcher.NeedsReview(List(e.id))), List(e), categories, Nil) mustBe None
+      matchedExpense(Some(ReconciliationMatcher.CreateNew), List(e), categories, Nil) mustBe None
+      matchedExpense(None, List(e), categories, Nil) mustBe None
+      matchedExpense(autoLink(e), Nil, categories, Nil) mustBe None
+    }
+
+    "key matchedExpenses by row id, keeping only AutoLink matches to loaded expenses" in {
+      val e = expense(List(split(groceries)), merchantName = Some("Corner Shop"))
+      val linkedRow, reviewRow, newRow, unloadedRow = UUID.randomUUID()
+      val proposed = Map[UUID, ReconciliationMatcher.ProposedAction](
+        linkedRow -> ReconciliationMatcher.AutoLink(e.id),
+        reviewRow -> ReconciliationMatcher.NeedsReview(List(e.id)),
+        newRow -> ReconciliationMatcher.CreateNew,
+        unloadedRow -> ReconciliationMatcher.AutoLink(UUID.randomUUID())
+      )
+      BankStatementReviewLogic.matchedExpenses(proposed, List(e), categories, Nil) mustBe
+        Map(linkedRow -> MatchedExpense(e.id, Some("Corner Shop"), LinkedCategory.Named("Groceries")))
+    }
+  }
+
+  "linkPickerEntries" should {
+    import BankStatementReviewLogic.linkPickerEntries
+
+    def expense(amount: String, notes: Option[String] = None) = GetExpenses.Response.Expense(
+      id = UUID.randomUUID(),
+      amount = BigDecimal(amount),
+      date = LocalDate.of(2024, 3, 7),
+      time = None,
+      merchantId = None,
+      merchantName = None,
+      notes = notes,
+      splits = Nil,
+      createdAt = Instant.EPOCH
+    )
+    val others = (1 to 30).toList.map(i => expense(s"$i.00"))
+    val matched = expense("99.99", notes = Some("Special"))
+    val all = others :+ matched
+
+    "pin the matched expense even when it is past the first 20" in {
+      val (pinned, rest) = linkPickerEntries(all, "", Some(matched.id))
+      pinned mustBe Some(matched)
+      rest mustBe others.take(20)
+    }
+
+    "pin the matched expense even when the filter excludes it" in {
+      val (pinned, rest) = linkPickerEntries(all, "12.00", Some(matched.id))
+      pinned mustBe Some(matched)
+      rest.map(_.amount) mustBe List(BigDecimal("12.00"))
+    }
+
+    "not list the matched expense twice" in {
+      val (_, rest) = linkPickerEntries(all, "special", Some(matched.id))
+      rest mustBe Nil
+    }
+
+    "filter case-insensitively without a match" in {
+      val (pinned, rest) = linkPickerEntries(all, "SPECIAL", None)
+      pinned mustBe None
+      rest mustBe List(matched)
+    }
   }
 
   "rowInfo" should {
