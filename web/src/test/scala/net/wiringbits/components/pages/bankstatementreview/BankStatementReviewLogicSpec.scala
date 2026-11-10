@@ -882,6 +882,68 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
     }
   }
 
+  "receiptOffer" should {
+    import BankStatementReviewLogic.{ReceiptOffer, receiptOffer}
+
+    val receiptCategory = UUID.randomUUID()
+    val receiptMerchant =
+      GetMerchants.Response.Merchant(
+        UUID.randomUUID(),
+        "Costco",
+        None,
+        Some(receiptCategory),
+        None,
+        true,
+        Instant.EPOCH
+      )
+    val currentMerchant =
+      GetMerchants.Response.Merchant(UUID.randomUUID(), "Walmart", None, None, None, reviewed = true, Instant.EPOCH)
+    val merchants = List(receiptMerchant, currentMerchant)
+
+    def receipt(merchantId: Option[UUID]) = GetReceipts.Response.Receipt(
+      id = UUID.randomUUID(),
+      documentFilename = "receipt.jpg",
+      documentStatus = DocumentStatus.Parsed,
+      amount = Some(BigDecimal("10.00")),
+      date = Some(LocalDate.of(2024, 3, 7)),
+      merchantName = Some("COSTCO"),
+      merchantId = merchantId,
+      expenseId = None,
+      ignoredAt = None,
+      createdAt = Instant.EPOCH
+    )
+
+    "offer the receipt's merchant and its default category when it differs from the current merchant" in {
+      val r = receipt(Some(receiptMerchant.id))
+      receiptOffer(Some(r), Some(currentMerchant.id), merchants, Set.empty) mustBe
+        Some(ReceiptOffer(r.id, receiptMerchant, Some(receiptCategory)))
+    }
+
+    "offer the receipt's merchant when the current merchant is free text or blank" in {
+      val r = receipt(Some(receiptMerchant.id))
+      receiptOffer(Some(r), None, merchants, Set.empty).map(_.merchant) mustBe Some(receiptMerchant)
+    }
+
+    "offer nothing once the receipt was decided" in {
+      val r = receipt(Some(receiptMerchant.id))
+      receiptOffer(Some(r), Some(currentMerchant.id), merchants, Set(r.id)) mustBe None
+    }
+
+    "offer nothing when the receipt's merchant is already the current merchant" in {
+      val r = receipt(Some(receiptMerchant.id))
+      receiptOffer(Some(r), Some(receiptMerchant.id), merchants, Set.empty) mustBe None
+    }
+
+    "offer nothing when the receipt has no merchant or one that is not among the user's merchants" in {
+      receiptOffer(Some(receipt(None)), Some(currentMerchant.id), merchants, Set.empty) mustBe None
+      receiptOffer(Some(receipt(Some(UUID.randomUUID()))), Some(currentMerchant.id), merchants, Set.empty) mustBe None
+    }
+
+    "offer nothing when no receipt is attached" in {
+      receiptOffer(None, Some(currentMerchant.id), merchants, Set.empty) mustBe None
+    }
+  }
+
   "expenseMatches" should {
     import BankStatementReviewLogic.{LinkedCategory, RowInfo}
 
