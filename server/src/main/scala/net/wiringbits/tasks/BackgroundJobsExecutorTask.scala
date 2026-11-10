@@ -16,6 +16,9 @@ import org.slf4j.LoggerFactory
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
 
+// TODO(layering): the per-job runner this schedules belongs in a net.wiringbits.tasks.runner
+// sublayer, so the scheduler reaches the runner and repositories but never a sibling task.
+// See docs/guide/architecture.md
 class BackgroundJobsExecutorTask @Inject() (
     config: BackgroundJobsExecutorConfig,
     runner: BackgroundJobTypeRunner,

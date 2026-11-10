@@ -15,6 +15,8 @@ import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 
+// TODO(layering): a service must not call a sibling service; this reaches TelegramMessageParser.
+// Lift the shared parsing into the calling action or a leaf both can reach. See docs/guide/architecture.md
 class TelegramExpenseService @Inject() (
     merchantsRepository: MerchantsRepository,
     categoriesRepository: CategoriesRepository,

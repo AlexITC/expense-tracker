@@ -4,17 +4,13 @@ Stack: Scala 3 · Play Framework · Tapir · Anorm · PostgreSQL · Pekko
 
 ## Architecture
 
-```
-controllers/      Tapir serverLogic wiring; thin — no business logic
-actions/          One action class per operation; auth + validation + orchestration
-repositories/     Anorm SQL; one file per table; delegates to DAOs
-daos/             Raw SQL + row parsers; one DAO per table
-validations/      Single-purpose validators (throw RuntimeException on failure)
-config/           Typed wrappers around Play Configuration
-lib/api/shared/   Tapir endpoint definitions + request/response models (shared with frontend)
-```
+See [architecture.md](architecture.md) for the full layer map, the package of
+each layer, and the model/transaction rules. Layer direction is enforced at
+compile time by the Layering wart.
 
-**Strict call direction:** controllers → actions → validators/repositories/services. Never the other way. Actions do not call other actions. Repositories do not call other repositories.
+**Strict call direction** (down only, compiler-enforced): controllers → actions →
+validations/services/repositories → daos. Never the other way. Actions do not
+call other actions. Repositories do not call other repositories.
 
 When an action needs logic that another action already contains, do **not** inject and call the other action. Instead, choose one of:
 

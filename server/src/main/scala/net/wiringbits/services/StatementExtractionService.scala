@@ -28,6 +28,9 @@ import scala.concurrent.{ExecutionContext, Future}
   * and the paid Bedrock call are cached in textract_cache (a generic (hash, type, response) store) so re-runs don't
   * re-call.
   */
+// TODO(layering): a service must not call a sibling service; this reaches AiStatementExtractor and
+// TextractTableSerializer. Lift the shared logic into the calling action or a leaf both can reach.
+// See docs/guide/architecture.md
 class StatementExtractionService @Inject() (
     bedrockClient: BedrockClient,
     bedrockConfig: BedrockConfig,

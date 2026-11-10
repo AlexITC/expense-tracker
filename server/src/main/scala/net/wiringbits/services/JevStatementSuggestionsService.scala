@@ -16,6 +16,8 @@ import scala.concurrent.{ExecutionContext, Future}
   * distinct description is resolved once, one after another: JEV picks a category, then, when that category has
   * merchants, one of them (or "none"). No DB access — the caller loads the inputs and persists the result.
   */
+// TODO(layering): a service must not call a sibling service; this reaches StatementSuggestionsService.
+// Lift the shared logic into the calling action or a leaf both can reach. See docs/guide/architecture.md
 class JevStatementSuggestionsService @Inject() (jevClient: JevClient)(implicit ec: ExecutionContext) {
   import JevStatementSuggestionsService.*
   import JevClient.NoMerchant
