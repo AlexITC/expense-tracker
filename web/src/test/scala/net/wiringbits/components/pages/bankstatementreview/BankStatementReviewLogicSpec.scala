@@ -418,9 +418,11 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       rowIds = rowIds,
       createdAt = Instant.EPOCH
     )
-    val others = (1 to 30).toList.map(i => expense(s"$i.00"))
+    // Same amount and date as the row, so all pass the plausible-match filter.
+    val inWindow = (1 to 25).toList.map(_ => expense("20.00"))
+    val twelve = expense("12.00")
     val matched = expense("99.99", notes = Some("Special"))
-    val all = others :+ matched
+    val all = inWindow ++ List(twelve, matched)
 
     "pin the matched expense and cap the rest at 20" in {
       val (pinned, rest) = linkPickerEntries(all, "", Some(matched.id), rowAmount, rowDate)
@@ -440,25 +442,40 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       rest mustBe Nil
     }
 
-    "filter case-insensitively without a match" in {
+    "let a filter override the plausible-match window to reach any unlinked expense" in {
       val (pinned, rest) = linkPickerEntries(all, "SPECIAL", None, rowAmount, rowDate)
       pinned mustBe None
       rest mustBe List(matched)
     }
 
-    "rank the manual list by amount closeness to the row" in {
+    "rank the plausible matches by amount closeness to the row" in {
       val near = expense("20.50")
       val exact = expense("20.00")
-      val far = expense("5.00")
-      val (_, rest) = linkPickerEntries(List(near, far, exact), "", None, rowAmount, rowDate)
-      rest.map(_.amount) mustBe List(BigDecimal("20.00"), BigDecimal("20.50"), BigDecimal("5.00"))
+      val farther = expense("21.00")
+      val (_, rest) = linkPickerEntries(List(near, farther, exact), "", None, rowAmount, rowDate)
+      rest.map(_.amount) mustBe List(BigDecimal("20.00"), BigDecimal("20.50"), BigDecimal("21.00"))
     }
 
     "break amount ties by date closeness to the row" in {
       val sameDay = expense("20.00", date = LocalDate.of(2024, 3, 7))
-      val weekLater = expense("20.00", date = LocalDate.of(2024, 3, 14))
-      val (_, rest) = linkPickerEntries(List(weekLater, sameDay), "", None, rowAmount, rowDate)
-      rest.map(_.date) mustBe List(LocalDate.of(2024, 3, 7), LocalDate.of(2024, 3, 14))
+      val daysBefore = expense("20.00", date = LocalDate.of(2024, 3, 4))
+      val (_, rest) = linkPickerEntries(List(daysBefore, sameDay), "", None, rowAmount, rowDate)
+      rest.map(_.date) mustBe List(LocalDate.of(2024, 3, 7), LocalDate.of(2024, 3, 4))
+    }
+
+    "exclude expenses more than 1.00 from the row amount" in {
+      val edge = expense("21.00")
+      val tooFar = expense("21.50")
+      val (_, rest) = linkPickerEntries(List(edge, tooFar), "", None, rowAmount, rowDate)
+      rest mustBe List(edge)
+    }
+
+    "exclude expenses dated after the row or more than 5 days before it" in {
+      val after = expense("20.00", date = LocalDate.of(2024, 3, 8))
+      val fiveBefore = expense("20.00", date = LocalDate.of(2024, 3, 2))
+      val sixBefore = expense("20.00", date = LocalDate.of(2024, 3, 1))
+      val (_, rest) = linkPickerEntries(List(after, fiveBefore, sixBefore), "", None, rowAmount, rowDate)
+      rest mustBe List(fiveBefore)
     }
 
     "exclude expenses already linked to a row" in {

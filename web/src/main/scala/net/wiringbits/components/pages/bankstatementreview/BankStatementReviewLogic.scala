@@ -299,6 +299,20 @@ object BankStatementReviewLogic {
     * plausible matches surface instead of the whole history. A non-empty filter searches that same unlinked set by
     * date, amount, merchant or notes (case-insensitive), still ranked by closeness.
     */
+  /** Whether a candidate expense or receipt plausibly backs this row: within 1.00 of its amount and dated on or up to 5
+    * days before it. The bank can post a charge a few days after the ticket, never before it.
+    */
+  def rowMatchesCandidate(
+      rowAmount: BigDecimal,
+      rowDate: LocalDate,
+      candidateAmount: BigDecimal,
+      candidateDate: LocalDate
+  ): Boolean = {
+    val amountOk = (candidateAmount.abs - rowAmount.abs).abs <= 1
+    val daysAfter = rowDate.toEpochDay - candidateDate.toEpochDay
+    amountOk && daysAfter >= 0 && daysAfter <= 5
+  }
+
   def linkPickerEntries(
       expenses: List[GetExpenses.Response.Expense],
       filter: String,
@@ -309,15 +323,24 @@ object BankStatementReviewLogic {
     val f = filter.toLowerCase
     val matched = matchedId.flatMap(id => expenses.find(_.id == id))
     val candidates = expenses.filter(e => !matchedId.contains(e.id) && e.rowIds.isEmpty)
-    val textMatched =
-      if (f.isEmpty) candidates
+    // With no filter text we offer only plausible matches; a filter is a manual override that searches all unlinked.
+    val selected =
+      if (f.isEmpty)
+        candidates.filter(e =>
+          rowMatchesCandidate(
+            rowAmount = rowAmount,
+            rowDate = rowDate,
+            candidateAmount = e.amount,
+            candidateDate = e.date
+          )
+        )
       else
         candidates.filter { e =>
           e.date.toString.contains(f) || e.amount.toString.contains(f) ||
           e.merchantName.exists(_.toLowerCase.contains(f)) || e.notes.exists(_.toLowerCase.contains(f))
         }
     val ranked =
-      textMatched.sortBy(e => ((e.amount.abs - rowAmount.abs).abs, Math.abs(e.date.toEpochDay - rowDate.toEpochDay)))
+      selected.sortBy(e => ((e.amount.abs - rowAmount.abs).abs, Math.abs(e.date.toEpochDay - rowDate.toEpochDay)))
     (matched, ranked.take(20))
   }
 
