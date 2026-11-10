@@ -1,5 +1,5 @@
 ---
-description: Frontend — fetch via AsyncComponent; mutually-exclusive UI state as one ADT; hook dependency lists via SafeHooks (String keys); filters and view selections encoded in the URL; navigate with the router link, not hand-rolled anchors
+description: Frontend — fetch via AsyncComponent; mutually-exclusive UI state as one ADT; state derived from its previous value set via the functional updater; hook dependency lists via SafeHooks (String keys); filters and view selections encoded in the URL; navigate with the router link, not hand-rolled anchors
 files: web/src/main/scala
 ---
 
@@ -26,6 +26,20 @@ siblings in the same breath.
 Not: states that can legitimately hold at the same time (independent toggles); a
 lone flag with no sibling it excludes; the fetch loading/data/error triple, which
 belongs in `AsyncComponent` (above).
+
+## Derive state from its previous value with the functional updater
+Flag a `useState` setter whose new value is computed from that same state's
+current value read through the render closure — `setItems(items :+ x)`,
+`setSelected(selected + id)`, `setCount(count + 1)`, `setChosen(chosen - id)`.
+Use the functional updater form instead (`setItems(_ :+ x)`, `setSelected(_ + id)`,
+`setCount(_ + 1)`), so React applies the change to the latest state rather than to
+the value captured when the handler was created. The closure form silently drops
+updates when several run before the next render (batched events, rapid clicks) or
+when the setter fires from a stale async callback or effect.
+
+Not: a setter whose new value does not come from that state's own previous value —
+a constant, or a value taken from props or another state (`setOpen(true)`,
+`setError(msg)`, `setMerchant(m)`); those cannot use the updater and need no change.
 
 ## Hook dependency lists go through SafeHooks (String keys)
 Flag a component that calls `Hooks.useEffect` / `useMemo` / `useCallback` with a
