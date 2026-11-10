@@ -235,28 +235,34 @@ object BankRowCreateExpenseForm {
     }
 
     def rankReceipts(receipts: List[GetReceipts.Response.Receipt]): List[(GetReceipts.Response.Receipt, Int)] = {
-      val rowAmt = props.row.amount.abs
-      val rowDateStr = props.row.date.toString
       val rowDesc = props.row.description.toLowerCase
       receipts
         .flatMap { r =>
-          r.amount.map { rAmt =>
-            val amtMatch = if (rAmt == rowAmt) 4 else 0
-            val dateMatch = if (r.date.exists(_.toString == rowDateStr)) 2 else 0
-            val merchMatch = merchantIdOpt
-              .flatMap(id => props.merchants.find(_.id == id))
-              .map(_.name) match {
-              case Some(mn)
-                  if r.merchantName
-                    .exists(rn => rn.toLowerCase.contains(mn.toLowerCase) || rowDesc.contains(rn.toLowerCase)) =>
-                1
-              case _ => 0
-            }
-            (r, amtMatch + dateMatch + merchMatch)
+          (r.amount, r.date) match {
+            case (Some(rAmt), Some(rDate))
+                if BankStatementReviewLogic.rowMatchesCandidate(
+                  rowAmount = props.row.amount,
+                  rowDate = props.row.date,
+                  candidateAmount = rAmt,
+                  candidateDate = rDate
+                ) =>
+              val merchMatch = merchantIdOpt
+                .flatMap(id => props.merchants.find(_.id == id))
+                .map(_.name) match {
+                case Some(mn)
+                    if r.merchantName
+                      .exists(rn => rn.toLowerCase.contains(mn.toLowerCase) || rowDesc.contains(rn.toLowerCase)) =>
+                  1
+                case _ => 0
+              }
+              Some((r, rAmt, rDate, merchMatch))
+            case _ => None
           }
         }
-        .filter { case (_, score) => score >= 4 || (score >= 2 && score < 4) }
-        .sortBy { case (_, score) => -score }
+        .sortBy { case (_, rAmt, rDate, merch) =>
+          (-merch, (rAmt.abs - props.row.amount.abs).abs, Math.abs(props.row.date.toEpochDay - rDate.toEpochDay))
+        }
+        .map { case (r, _, _, merch) => (r, merch) }
     }
 
     def handleSubmit(): Unit =
