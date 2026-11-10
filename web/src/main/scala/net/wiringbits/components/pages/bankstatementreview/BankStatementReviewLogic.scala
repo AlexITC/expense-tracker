@@ -445,6 +445,31 @@ object BankStatementReviewLogic {
   ): Map[UUID, UUID] =
     (matches -- detached).view.mapValues(_.id).toMap
 
+  /** A merchant (and its default category) read from the attached receipt, offered in place of the form's current
+    * merchant.
+    */
+  final case class ReceiptOffer(receiptId: UUID, merchant: GetMerchants.Response.Merchant, categoryId: Option[UUID])
+
+  /** What the create-expense form offers once a receipt is attached: the receipt is better evidence than a rule or AI
+    * suggestion, so its merchant is offered when it resolves to one of the user's merchants and differs from the
+    * current one (a free-text or blank merchant counts as different). The user confirms the switch or keeps the
+    * suggestion; either way the receipt is `decided` and not offered again. Receipts carry no notes, so notes are
+    * untouched.
+    */
+  def receiptOffer(
+      receipt: Option[GetReceipts.Response.Receipt],
+      currentMerchantId: Option[UUID],
+      merchants: List[GetMerchants.Response.Merchant],
+      decided: Set[UUID]
+  ): Option[ReceiptOffer] =
+    for {
+      r <- receipt
+      if !decided.contains(r.id)
+      merchantId <- r.merchantId
+      merchant <- merchants.find(_.id == merchantId)
+      if !currentMerchantId.contains(merchant.id)
+    } yield ReceiptOffer(r.id, merchant, merchant.categoryId)
+
   /** The toast shown after "Process ready", listing only the non-zero counts. */
   def bulkImportSummary(linked: Int, created: Int, ignored: Int, failed: Int): String = {
     val parts = List(linked -> "linked", created -> "created", ignored -> "ignored", failed -> "failed")

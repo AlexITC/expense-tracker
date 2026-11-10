@@ -174,6 +174,8 @@ object BankRowCreateExpenseForm {
     val (categoryRuleOptIn, setCategoryRuleOptIn) = Hooks.useState(false)
     val (receiptId, setReceiptId) = Hooks.useState[Option[UUID]](None)
     val (receipts, setReceipts) = Hooks.useState[List[GetReceipts.Response.Receipt]](Nil)
+    // Receipts whose merchant offer the user already accepted or declined.
+    val (decidedReceiptIds, setDecidedReceiptIds) = Hooks.useState[Set[UUID]](Set.empty)
     val (error, setError) = Hooks.useState("")
     // Set once the expense exists but its alias rule failed: the form stays open only to show that error.
     val (savedExpenseId, setSavedExpenseId) = Hooks.useState[Option[UUID]](None)
@@ -391,6 +393,12 @@ object BankRowCreateExpenseForm {
     val receiptSelectedStyling = new CSSPropertiesUtils {
       fontSize = "0.8em"; color = "var(--lc-link)"; fontWeight = "bold"
     }
+    val offer = BankStatementReviewLogic.receiptOffer(
+      receipts.find(r => receiptId.contains(r.id)),
+      merchantIdOpt,
+      props.merchants,
+      decidedReceiptIds
+    )
     val anyOpen = merchantOpen || categoryOpen
     val hintStyling = new CSSPropertiesUtils { fontSize = "13px"; color = "var(--lc-text-2)" }
 
@@ -565,6 +573,33 @@ object BankRowCreateExpenseForm {
               )
             )
           else Fragment(),
+          offer match {
+            case Some(o) =>
+              val categoryLabel = o.categoryId
+                .flatMap(cid => props.categories.find(_.id == cid))
+                .map(_.name)
+                .getOrElse("no default category")
+              mui.Box.sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; gap = "8px" })(
+                mui.Typography(s"Receipt says ${o.merchant.name} ($categoryLabel)").sx(hintStyling),
+                mui.Button
+                  .normal()("Use receipt")
+                  .size("small")
+                  .onClick { _ =>
+                    selectMerchant(o.merchant)
+                    // The category follows the receipt's merchant: without a default, the previous one is cleared.
+                    if (o.categoryId.isEmpty) {
+                      setCategoryIdOpt(None)
+                      setCategoryInput("")
+                    }
+                    setDecidedReceiptIds(decidedReceiptIds + o.receiptId)
+                  },
+                mui.Button
+                  .normal()("Keep suggestion")
+                  .size("small")
+                  .onClick(_ => setDecidedReceiptIds(decidedReceiptIds + o.receiptId))
+              )
+            case None => Fragment()
+          },
           savedExpenseId match {
             case Some(expenseId) =>
               mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
