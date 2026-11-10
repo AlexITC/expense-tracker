@@ -7,6 +7,7 @@ import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.RowRuleVerdict
 import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewLogic.{
   LinkedCategory,
+  MatchedExpense,
   RefundPrefill,
   ResolvedImport,
   RowInfo
@@ -70,6 +71,9 @@ class BankStatementReviewRowSpec extends AnyWordSpec with ReactTestDom {
       createdAt = Instant.parse("2024-03-06T10:00:00Z")
     )
 
+  private val matched =
+    MatchedExpense(UUID.randomUUID(), Some("Corner Shop"), LinkedCategory.Named("Household"))
+
   // One reference shared by every render, so the memo tests only see the callbacks they vary.
   private val noReceiptAction: (UUID, ReceiptAction) => Unit = (_, _) => ()
 
@@ -78,7 +82,7 @@ class BankStatementReviewRowSpec extends AnyWordSpec with ReactTestDom {
       info: RowInfo,
       onAction: (UUID, RowAction) => Unit,
       onToggleSelected: (UUID, Boolean) => Unit = (_, _) => (),
-      linksToExpense: Boolean = false,
+      matchedExpense: Option[MatchedExpense] = None,
       matchedReceipt: Option[GetReceipts.Response.Receipt] = None,
       receiptDetached: Boolean = false,
       onReceiptAction: (UUID, ReceiptAction) => Unit = noReceiptAction
@@ -89,7 +93,7 @@ class BankStatementReviewRowSpec extends AnyWordSpec with ReactTestDom {
       selected = false,
       showCheckbox = true,
       pollingSuggestions = false,
-      linksToExpense = linksToExpense,
+      matchedExpense = matchedExpense,
       matchedReceipt = matchedReceipt,
       receiptDetached = receiptDetached,
       onToggleSelected = onToggleSelected,
@@ -252,10 +256,54 @@ class BankStatementReviewRowSpec extends AnyWordSpec with ReactTestDom {
 
     "show the Link existing chip only when the row would link to an existing expense" in {
       val r = row("SUPERMARKET")
-      renderProps(List(props(r, readyInfo, (_, _) => (), linksToExpense = true)))
+      renderProps(List(props(r, readyInfo, (_, _) => (), matchedExpense = Some(matched))))
       container.textContent must include("↔ Link existing")
-      renderProps(List(props(r, readyInfo, (_, _) => (), linksToExpense = false)))
+      renderProps(List(props(r, readyInfo, (_, _) => (), matchedExpense = None)))
       container.textContent must not include ("↔ Link existing")
+    }
+
+    "show the matched expense's merchant and category instead of the suggestion's" in {
+      val r = row("SUPERMARKET")
+      renderProps(
+        List(
+          props(r, readyInfo.copy(merchantName = Some("Suggested Shop")), (_, _) => (), matchedExpense = Some(matched))
+        )
+      )
+      val cells = container.querySelectorAll("td")
+      cells(4).textContent mustBe "Household"
+      cells(5).textContent must include("Corner Shop")
+      cells(5).textContent must not include ("Suggested Shop")
+    }
+
+    "show Multiple for a matched expense split across categories" in {
+      val r = row("SUPERMARKET")
+      renderProps(
+        List(props(r, readyInfo, (_, _) => (), matchedExpense = Some(matched.copy(category = LinkedCategory.Multiple))))
+      )
+      container.querySelectorAll("td")(4).textContent mustBe "Multiple"
+    }
+
+    "report OpenLinkPicker when the Link existing chip is clicked" in {
+      val r = row("SUPERMARKET")
+      var received = List.empty[(UUID, RowAction)]
+      renderProps(
+        List(props(r, readyInfo, (id, action) => received = received :+ (id -> action), matchedExpense = Some(matched)))
+      )
+      val chip = container.querySelectorAll(".MuiChip-root")
+      val linkChip = (0 until chip.length).map(chip(_)).filter(_.textContent == "↔ Link existing")
+      linkChip.length mustBe 1
+      act(linkChip.head.asInstanceOf[dom.html.Element].click())
+      received mustBe List(r.id -> RowAction.OpenLinkPicker)
+    }
+
+    "report OpenLinkPicker when Confirm is clicked on a ready row matched to an existing expense" in {
+      val r = row("SUPERMARKET")
+      var received = List.empty[(UUID, RowAction)]
+      renderProps(
+        List(props(r, readyInfo, (id, action) => received = received :+ (id -> action), matchedExpense = Some(matched)))
+      )
+      clickButton("Confirm")
+      received mustBe List(r.id -> RowAction.OpenLinkPicker)
     }
 
     "show the receipt chip only when the row has a matched receipt" in {

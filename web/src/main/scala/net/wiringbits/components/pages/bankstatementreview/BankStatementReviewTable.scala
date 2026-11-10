@@ -3,9 +3,8 @@ package net.wiringbits.components.pages.bankstatementreview
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.api.models.bankstatements.GetBankStatement.StatementRowData
 import net.wiringbits.api.models.receipts.GetReceipts
-import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewLogic.RowInfo
+import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewLogic.{MatchedExpense, RowInfo}
 import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewRow.{ReceiptAction, RowAction}
-import net.wiringbits.utils.ReconciliationMatcher
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import slinky.core.facade.{Fragment, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
@@ -22,7 +21,7 @@ object BankStatementReviewTable {
       selectedRowIds: Set[UUID],
       showCheckbox: Boolean,
       pollingSuggestions: Boolean,
-      expenseMatchById: Map[UUID, ReconciliationMatcher.ProposedAction],
+      matchedExpenseById: Map[UUID, MatchedExpense],
       receiptMatchById: Map[UUID, GetReceipts.Response.Receipt],
       detachedReceiptRowIds: Set[UUID],
       onSelectAll: Boolean => Unit,
@@ -84,10 +83,7 @@ object BankStatementReviewTable {
                     selected = props.selectedRowIds.contains(row.id),
                     showCheckbox = props.showCheckbox,
                     pollingSuggestions = props.pollingSuggestions,
-                    linksToExpense = props.expenseMatchById.get(row.id).exists {
-                      case ReconciliationMatcher.AutoLink(_) => true
-                      case _ => false
-                    },
+                    matchedExpense = props.matchedExpenseById.get(row.id),
                     matchedReceipt = props.receiptMatchById.get(row.id),
                     receiptDetached = props.detachedReceiptRowIds.contains(row.id),
                     onToggleSelected = props.onToggleSelected,

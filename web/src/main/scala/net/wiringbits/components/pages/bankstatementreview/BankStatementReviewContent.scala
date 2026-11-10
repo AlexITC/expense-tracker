@@ -113,6 +113,10 @@ object BankStatementReviewContent {
       SafeHooks.useMemo(rowsKey, rowInfoKey, expensesKey)(() =>
         expenseMatches(statementRows, rowInfoById, unlinkedExpensesByDate)
       )
+    val matchedExpenseById: Map[UUID, MatchedExpense] =
+      SafeHooks.useMemo(rowsKey, rowInfoKey, expensesKey, merchantsKey, categoriesKey)(() =>
+        matchedExpenses(expenseMatchById, expenseList, categoryList, merchantList)
+      )
     val receiptList = support.fold(Nil)(_.receipts)
     val receiptsKey = receiptList.toString
     val receiptMatchById: Map[UUID, GetReceipts.Response.Receipt] =
@@ -269,7 +273,7 @@ object BankStatementReviewContent {
               selectedRowIds = selectedRowIds,
               showCheckbox = rowFilter == "unprocessed" || rowFilter == "ready",
               pollingSuggestions = suggestions.polling,
-              expenseMatchById = expenseMatchById,
+              matchedExpenseById = matchedExpenseById,
               receiptMatchById = receiptMatchById,
               detachedReceiptRowIds = detachedReceiptRowIds,
               onSelectAll =

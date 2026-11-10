@@ -6,6 +6,7 @@ import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.RowRuleVerdict
 import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewLogic.{
   LinkedCategory,
+  MatchedExpense,
   PrimaryAction,
   RowInfo,
   RowMenuItem,
@@ -44,7 +45,7 @@ object BankStatementReviewRow {
       selected: Boolean,
       showCheckbox: Boolean,
       pollingSuggestions: Boolean,
-      linksToExpense: Boolean,
+      matchedExpense: Option[MatchedExpense],
       matchedReceipt: Option[GetReceipts.Response.Receipt],
       receiptDetached: Boolean,
       onToggleSelected: (UUID, Boolean) => Unit,
@@ -63,7 +64,12 @@ object BankStatementReviewRow {
       def act(action: RowAction): Unit = props.onAction(row.id, action)
 
       def primaryAction: ReactElement =
-        primaryActionFor(row, info.isReady, info.verdict) match {
+        primaryActionFor(
+          row,
+          isReady = info.isReady,
+          verdict = info.verdict,
+          hasExpenseMatch = props.matchedExpense.isDefined
+        ) match {
           case PrimaryAction.Linked =>
             (mui.Button
               .normal()("Linked")
@@ -93,13 +99,21 @@ object BankStatementReviewRow {
               .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
               .onClick(_ => act(RowAction.OpenRefundForm))
               .build: ReactElement)
-          case PrimaryAction.ReviewExpense | PrimaryAction.ConfirmLink =>
+          case PrimaryAction.ReviewExpense =>
             (mui.Button
               .normal()("Confirm")
               .size("small")
               .variant("contained")
               .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
               .onClick(_ => act(RowAction.OpenExpenseForm))
+              .build: ReactElement)
+          case PrimaryAction.ConfirmLink =>
+            (mui.Button
+              .normal()("Confirm")
+              .size("small")
+              .variant("contained")
+              .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
+              .onClick(_ => act(RowAction.OpenLinkPicker))
               .build: ReactElement)
           case PrimaryAction.CreateRefund =>
             (mui.Button
@@ -125,6 +139,24 @@ object BankStatementReviewRow {
           .sx(new CSSPropertiesUtils {
             height = "22px"; fontSize = "12px"; backgroundColor = "var(--lc-tint)"; color = textColor
           }): ReactElement)
+
+      // Opens the link picker with the matched expense first.
+      def linkExistingChip: ReactElement =
+        (mui.Chip
+          .label("↔ Link existing")
+          .size("small")
+          .clickable(true)
+          .onClick(_ => act(RowAction.OpenLinkPicker))
+          .sx(new CSSPropertiesUtils {
+            height = "22px"; fontSize = "12px"; backgroundColor = "var(--lc-tint)"; color = "var(--lc-brand)"
+          }): ReactElement)
+
+      def linkedCategoryChip(category: LinkedCategory): ReactElement =
+        category match {
+          case LinkedCategory.Named(name) => tintChip(lbl = name, textColor = "var(--lc-brand-dark)")
+          case LinkedCategory.Multiple => tintChip(lbl = "Multiple", textColor = "var(--lc-text-2)")
+          case LinkedCategory.Unknown => dash
+        }
 
       def dash: ReactElement =
         mui.Typography("—").sx(new CSSPropertiesUtils { color = "var(--lc-hint)"; fontSize = "13px" })
@@ -156,42 +188,44 @@ object BankStatementReviewRow {
           else smallTextButton("Detach", () => props.onReceiptAction(row.id, ReceiptAction.Detach))
         )
 
-      // Linked rows show the linked expense's merchant (else "Linked"); other rows the merchant set on import, rule-matched
-      // or AI-suggested, with "→ Ignore" taking over when an Ignore rule applies, plus "↔ Link existing" when processing
-      // would link the row to an existing expense and the receipt controls when it would attach a receipt.
+      // Linked rows show the linked expense's merchant (else "Linked"); rows matched to an existing expense show that
+      // expense's merchant plus a "↔ Link existing" chip that opens the link picker; other rows the merchant set on
+      // import, rule-matched or AI-suggested. "→ Ignore" takes over when an Ignore rule applies, and the receipt controls
+      // show when processing would attach a receipt.
       def matchCell: ReactElement =
         if (row.expenseId.isDefined || row.refundId.isDefined)
           tintChip(lbl = info.linkedMerchantName.getOrElse("Linked"), textColor = "var(--lc-brand)")
         else if (info.verdict == RowRuleVerdict.Ignore)
           tintChip(lbl = "→ Ignore", textColor = "var(--lc-brand-dark)")
         else {
-          val merchant = info.merchantName match {
-            case Some(name) => tintChip(lbl = name, textColor = "var(--lc-brand-dark)")
-            case None => suggestingOrDash
+          val merchant = props.matchedExpense match {
+            case Some(matched) =>
+              matched.merchantName.fold(dash)(name => tintChip(lbl = name, textColor = "var(--lc-brand-dark)"))
+            case None =>
+              info.merchantName match {
+                case Some(name) => tintChip(lbl = name, textColor = "var(--lc-brand-dark)")
+                case None => suggestingOrDash
+              }
           }
-          if (props.linksToExpense || props.matchedReceipt.isDefined)
+          if (props.matchedExpense.isDefined || props.matchedReceipt.isDefined)
             mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px"; alignItems = "center" })(
               merchant,
-              if (props.linksToExpense) tintChip(lbl = "↔ Link existing", textColor = "var(--lc-brand)")
-              else Fragment(),
+              if (props.matchedExpense.isDefined) linkExistingChip else Fragment(),
               props.matchedReceipt.fold[ReactElement](Fragment())(receiptControls)
             )
           else merchant
         }
 
-      // Linked rows show the linked expense's category; other rows the category the expense will get on import, tagged
-      // "AI" when it came from a suggestion rather than a rule; rule-matched credits show their refund's category.
+      // Linked rows show the linked expense's category, and rows matched to an existing expense that expense's category;
+      // other rows the category the expense will get on import, tagged "AI" when it came from a suggestion rather than a
+      // rule; rule-matched credits show their refund's category.
       def categoryCell: ReactElement =
-        if (row.expenseId.isDefined || row.refundId.isDefined)
-          info.linkedCategory match {
-            case LinkedCategory.Named(name) => tintChip(lbl = name, textColor = "var(--lc-brand-dark)")
-            case LinkedCategory.Multiple => tintChip(lbl = "Multiple", textColor = "var(--lc-text-2)")
-            case LinkedCategory.Unknown => dash
-          }
+        if (row.expenseId.isDefined || row.refundId.isDefined) linkedCategoryChip(info.linkedCategory)
         else if (info.verdict == RowRuleVerdict.Ignore) dash
         else
-          info.resolved match {
-            case Some(res) =>
+          (props.matchedExpense, info.resolved) match {
+            case (Some(matched), _) => linkedCategoryChip(matched.category)
+            case (None, Some(res)) =>
               mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px"; alignItems = "center" })(
                 tintChip(lbl = info.categoryName.getOrElse(""), textColor = "var(--lc-brand-dark)"),
                 if (res.categoryFromAi)
@@ -202,7 +236,7 @@ object BankStatementReviewRow {
                     }): ReactElement)
                 else Fragment()
               )
-            case None =>
+            case (None, None) =>
               info.refund
                 .flatMap(_.categoryId)
                 .fold(suggestingOrDash)(_ =>
