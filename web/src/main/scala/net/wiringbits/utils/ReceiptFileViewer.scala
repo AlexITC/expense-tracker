@@ -40,4 +40,26 @@ object ReceiptFileViewer {
         onError(ex.getMessage)
     }
   }
+
+  /** Opens a receipt when only its id is known, deriving the type from the server's Content-Type response header rather
+    * than a filename.
+    */
+  def openInNewTab(client: ApiClient, receiptId: UUID, onError: String => Unit)(using ExecutionContext): Unit = {
+    val win = Option(dom.window.open("", "_blank"))
+    client.getReceiptFile(receiptId).onComplete {
+      case Success((bytes, _, contentType)) =>
+        val typedArray = new js.typedarray.Uint8Array(bytes.length)
+        bytes.indices.foreach(i => typedArray(i) = (bytes(i) & 0xff).toShort)
+        val blob = new dom.Blob(
+          js.Array(typedArray.buffer.asInstanceOf[js.typedarray.ArrayBuffer]),
+          new dom.BlobPropertyBag { `type` = contentType }
+        )
+        val url = dom.URL.createObjectURL(blob)
+        win.foreach(_.location.href = url)
+        dom.window.setTimeout(() => dom.URL.revokeObjectURL(url), 60000)
+      case Failure(ex) =>
+        win.foreach(_.close())
+        onError(ex.getMessage)
+    }
+  }
 }

@@ -76,6 +76,8 @@ object BankStatementReviewDrawer {
             rowId = row.id,
             ctx = props.ctx,
             matchedExpenseId = props.matchedExpenseById.get(row.id).map(_.expenseId),
+            rowAmount = row.amount,
+            rowDate = row.date,
             categories = props.categories,
             onSuccess = expenseId => props.onExpenseLinked(row.id, expenseId),
             onCancel = () => props.onCancel(form)

@@ -398,42 +398,74 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
   "linkPickerEntries" should {
     import BankStatementReviewLogic.linkPickerEntries
 
-    def expense(amount: String, notes: Option[String] = None) = GetExpenses.Response.Expense(
+    val rowAmount = BigDecimal("20.00")
+    val rowDate = LocalDate.of(2024, 3, 7)
+
+    def expense(
+        amount: String,
+        notes: Option[String] = None,
+        date: LocalDate = LocalDate.of(2024, 3, 7),
+        rowIds: List[UUID] = Nil
+    ) = GetExpenses.Response.Expense(
       id = UUID.randomUUID(),
       amount = BigDecimal(amount),
-      date = LocalDate.of(2024, 3, 7),
+      date = date,
       time = None,
       merchantId = None,
       merchantName = None,
       notes = notes,
       splits = Nil,
+      rowIds = rowIds,
       createdAt = Instant.EPOCH
     )
     val others = (1 to 30).toList.map(i => expense(s"$i.00"))
     val matched = expense("99.99", notes = Some("Special"))
     val all = others :+ matched
 
-    "pin the matched expense even when it is past the first 20" in {
-      val (pinned, rest) = linkPickerEntries(all, "", Some(matched.id))
+    "pin the matched expense and cap the rest at 20" in {
+      val (pinned, rest) = linkPickerEntries(all, "", Some(matched.id), rowAmount, rowDate)
       pinned mustBe Some(matched)
-      rest mustBe others.take(20)
+      rest.size mustBe 20
+      rest must not contain matched
     }
 
     "pin the matched expense even when the filter excludes it" in {
-      val (pinned, rest) = linkPickerEntries(all, "12.00", Some(matched.id))
+      val (pinned, rest) = linkPickerEntries(all, "12.00", Some(matched.id), rowAmount, rowDate)
       pinned mustBe Some(matched)
       rest.map(_.amount) mustBe List(BigDecimal("12.00"))
     }
 
     "not list the matched expense twice" in {
-      val (_, rest) = linkPickerEntries(all, "special", Some(matched.id))
+      val (_, rest) = linkPickerEntries(all, "special", Some(matched.id), rowAmount, rowDate)
       rest mustBe Nil
     }
 
     "filter case-insensitively without a match" in {
-      val (pinned, rest) = linkPickerEntries(all, "SPECIAL", None)
+      val (pinned, rest) = linkPickerEntries(all, "SPECIAL", None, rowAmount, rowDate)
       pinned mustBe None
       rest mustBe List(matched)
+    }
+
+    "rank the manual list by amount closeness to the row" in {
+      val near = expense("20.50")
+      val exact = expense("20.00")
+      val far = expense("5.00")
+      val (_, rest) = linkPickerEntries(List(near, far, exact), "", None, rowAmount, rowDate)
+      rest.map(_.amount) mustBe List(BigDecimal("20.00"), BigDecimal("20.50"), BigDecimal("5.00"))
+    }
+
+    "break amount ties by date closeness to the row" in {
+      val sameDay = expense("20.00", date = LocalDate.of(2024, 3, 7))
+      val weekLater = expense("20.00", date = LocalDate.of(2024, 3, 14))
+      val (_, rest) = linkPickerEntries(List(weekLater, sameDay), "", None, rowAmount, rowDate)
+      rest.map(_.date) mustBe List(LocalDate.of(2024, 3, 7), LocalDate.of(2024, 3, 14))
+    }
+
+    "exclude expenses already linked to a row" in {
+      val free = expense("20.00")
+      val linked = expense("20.00", rowIds = List(UUID.randomUUID()))
+      val (_, rest) = linkPickerEntries(List(linked, free), "", None, rowAmount, rowDate)
+      rest mustBe List(free)
     }
   }
 
