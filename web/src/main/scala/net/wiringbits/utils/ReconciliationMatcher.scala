@@ -56,7 +56,9 @@ object ReconciliationMatcher {
   /** Auto-reconcile's matching. It intentionally keeps a symmetric ±3-day window and exact amounts only, so it can
     * propose different links than `matchRow`, which the review page uses. Unlinked, in-window, exact-amount expenses
     * with an attached receipt are tried first and win regardless of the row's rules, since the receipt already vouches
-    * for the purchase. Only when there are none does the rule's merchant decide the candidates.
+    * for the purchase. Only when there are none does the rule's merchant decide the candidates. Rows are processed in
+    * order and an expense auto-linked to an earlier row is no longer a candidate for later rows, so one run never
+    * proposes the same expense for two rows.
     */
   def reconcile(
       rows: List[GetBankStatement.StatementRowData],
@@ -69,8 +71,9 @@ object ReconciliationMatcher {
 
     rows
       .filter(row => row.expenseId.isEmpty && row.ignoredAt.isEmpty)
-      .map { row =>
-        val receiptBacked = unlinkedExpenses.filter { e =>
+      .foldLeft((Map.empty[UUID, ProposedAction], Set.empty[UUID])) { case ((acc, claimed), row) =>
+        val available = unlinkedExpenses.filterNot(e => claimed.contains(e.id))
+        val receiptBacked = available.filter { e =>
           e.receiptIds.nonEmpty && row.amount.abs == e.amount.abs &&
           Math.abs(row.date.toEpochDay - e.date.toEpochDay) <= MaxDateDifferenceDays
         }
@@ -79,7 +82,7 @@ object ReconciliationMatcher {
           else
             RowRuleVerdict.ruleMerchantId(effective, row.description) match {
               case Some(ruleMerchantId) =>
-                val candidates = unlinkedExpenses.filter { expense =>
+                val candidates = available.filter { expense =>
                   val amountMatch = row.amount.abs == expense.amount.abs
                   val merchantMatch = expense.merchantId.contains(ruleMerchantId)
                   val dateMatch = Math.abs(row.date.toEpochDay - expense.date.toEpochDay) <= MaxDateDifferenceDays
@@ -88,9 +91,13 @@ object ReconciliationMatcher {
                 actionFor(candidates)
               case None => CreateNew
             }
-        row.id -> action
+        val nowClaimed = action match {
+          case AutoLink(expenseId) => claimed + expenseId
+          case _ => claimed
+        }
+        (acc.updated(row.id, action), nowClaimed)
       }
-      .toMap
+      ._1
   }
 
   /** Proposes how to resolve a single row against the user's expenses. An expense qualifies when it is unlinked, its

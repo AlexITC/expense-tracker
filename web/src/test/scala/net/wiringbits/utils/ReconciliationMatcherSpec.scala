@@ -300,6 +300,31 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       val result = ReconciliationMatcher.reconcile(List(row), List(near), List(matchingRule), Nil)
       result(row.id) must be(ReconciliationMatcher.CreateNew)
     }
+
+    "produce CreateNew for a receipt-backed expense already linked to another row" in {
+      val row = makeRow(description = "UNRECOGNIZED VENDOR XYZ")
+      val linked = makeExpense(rowIds = List(UUID.randomUUID()), receiptIds = List(UUID.randomUUID()))
+      val result = ReconciliationMatcher.reconcile(List(row), List(linked), Nil, Nil)
+      result(row.id) must be(ReconciliationMatcher.CreateNew)
+    }
+
+    "auto-link a receipt-backed expense to only the first of two same-amount rows" in {
+      val first = makeRow(description = "COFFEE SHOP")
+      val second = makeRow(description = "COFFEE SHOP")
+      val expense = makeExpense(receiptIds = List(UUID.randomUUID()))
+      val result = ReconciliationMatcher.reconcile(List(first, second), List(expense), Nil, Nil)
+      result(first.id) must be(ReconciliationMatcher.AutoLink(expense.id))
+      result(second.id) must be(ReconciliationMatcher.CreateNew)
+    }
+
+    "auto-link a rule-matched expense to only the first of two same-amount rows" in {
+      val first = makeRow()
+      val second = makeRow()
+      val expense = makeExpense()
+      val result = ReconciliationMatcher.reconcile(List(first, second), List(expense), List(matchingRule), Nil)
+      result(first.id) must be(ReconciliationMatcher.AutoLink(expense.id))
+      result(second.id) must be(ReconciliationMatcher.CreateNew)
+    }
   }
 
   "matchRow" should {
@@ -485,6 +510,13 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       val withReceipt = makeExpense(amount = BigDecimal("100.50"), receiptIds = List(UUID.randomUUID()))
       ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.NoRule, List(plain, withReceipt)) must be(
         ReconciliationMatcher.AutoLink(withReceipt.id)
+      )
+    }
+
+    "not match a receipt-backed expense already linked to another row" in {
+      val linked = makeExpense(rowIds = List(UUID.randomUUID()), receiptIds = List(UUID.randomUUID()))
+      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.NoRule, List(linked)) must be(
+        ReconciliationMatcher.CreateNew
       )
     }
 
