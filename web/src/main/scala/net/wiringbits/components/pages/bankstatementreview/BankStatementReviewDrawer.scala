@@ -14,7 +14,7 @@ import java.util.UUID
 
 /** Side drawer hosting the per-row forms: create expense, create refund, link to an expense, or create a rule. */
 object BankStatementReviewDrawer {
-  import BankStatementReviewLogic.DrawerState
+  import BankStatementReviewLogic.{DrawerState, MatchedExpense}
 
   def apply(props: Props): KeyAddingStage = component(props)
 
@@ -25,6 +25,7 @@ object BankStatementReviewDrawer {
       target: Option[(GetBankStatement.StatementRowData, DrawerState)],
       merchants: List[GetMerchants.Response.Merchant],
       categories: List[GetCategories.Response.Category],
+      matchedExpenseById: Map[UUID, MatchedExpense],
       ruleList: List[ImportRuleMatcher.Rule],
       aiSuggestions: Option[AiSuggestions],
       onClose: () => Unit,
@@ -74,6 +75,8 @@ object BankStatementReviewDrawer {
             stmtId = props.stmtId,
             rowId = row.id,
             ctx = props.ctx,
+            matchedExpenseId = props.matchedExpenseById.get(row.id).map(_.expenseId),
+            categories = props.categories,
             onSuccess = expenseId => props.onExpenseLinked(row.id, expenseId),
             onCancel = () => props.onCancel(form)
           )

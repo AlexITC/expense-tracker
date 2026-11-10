@@ -247,6 +247,72 @@ object BankStatementReviewLogic {
         case Some(id) => categories.find(_.id == id).fold(LinkedCategory.Unknown)(c => LinkedCategory.Named(c.name))
       }
 
+  /** The category label for an expense from its splits: Multiple when they span several categories, Unknown when it has
+    * no splits or its single category is not loaded.
+    */
+  def expenseCategory(
+      expense: GetExpenses.Response.Expense,
+      categories: List[GetCategories.Response.Category]
+  ): LinkedCategory =
+    expense.splits.map(_.categoryId).distinct match {
+      case Nil => LinkedCategory.Unknown
+      case id :: Nil => categories.find(_.id == id).fold(LinkedCategory.Unknown)(c => LinkedCategory.Named(c.name))
+      case _ => LinkedCategory.Multiple
+    }
+
+  /** The existing expense a row uniquely matches, with the labels the row shows for it before the link is confirmed. */
+  final case class MatchedExpense(expenseId: UUID, merchantName: Option[String], category: LinkedCategory)
+
+  /** Only a unique (AutoLink) match to an expense in `expenses` counts; the merchant name falls back to the loaded
+    * merchant list when the expense does not carry one.
+    */
+  def matchedExpense(
+      proposed: Option[ReconciliationMatcher.ProposedAction],
+      expenses: List[GetExpenses.Response.Expense],
+      categories: List[GetCategories.Response.Category],
+      merchants: List[GetMerchants.Response.Merchant]
+  ): Option[MatchedExpense] =
+    proposed
+      .collect { case ReconciliationMatcher.AutoLink(id) => id }
+      .flatMap(id => expenses.find(_.id == id))
+      .map { e =>
+        MatchedExpense(
+          expenseId = e.id,
+          merchantName = e.merchantName.orElse(e.merchantId.flatMap(mid => merchants.find(_.id == mid)).map(_.name)),
+          category = expenseCategory(e, categories)
+        )
+      }
+
+  /** `matchedExpense` for every row with an expense match, keyed by row id; rows without a unique match are absent. */
+  def matchedExpenses(
+      expenseMatchById: Map[UUID, ReconciliationMatcher.ProposedAction],
+      expenses: List[GetExpenses.Response.Expense],
+      categories: List[GetCategories.Response.Category],
+      merchants: List[GetMerchants.Response.Merchant]
+  ): Map[UUID, MatchedExpense] =
+    expenseMatchById.flatMap { case (rowId, proposed) =>
+      matchedExpense(Some(proposed), expenses, categories, merchants).map(rowId -> _)
+    }
+
+  /** What the link picker lists: the matched expense (if any) pinned first regardless of the filter or the cap, then up
+    * to 20 other expenses whose date, amount, merchant or notes contain the filter (case-insensitive).
+    */
+  def linkPickerEntries(
+      expenses: List[GetExpenses.Response.Expense],
+      filter: String,
+      matchedId: Option[UUID]
+  ): (Option[GetExpenses.Response.Expense], List[GetExpenses.Response.Expense]) = {
+    val f = filter.toLowerCase
+    val matched = matchedId.flatMap(id => expenses.find(_.id == id))
+    val rest = expenses.filter { e =>
+      !matchedId.contains(e.id) && (
+        f.isEmpty || e.date.toString.contains(f) || e.amount.toString.contains(f) ||
+          e.merchantName.exists(_.toLowerCase.contains(f)) || e.notes.exists(_.toLowerCase.contains(f))
+      )
+    }
+    (matched, rest.take(20))
+  }
+
   /** The linked expense's merchant name, when it has one and it is in the loaded merchant list. */
   def linkedMerchantName(
       row: GetBankStatement.StatementRowData,
@@ -255,34 +321,40 @@ object BankStatementReviewLogic {
     row.expenseId.flatMap(_ => row.expenseMerchantId).flatMap(mid => merchants.find(_.id == mid)).map(_.name)
 
   /** The entries of a row's "…" menu: a linked or ignored row can only be undone; an open row can be linked, get a rule
-    * or be ignored.
+    * or be ignored, and an open debit can also become a new expense even when its primary action confirms a match.
     */
   enum RowMenuItem {
-    case LinkExpense, CreateRule, Ignore, Unlink, UnlinkRefund, Unignore
+    case LinkExpense, CreateExpense, CreateRule, Ignore, Unlink, UnlinkRefund, Unignore
   }
 
   def menuItemsFor(row: GetBankStatement.StatementRowData): List[RowMenuItem] =
     if (row.expenseId.isDefined) List(RowMenuItem.Unlink)
     else if (row.refundId.isDefined) List(RowMenuItem.UnlinkRefund)
     else if (row.ignoredAt.isDefined) List(RowMenuItem.Unignore)
+    else if (row.amount < 0)
+      List(RowMenuItem.LinkExpense, RowMenuItem.CreateExpense, RowMenuItem.CreateRule, RowMenuItem.Ignore)
     else List(RowMenuItem.LinkExpense, RowMenuItem.CreateRule, RowMenuItem.Ignore)
 
   /** The single primary button a row shows. Ready rows open the prefilled create form for review instead of importing
-    * straight away; bulk "Process ready" is the one-click path.
+    * straight away; bulk "Process ready" is the one-click path. A ready debit that uniquely matches an existing expense
+    * offers to confirm that link instead, since creating a new expense would duplicate it.
     */
   enum PrimaryAction {
-    case Linked, Unignore, IgnoreByRule, ReviewExpense, ReviewRefund, CreateRefund, CreateExpense
+    case Linked, Unignore, IgnoreByRule, ConfirmLink, ReviewExpense, ReviewRefund, CreateRefund, CreateExpense
   }
 
+  /** `matchedExpense` is the row's unique (AutoLink) expense match, if any; it only affects ready debits. */
   def primaryActionFor(
       row: GetBankStatement.StatementRowData,
       isReady: Boolean,
-      verdict: RowRuleVerdict.Verdict
+      verdict: RowRuleVerdict.Verdict,
+      matchedExpense: Option[MatchedExpense]
   ): PrimaryAction =
     if (row.expenseId.isDefined || row.refundId.isDefined) PrimaryAction.Linked
     else if (row.ignoredAt.isDefined) PrimaryAction.Unignore
     else if (isReady && verdict == RowRuleVerdict.Ignore) PrimaryAction.IgnoreByRule
     else if (isReady && row.amount > 0) PrimaryAction.ReviewRefund
+    else if (isReady && matchedExpense.isDefined) PrimaryAction.ConfirmLink
     else if (isReady) PrimaryAction.ReviewExpense
     else if (row.amount > 0) PrimaryAction.CreateRefund
     else PrimaryAction.CreateExpense

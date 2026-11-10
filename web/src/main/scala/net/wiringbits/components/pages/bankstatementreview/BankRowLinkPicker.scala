@@ -3,6 +3,13 @@ package net.wiringbits.components.pages.bankstatementreview
 import com.olvind.mui.csstype.mod.Property.FlexDirection
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
+import net.wiringbits.api.models.categories.GetCategories
+import net.wiringbits.api.models.expenses.GetExpenses
+import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewLogic.{
+  LinkedCategory,
+  expenseCategory,
+  linkPickerEntries
+}
 import net.wiringbits.core.SafeHooks
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.Container
@@ -21,6 +28,9 @@ object BankRowLinkPicker {
       stmtId: UUID,
       rowId: UUID,
       ctx: AppContext,
+      /** The expense this row uniquely matches; shown first, above the manual list. */
+      matchedExpenseId: Option[UUID],
+      categories: List[GetCategories.Response.Category],
       onSuccess: UUID => Unit,
       onCancel: () => Unit
   )
@@ -30,9 +40,7 @@ object BankRowLinkPicker {
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
-    val (expenses, setExpenses) = Hooks.useState[List[net.wiringbits.api.models.expenses.GetExpenses.Response.Expense]](
-      Nil
-    )
+    val (expenses, setExpenses) = Hooks.useState[List[GetExpenses.Response.Expense]](Nil)
     val (filter, setFilter) = Hooks.useState("")
     val (error, setError) = Hooks.useState("")
 
@@ -56,10 +64,34 @@ object BankRowLinkPicker {
           case Failure(ex) => setError(ex.getMessage)
         }
 
-    val filtered = expenses.filter { e =>
-      val f = filter.toLowerCase
-      f.isEmpty || e.date.toString.contains(f) || e.amount.toString.contains(f) ||
-      e.merchantName.exists(_.toLowerCase.contains(f)) || e.notes.exists(_.toLowerCase.contains(f))
+    val (matched, listed) = linkPickerEntries(expenses, filter, props.matchedExpenseId)
+
+    def matchedBox(e: GetExpenses.Response.Expense): ReactElement = {
+      val categoryLabel = expenseCategory(e, props.categories) match {
+        case LinkedCategory.Named(name) => name
+        case LinkedCategory.Multiple => "Multiple"
+        case LinkedCategory.Unknown => "—"
+      }
+      mui.Box.sx(new CSSPropertiesUtils {
+        backgroundColor = "var(--lc-tint)"; padding = "12px"; borderRadius = "8px"; marginBottom = "12px"
+      })(
+        mui.Typography("Matched expense").sx(secondaryStyling),
+        mui
+          .Typography(s"${e.merchantName.getOrElse("-")} · $categoryLabel")
+          .sx(new CSSPropertiesUtils {
+            fontWeight = "600"
+          }),
+        e.notes.fold[ReactElement](Fragment())(n => mui.Typography(n).sx(secondaryStyling)),
+        mui.Typography(s"${e.amount} · ${e.date}").sx(secondaryStyling),
+        if (e.receiptIds.nonEmpty) mui.Typography("🧾 Receipt").sx(secondaryStyling) else Fragment(),
+        (mui.Button
+          .normal()("Link this expense")
+          .variant("contained")
+          .color("primary")
+          .size("small")
+          .onClick(_ => handleLink(e.id))
+          .build: ReactElement)
+      )
     }
 
     Container(
@@ -68,6 +100,7 @@ object BankRowLinkPicker {
         mui.Typography("Link to existing expense").sx(new CSSPropertiesUtils { fontWeight = "bold" }),
         if (error.nonEmpty) mui.Typography(error).sx(new CSSPropertiesUtils { color = "var(--lc-error)" })
         else Fragment(),
+        matched.fold[ReactElement](Fragment())(matchedBox),
         mui.TextField
           .outlined()
           .label("Filter")
@@ -75,7 +108,7 @@ object BankRowLinkPicker {
           .size("small")
           .onChange(e => setFilter(e.target.asInstanceOf[dom.HTMLInputElement].value)),
         Fragment(
-          filtered.take(20).map { e =>
+          listed.map { e =>
             val label = s"${e.date} | ${e.amount} | ${e.merchantName.getOrElse("-")} | ${e.notes.getOrElse("")}"
             Container(
               flexDirection = FlexDirection.row,
