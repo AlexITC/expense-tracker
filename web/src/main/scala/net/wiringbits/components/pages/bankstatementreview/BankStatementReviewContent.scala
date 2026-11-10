@@ -301,6 +301,7 @@ object BankStatementReviewContent {
               target = drawerTarget,
               merchants = s.merchants,
               categories = s.categories,
+              matchedExpenseById = matchedExpenseById,
               ruleList = s.rules,
               aiSuggestions = aiSuggestions,
               onClose = () => setDrawerState(DrawerState.Closed),
