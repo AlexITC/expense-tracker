@@ -2,7 +2,7 @@ package net.wiringbits.components.pages.receipts
 import net.wiringbits.components.pages.{AutocompleteLabels, ExpenseFormSplits}
 
 import com.olvind.mui.csstype.mod.Property.FlexDirection
-import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps, AutocompleteRenderInputParams}
+import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
@@ -32,7 +32,6 @@ import java.time.{Instant, LocalDate, LocalTime}
 import java.util.UUID
 import scala.concurrent.ExecutionContext
 import scala.scalajs.js
-import scala.scalajs.js.JSConverters.*
 import scala.util.{Failure, Success, Try}
 
 object ReceiptsPage {
@@ -575,25 +574,22 @@ object ReceiptList {
       (mui.TextField.outlined.withProps(MuiCompat.textFieldProps(params, label, size = Some("small"))): ReactElement)
 
     def merchantAutocomplete(merchantInput: String): ReactElement = {
-      val acProps = AutocompleteProps[GetMerchants.Response.Merchant, Boolean, Boolean, Boolean, "div"](
-        options = props.merchants.data.toJSArray,
-        renderInput = renderTextField("Merchant (optional)")
+      val acProps = MuiCompat.freeSoloAutocompleteProps(
+        options = props.merchants.data,
+        renderInput = renderTextField("Merchant (optional)"),
+        inputValue = merchantInput,
+        getOptionLabel = AutocompleteLabels.merchantOptionLabel,
+        onSelect = value =>
+          (value: Any) match {
+            case m: GetMerchants.Response.Merchant =>
+              updateForm(_.copy(merchantId = m.id.toString, merchantInput = m.name))
+            case _ => ()
+          },
+        onInput = (text, rsn) =>
+          updateForm(f => f.copy(merchantInput = text, merchantId = if (rsn != "reset") "" else f.merchantId)),
+        disabled = false,
+        fullWidth = false
       )
-      val acDyn = acProps.asInstanceOf[js.Dynamic]
-      acDyn.freeSolo = true
-      acDyn.size = "small"
-      acDyn.inputValue = merchantInput
-      acDyn.getOptionLabel = (opt: js.Any) => AutocompleteLabels.merchantOptionLabel(opt)
-      acDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
-        (value: Any) match {
-          case m: GetMerchants.Response.Merchant =>
-            updateForm(_.copy(merchantId = m.id.toString, merchantInput = m.name))
-          case _ => ()
-        }
-      acDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-        val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
-        updateForm(f => f.copy(merchantInput = text, merchantId = if (rsn != "reset") "" else f.merchantId))
-      }
       (mui.Autocomplete.withProps(acProps).withKey("merchant-ac"): ReactElement)
     }
 
@@ -611,30 +607,27 @@ object ReceiptList {
         splits: List[(String, String, String)],
         setSplits: List[(String, String, String)] => Unit
     ): ReactElement = {
-      val catAcProps = AutocompleteProps[GetCategories.Response.Category, Boolean, Boolean, Boolean, "div"](
-        options = props.categories.data.toJSArray,
-        renderInput = renderTextField("Category")
-      )
-      val catDyn = catAcProps.asInstanceOf[js.Dynamic]
-      catDyn.freeSolo = true
-      catDyn.size = "small"
-      catDyn.inputValue = catInput
-      catDyn.getOptionLabel = (opt: js.Any) => AutocompleteLabels.categoryOptionLabel(opt)
-      catDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
-        (value: Any) match {
-          case c: GetCategories.Response.Category =>
+      val catAcProps = MuiCompat.freeSoloAutocompleteProps(
+        options = props.categories.data,
+        renderInput = renderTextField("Category"),
+        inputValue = catInput,
+        getOptionLabel = AutocompleteLabels.categoryOptionLabel,
+        onSelect = value =>
+          (value: Any) match {
+            case c: GetCategories.Response.Category =>
+              setSplits(splits.zipWithIndex.map { case ((ci, cin, a), j) =>
+                if (j == i) (c.id.toString, c.name, a) else (ci, cin, a)
+              })
+            case _ => ()
+          },
+        onInput = (text, rsn) =>
+          if (rsn != "reset")
             setSplits(splits.zipWithIndex.map { case ((ci, cin, a), j) =>
-              if (j == i) (c.id.toString, c.name, a) else (ci, cin, a)
-            })
-          case _ => ()
-        }
-      catDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-        val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
-        if (rsn != "reset")
-          setSplits(splits.zipWithIndex.map { case ((ci, cin, a), j) =>
-            if (j == i) ("", text, a) else (ci, cin, a)
-          })
-      }
+              if (j == i) ("", text, a) else (ci, cin, a)
+            }),
+        disabled = false,
+        fullWidth = false
+      )
       mui.ListItem
         .normal()(
           Container(
