@@ -46,4 +46,29 @@ object BankStatementConfirmChecks {
         s"This period overlaps existing statements for the same account: $periods."
       )
     }
+
+  /** Flags a product type or currency that differs from what earlier statements of the same card (bank + last4) were
+    * saved with, which usually means the extraction misread it. `existing` should come from `findSameCardMismatches`;
+    * values matching the current statement are ignored.
+    */
+  def cardMismatchWarnings(metadata: BankStatement.Metadata, existing: List[BankStatement]): List[ConfirmWarning] = {
+    val card = s"••••${metadata.accountLast4}"
+    val types = existing.map(_.productType).distinct.filterNot(_ == metadata.productType)
+    val currencies = existing.map(_.currency).distinct.filterNot(_ == metadata.currency)
+
+    val typeWarning = Option.when(types.nonEmpty)(
+      ConfirmWarning(
+        ConfirmWarningKind.ProductTypeMismatch,
+        s"You've saved this card ($card) as ${types.mkString(", ")} before; this statement is ${metadata.productType} — if the type was misread, go back and change it."
+      )
+    )
+    val currencyWarning = Option.when(currencies.nonEmpty)(
+      ConfirmWarning(
+        ConfirmWarningKind.CurrencyMismatch,
+        s"You've saved this card ($card) in ${currencies.mkString(", ")} before; this statement is in ${metadata.currency} — if the currency was misread, go back and change it."
+      )
+    )
+
+    typeWarning.toList ++ currencyWarning.toList
+  }
 }

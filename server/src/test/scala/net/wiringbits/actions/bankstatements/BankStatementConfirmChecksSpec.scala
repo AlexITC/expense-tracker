@@ -88,4 +88,61 @@ class BankStatementConfirmChecksSpec extends AnyWordSpec with Matchers {
       ))
     }
   }
+
+  "cardMismatchWarnings" should {
+    val metadata = BankStatement.Metadata(
+      bankName = "Test Bank",
+      productType = "credit",
+      currency = "USD",
+      accountLast4 = "1234",
+      periodStart = LocalDate.parse("2026-02-01"),
+      periodEnd = LocalDate.parse("2026-02-28")
+    )
+
+    def existing(productType: String, currency: String): BankStatement =
+      statement("2026-01-01", "2026-01-31").copy(
+        bankName = "Test Bank",
+        productType = productType,
+        currency = currency,
+        accountLast4 = "1234"
+      )
+
+    "return nothing when there are no mismatching statements" in {
+      BankStatementConfirmChecks.cardMismatchWarnings(metadata, Nil) must be(Nil)
+    }
+
+    "warn only about the product type when only the type differs" in {
+      val result = BankStatementConfirmChecks.cardMismatchWarnings(metadata, List(existing("debit", "USD")))
+
+      result.map(_.kind) must be(List(ConfirmWarningKind.ProductTypeMismatch))
+      result.head.message must (include("debit") and include("credit") and include("1234"))
+    }
+
+    "warn only about the currency when only the currency differs" in {
+      val result = BankStatementConfirmChecks.cardMismatchWarnings(metadata, List(existing("credit", "EUR")))
+
+      result.map(_.kind) must be(List(ConfirmWarningKind.CurrencyMismatch))
+      result.head.message must (include("EUR") and include("USD") and include("1234"))
+    }
+
+    "warn about both when type and currency differ" in {
+      val result = BankStatementConfirmChecks.cardMismatchWarnings(metadata, List(existing("debit", "EUR")))
+
+      result.map(_.kind) must be(List(ConfirmWarningKind.ProductTypeMismatch, ConfirmWarningKind.CurrencyMismatch))
+    }
+
+    "list each differing value once, in first-seen order" in {
+      val result = BankStatementConfirmChecks.cardMismatchWarnings(
+        metadata,
+        List(existing("debit", "EUR"), existing("prepaid", "USD"), existing("debit", "EUR"), existing("credit", "MXN"))
+      )
+
+      result.map(_.message) match {
+        case List(types, currencies) =>
+          types must include("as debit, prepaid before")
+          currencies must include("in EUR, MXN before")
+        case other => fail(s"Unexpected warnings: $other")
+      }
+    }
+  }
 }

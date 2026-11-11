@@ -196,6 +196,22 @@ object BankStatementDAO {
       ORDER BY period_start, id
       """.as(parser.*)
 
+  /** The user's statements for the same card (exact bank and last4) whose product type or currency differs from the
+    * given one, regardless of period. Used to flag a likely misread type/currency before confirming a draft.
+    */
+  def findSameCardMismatches(userId: UUID, metadata: BankStatement.Metadata)(implicit
+      conn: Connection
+  ): List[BankStatement] =
+    SQL"""
+      SELECT id, document_id, user_id, #$metadataColumns, created_at, updated_at
+      FROM bank_statement
+      WHERE user_id = ${userId.toString}::UUID
+        AND bank_name = ${metadata.bankName}
+        AND account_last4 = ${metadata.accountLast4}
+        AND (product_type <> ${metadata.productType} OR currency <> ${metadata.currency})
+      ORDER BY period_start, id
+      """.as(parser.*)
+
   /** For each of the user's statements, the ids of the other statements of the same account whose period overlaps it
     * (inclusive ranges). Statements without overlaps are absent from the map.
     */

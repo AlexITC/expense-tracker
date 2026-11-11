@@ -961,30 +961,32 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
   }
 
+  private def seed(userId: UUID, metadata: BankStatement.Metadata)(implicit
+      repositories: RepositoryComponents
+  ): UUID = {
+    val doc = createDocument(
+      userId,
+      sha256 = UUID.randomUUID().toString,
+      kind = DocumentKind.BankStatementPdf
+    ).futureValue
+    val now = Instant.now()
+    val stmt = BankStatement.Create(
+      id = UUID.randomUUID(),
+      documentId = doc.id,
+      userId = userId,
+      createdAt = now,
+      updatedAt = now,
+      acceptedUnverified = false
+    )
+    createStatement(stmt, metadata, Nil).futureValue
+    stmt.id
+  }
+
   "findOverlapping / overlappingStatementIds" should {
     val january = sampleStatementMetadata.copy(
       periodStart = LocalDate.of(2026, 1, 1),
       periodEnd = LocalDate.of(2026, 1, 31)
     )
-
-    def seed(userId: UUID, metadata: BankStatement.Metadata)(implicit repositories: RepositoryComponents): UUID = {
-      val doc = createDocument(
-        userId,
-        sha256 = UUID.randomUUID().toString,
-        kind = DocumentKind.BankStatementPdf
-      ).futureValue
-      val now = Instant.now()
-      val stmt = BankStatement.Create(
-        id = UUID.randomUUID(),
-        documentId = doc.id,
-        userId = userId,
-        createdAt = now,
-        updatedAt = now,
-        acceptedUnverified = false
-      )
-      createStatement(stmt, metadata, Nil).futureValue
-      stmt.id
-    }
 
     def overlapping(userId: UUID, metadata: BankStatement.Metadata)(implicit
         repositories: RepositoryComponents
@@ -1059,6 +1061,53 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       repositories.bankStatements.overlappingStatementIds(user.id).futureValue must be(
         Map(a -> List(b), b -> List(a, c), c -> List(b))
       )
+    }
+  }
+
+  "findSameCardMismatches" should {
+    val january = sampleStatementMetadata.copy(
+      bankName = "Test Bank",
+      productType = "credit",
+      currency = "USD",
+      accountLast4 = "1234",
+      periodStart = LocalDate.of(2026, 1, 1),
+      periodEnd = LocalDate.of(2026, 1, 31)
+    )
+    val february = january.copy(periodStart = LocalDate.of(2026, 2, 1), periodEnd = LocalDate.of(2026, 2, 28))
+
+    def mismatches(userId: UUID, metadata: BankStatement.Metadata)(implicit
+        repositories: RepositoryComponents
+    ): List[UUID] =
+      repositories.bankStatements.findSameCardMismatches(userId, metadata).futureValue.map(_.id)
+
+    "match a different product type or currency regardless of period" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val debit = seed(user.id, january.copy(productType = "debit"))
+      val eur = seed(
+        user.id,
+        january.copy(periodStart = LocalDate.of(2026, 3, 1), periodEnd = LocalDate.of(2026, 3, 31), currency = "EUR")
+      )
+      mismatches(user.id, february) must be(List(debit, eur))
+    }
+
+    "not match the exact same card, type and currency" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      seed(user.id, january)
+      mismatches(user.id, february) must be(Nil)
+    }
+
+    "not match a different last4 or a different bank" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      seed(user.id, january.copy(accountLast4 = "0000", productType = "debit"))
+      seed(user.id, january.copy(bankName = "Other Bank", currency = "EUR"))
+      mismatches(user.id, february) must be(Nil)
+    }
+
+    "never match another user's statement" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val other = createUser().futureValue
+      seed(other.id, january.copy(productType = "debit"))
+      mismatches(user.id, february) must be(Nil)
     }
   }
 }
