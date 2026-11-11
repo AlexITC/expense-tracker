@@ -13,7 +13,7 @@ class RateLimitWindowRepository @Inject() (database: Database)(implicit ec: Data
   /** Whether a slot was available in the current one-minute window for `key` (and was consumed). */
   def tryAcquire(key: RateLimitKey, limit: Int): Future[Boolean] = Future {
     database.withConnection { implicit conn =>
-      RateLimitWindowDAO.tryConsume(key.entryName, limit).isDefined
+      RateLimitWindowDAO.tryConsume(key.entryName, limit, at = None).isDefined
     }
   }
 }
