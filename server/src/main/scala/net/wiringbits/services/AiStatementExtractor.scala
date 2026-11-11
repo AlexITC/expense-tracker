@@ -60,8 +60,9 @@ object AiStatementExtractor {
       residual: Option[BigDecimal]
   )
 
-  /** Pick the best of several extraction attempts: any that reconciles wins; otherwise the one with the smallest
-    * numeric gap to the balance; an attempt with no computable gap is considered worst.
+  /** Pick the best of several extraction attempts: any that reconciles wins; otherwise one that found balances (a real
+    * discrepancy) beats an unverifiable one, then the smallest numeric gap to the balance; an attempt with no
+    * computable gap is considered worst.
     */
   def bestOf(results: List[ExtractionResult]): Option[ExtractionResult] =
     if (results.isEmpty) None
@@ -69,7 +70,11 @@ object AiStatementExtractor {
       Some(
         results
           .find(_.reconciled)
-          .getOrElse(results.minBy(_.residual.getOrElse(BigDecimal(Long.MaxValue))))
+          .getOrElse {
+            val anchored = results.filterNot(_.unverifiable)
+            val pool = if (anchored.nonEmpty) anchored else results
+            pool.minBy(_.residual.getOrElse(BigDecimal(Long.MaxValue)))
+          }
       )
 
   def parseAndVerify(rawJson: String, model: String): Either[String, ExtractionResult] =
