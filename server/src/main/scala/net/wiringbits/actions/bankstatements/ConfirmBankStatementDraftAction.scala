@@ -65,7 +65,8 @@ class ConfirmBankStatementDraftAction @Inject() (
       documentId = draft.documentId,
       userId = userId,
       createdAt = now,
-      updatedAt = now
+      updatedAt = now,
+      acceptedUnverified = false
     )
     val rows = payload.transactions.zipWithIndex.map { case (t, i) =>
       BankStatementRow.Create(

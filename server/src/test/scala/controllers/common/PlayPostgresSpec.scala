@@ -88,7 +88,7 @@ trait PlayPostgresSpec extends PlayAPISpec with GuiceOneServerPerSuite {
       createdAt = now,
       updatedAt = now
     )
-    val stmt = BankStatement.Create(stmtId, docId, userId, now, now)
+    val stmt = BankStatement.Create(stmtId, docId, userId, now, now, acceptedUnverified = false)
     // Scheduled far in the future so the live executor never resolves suggestions while a test inspects the statement.
     val job = BackgroundJobData.Create(
       id = UUID.randomUUID(),

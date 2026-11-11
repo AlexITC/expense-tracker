@@ -22,7 +22,8 @@ case class BankStatementView(
     totalRows: Int,
     processedRows: Int,
     extractionInfo: Option[ExtractionInfo],
-    aiSuggestions: Option[AiSuggestions]
+    aiSuggestions: Option[AiSuggestions],
+    acceptedUnverified: Boolean
 ) {
 
   // A bank_statement row only exists once a draft is confirmed (statement-at-confirm), and a confirmed statement is

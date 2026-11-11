@@ -98,7 +98,7 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
 
     val doc = createDocument(user.id, kind = DocumentKind.BankStatementPdf).futureValue
     val now = Instant.now()
-    val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
+    val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now, acceptedUnverified = false)
     val groceryRow = buildRow(stmt.id, 0, "GROCERY STORE 123", BigDecimal("-45.10"))
     val taxiRow = buildRow(stmt.id, 1, "RIDE SHARE TRIP", BigDecimal("-12.00"))
     val ruleRow = buildRow(stmt.id, 2, "NETFLIX.COM", BigDecimal("-15.99"))
@@ -144,7 +144,8 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
         val s = seed()
         val doc = createDocument(s.userId, sha256 = "earlier", kind = DocumentKind.BankStatementPdf).futureValue
         val now = Instant.now()
-        val earlierStmt = BankStatement.Create(UUID.randomUUID(), doc.id, s.userId, now, now)
+        val earlierStmt =
+          BankStatement.Create(UUID.randomUUID(), doc.id, s.userId, now, now, acceptedUnverified = false)
         val earlierRow = buildRow(earlierStmt.id, 0, "GROCERY STORE 123", BigDecimal("-30.00"))
         createStatement(earlierStmt, sampleStatementMetadata, List(earlierRow)).futureValue
         val expense = Expense.Create(
@@ -196,7 +197,7 @@ class ResolveStatementSuggestionsActionSpec extends RepositorySpec with Reposito
         val user = createUser().futureValue
         val doc = createDocument(user.id, kind = DocumentKind.BankStatementPdf).futureValue
         val now = Instant.now()
-        val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
+        val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now, acceptedUnverified = false)
         createStatement(
           stmt,
           sampleStatementMetadata,
