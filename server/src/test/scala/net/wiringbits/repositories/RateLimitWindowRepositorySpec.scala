@@ -28,6 +28,16 @@ class RateLimitWindowRepositorySpec extends RepositorySpec with RepositoryUtils 
       result must be(List(Some(1), Some(2), Some(3)))
     }
 
+    "count consecutive consumes under the limit on the DB clock (no injected instant)" in withRepositories() {
+      implicit repositories =>
+        val key = randomKey()
+        // now() is fixed at transaction start, so both consumes fall in the same minute regardless of wall-clock timing.
+        val result = repositories.database.withTransaction { implicit conn =>
+          List.fill(2)(RateLimitWindowDAO.tryConsume(key, 2, at = None))
+        }
+        result must be(List(Some(1), Some(2)))
+    }
+
     "reject a consume over the limit without changing the count" in withRepositories() { implicit repositories =>
       val key = randomKey()
       val result = repositories.database.withConnection { implicit conn =>
