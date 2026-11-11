@@ -13,7 +13,8 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
 
 /** The review page's state for one statement, split so each part notifies only its own subscribers. `$statement` holds
-  * the metadata and is never changed once loaded; rows and suggestions change independently of it.
+  * the metadata, which changes after loading only when the account nickname is set; rows and suggestions change
+  * independently of it.
   */
 final class BankStatementReviewStore(using Scheduler) {
   val $statement: Var[Loadable[GetBankStatement.Response]] = Var(Loadable.Loading)
@@ -58,6 +59,12 @@ final class BankStatementReviewStore(using Scheduler) {
   }
 
   def setSuggestions(s: Option[AiSuggestions]): Unit = $suggestions := s
+
+  /** Ignored until the statement is loaded, so an early update cannot fabricate it. */
+  def setAccountAlias(alias: String): Unit = $statement() match {
+    case Loadable.Loaded(stmt) => $statement := Loadable.Loaded(stmt.copy(accountAlias = Some(alias)))
+    case _ => ()
+  }
 
   /** Refetches the unlinked receipts, so one a form just attached can no longer match another row. A failure keeps the
     * current list and is reported through `onError`.

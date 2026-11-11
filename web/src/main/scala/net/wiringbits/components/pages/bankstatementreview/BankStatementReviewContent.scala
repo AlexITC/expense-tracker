@@ -3,7 +3,7 @@ package net.wiringbits.components.pages.bankstatementreview
 import com.olvind.mui.muiMaterial.components as mui
 import monix.execution.Scheduler
 import net.wiringbits.AppContext
-import net.wiringbits.api.models.bankstatements.GetBankStatement
+import net.wiringbits.api.models.bankstatements.{GetBankStatement, SetAccountAlias}
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewRow.{ReceiptAction, RowAction}
 import net.wiringbits.api.utils.ImportRuleMatcher
@@ -208,7 +208,11 @@ object BankStatementReviewContent {
               statement = stmt,
               rowCount = statementRows.size,
               regenerateDisabled = suggestions.regenerateDisabled,
-              onRegenerate = suggestions.regenerate
+              onRegenerate = suggestions.regenerate,
+              onSaveAlias = alias =>
+                props.ctx.api.client
+                  .setBankStatementAccountAlias(stmt.id, SetAccountAlias.Request(alias))
+                  .map(r => store.setAccountAlias(r.alias))
             )
           ),
           BankStatementReviewTabs(

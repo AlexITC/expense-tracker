@@ -3,7 +3,12 @@ package net.wiringbits.components.pages.bankstatements
 import com.olvind.mui.csstype.mod.Property.FlexDirection
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
-import net.wiringbits.api.models.bankstatements.{BankStatementDraft, GetBankStatement, GetBankStatements}
+import net.wiringbits.api.models.bankstatements.{
+  BankStatementDraft,
+  GetBankStatement,
+  GetBankStatements,
+  SetAccountAlias
+}
 import net.wiringbits.api.models.documents.DocumentStatus
 import net.wiringbits.core.SafeHooks
 import net.wiringbits.models.User
@@ -517,6 +522,19 @@ object BankStatementList {
               }*
             )
         else Fragment(),
+        selectedAccountStmt match {
+          case Some(rep) =>
+            AccountAliasEditor(
+              AccountAliasEditor.Props(
+                currentAlias = rep.accountAlias.getOrElse(""),
+                onSave = alias =>
+                  props.ctx.api.client
+                    .setBankStatementAccountAlias(rep.id, SetAccountAlias.Request(alias))
+                    .map(r => setLocalStmts(cur => BankStatementsLogic.applyAlias(cur, rep, r.alias)))
+              )
+            ).withKey(selectedAccount.getOrElse(""))
+          case None => Fragment()
+        },
         mui.TextField
           .outlined()
           .label("Filter by name")
