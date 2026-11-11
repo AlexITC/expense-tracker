@@ -209,7 +209,9 @@ class StatementExtractionService @Inject() (
     * has anchors and a later candidate dropping them must not displace that evidence.
     */
   private def terminal(r: ExtractionResult, earlier: Option[ExtractionResult]): Boolean =
-    r.reconciled || (r.unverifiable && r.transactions.nonEmpty && earlier.forall(_.unverifiable))
+    r.reconciled || (AiStatementExtractor.isTerminalUnverifiable(r.unverifiable, r.transactions.size) && earlier.forall(
+      _.unverifiable
+    ))
 
   private def extractReconciling(
       label: String,

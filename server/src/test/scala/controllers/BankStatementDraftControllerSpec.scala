@@ -12,6 +12,7 @@ import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
 import net.wiringbits.common.models.Captcha
 import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.BackgroundJobType
+import net.wiringbits.repositories.BankStatementRepository
 import net.wiringbits.repositories.daos.{BankStatementDraftDAO, DocumentDAO}
 import net.wiringbits.repositories.models.{BankStatementDraft => DraftRecord, Document}
 import net.wiringbits.services.{BlobStorage, NoOpBlobStorage}
@@ -78,6 +79,43 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       stage = Some(ExtractionSource.BdaMarkdown),
       unverifiable = false
     )
+
+  // No opening/closing/running balances: completeness can't be verified either way.
+  private def unverifiablePayload: BankStatementDraft.Payload =
+    BankStatementDraft.Payload(
+      metadata = BankStatementDraft.Metadata(
+        bankName = Some("Test Bank"),
+        productType = Some("debit"),
+        currency = Some("EUR"),
+        accountLast4 = Some("0000"),
+        periodStart = Some(LocalDate.of(2026, 1, 1)),
+        periodEnd = Some(LocalDate.of(2026, 1, 31)),
+        openingBalance = None,
+        closingBalance = None
+      ),
+      transactions = List(
+        BankStatementDraft.Transaction(
+          date = LocalDate.of(2026, 1, 15),
+          amount = BigDecimal("-10.00"),
+          description = "TEST PURCHASE",
+          txnType = Some("purchase"),
+          runningBalance = None
+        )
+      ),
+      reconciled = false,
+      discrepancy = Some("No running balance or opening/closing balance was found, so completeness can't be verified."),
+      model = "test",
+      stage = Some(ExtractionSource.BdaMarkdown),
+      unverifiable = true
+    )
+
+  private def storedAcceptedUnverified(stmtId: UUID, userId: UUID): Boolean =
+    app.injector
+      .instanceOf[BankStatementRepository]
+      .find(stmtId, userId)
+      .futureValue
+      .value
+      .acceptedUnverified
 
   // Seed a ready draft directly (no job) and return its id, so the background executor doesn't race the test.
   private def seedReadyDraft(userId: UUID, payload: BankStatementDraft.Payload): UUID =
@@ -449,6 +487,103 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       val response = client.confirmBankStatementDraft(id, acceptWarnings = false).futureValue
       response.bankStatementId must be(None)
       response.warnings.map(_.kind) must be(List(ConfirmWarningKind.FuturePeriod))
+    }
+
+    "create an unverifiable draft when acceptUnverified is set and record it" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val id = seedReadyDraft(userId, unverifiablePayload)
+
+      val stmtId = client
+        .confirmBankStatementDraft(id, acceptWarnings = false, acceptUnverified = true)
+        .futureValue
+        .bankStatementId
+        .value
+      storedAcceptedUnverified(stmtId, userId) must be(true)
+      client.listBankStatementDrafts.futureValue.drafts must be(empty)
+    }
+
+    "reject an unverifiable draft when acceptUnverified is not set" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val id = seedReadyDraft(userId, unverifiablePayload)
+
+      client
+        .confirmBankStatementDraft(id, acceptWarnings = false, acceptUnverified = false)
+        .failed
+        .futureValue
+        .getMessage must include("reconcile")
+      client.listBankStatementDrafts.futureValue.drafts.map(_.id) must be(List(id))
+    }
+
+    "reject a draft with a balance discrepancy even when acceptUnverified is set" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val mismatch = unverifiablePayload.copy(
+        metadata = unverifiablePayload.metadata
+          .copy(openingBalance = Some(BigDecimal("100.00")), closingBalance = Some(BigDecimal("50.00"))),
+        unverifiable = true
+      )
+      val id = seedReadyDraft(userId, mismatch)
+
+      client
+        .confirmBankStatementDraft(id, acceptWarnings = false, acceptUnverified = true)
+        .failed
+        .futureValue
+        .getMessage must include("reconcile")
+      client.listBankStatementDrafts.futureValue.drafts.map(_.id) must be(List(id))
+    }
+
+    "return warnings without creating an accepted unverifiable draft that overlaps a statement" in withApiClient {
+      implicit client =>
+        val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+        val first = seedReadyDraft(userId, unverifiablePayload)
+        client
+          .confirmBankStatementDraft(first, acceptWarnings = false, acceptUnverified = true)
+          .futureValue
+          .bankStatementId
+          .value
+        val second = seedReadyDraft(userId, unverifiablePayload)
+
+        val response =
+          client.confirmBankStatementDraft(second, acceptWarnings = false, acceptUnverified = true).futureValue
+        response.bankStatementId must be(None)
+        response.warnings.map(_.kind) must be(List(ConfirmWarningKind.Overlap))
+        client.listBankStatementDrafts.futureValue.drafts.map(_.id) must be(List(second))
+    }
+
+    "reject an unverifiable draft when only the warnings are accepted" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val id = seedReadyDraft(userId, unverifiablePayload)
+
+      client
+        .confirmBankStatementDraft(id, acceptWarnings = true, acceptUnverified = false)
+        .failed
+        .futureValue
+        .getMessage must include("reconcile")
+      client.listBankStatementDrafts.futureValue.drafts.map(_.id) must be(List(id))
+    }
+
+    "record a reconciling draft as not accepted unverified" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val id = seedReadyDraft(userId, reconcilingPayload)
+
+      val stmtId = client
+        .confirmBankStatementDraft(id, acceptWarnings = false, acceptUnverified = true)
+        .futureValue
+        .bankStatementId
+        .value
+      storedAcceptedUnverified(stmtId, userId) must be(false)
+    }
+
+    "reject an unverifiable draft without transactions even when acceptUnverified is set" in withApiClient {
+      implicit client =>
+        val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+        val id = seedReadyDraft(userId, unverifiablePayload.copy(transactions = Nil))
+
+        client
+          .confirmBankStatementDraft(id, acceptWarnings = false, acceptUnverified = true)
+          .failed
+          .futureValue
+          .getMessage must include("reconcile")
+        client.listBankStatementDrafts.futureValue.drafts.map(_.id) must be(List(id))
     }
   }
 

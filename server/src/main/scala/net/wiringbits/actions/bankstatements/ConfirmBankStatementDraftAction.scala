@@ -17,9 +17,11 @@ import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 
 /** Confirm the current draft into a real statement + rows. Blocks unless the (possibly edited) draft reconciles and the
-  * required metadata is present. Non-blocking warnings (unusual period, overlap with an existing statement of the same
-  * account) stop the import unless `acceptWarnings` is set. Writes everything (plus the AI suggestions job) in one
-  * transaction and deletes the draft.
+  * required metadata is present. A draft whose completeness can't be verified (it has transactions but no balances to
+  * check them against) is allowed only when `acceptUnverified` is set; this is recomputed from the payload, never read
+  * from its stored flag, and recorded on the statement as `acceptedUnverified`. Non-blocking warnings (unusual period,
+  * overlap with an existing statement of the same account) stop the import unless `acceptWarnings` is set. Writes
+  * everything (plus the AI suggestions job) in one transaction and deletes the draft.
   */
 class ConfirmBankStatementDraftAction @Inject() (
     bankStatementDraftRepository: BankStatementDraftRepository,
@@ -29,7 +31,12 @@ class ConfirmBankStatementDraftAction @Inject() (
 
   private val logger = LoggerFactory.getLogger(this.getClass)
 
-  def apply(draftId: UUID, userId: UUID, acceptWarnings: Boolean): Future[BankStatementDraft.Confirm.Response] =
+  def apply(
+      draftId: UUID,
+      userId: UUID,
+      acceptWarnings: Boolean,
+      acceptUnverified: Boolean
+  ): Future[BankStatementDraft.Confirm.Response] =
     for {
       existing <- bankStatementDraftRepository.findByIdForUser(id = draftId, userId = userId)
       draft = existing.getOrElse(throw new RuntimeException("Draft not found"))
@@ -37,7 +44,7 @@ class ConfirmBankStatementDraftAction @Inject() (
       _ = if (document.isEmpty) throw new RuntimeException("The draft's document was not found")
       payloadStr = draft.payload.getOrElse(throw new RuntimeException("The draft is not ready to confirm yet"))
       payload = Json.parse(payloadStr).as[BankStatementDraft.Payload]
-      _ = requireReconciled(payload)
+      acceptedUnverified = requireReconciled(payload, acceptUnverified)
       metadata = requireMetadata(payload.metadata)
       overlapping <- bankStatementRepository.findOverlapping(userId, metadata)
       warnings = BankStatementConfirmChecks.periodWarnings(
@@ -48,7 +55,7 @@ class ConfirmBankStatementDraftAction @Inject() (
       response <-
         if (warnings.nonEmpty && !acceptWarnings)
           Future.successful(BankStatementDraft.Confirm.Response(None, warnings))
-        else create(draft, payload, metadata, userId, warnings)
+        else create(draft, payload, metadata, userId, warnings, acceptedUnverified)
     } yield response
 
   private def create(
@@ -56,7 +63,8 @@ class ConfirmBankStatementDraftAction @Inject() (
       payload: BankStatementDraft.Payload,
       metadata: BankStatement.Metadata,
       userId: UUID,
-      warnings: List[ConfirmWarning]
+      warnings: List[ConfirmWarning],
+      acceptedUnverified: Boolean
   ): Future[BankStatementDraft.Confirm.Response] = {
     val now = clock.instant()
     val stmtId = UuidCreator.getTimeOrderedEpoch()
@@ -66,7 +74,7 @@ class ConfirmBankStatementDraftAction @Inject() (
       userId = userId,
       createdAt = now,
       updatedAt = now,
-      acceptedUnverified = false
+      acceptedUnverified = acceptedUnverified
     )
     val rows = payload.transactions.zipWithIndex.map { case (t, i) =>
       BankStatementRow.Create(
@@ -99,6 +107,8 @@ class ConfirmBankStatementDraftAction @Inject() (
       logger.info(
         s"Confirmed statement draft ${draft.id} for user $userId into statement $stmtId (document ${draft.documentId}) (${payload.transactions.size} rows), enqueued suggestions job ${job.id}"
       )
+      if (acceptedUnverified)
+        logger.info(s"Statement $stmtId for user $userId was confirmed with unverifiable completeness accepted")
       if (warnings.nonEmpty)
         logger.info(
           s"Statement $stmtId for user $userId was confirmed with accepted warnings: ${warnings.map(_.message).mkString("; ")}"
@@ -107,13 +117,19 @@ class ConfirmBankStatementDraftAction @Inject() (
     }
   }
 
-  private def requireReconciled(payload: BankStatementDraft.Payload): Unit = {
+  /** Recompute reconciliation from the payload (the stored flags are not trusted). Returns whether the draft is being
+    * accepted unverified; throws when it can't be imported.
+    */
+  private def requireReconciled(payload: BankStatementDraft.Payload, acceptUnverified: Boolean): Boolean = {
     val r = AiStatementExtractor.reconcile(
       openingBalance = payload.metadata.openingBalance,
       closingBalance = payload.metadata.closingBalance,
       payload.transactions.map(t => (t.amount, t.runningBalance))
     )
-    if (!r.reconciled)
+    if (r.reconciled) false
+    else if (AiStatementExtractor.isTerminalUnverifiable(r.unverifiable, payload.transactions.size) && acceptUnverified)
+      true
+    else
       throw new RuntimeException(s"The draft does not reconcile and can't be imported: ${r.discrepancy.getOrElse("")}")
   }
 

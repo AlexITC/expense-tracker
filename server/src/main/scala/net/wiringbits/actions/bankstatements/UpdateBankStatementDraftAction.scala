@@ -42,7 +42,7 @@ class UpdateBankStatementDraftAction @Inject() (bankStatementDraftRepository: Ba
     payload.copy(
       reconciled = r.reconciled,
       discrepancy = r.discrepancy,
-      unverifiable = r.unverifiable && payload.transactions.nonEmpty
+      unverifiable = AiStatementExtractor.isTerminalUnverifiable(r.unverifiable, payload.transactions.size)
     )
   }
 }
