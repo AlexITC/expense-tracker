@@ -14,7 +14,10 @@ object SetAccountAlias {
   implicit val responseFormat: Format[Response] = Json.format[Response]
 
   implicit val requestSchema: Schema[Request] =
-    Schema.derived[Request].name(Schema.SName("SetAccountAliasRequest"))
+    Schema
+      .derived[Request]
+      .name(Schema.SName("SetAccountAliasRequest"))
+      .modify(_.alias)(_.description(s"At most $MaxAliasLength characters"))
   implicit val responseSchema: Schema[Response] =
     Schema.derived[Response].name(Schema.SName("SetAccountAliasResponse"))
 }
