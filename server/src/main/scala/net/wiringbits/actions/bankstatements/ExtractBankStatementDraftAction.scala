@@ -62,17 +62,19 @@ class ExtractBankStatementDraftAction @Inject() (
         } yield ()
         run.recoverWith {
           case ex if BedrockFailures.isThrottled(ex) =>
-            logger.warn(s"Draft $draftId extraction throttled (${ex.getMessage}); retrying via job backoff")
+            logger.warn(
+              s"userId=${draft.userId}, draft $draftId extraction throttled (${ex.getMessage}); retrying via job backoff"
+            )
             Future.failed(ex)
           case ex if BedrockFailures.isAwsSdkFailure(ex) =>
-            logger.warn(s"Draft $draftId extraction failed with an AWS error", ex)
+            logger.warn(s"userId=${draft.userId}, draft $draftId extraction failed with an AWS error", ex)
             bankStatementDraftRepository.markFailed(
               draftId,
               ExtractBankStatementDraftAction.AiServiceFailedMessage,
               clock.instant()
             )
           case ex =>
-            logger.warn(s"Draft $draftId extraction failed: ${ex.getMessage}")
+            logger.warn(s"userId=${draft.userId}, draft $draftId extraction failed: ${ex.getMessage}")
             bankStatementDraftRepository.markFailed(draftId, ex.getMessage, clock.instant())
         }
     }

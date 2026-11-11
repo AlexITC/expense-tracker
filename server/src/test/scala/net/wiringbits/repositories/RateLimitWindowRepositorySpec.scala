@@ -14,10 +14,12 @@ class RateLimitWindowRepositorySpec extends RepositorySpec with RepositoryUtils 
   // The DB is shared across specs, so every case uses its own random key.
   private def randomKey(): String = UUID.randomUUID().toString
 
+  // Multi-consume sequences run in one transaction: Postgres fixes now() at transaction start, so every consume sees
+  // the same minute window even if the wall clock crosses a minute boundary mid-test.
   "tryConsume" should {
     "count consecutive consumes under the limit" in withRepositories() { implicit repositories =>
       val key = randomKey()
-      val result = repositories.database.withConnection { implicit conn =>
+      val result = repositories.database.withTransaction { implicit conn =>
         List.fill(3)(RateLimitWindowDAO.tryConsume(key, 3))
       }
       result must be(List(Some(1), Some(2), Some(3)))
@@ -25,8 +27,7 @@ class RateLimitWindowRepositorySpec extends RepositorySpec with RepositoryUtils 
 
     "reject a consume over the limit without changing the count" in withRepositories() { implicit repositories =>
       val key = randomKey()
-      // A single block keeps all the consumes within the same minute (most likely).
-      val result = repositories.database.withConnection { implicit conn =>
+      val result = repositories.database.withTransaction { implicit conn =>
         List.fill(4)(RateLimitWindowDAO.tryConsume(key, 2))
       }
       result must be(List(Some(1), Some(2), None, None))
@@ -35,7 +36,7 @@ class RateLimitWindowRepositorySpec extends RepositorySpec with RepositoryUtils 
 
     "reset the count once the window is stale" in withRepositories() { implicit repositories =>
       val key = randomKey()
-      val before = repositories.database.withConnection { implicit conn =>
+      val before = repositories.database.withTransaction { implicit conn =>
         List.fill(2)(RateLimitWindowDAO.tryConsume(key, 2))
       }
       before must be(List(Some(1), Some(2)))
@@ -51,7 +52,7 @@ class RateLimitWindowRepositorySpec extends RepositorySpec with RepositoryUtils 
     "keep different keys independent" in withRepositories() { implicit repositories =>
       val keyA = randomKey()
       val keyB = randomKey()
-      val result = repositories.database.withConnection { implicit conn =>
+      val result = repositories.database.withTransaction { implicit conn =>
         List(
           RateLimitWindowDAO.tryConsume(keyA, 1),
           RateLimitWindowDAO.tryConsume(keyA, 1),
