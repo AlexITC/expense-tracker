@@ -190,16 +190,6 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       draft.status must be("ready")
       draft.payload.value.stage must be(None)
     }
-
-    "read a payload stored without an unverifiable key as verifiable" in withApiClient { implicit client =>
-      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
-      val legacyJson = Json.toJson(reconcilingPayload).as[JsObject] - "unverifiable"
-      val id = seedReadyDraftJson(userId, legacyJson.toString)
-
-      val draft = client.getBankStatementDraft(id).futureValue
-      draft.status must be("ready")
-      draft.payload.value.unverifiable must be(false)
-    }
   }
 
   "POST /bank-statements/drafts" should {

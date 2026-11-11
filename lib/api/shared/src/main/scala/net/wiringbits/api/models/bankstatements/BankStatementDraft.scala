@@ -2,8 +2,7 @@ package net.wiringbits.api.models.bankstatements
 
 import net.wiringbits.api.models.*
 import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
-import play.api.libs.functional.syntax.*
-import play.api.libs.json.*
+import play.api.libs.json.{Format, Json}
 import sttp.tapir.Schema
 import sttp.tapir.generic.auto.*
 
@@ -55,18 +54,7 @@ object BankStatementDraft {
       unverifiable: Boolean
   )
   object Payload {
-    // Drafts stored before `unverifiable` existed lack the key; reading them as `false` keeps confirm blocked for
-    // unreconciled drafts, which is the conservative pre-existing behavior.
-    private val reads: Reads[Payload] = (
-      (__ \ "metadata").read[Metadata] and
-        (__ \ "transactions").read[List[Transaction]] and
-        (__ \ "reconciled").read[Boolean] and
-        (__ \ "discrepancy").readNullable[String] and
-        (__ \ "model").read[String] and
-        (__ \ "stage").readNullable[ExtractionSource] and
-        (__ \ "unverifiable").readWithDefault(false)
-    )(Payload.apply)
-    implicit val format: Format[Payload] = Format(reads, Json.writes[Payload])
+    implicit val format: Format[Payload] = Json.format[Payload]
     implicit val schema: Schema[Payload] = Schema.derived[Payload].name(Schema.SName("BankStatementDraftPayload"))
   }
 
