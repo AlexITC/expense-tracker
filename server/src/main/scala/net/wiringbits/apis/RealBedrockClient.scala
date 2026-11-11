@@ -1,6 +1,8 @@
 package net.wiringbits.apis
 
 import net.wiringbits.config.BedrockConfig
+import net.wiringbits.models.RateLimitKey
+import net.wiringbits.util.RateLimiter
 import software.amazon.awssdk.auth.credentials.{AwsBasicCredentials, StaticCredentialsProvider}
 import software.amazon.awssdk.http.nio.netty.NettyNioAsyncHttpClient
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeAsyncClient
@@ -17,20 +19,23 @@ import software.amazon.awssdk.services.bedrockruntime.model.{
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.FutureConverters.*
 
-class RealBedrockClient(config: BedrockConfig)(implicit ec: ExecutionContext) extends BedrockClient {
+class RealBedrockClient(config: BedrockConfig, rateLimiter: RateLimiter, client: BedrockRuntimeAsyncClient)(implicit
+    ec: ExecutionContext
+) extends BedrockClient {
 
   private val SuggestionsMaxTokens = 4096
 
-  private val client: BedrockRuntimeAsyncClient = {
-    val credentials = AwsBasicCredentials.create(config.accessKeyId.string, config.secretAccessKey.string)
-    BedrockRuntimeAsyncClient
-      .builder()
-      .region(config.region)
-      .credentialsProvider(StaticCredentialsProvider.create(credentials))
-      // A large statement makes the model generate for well over the 30s default read timeout.
-      .httpClientBuilder(NettyNioAsyncHttpClient.builder().readTimeout(java.time.Duration.ofSeconds(120)))
-      .build()
-  }
+  /** Sends `call` only when the shared rate limiter grants a slot; otherwise fails without contacting AWS. */
+  private def guarded(call: => Future[ConverseResponse]): Future[ConverseResponse] =
+    rateLimiter.tryAcquire(RateLimitKey.Bedrock, config.requestsPerMinute).flatMap {
+      case true => call
+      case false =>
+        Future.failed(
+          new BedrockRateLimitedException(
+            s"Bedrock rate limit of ${config.requestsPerMinute} requests/minute reached; retry later"
+          )
+        )
+    }
 
   override def extractBankStatement(statementText: String, feedback: Option[String] = None): Future[String] = {
     val message = Message
@@ -46,7 +51,7 @@ class RealBedrockClient(config: BedrockConfig)(implicit ec: ExecutionContext) ex
         InferenceConfiguration.builder().maxTokens(config.statementMaxTokens).temperature(0.0f).build()
       )
       .build()
-    client.converse(request).asScala.map { response =>
+    guarded(client.converse(request).asScala).map { response =>
       if (response.stopReason() == StopReason.MAX_TOKENS)
         throw new RuntimeException(
           s"Bedrock response was truncated at the ${config.statementMaxTokens}-token limit " +
@@ -68,7 +73,7 @@ class RealBedrockClient(config: BedrockConfig)(implicit ec: ExecutionContext) ex
       .messages(message)
       .inferenceConfig(InferenceConfiguration.builder().maxTokens(SuggestionsMaxTokens).temperature(0.0f).build())
       .build()
-    client.converse(request).asScala.map { response =>
+    guarded(client.converse(request).asScala).map { response =>
       if (response.stopReason() == StopReason.MAX_TOKENS)
         throw new RuntimeException(
           s"Bedrock suggestions response was truncated at the $SuggestionsMaxTokens-token limit"
@@ -156,3 +161,22 @@ class RealBedrockClient(config: BedrockConfig)(implicit ec: ExecutionContext) ex
        |""".stripMargin
   }
 }
+
+object RealBedrockClient {
+
+  def awsClient(config: BedrockConfig): BedrockRuntimeAsyncClient = {
+    val credentials = AwsBasicCredentials.create(config.accessKeyId.string, config.secretAccessKey.string)
+    BedrockRuntimeAsyncClient
+      .builder()
+      .region(config.region)
+      .credentialsProvider(StaticCredentialsProvider.create(credentials))
+      // A large statement makes the model generate for well over the 30s default read timeout.
+      .httpClientBuilder(NettyNioAsyncHttpClient.builder().readTimeout(java.time.Duration.ofSeconds(120)))
+      .build()
+  }
+}
+
+/** Raised when the shared Bedrock rate limit for the current window is exhausted; the call was not sent to AWS. Lives
+  * next to RealBedrockClient (its only thrower) because the Layering wart only allows same-file siblings in `apis`.
+  */
+class BedrockRateLimitedException(message: String) extends RuntimeException(message)

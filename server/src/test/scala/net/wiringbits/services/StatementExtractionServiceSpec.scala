@@ -39,6 +39,7 @@ class StatementExtractionServiceSpec extends RepositorySpec with BeforeAndAfterA
     statementModelId = "test-statement-model",
     statementMaxTokens = 1000,
     suggestionsModelId = "test-suggestions-model",
+    requestsPerMinute = 10,
     mode = BedrockConfig.Mock
   )
 
