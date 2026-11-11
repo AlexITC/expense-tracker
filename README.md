@@ -119,6 +119,7 @@ the backend container:
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | credentials for Textract + S3 |
 | `AWS_S3_BUCKET` | bucket for stored documents |
 | `BEDROCK_REGION`, `BEDROCK_ACCESS_KEY_ID`, `BEDROCK_SECRET_ACCESS_KEY` | statement extraction (Amazon Bedrock) |
+| `BEDROCK_REQUESTS_PER_MINUTE` | max Bedrock requests per minute across all instances (default 10); keep at or below the account's Bedrock quota |
 | `BDA_PROFILE_ARN`, `BDA_STANDARD_PROJECT_ARN`, `BDA_BANK_STATEMENT_BLUEPRINT_ARN`, `BDA_OUTPUT_S3_URI` | statement-extraction fallback (Bedrock Data Automation) |
 | `JEV_MODE` | `mock` (default, placeholder picks, no document classification) or `real` for bank-statement row category/merchant suggestions and the document classifier (JEV) |
 | `JEV_API_KEY` (optional `JEV_BASE_URL`, `JEV_MODEL`, `JEV_MIN_CONFIDENCE`) | JEV API credentials for the suggestions and the classifier; `JEV_MIN_CONFIDENCE` (default 0.85) is the lowest document-type confidence the classifier acts on |

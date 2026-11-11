@@ -4,6 +4,7 @@ import net.wiringbits.apis.RealBedrockClient
 import net.wiringbits.config.BedrockConfig
 import net.wiringbits.models.{AWSAccessKeyId, AWSSecretAccessKey}
 import net.wiringbits.services.{AiStatementExtractor, PdfTextExtractor}
+import net.wiringbits.util.RateLimiter
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider
 import software.amazon.awssdk.regions.Region
 
@@ -26,11 +27,12 @@ object AiExtractionProof {
       modelId = "amazon.nova-pro-v1:0",
       statementModelId =
         sys.env.getOrElse("BEDROCK_STATEMENT_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
-      sys.env.getOrElse("BEDROCK_STATEMENT_MAX_TOKENS", "16000").toInt,
+      statementMaxTokens = sys.env.getOrElse("BEDROCK_STATEMENT_MAX_TOKENS", "16000").toInt,
       suggestionsModelId = sys.env.getOrElse("BEDROCK_SUGGESTIONS_MODEL_ID", "eu.amazon.nova-lite-v1:0"),
+      requestsPerMinute = 10,
       BedrockConfig.Real
     )
-    val client = new RealBedrockClient(config)
+    val client = new RealBedrockClient(config, RateLimiter.AlwaysGrant, RealBedrockClient.awsClient(config))
     args.foreach { path =>
       val name = path.split('/').lastOption.getOrElse(path)
       val result = for {

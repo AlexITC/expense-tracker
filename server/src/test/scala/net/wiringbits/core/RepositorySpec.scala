@@ -34,6 +34,7 @@ trait RepositorySpec extends AnyWordSpec with PostgresSpec {
     val telegram = new TelegramRepository(db)(using Executors.databaseEC)
     val telegramReceipt = new TelegramReceiptRepository(db)(using Executors.databaseEC)
     val mcp = new McpRepository(db)(using Executors.databaseEC)
+    val rateLimitWindows = new RateLimitWindowRepository(db)(using Executors.databaseEC)
     val components =
       RepositoryComponents(
         db,
@@ -55,7 +56,8 @@ trait RepositorySpec extends AnyWordSpec with PostgresSpec {
         textractJobs,
         telegram,
         telegramReceipt,
-        mcp
+        mcp,
+        rateLimitWindows
       )
     runTest(components)
   }

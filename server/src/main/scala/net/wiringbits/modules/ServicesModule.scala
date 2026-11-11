@@ -14,8 +14,8 @@ import net.wiringbits.apis.{
   TextractClient
 }
 import net.wiringbits.config.{AWSConfig, BdaConfig, BedrockConfig, JevConfig, TextractConfig}
-import net.wiringbits.services.{BlobStorage, S3BlobStorage}
-import net.wiringbits.util.{BcryptPasswordHasher, PasswordHasher}
+import net.wiringbits.services.{BlobStorage, DbRateLimiter, S3BlobStorage}
+import net.wiringbits.util.{BcryptPasswordHasher, PasswordHasher, RateLimiter}
 import org.apache.pekko.actor.ActorSystem
 import play.api.libs.ws.WSClient
 
@@ -25,6 +25,7 @@ import scala.concurrent.ExecutionContext
 class ServicesModule extends AbstractModule {
   override def configure(): Unit = {
     bind(classOf[BlobStorage]).to(classOf[S3BlobStorage]).asEagerSingleton()
+    bind(classOf[RateLimiter]).to(classOf[DbRateLimiter])
     // Default bcrypt cost. Tests override this binding with a lower cost to keep real hashing cheap.
     bind(classOf[PasswordHasher]).toInstance(new BcryptPasswordHasher(logRounds = 10))
   }
@@ -40,10 +41,11 @@ class ServicesModule extends AbstractModule {
 
   @Provides
   @Singleton
-  def bedrockClient(config: BedrockConfig, ec: ExecutionContext): BedrockClient = {
+  def bedrockClient(config: BedrockConfig, rateLimiter: RateLimiter, ec: ExecutionContext): BedrockClient = {
     config.mode match {
       case BedrockConfig.Mock => new MockBedrockClient()
-      case BedrockConfig.Real => new RealBedrockClient(config)(using ec)
+      case BedrockConfig.Real =>
+        new RealBedrockClient(config, rateLimiter, RealBedrockClient.awsClient(config))(using ec)
     }
   }
 

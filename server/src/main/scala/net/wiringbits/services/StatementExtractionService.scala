@@ -1,7 +1,7 @@
 package net.wiringbits.services
 
 import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
-import net.wiringbits.apis.{BdaClient, BedrockClient, TextractApiType, TextractClient}
+import net.wiringbits.apis.{BdaClient, BedrockClient, BedrockFailures, TextractApiType, TextractClient}
 import net.wiringbits.config.BedrockConfig
 import net.wiringbits.repositories.TextractCacheRepository
 import net.wiringbits.repositories.models.TextractCache
@@ -24,9 +24,9 @@ import scala.concurrent.{ExecutionContext, Future}
   * smallest gap to the balance). A richer representation is tried only when the cheaper one didn't reconcile:
   *   1. PDF text -> LLM 2. BDA standard markdown -> LLM (preserves the charge/credit columns + balance box the flat
   *      text loses) 3. Textract tables + raw text + BDA markdown -> LLM 4. BDA custom (bank-statement blueprint) output
-  * -> LLM Any rung's AWS failure is caught and never aborts the extraction — it just keeps the best result so far. BDA
-  * and the paid Bedrock call are cached in textract_cache (a generic (hash, type, response) store) so re-runs don't
-  * re-call.
+  * -> LLM Any rung's AWS failure is caught and never aborts the extraction — it just keeps the best result so far —
+  * except a Bedrock throttle, which propagates so the caller can retry later. BDA and the paid Bedrock call are cached
+  * in textract_cache (a generic (hash, type, response) store) so re-runs don't re-call.
   */
 // TODO(layering): a service must not call a sibling service; this reaches AiStatementExtractor and
 // TextractTableSerializer. Lift the shared logic into the calling action or a leaf both can reach.
@@ -71,9 +71,11 @@ class StatementExtractionService @Inject() (
               )
             case _ => Future.successful(prev)
           }
-          .recover { case ex =>
-            logger.warn(s"[$label] rung '${stage.entryName}' failed (${ex.getMessage}); keeping best so far")
-            prev
+          .recover {
+            // A throttle propagates so the job retries with backoff instead of settling for a weaker result.
+            case ex if !BedrockFailures.isThrottled(ex) =>
+              logger.warn(s"[$label] rung '${stage.entryName}' failed (${ex.getMessage}); keeping best so far")
+              prev
           }
 
     for {

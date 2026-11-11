@@ -450,6 +450,16 @@ trait RepositoryUtils {
       .map(_ => draft)
   }
 
+  def findRateLimitCount(key: String)(using repository: RepositoryComponents): Option[Int] =
+    repository.database.withConnection { implicit conn =>
+      import anorm.*
+      SQL"""
+          SELECT count
+          FROM rate_limit_window
+          WHERE key = $key
+          """.as(SqlParser.int("count").singleOpt)
+    }
+
   // --- test doubles for the AI classification gate (never exercised by non-classifier tests) ---
   def noOpBlobStorage: BlobStorage = new NoOpBlobStorage
 

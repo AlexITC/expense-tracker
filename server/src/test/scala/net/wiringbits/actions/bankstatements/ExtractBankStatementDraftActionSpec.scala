@@ -1,7 +1,7 @@
 package net.wiringbits.actions.bankstatements
 
 import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
-import net.wiringbits.apis.{JevChoice, JevClient, JevRateLimitedException}
+import net.wiringbits.apis.{BedrockRateLimitedException, JevChoice, JevClient, JevRateLimitedException}
 import net.wiringbits.config.JevConfig
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import net.wiringbits.models.JevApiKey
@@ -17,10 +17,12 @@ import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers
 import org.scalatestplus.mockito.MockitoSugar
+import software.amazon.awssdk.services.bedrockruntime.model.{BedrockRuntimeException, ThrottlingException}
 import utils.RepositoryUtils
 
 import java.io.ByteArrayOutputStream
 import java.time.Clock
+import java.util.concurrent.CompletionException
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.Future
 import scala.util.Using
@@ -122,6 +124,12 @@ class ExtractBankStatementDraftActionSpec extends RepositorySpec with Repository
     val service = mock[StatementExtractionService]
     when(service.extract(anyString(), anyString(), anyString(), anyString()))
       .thenReturn(Future.successful(result(Some(ExtractionSource.PdfText))))
+    service
+  }
+
+  private def failingExtractionService(error: Throwable): StatementExtractionService = {
+    val service = mock[StatementExtractionService]
+    when(service.extract(anyString(), anyString(), anyString(), anyString())).thenReturn(Future.failed(error))
     service
   }
 
@@ -235,6 +243,68 @@ class ExtractBankStatementDraftActionSpec extends RepositorySpec with Repository
       found.status must be(BankStatementDraft.Status.Ready)
       repositories.documents.findById(draft.documentId).futureValue.value.classification must be(None)
       verify(service, times(1)).extract(any(), any(), any(), any())
+    }
+
+    "propagate a Bedrock rate-limit rejection and leave the draft processing for a retry" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val draft = createBankStatementDraft(user.id, storageKey = storageKey).futureValue
+        val error = new BedrockRateLimitedException("limit reached")
+
+        val failure = action(stubJev("bank_statement", BigDecimal("0.97")), failingExtractionService(error))
+          .apply(draft.id)
+          .failed
+          .futureValue
+
+        failure must be(error)
+        val found = repositories.bankStatementDrafts.findById(draft.id).futureValue.value
+        found.status must be(BankStatementDraft.Status.Processing)
+        found.error must be(None)
+    }
+
+    "propagate a wrapped AWS throttle and leave the draft processing for a retry" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val draft = createBankStatementDraft(user.id, storageKey = storageKey).futureValue
+        val error = new CompletionException(ThrottlingException.builder().message("slow down").statusCode(429).build())
+
+        val failure = action(stubJev("bank_statement", BigDecimal("0.97")), failingExtractionService(error))
+          .apply(draft.id)
+          .failed
+          .futureValue
+
+        failure must be(error)
+        val found = repositories.bankStatementDrafts.findById(draft.id).futureValue.value
+        found.status must be(BankStatementDraft.Status.Processing)
+        found.error must be(None)
+    }
+
+    "fail the draft with the error message on a terminal failure" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val draft = createBankStatementDraft(user.id, storageKey = storageKey).futureValue
+      val service = failingExtractionService(new RuntimeException("no usable result"))
+
+      action(stubJev("bank_statement", BigDecimal("0.97")), service).apply(draft.id).futureValue
+
+      val found = repositories.bankStatementDrafts.findById(draft.id).futureValue.value
+      found.status must be(BankStatementDraft.Status.Failed)
+      found.error must be(Some("no usable result"))
+    }
+
+    "fail the draft with a clean message instead of the raw text of a non-throttle AWS error" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val draft = createBankStatementDraft(user.id, storageKey = storageKey).futureValue
+        val error = BedrockRuntimeException.builder().message("raw sdk text").statusCode(400).build()
+
+        action(stubJev("bank_statement", BigDecimal("0.97")), failingExtractionService(error))
+          .apply(draft.id)
+          .futureValue
+
+        val found = repositories.bankStatementDrafts.findById(draft.id).futureValue.value
+        found.status must be(BankStatementDraft.Status.Failed)
+        found.error must be(Some(ExtractBankStatementDraftAction.AiServiceFailedMessage))
+        found.error.value must not include "raw sdk text"
     }
   }
 }
