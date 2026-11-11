@@ -20,8 +20,10 @@ import scala.concurrent.{ExecutionContext, Future}
   * required metadata is present. A draft whose completeness can't be verified (it has transactions but no balances to
   * check them against) is allowed only when `acceptUnverified` is set; this is recomputed from the payload, never read
   * from its stored flag, and recorded on the statement as `acceptedUnverified`. Non-blocking warnings (unusual period,
-  * overlap with an existing statement of the same account) stop the import unless `acceptWarnings` is set. Writes
-  * everything (plus the AI suggestions job) in one transaction and deletes the draft.
+  * overlap with an existing statement of the same account, a product type or currency that differs from earlier
+  * statements of the same card) stop the import unless `acceptWarnings` is set. The draft's metadata is stored as-is,
+  * even when a mismatch warning is accepted. Writes everything (plus the AI suggestions job) in one transaction and
+  * deletes the draft.
   */
 class ConfirmBankStatementDraftAction @Inject() (
     bankStatementDraftRepository: BankStatementDraftRepository,
@@ -47,11 +49,13 @@ class ConfirmBankStatementDraftAction @Inject() (
       acceptedUnverified = requireReconciled(payload, acceptUnverified)
       metadata = requireMetadata(payload.metadata)
       overlapping <- bankStatementRepository.findOverlapping(userId, metadata)
+      mismatches <- bankStatementRepository.findSameCardMismatches(userId, metadata)
       warnings = BankStatementConfirmChecks.periodWarnings(
         start = metadata.periodStart,
         end = metadata.periodEnd,
         today = LocalDate.now(clock)
-      ) ++ BankStatementConfirmChecks.overlapWarning(overlapping).toList
+      ) ++ BankStatementConfirmChecks.overlapWarning(overlapping).toList ++
+        BankStatementConfirmChecks.cardMismatchWarnings(metadata, mismatches)
       response <-
         if (warnings.nonEmpty && !acceptWarnings)
           Future.successful(BankStatementDraft.Confirm.Response(None, warnings))

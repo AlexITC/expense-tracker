@@ -85,6 +85,31 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       unverifiable = false
     )
 
+  // A reconciling payload for a neutral test card; `february` moves it to a non-overlapping period.
+  private def cardPayload(
+      productType: String = "debit",
+      currency: String = "EUR",
+      bankName: String = "Test Bank",
+      accountLast4: String = "0000",
+      february: Boolean = false
+  ): BankStatementDraft.Payload = {
+    val base = reconcilingPayload
+    val (start, end, txnDate) =
+      if (february) (LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 28), LocalDate.of(2026, 2, 15))
+      else (LocalDate.of(2026, 1, 1), LocalDate.of(2026, 1, 31), LocalDate.of(2026, 1, 15))
+    base.copy(
+      metadata = base.metadata.copy(
+        bankName = Some(bankName),
+        productType = Some(productType),
+        currency = Some(currency),
+        accountLast4 = Some(accountLast4),
+        periodStart = Some(start),
+        periodEnd = Some(end)
+      ),
+      transactions = base.transactions.map(_.copy(date = txnDate))
+    )
+  }
+
   // No opening/closing/running balances: completeness can't be verified either way.
   private def unverifiablePayload: BankStatementDraft.Payload =
     BankStatementDraft.Payload(
@@ -431,6 +456,86 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       val response = client.confirmBankStatementDraft(second, acceptWarnings = false).futureValue
       response.warnings must be(empty)
       response.bankStatementId must not be None
+    }
+
+    "return a ProductTypeMismatch warning without creating anything when the card was saved with another type" in withApiClient {
+      implicit client =>
+        val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+        val first = seedReadyDraft(userId, cardPayload())
+        client.confirmBankStatementDraft(first, acceptWarnings = false).futureValue.bankStatementId.value
+        val second = seedReadyDraft(userId, cardPayload(productType = "credit", february = true))
+
+        val response = client.confirmBankStatementDraft(second, acceptWarnings = false).futureValue
+        response.bankStatementId must be(None)
+        response.warnings.map(_.kind) must be(List(ConfirmWarningKind.ProductTypeMismatch))
+        response.warnings.head.message must include("debit")
+        client.listBankStatementDrafts.futureValue.drafts.map(_.id) must be(List(second))
+        client.getBankStatements.futureValue.data must have size 1
+    }
+
+    "return a CurrencyMismatch warning without creating anything when the card was saved with another currency" in withApiClient {
+      implicit client =>
+        val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+        val first = seedReadyDraft(userId, cardPayload())
+        client.confirmBankStatementDraft(first, acceptWarnings = false).futureValue.bankStatementId.value
+        val second = seedReadyDraft(userId, cardPayload(currency = "USD", february = true))
+
+        val response = client.confirmBankStatementDraft(second, acceptWarnings = false).futureValue
+        response.bankStatementId must be(None)
+        response.warnings.map(_.kind) must be(List(ConfirmWarningKind.CurrencyMismatch))
+        response.warnings.head.message must include("EUR")
+        client.listBankStatementDrafts.futureValue.drafts.map(_.id) must be(List(second))
+        client.getBankStatements.futureValue.data must have size 1
+    }
+
+    "not warn about a later statement of the same card with the same type and currency" in withApiClient {
+      implicit client =>
+        val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+        val first = seedReadyDraft(userId, cardPayload())
+        client.confirmBankStatementDraft(first, acceptWarnings = false).futureValue.bankStatementId.value
+        val second = seedReadyDraft(userId, cardPayload(february = true))
+
+        val response = client.confirmBankStatementDraft(second, acceptWarnings = false).futureValue
+        response.warnings must be(empty)
+        response.bankStatementId must not be None
+        client.getBankStatements.futureValue.data must have size 2
+    }
+
+    "store the draft's type and currency as-is when a mismatch warning is accepted" in withApiClient {
+      implicit client =>
+        val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+        val first = seedReadyDraft(userId, cardPayload())
+        client.confirmBankStatementDraft(first, acceptWarnings = false).futureValue.bankStatementId.value
+        val second = seedReadyDraft(userId, cardPayload(productType = "credit", february = true))
+
+        val response = client.confirmBankStatementDraft(second, acceptWarnings = true).futureValue
+        response.warnings.map(_.kind) must be(List(ConfirmWarningKind.ProductTypeMismatch))
+        val stmtId = response.bankStatementId.value
+        val fetched = client.getBankStatement(stmtId).futureValue
+        fetched.productType must be("credit")
+        fetched.currency must be("EUR")
+        val stored = app.injector.instanceOf[BankStatementRepository].find(stmtId, userId).futureValue.value
+        stored.productType must be("credit")
+        stored.currency must be("EUR")
+        client.listBankStatementDrafts.futureValue.drafts must be(empty)
+    }
+
+    "not warn about a type mismatch with a different card" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val first = seedReadyDraft(userId, cardPayload())
+      client.confirmBankStatementDraft(first, acceptWarnings = false).futureValue.bankStatementId.value
+
+      val otherLast4 =
+        seedReadyDraft(userId, cardPayload(productType = "credit", accountLast4 = "1111", february = true))
+      val r1 = client.confirmBankStatementDraft(otherLast4, acceptWarnings = false).futureValue
+      r1.warnings must be(empty)
+      r1.bankStatementId must not be None
+
+      val otherBank =
+        seedReadyDraft(userId, cardPayload(productType = "credit", bankName = "Other Test Bank", february = true))
+      val r2 = client.confirmBankStatementDraft(otherBank, acceptWarnings = false).futureValue
+      r2.warnings must be(empty)
+      r2.bankStatementId must not be None
     }
 
     "keep the existing nickname of the account" in withApiClient { implicit client =>
