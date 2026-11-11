@@ -15,6 +15,7 @@ class BankStatementsLogicSpec extends AnyWordSpec {
       createdAt: Instant,
       bankName: String = "BBVA",
       productType: String = "credit",
+      currency: String = "EUR",
       periodStart: LocalDate = LocalDate.of(2026, 4, 1),
       documentFilename: String = "s.pdf",
       totalRows: Int = 0,
@@ -27,7 +28,7 @@ class BankStatementsLogicSpec extends AnyWordSpec {
       documentStatus = DocumentStatus.Parsed,
       bankName = bankName,
       productType = productType,
-      currency = "EUR",
+      currency = currency,
       accountLast4 = accountLast4,
       periodStart = periodStart,
       periodEnd = periodStart.plusMonths(1).minusDays(1),
@@ -335,6 +336,75 @@ class BankStatementsLogicSpec extends AnyWordSpec {
       val result = BankStatementsLogic.removeStatement(List(a, b), a.id)
       result mustBe List(b.copy(overlappingStatementIds = Nil))
       BankStatementsLogic.duplicateBadgeText(result.head, result) mustBe None
+    }
+  }
+
+  "accountLabel" should {
+    "put the alias in front of the default label" in {
+      BankStatementsLogic.accountLabel(
+        bankName = "Example Bank",
+        productType = "credit",
+        accountLast4 = "1111",
+        alias = Some("Travel card")
+      ) mustBe
+        "Travel card (Example Bank (Credit) ••••1111)"
+    }
+
+    "return the default label for an empty alias" in {
+      BankStatementsLogic.accountLabel(
+        bankName = "Example Bank",
+        productType = "credit",
+        accountLast4 = "1111",
+        alias = Some("")
+      ) mustBe
+        "Example Bank (Credit) ••••1111"
+    }
+
+    "return the default label without an alias" in {
+      BankStatementsLogic.accountLabel(
+        bankName = "Example Bank",
+        productType = "debit",
+        accountLast4 = "1111",
+        alias = None
+      ) mustBe
+        "Example Bank (Debit) ••••1111"
+    }
+  }
+
+  "accountRepresentative" should {
+    "pick the newest-created statement of the account" in {
+      val older = stmt(accountLast4 = "1111", createdAt = t0, bankName = "Example Bank")
+      val newest = stmt(accountLast4 = "1111", createdAt = t0.plusSeconds(3600), bankName = "Example Bank")
+      val other = stmt(accountLast4 = "2222", createdAt = t0.plusSeconds(7200), bankName = "Example Bank")
+      val stmts = List(older, newest, other)
+      BankStatementsLogic.accountRepresentative(stmts, Some("Example Bank~credit~1111")) mustBe Some(newest)
+      BankStatementsLogic.accountRepresentative(stmts, None) mustBe None
+    }
+  }
+
+  "applyAlias" should {
+    "set the alias only on statements with the same bank, product, last 4 and currency" in {
+      val target = stmt(accountLast4 = "1111", createdAt = t0, bankName = "Example Bank")
+      val sameAccount = stmt(accountLast4 = "1111", createdAt = t0.plusSeconds(60), bankName = "Example Bank")
+      val otherCurrency =
+        stmt(accountLast4 = "1111", createdAt = t0, bankName = "Example Bank", currency = "USD")
+      val otherLast4 = stmt(accountLast4 = "2222", createdAt = t0, bankName = "Example Bank")
+      val otherProduct = stmt(accountLast4 = "1111", createdAt = t0, bankName = "Example Bank", productType = "debit")
+
+      val result =
+        BankStatementsLogic.applyAlias(
+          stmts = List(target, sameAccount, otherCurrency, otherLast4, otherProduct),
+          of = target,
+          alias = "Travel card"
+        )
+
+      result mustBe List(
+        target.copy(accountAlias = Some("Travel card")),
+        sameAccount.copy(accountAlias = Some("Travel card")),
+        otherCurrency,
+        otherLast4,
+        otherProduct
+      )
     }
   }
 }

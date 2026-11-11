@@ -16,7 +16,8 @@ class BankStatementListSpec extends AnyWordSpec {
       currency: String = "EUR",
       accountLast4: String = "1234",
       periodStart: LocalDate = LocalDate.of(2026, 4, 1),
-      periodEnd: LocalDate = LocalDate.of(2026, 4, 30)
+      periodEnd: LocalDate = LocalDate.of(2026, 4, 30),
+      accountAlias: Option[String] = None
   ): GetBankStatements.Response.BankStatement =
     GetBankStatements.Response.BankStatement(
       id = UUID.randomUUID(),
@@ -32,7 +33,7 @@ class BankStatementListSpec extends AnyWordSpec {
       totalRows = 0,
       processedRows = 0,
       overlappingStatementIds = Nil,
-      accountAlias = None
+      accountAlias = accountAlias
     )
 
   "accountKeyOf" should {
@@ -51,6 +52,11 @@ class BankStatementListSpec extends AnyWordSpec {
     "pass through unknown product types" in {
       BankStatementList.accountLabelOf(stmt(bankName = "BBVA", productType = "savings", accountLast4 = "8927")) mustBe
         "BBVA (savings) ••••8927"
+    }
+
+    "use the account alias" in {
+      val s = stmt(bankName = "Example Bank", accountLast4 = "1111", accountAlias = Some("Travel card"))
+      BankStatementList.accountLabelOf(s) mustBe "Travel card (Example Bank (Credit) ••••1111)"
     }
   }
 

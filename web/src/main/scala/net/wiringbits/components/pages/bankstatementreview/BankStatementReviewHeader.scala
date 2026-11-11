@@ -2,6 +2,7 @@ package net.wiringbits.components.pages.bankstatementreview
 
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.api.models.bankstatements.GetBankStatement
+import net.wiringbits.components.pages.bankstatements.BankStatementsLogic
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.useHistory
 import slinky.core.facade.{Fragment, ReactElement}
@@ -18,6 +19,18 @@ object BankStatementReviewHeader {
       onRegenerate: () => Unit
   )
 
+  /** The account the statement belongs to, by its display label (nickname included when set). */
+  private def accountLine(stmt: GetBankStatement.Response): ReactElement =
+    val label = BankStatementsLogic.accountLabel(
+      bankName = stmt.bankName,
+      productType = stmt.productType,
+      accountLast4 = stmt.accountLast4,
+      alias = stmt.accountAlias
+    )
+    mui
+      .Typography(s"Account: $label")
+      .sx(new CSSPropertiesUtils { fontSize = "13px"; color = "var(--lc-text-2)"; marginBottom = "2px" })
+
   /** A one-line summary of the statement metadata. */
   private def statementMetadataLine(stmt: GetBankStatement.Response): ReactElement = {
     val productType = stmt.productType match {
@@ -29,7 +42,6 @@ object BankStatementReviewHeader {
       s"Bank: ${stmt.bankName}",
       productType,
       s"Currency: ${stmt.currency}",
-      s"Account: ••••${stmt.accountLast4}",
       s"Period: ${stmt.periodStart} – ${stmt.periodEnd}"
     )
     mui
@@ -75,6 +87,7 @@ object BankStatementReviewHeader {
           .variant("outlined")
           .onClick(_ => history.push(BankStatementReviewLogic.backToListPath(stmt)))
       ),
+      accountLine(stmt),
       statementMetadataLine(stmt)
     )
   }

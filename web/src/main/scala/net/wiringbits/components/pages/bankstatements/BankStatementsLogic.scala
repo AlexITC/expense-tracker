@@ -41,9 +41,38 @@ object BankStatementsLogic {
     else params.map { case (k, v) => s"$k=${URIUtils.encodeURIComponent(v)}" }.mkString("/bank-statements?", "&", "")
   }
 
-  /** An "account" groups a user's statements by bank + product type + last 4 digits. */
+  /** An "account" groups a user's statements by bank + product type + last 4 digits. Currency is deliberately left out
+    * (the key is used in `?account=` URLs), while the nickname is stored per bank + product type + last 4 + currency;
+    * so when one card has statements in several currencies, the group shows the newest statement's nickname (see
+    * `accountRepresentative` and `applyAlias`).
+    */
   def accountKey(bankName: String, productType: String, accountLast4: String): String =
     s"$bankName~$productType~$accountLast4"
+
+  /** Display label of an account: the nickname, when set, in front of the bank/product/last-4 label. An empty nickname
+    * counts as none.
+    */
+  def accountLabel(bankName: String, productType: String, accountLast4: String, alias: Option[String]): String = {
+    val default = s"$bankName (${BankStatementList.productLabel(productType)}) ••••$accountLast4"
+    alias.filter(_.nonEmpty).fold(default)(a => s"$a ($default)")
+  }
+
+  /** The newest-created statement of the account; the same one whose label the account dropdown shows. */
+  def accountRepresentative(
+      stmts: List[GetBankStatements.Response.BankStatement],
+      accountKey: Option[String]
+  ): Option[GetBankStatements.Response.BankStatement] =
+    stmts.filter(s => accountKey.contains(BankStatementList.accountKeyOf(s))).maxByOption(_.createdAt)
+
+  /** Sets the nickname on every statement of the same account as `of` (bank, product type, last 4 and currency). */
+  def applyAlias(
+      stmts: List[GetBankStatements.Response.BankStatement],
+      of: GetBankStatements.Response.BankStatement,
+      alias: String
+  ): List[GetBankStatements.Response.BankStatement] = {
+    def tuple(s: GetBankStatements.Response.BankStatement) = (s.bankName, s.productType, s.accountLast4, s.currency)
+    stmts.map(s => if (tuple(s) == tuple(of)) s.copy(accountAlias = Some(alias)) else s)
+  }
 
   /** Account key of the most recently uploaded statement; on a tie the first in list order wins. */
   def defaultAccountKey(stmts: List[GetBankStatements.Response.BankStatement]): Option[String] =

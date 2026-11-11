@@ -73,7 +73,12 @@ object BankStatementList {
     )
 
   def accountLabelOf(s: GetBankStatements.Response.BankStatement): String =
-    s"${s.bankName} (${productLabel(s.productType)}) ••••${s.accountLast4}"
+    BankStatementsLogic.accountLabel(
+      bankName = s.bankName,
+      productType = s.productType,
+      accountLast4 = s.accountLast4,
+      alias = s.accountAlias
+    )
 
   /** One-line metadata summary for a statement. */
   def metadataLine(s: GetBankStatements.Response.BankStatement): String =
@@ -269,6 +274,7 @@ object BankStatementList {
 
     val accounts = localStmts.map(s => accountKeyOf(s) -> accountLabelOf(s)).distinctBy(_._1)
     val selectedAccount = BankStatementsLogic.selectedAccountKey(urlQuery.account, localStmts)
+    val selectedAccountStmt = BankStatementsLogic.accountRepresentative(localStmts, selectedAccount)
 
     // The selected account's timeline, ordered by statement period (newest first) so gaps between cycles are visible.
     val timeline = BankStatementsLogic.timeline(localStmts, selectedAccount, stmtFilter)
@@ -528,6 +534,15 @@ object BankStatementList {
           .Typography(error)
           .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px"; marginBottom = "8px" })
       else Fragment(),
+      selectedAccountStmt match {
+        case Some(rep) =>
+          mui
+            .Typography(s"Statements · ${accountLabelOf(rep)}")
+            .sx(new CSSPropertiesUtils {
+              fontSize = "13px"; fontWeight = "600"; color = "var(--lc-text-2)"; marginBottom = "6px"
+            })
+        case None => Fragment()
+      },
       Fragment(stmtItems*),
       deleteDialog,
       toast match {
