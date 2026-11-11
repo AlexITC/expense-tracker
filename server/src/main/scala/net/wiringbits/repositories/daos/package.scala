@@ -171,6 +171,20 @@ package object daos {
     )
   }
 
+  val bankAccountAliasParser: RowParser[BankAccountAlias] = {
+    Macro.parser[BankAccountAlias](
+      "id",
+      "user_id",
+      "bank_name",
+      "product_type",
+      "account_last4",
+      "currency",
+      "alias",
+      "created_at",
+      "updated_at"
+    )
+  }
+
   implicit val localTimeToStatement: ToStatement[LocalTime] = (stmt, idx, value) =>
     stmt.setTime(idx, java.sql.Time.valueOf(value))
 
