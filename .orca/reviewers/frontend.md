@@ -1,5 +1,5 @@
 ---
-description: Frontend — fetch via AsyncComponent; mutually-exclusive UI state as one ADT; state derived from its previous value set via the functional updater; hook dependency lists via SafeHooks (String keys); filters and view selections encoded in the URL; navigate with the router link, not hand-rolled anchors
+description: Frontend — fetch via AsyncComponent; mutually-exclusive UI state as one ADT; state derived from its previous value set via the functional updater; hook dependency lists via SafeHooks (String keys); filters and view selections encoded in the URL; navigate with the router link, not hand-rolled anchors; reuse the MUI component (Autocomplete, Dialog, Menu, Pagination, …) instead of re-implementing it
 files: web/src/main/scala
 ---
 
@@ -94,3 +94,25 @@ to patch up an element that should have been a link or a button.
 Not: `history.push` from a genuine action handler that is not a link (a form
 submit, a button that acts then navigates, a redirect after an API call); reading
 modifier keys inside a real keyboard-shortcut handler.
+
+## Reuse the MUI component instead of re-implementing it
+Flag a widget hand-built from primitives (`Box`, `TextField`, `onClick`,
+state flags) when MUI already provides it — a type-ahead/combobox, a dialog, a
+menu, pagination, a table, tabs. Reach for the MUI component (`mui.Autocomplete`,
+`mui.Dialog`, `mui.Menu`, `mui.Pagination`, `mui.Table`, `mui.Tabs`) and
+configure it; a reimplementation diverges from the real component's behaviour,
+accessibility, and keyboard handling, and has to be maintained by hand.
+
+The clearest case is a type-ahead built as a `TextField` paired with an `*Open`
+boolean and a floating `Box`/`List` of options the user clicks to pick a value
+(the giveaway is a manual `options.filter(_.name.toLowerCase.contains(input))`
+with a `.take(n)`, an `onClick` per item, and no keyboard handling). That silently
+drops what `mui.Autocomplete` gives for free and users expect: the full scrollable
+option list, arrow-key navigation, Escape closing only the list (a hand-rolled one
+lets Escape bubble up and close the whole dialog), and correct Tab focus.
+
+Not: a search box that merely filters an already-visible list in place (it narrows
+what is rendered, it does not pop a dropdown of options that returns a chosen
+value); a fixed, short, known set of choices, which is a `mui.Select`/`mui.MenuItem`
+(or an `enum`-backed select), not a type-ahead; a genuinely bespoke widget MUI has
+no equivalent for.

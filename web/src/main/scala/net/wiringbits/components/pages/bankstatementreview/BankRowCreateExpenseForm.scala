@@ -1,6 +1,7 @@
 package net.wiringbits.components.pages.bankstatementreview
-import net.wiringbits.components.pages.CategoryResolver
+import net.wiringbits.components.pages.{AutocompleteLabels, CategoryResolver}
 
+import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps, AutocompleteRenderInputParams}
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, CreateExpenseFromRow, GetBankStatement}
@@ -11,6 +12,7 @@ import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.core.SafeHooks
 import net.wiringbits.utils.ReceiptFileViewer
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
+import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
@@ -19,10 +21,17 @@ import slinky.web.html.{form, label, onSubmit}
 import java.time.{Instant, LocalDate}
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
+import scala.scalajs.js
+import scala.scalajs.js.JSConverters.*
 import scala.util.{Failure, Success, Try}
 
 object BankRowCreateExpenseForm {
   def apply(props: Props): KeyAddingStage = component(props)
+
+  private def renderTextField(label: String)(params: AutocompleteRenderInputParams): ReactElement =
+    (mui.TextField.outlined
+      .withProps(MuiCompat.textFieldProps(params, label, size = Some("small")))
+      .withKey("tf"): ReactElement)
 
   case class Props(
       stmtId: UUID,
@@ -164,11 +173,9 @@ object BankRowCreateExpenseForm {
 
     val (merchantInput, setMerchantInput) = Hooks.useState(initMerchantName)
     val (merchantIdOpt, setMerchantIdOpt) = Hooks.useState[Option[UUID]](initMerchantIdOpt)
-    val (merchantOpen, setMerchantOpen) = Hooks.useState(false)
 
     val (categoryInput, setCategoryInput) = Hooks.useState(initCategoryName)
     val (categoryIdOpt, setCategoryIdOpt) = Hooks.useState[Option[UUID]](initCategoryIdOpt)
-    val (categoryOpen, setCategoryOpen) = Hooks.useState(false)
 
     val (rulePattern, setRulePattern) = Hooks.useState(props.row.description)
     val (categoryRuleOptIn, setCategoryRuleOptIn) = Hooks.useState(false)
@@ -216,18 +223,9 @@ object BankRowCreateExpenseForm {
       ()
     })
 
-    val filteredMerchants = props.merchants
-      .filter(m => merchantInput.isEmpty || m.name.toLowerCase.contains(merchantInput.toLowerCase))
-      .take(6)
-
-    val filteredCategories = props.categories
-      .filter(c => categoryInput.isEmpty || c.name.toLowerCase.contains(categoryInput.toLowerCase))
-      .take(6)
-
     def selectMerchant(m: GetMerchants.Response.Merchant): Unit = {
       setMerchantInput(m.name)
       setMerchantIdOpt(Some(m.id))
-      setMerchantOpen(false)
       m.categoryId.foreach { cid =>
         setCategoryIdOpt(Some(cid))
         props.categories.find(_.id == cid).foreach(c => setCategoryInput(c.name))
@@ -384,14 +382,46 @@ object BankRowCreateExpenseForm {
           }
       }
 
-    val dropdownItemSx = new CSSPropertiesUtils {
-      padding = "8px 12px"; cursor = "pointer"; fontSize = "14px"
+    val merchantAcProps = AutocompleteProps[GetMerchants.Response.Merchant, Boolean, Boolean, Boolean, "div"](
+      options = props.merchants.toJSArray,
+      renderInput = renderTextField("Merchant")
+    )
+    val merchantDyn = merchantAcProps.asInstanceOf[js.Dynamic]
+    merchantDyn.freeSolo = true
+    merchantDyn.size = "small"
+    merchantDyn.fullWidth = true
+    merchantDyn.inputValue = merchantInput
+    merchantDyn.getOptionLabel = (opt: js.Any) => AutocompleteLabels.merchantOptionLabel(opt)
+    merchantDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
+      (value: Any) match {
+        case m: GetMerchants.Response.Merchant => selectMerchant(m)
+        case _ => ()
+      }
+    merchantDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
+      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
+      setMerchantInput(text)
+      if (rsn != "reset") setMerchantIdOpt(None)
     }
-    val dropdownPaperSx = new CSSPropertiesUtils {
-      position = "absolute"; top = "100%"; left = "0"; right = "0"; zIndex = "1400"
-      maxHeight = "200px"; overflowY = "auto"
-      border = "1px solid var(--lc-surface-2)"; borderRadius = "4px"; backgroundColor = "var(--lc-paper)"
-      boxShadow = "0 4px 12px rgba(0,0,0,0.1)"
+
+    val categoryAcProps = AutocompleteProps[GetCategories.Response.Category, Boolean, Boolean, Boolean, "div"](
+      options = props.categories.toJSArray,
+      renderInput = renderTextField("Category")
+    )
+    val categoryDyn = categoryAcProps.asInstanceOf[js.Dynamic]
+    categoryDyn.freeSolo = true
+    categoryDyn.size = "small"
+    categoryDyn.fullWidth = true
+    categoryDyn.inputValue = categoryInput
+    categoryDyn.getOptionLabel = (opt: js.Any) => AutocompleteLabels.categoryOptionLabel(opt)
+    categoryDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
+      (value: Any) match {
+        case c: GetCategories.Response.Category => setCategoryIdOpt(Some(c.id)); setCategoryInput(c.name)
+        case _ => ()
+      }
+    categoryDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
+      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
+      setCategoryInput(text)
+      if (rsn != "reset") setCategoryIdOpt(None)
     }
 
     val rankedReceipts = rankReceipts(receipts)
@@ -405,224 +435,154 @@ object BankRowCreateExpenseForm {
       props.merchants,
       decidedReceiptIds
     )
-    val anyOpen = merchantOpen || categoryOpen
     val hintStyling = new CSSPropertiesUtils { fontSize = "13px"; color = "var(--lc-text-2)" }
 
     form(onSubmit := { e =>
       e.preventDefault()
       if (savedExpenseId.isEmpty) handleSubmit()
     })(
-      Fragment(
-        if (anyOpen)
-          (mui.Box
-            .sx(new CSSPropertiesUtils {
-              position = "fixed"; top = "0"; left = "0"; right = "0"; bottom = "0"; zIndex = "1399"
-            })
-            .onClick(_ => { setMerchantOpen(false); setCategoryOpen(false) })(): ReactElement)
+      mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "12px" })(
+        mui
+          .Typography("New expense")
+          .sx(new CSSPropertiesUtils { fontWeight = "700"; fontSize = "14px"; userSelect = "none" }),
+        if (error.nonEmpty)
+          mui.Typography(error).sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
         else Fragment(),
-        mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "12px" })(
-          mui
-            .Typography("New expense")
-            .sx(new CSSPropertiesUtils { fontWeight = "700"; fontSize = "14px"; userSelect = "none" }),
-          if (error.nonEmpty)
-            mui.Typography(error).sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
-          else Fragment(),
-          mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "12px" })(
-            mui.TextField
-              .outlined()
-              .label("Amount")
-              .size("small")
-              .value(amount)
-              .onChange(e => setAmount(e.target.asInstanceOf[dom.HTMLInputElement].value))
-              .sx(new CSSPropertiesUtils { flex = "1" }),
-            mui.TextField
-              .outlined()
-              .label("Date")
-              .size("small")
-              .value(date)
-              .onChange(e => setDate(e.target.asInstanceOf[dom.HTMLInputElement].value))
-              .sx(new CSSPropertiesUtils { flex = "1" })
-          ),
+        mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "12px" })(
           mui.TextField
             .outlined()
-            .label("Notes")
+            .label("Amount")
             .size("small")
-            .value(notes)
-            .onChange(e => setNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-          // Merchant type-ahead
-          mui.Box.sx(new CSSPropertiesUtils { position = "relative" })(
-            mui.TextField
-              .outlined()
-              .label("Merchant")
-              .size("small")
-              .value(merchantInput)
-              .onChange { e =>
-                val v = e.target.asInstanceOf[dom.HTMLInputElement].value
-                setMerchantInput(v)
-                setMerchantIdOpt(None)
-                setMerchantOpen(true)
-              }
-              .sx(new CSSPropertiesUtils { width = "100%" }),
-            if (merchantOpen && filteredMerchants.nonEmpty)
-              (mui.Box.sx(dropdownPaperSx)(
-                Fragment(
-                  filteredMerchants.map { m =>
-                    (mui.Box
-                      .sx(dropdownItemSx)
-                      .onClick { e =>
-                        e.stopPropagation()
-                        selectMerchant(m)
-                      }(mui.Typography(m.name).sx(new CSSPropertiesUtils { fontSize = "14px" }))
-                      .withKey(m.id.toString): ReactElement)
-                  }*
-                )
-              ): ReactElement)
-            else Fragment()
-          ),
-          // Category type-ahead
-          mui.Box.sx(new CSSPropertiesUtils { position = "relative" })(
-            mui.TextField
-              .outlined()
-              .label("Category")
-              .size("small")
-              .value(categoryInput)
-              .onChange { e =>
-                val v = e.target.asInstanceOf[dom.HTMLInputElement].value
-                setCategoryInput(v)
-                setCategoryIdOpt(None)
-                setCategoryOpen(true)
-              }
-              .sx(new CSSPropertiesUtils { width = "100%" }),
-            if (categoryOpen && filteredCategories.nonEmpty)
-              (mui.Box.sx(dropdownPaperSx)(
-                Fragment(
-                  filteredCategories.map { c =>
-                    (mui.Box
-                      .sx(dropdownItemSx)
-                      .onClick { e =>
-                        e.stopPropagation()
-                        setCategoryInput(c.name)
-                        setCategoryIdOpt(Some(c.id))
-                        setCategoryOpen(false)
-                      }(mui.Typography(c.name).sx(new CSSPropertiesUtils { fontSize = "14px" }))
-                      .withKey(c.id.toString): ReactElement)
-                  }*
-                )
-              ): ReactElement)
-            else Fragment()
-          ),
-          if (merchantName.isEmpty) Fragment()
-          else
-            hint match {
-              case RuleHint.CoveredByRule(pattern) =>
-                mui.Typography(s"Covered by rule: $pattern").sx(hintStyling)
-              case RuleHint.MatchesByName =>
-                mui
-                  .Typography(s"Future rows matching \"$merchantName\" are matched automatically")
-                  .sx(hintStyling)
-              case RuleHint.NeedsAlias =>
-                mui.TextField
-                  .outlined()
-                  .label("Rule pattern")
-                  .size("small")
-                  .value(rulePattern)
-                  .helperText("Future rows containing this text get this merchant. Leave blank for no rule.")
-                  .onChange(e => setRulePattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
-            },
-          if (showCategoryRuleOption)
-            mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "8px" })(
-              label(
-                mui.Box.sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; cursor = "pointer" })(
-                  mui.Checkbox
-                    .checked(categoryRuleOptIn)
-                    .size("small")
-                    .onChange((_, checked) => setCategoryRuleOptIn(checked)),
-                  mui.Typography(s"Also categorize similar rows as ${categoryInput.trim}").sx(hintStyling)
-                )
-              ),
-              if (categoryRuleOptIn)
-                mui.TextField
-                  .outlined()
-                  .label("Rule pattern")
-                  .size("small")
-                  .value(rulePattern)
-                  .helperText("Future rows containing this text get this category.")
-                  .onChange(e => setRulePattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
-              else Fragment()
-            )
-          else Fragment(),
-          if (rankedReceipts.nonEmpty)
-            mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "6px" })(
-              mui.Typography("Attach receipt (optional):").sx(receiptSuggestStyling),
-              Fragment(
-                rankedReceipts.take(5).map { case (r, _) =>
-                  val isSelected = receiptId.contains(r.id)
-                  val label =
-                    s"${r.documentFilename} | ${r.amount.getOrElse("")} | ${r.date.getOrElse("")} | ${r.merchantName
-                        .getOrElse("-")}"
-                  (mui.Box
-                    .sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; gap = "8px" })(
-                      mui.Typography(label).sx(if (isSelected) receiptSelectedStyling else receiptSuggestStyling),
-                      if (isSelected)
-                        mui.Button.normal()("Deselect").size("small").onClick(_ => setReceiptId(None))
-                      else
-                        mui.Button.normal()("Attach").size("small").onClick(_ => setReceiptId(Some(r.id))),
-                      mui.Button
-                        .normal()("View")
-                        .size("small")
-                        .onClick(_ =>
-                          ReceiptFileViewer.openInNewTab(props.ctx.api.client, r.id, r.documentFilename, setError)
-                        )
-                    )
-                    .withKey(r.id.toString): ReactElement)
-                }*
-              )
-            )
-          else Fragment(),
-          offer match {
-            case Some(o) =>
-              val categoryLabel = o.categoryId
-                .flatMap(cid => props.categories.find(_.id == cid))
-                .map(_.name)
-                .getOrElse("no default category")
-              mui.Box.sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; gap = "8px" })(
-                mui.Typography(s"Receipt says ${o.merchant.name} ($categoryLabel)").sx(hintStyling),
-                mui.Button
-                  .normal()("Use receipt")
-                  .size("small")
-                  .onClick { _ =>
-                    selectMerchant(o.merchant)
-                    // The category follows the receipt's merchant: without a default, the previous one is cleared.
-                    if (o.categoryId.isEmpty) {
-                      setCategoryIdOpt(None)
-                      setCategoryInput("")
-                    }
-                    setDecidedReceiptIds(decidedReceiptIds + o.receiptId)
-                  },
-                mui.Button
-                  .normal()("Keep suggestion")
-                  .size("small")
-                  .onClick(_ => setDecidedReceiptIds(decidedReceiptIds + o.receiptId))
-              )
-            case None => Fragment()
+            .value(amount)
+            .onChange(e => setAmount(e.target.asInstanceOf[dom.HTMLInputElement].value))
+            .sx(new CSSPropertiesUtils { flex = "1" }),
+          mui.TextField
+            .outlined()
+            .label("Date")
+            .size("small")
+            .value(date)
+            .onChange(e => setDate(e.target.asInstanceOf[dom.HTMLInputElement].value))
+            .sx(new CSSPropertiesUtils { flex = "1" })
+        ),
+        mui.TextField
+          .outlined()
+          .label("Notes")
+          .size("small")
+          .value(notes)
+          .onChange(e => setNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+        (mui.Autocomplete.withProps(merchantAcProps).withKey("merchant"): ReactElement),
+        (mui.Autocomplete.withProps(categoryAcProps).withKey("category"): ReactElement),
+        if (merchantName.isEmpty) Fragment()
+        else
+          hint match {
+            case RuleHint.CoveredByRule(pattern) =>
+              mui.Typography(s"Covered by rule: $pattern").sx(hintStyling)
+            case RuleHint.MatchesByName =>
+              mui
+                .Typography(s"Future rows matching \"$merchantName\" are matched automatically")
+                .sx(hintStyling)
+            case RuleHint.NeedsAlias =>
+              mui.TextField
+                .outlined()
+                .label("Rule pattern")
+                .size("small")
+                .value(rulePattern)
+                .helperText("Future rows containing this text get this merchant. Leave blank for no rule.")
+                .onChange(e => setRulePattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
           },
-          savedExpenseId match {
-            case Some(expenseId) =>
-              mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
-                mui.Button.normal()("Close").size("small").onClick(_ => props.onSuccess(expenseId))
-              )
-            case None =>
-              mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
-                mui.Button
-                  .normal()("Save")
-                  .variant("contained")
+        if (showCategoryRuleOption)
+          mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "8px" })(
+            label(
+              mui.Box.sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; cursor = "pointer" })(
+                mui.Checkbox
+                  .checked(categoryRuleOptIn)
                   .size("small")
-                  .`type`("submit")
-                  .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
-                mui.Button.normal()("Cancel").size("small").onClick(_ => props.onCancel())
+                  .onChange((_, checked) => setCategoryRuleOptIn(checked)),
+                mui.Typography(s"Also categorize similar rows as ${categoryInput.trim}").sx(hintStyling)
               )
-          }
-        )
+            ),
+            if (categoryRuleOptIn)
+              mui.TextField
+                .outlined()
+                .label("Rule pattern")
+                .size("small")
+                .value(rulePattern)
+                .helperText("Future rows containing this text get this category.")
+                .onChange(e => setRulePattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
+            else Fragment()
+          )
+        else Fragment(),
+        if (rankedReceipts.nonEmpty)
+          mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "6px" })(
+            mui.Typography("Attach receipt (optional):").sx(receiptSuggestStyling),
+            Fragment(
+              rankedReceipts.take(5).map { case (r, _) =>
+                val isSelected = receiptId.contains(r.id)
+                val label =
+                  s"${r.documentFilename} | ${r.amount.getOrElse("")} | ${r.date.getOrElse("")} | ${r.merchantName
+                      .getOrElse("-")}"
+                (mui.Box
+                  .sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; gap = "8px" })(
+                    mui.Typography(label).sx(if (isSelected) receiptSelectedStyling else receiptSuggestStyling),
+                    if (isSelected)
+                      mui.Button.normal()("Deselect").size("small").onClick(_ => setReceiptId(None))
+                    else
+                      mui.Button.normal()("Attach").size("small").onClick(_ => setReceiptId(Some(r.id))),
+                    mui.Button
+                      .normal()("View")
+                      .size("small")
+                      .onClick(_ =>
+                        ReceiptFileViewer.openInNewTab(props.ctx.api.client, r.id, r.documentFilename, setError)
+                      )
+                  )
+                  .withKey(r.id.toString): ReactElement)
+              }*
+            )
+          )
+        else Fragment(),
+        offer match {
+          case Some(o) =>
+            val categoryLabel = o.categoryId
+              .flatMap(cid => props.categories.find(_.id == cid))
+              .map(_.name)
+              .getOrElse("no default category")
+            mui.Box.sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; gap = "8px" })(
+              mui.Typography(s"Receipt says ${o.merchant.name} ($categoryLabel)").sx(hintStyling),
+              mui.Button
+                .normal()("Use receipt")
+                .size("small")
+                .onClick { _ =>
+                  selectMerchant(o.merchant)
+                  // The category follows the receipt's merchant: without a default, the previous one is cleared.
+                  if (o.categoryId.isEmpty) {
+                    setCategoryIdOpt(None)
+                    setCategoryInput("")
+                  }
+                  setDecidedReceiptIds(decidedReceiptIds + o.receiptId)
+                },
+              mui.Button
+                .normal()("Keep suggestion")
+                .size("small")
+                .onClick(_ => setDecidedReceiptIds(decidedReceiptIds + o.receiptId))
+            )
+          case None => Fragment()
+        },
+        savedExpenseId match {
+          case Some(expenseId) =>
+            mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
+              mui.Button.normal()("Close").size("small").onClick(_ => props.onSuccess(expenseId))
+            )
+          case None =>
+            mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
+              mui.Button
+                .normal()("Save")
+                .variant("contained")
+                .size("small")
+                .`type`("submit")
+                .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
+              mui.Button.normal()("Cancel").size("small").onClick(_ => props.onCancel())
+            )
+        }
       )
     )
   }

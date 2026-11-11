@@ -7,6 +7,7 @@ import net.wiringbits.models.{AWSAccessKeyId, AWSSecretAccessKey}
 import net.wiringbits.repositories.TextractCacheRepository
 import net.wiringbits.services.AiStatementExtractor.ExtractionResult
 import net.wiringbits.services.{PdfTextExtractor, S3BlobStorage, StatementExtractionService}
+import net.wiringbits.util.RateLimiter
 import org.apache.pekko.actor.ActorSystem
 import play.api.db.Databases
 import play.api.libs.json.{JsObject, Json}
@@ -75,8 +76,9 @@ object StatementPipelineEval {
         region,
         modelId = statementModelId,
         statementModelId = statementModelId,
-        16000,
+        statementMaxTokens = 16000,
         suggestionsModelId = suggestionsModelId,
+        requestsPerMinute = 10,
         BedrockConfig.Real
       )
     val bdaConfig = BdaConfig(
@@ -87,7 +89,8 @@ object StatementPipelineEval {
       outputS3Uri = sys.env("BDA_OUTPUT_S3_URI")
     )
 
-    val bedrock = new RealBedrockClient(bedrockConfig)
+    val bedrock =
+      new RealBedrockClient(bedrockConfig, RateLimiter.AlwaysGrant, RealBedrockClient.awsClient(bedrockConfig))
     val textract = new RealTextractClient(awsConfig)
     val bda = new RealBdaClient(awsConfig, bdaConfig, system)
     val blob = new S3BlobStorage(awsConfig)
