@@ -1,5 +1,7 @@
 package net.wiringbits.components.pages.bankstatementreview
+import net.wiringbits.components.pages.AutocompleteLabels
 
+import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps, AutocompleteRenderInputParams}
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{CreateRefundFromRow, GetBankStatement}
@@ -7,6 +9,7 @@ import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
 import net.wiringbits.api.models.merchants.{CreateMerchant, GetMerchants}
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
+import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
@@ -15,10 +18,17 @@ import slinky.web.html.{form, onSubmit}
 import java.time.LocalDate
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
+import scala.scalajs.js
+import scala.scalajs.js.JSConverters.*
 import scala.util.{Failure, Success, Try}
 
 object BankRowCreateRefundForm {
   def apply(props: Props): KeyAddingStage = component(props)
+
+  private def renderTextField(label: String)(params: AutocompleteRenderInputParams): ReactElement =
+    (mui.TextField.outlined
+      .withProps(MuiCompat.textFieldProps(params, label, size = Some("small")))
+      .withKey("tf"): ReactElement)
 
   case class Props(
       stmtId: UUID,
@@ -70,26 +80,15 @@ object BankRowCreateRefundForm {
 
     val (merchantInput, setMerchantInput) = Hooks.useState(initMerchantName)
     val (merchantIdOpt, setMerchantIdOpt) = Hooks.useState[Option[UUID]](initMerchantIdOpt)
-    val (merchantOpen, setMerchantOpen) = Hooks.useState(false)
 
     val (categoryInput, setCategoryInput) = Hooks.useState(initCategoryName)
     val (categoryIdOpt, setCategoryIdOpt) = Hooks.useState[Option[UUID]](initCategoryIdOpt)
-    val (categoryOpen, setCategoryOpen) = Hooks.useState(false)
 
     val (error, setError) = Hooks.useState("")
-
-    val filteredMerchants = props.merchants
-      .filter(m => merchantInput.isEmpty || m.name.toLowerCase.contains(merchantInput.toLowerCase))
-      .take(6)
-
-    val filteredCategories = props.categories
-      .filter(c => categoryInput.isEmpty || c.name.toLowerCase.contains(categoryInput.toLowerCase))
-      .take(6)
 
     def selectMerchant(m: GetMerchants.Response.Merchant): Unit = {
       setMerchantInput(m.name)
       setMerchantIdOpt(Some(m.id))
-      setMerchantOpen(false)
       m.categoryId.foreach { cid =>
         setCategoryIdOpt(Some(cid))
         props.categories.find(_.id == cid).foreach(c => setCategoryInput(c.name))
@@ -155,130 +154,91 @@ object BankRowCreateRefundForm {
           }
       }
 
-    val dropdownItemSx = new CSSPropertiesUtils {
-      padding = "8px 12px"; cursor = "pointer"; fontSize = "14px"
-    }
-    val dropdownPaperSx = new CSSPropertiesUtils {
-      position = "absolute"; top = "100%"; left = "0"; right = "0"; zIndex = "1400"
-      maxHeight = "200px"; overflowY = "auto"
-      border = "1px solid var(--lc-surface-2)"; borderRadius = "4px"; backgroundColor = "var(--lc-paper)"
-      boxShadow = "0 4px 12px rgba(0,0,0,0.1)"
+    val merchantAcProps = AutocompleteProps[GetMerchants.Response.Merchant, Boolean, Boolean, Boolean, "div"](
+      options = props.merchants.toJSArray,
+      renderInput = renderTextField("Merchant (optional)")
+    )
+    val merchantDyn = merchantAcProps.asInstanceOf[js.Dynamic]
+    merchantDyn.freeSolo = true
+    merchantDyn.size = "small"
+    merchantDyn.fullWidth = true
+    merchantDyn.inputValue = merchantInput
+    merchantDyn.getOptionLabel = (opt: js.Any) => AutocompleteLabels.merchantOptionLabel(opt)
+    merchantDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
+      (value: Any) match {
+        case m: GetMerchants.Response.Merchant => selectMerchant(m)
+        case _ => ()
+      }
+    merchantDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
+      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
+      setMerchantInput(text)
+      if (rsn != "reset") setMerchantIdOpt(None)
     }
 
-    val anyOpen = merchantOpen || categoryOpen
+    val categoryAcProps = AutocompleteProps[GetCategories.Response.Category, Boolean, Boolean, Boolean, "div"](
+      options = props.categories.toJSArray,
+      renderInput = renderTextField("Category (optional)")
+    )
+    val categoryDyn = categoryAcProps.asInstanceOf[js.Dynamic]
+    categoryDyn.freeSolo = true
+    categoryDyn.size = "small"
+    categoryDyn.fullWidth = true
+    categoryDyn.inputValue = categoryInput
+    categoryDyn.getOptionLabel = (opt: js.Any) => AutocompleteLabels.categoryOptionLabel(opt)
+    categoryDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
+      (value: Any) match {
+        case c: GetCategories.Response.Category => setCategoryIdOpt(Some(c.id)); setCategoryInput(c.name)
+        case _ => ()
+      }
+    categoryDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
+      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
+      setCategoryInput(text)
+      if (rsn != "reset") setCategoryIdOpt(None)
+    }
 
     form(onSubmit := { e =>
       e.preventDefault()
       handleSubmit()
     })(
-      Fragment(
-        if (anyOpen)
-          (mui.Box
-            .sx(new CSSPropertiesUtils {
-              position = "fixed"; top = "0"; left = "0"; right = "0"; bottom = "0"; zIndex = "1399"
-            })
-            .onClick(_ => { setMerchantOpen(false); setCategoryOpen(false) })(): ReactElement)
+      mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "12px" })(
+        mui
+          .Typography("New refund")
+          .sx(new CSSPropertiesUtils { fontWeight = "700"; fontSize = "14px"; userSelect = "none" }),
+        if (error.nonEmpty)
+          mui.Typography(error).sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
         else Fragment(),
-        mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "12px" })(
-          mui
-            .Typography("New refund")
-            .sx(new CSSPropertiesUtils { fontWeight = "700"; fontSize = "14px"; userSelect = "none" }),
-          if (error.nonEmpty)
-            mui.Typography(error).sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
-          else Fragment(),
-          mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "12px" })(
-            mui.TextField
-              .outlined()
-              .label("Amount")
-              .size("small")
-              .value(amount)
-              .onChange(e => setAmount(e.target.asInstanceOf[dom.HTMLInputElement].value))
-              .sx(new CSSPropertiesUtils { flex = "1" }),
-            mui.TextField
-              .outlined()
-              .label("Date")
-              .size("small")
-              .value(date)
-              .onChange(e => setDate(e.target.asInstanceOf[dom.HTMLInputElement].value))
-              .sx(new CSSPropertiesUtils { flex = "1" })
-          ),
+        mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "12px" })(
           mui.TextField
             .outlined()
-            .label("Notes")
+            .label("Amount")
             .size("small")
-            .value(notes)
-            .onChange(e => setNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-          // Merchant type-ahead
-          mui.Box.sx(new CSSPropertiesUtils { position = "relative" })(
-            mui.TextField
-              .outlined()
-              .label("Merchant (optional)")
-              .size("small")
-              .value(merchantInput)
-              .onChange { e =>
-                val v = e.target.asInstanceOf[dom.HTMLInputElement].value
-                setMerchantInput(v)
-                setMerchantIdOpt(None)
-                setMerchantOpen(true)
-              }
-              .sx(new CSSPropertiesUtils { width = "100%" }),
-            if (merchantOpen && filteredMerchants.nonEmpty)
-              (mui.Box.sx(dropdownPaperSx)(
-                Fragment(
-                  filteredMerchants.map { m =>
-                    (mui.Box
-                      .sx(dropdownItemSx)
-                      .onClick { e =>
-                        e.stopPropagation()
-                        selectMerchant(m)
-                      }(mui.Typography(m.name).sx(new CSSPropertiesUtils { fontSize = "14px" }))
-                      .withKey(m.id.toString): ReactElement)
-                  }*
-                )
-              ): ReactElement)
-            else Fragment()
-          ),
-          // Category type-ahead
-          mui.Box.sx(new CSSPropertiesUtils { position = "relative" })(
-            mui.TextField
-              .outlined()
-              .label("Category (optional)")
-              .size("small")
-              .value(categoryInput)
-              .onChange { e =>
-                val v = e.target.asInstanceOf[dom.HTMLInputElement].value
-                setCategoryInput(v)
-                setCategoryIdOpt(None)
-                setCategoryOpen(true)
-              }
-              .sx(new CSSPropertiesUtils { width = "100%" }),
-            if (categoryOpen && filteredCategories.nonEmpty)
-              (mui.Box.sx(dropdownPaperSx)(
-                Fragment(
-                  filteredCategories.map { c =>
-                    (mui.Box
-                      .sx(dropdownItemSx)
-                      .onClick { e =>
-                        e.stopPropagation()
-                        setCategoryInput(c.name)
-                        setCategoryIdOpt(Some(c.id))
-                        setCategoryOpen(false)
-                      }(mui.Typography(c.name).sx(new CSSPropertiesUtils { fontSize = "14px" }))
-                      .withKey(c.id.toString): ReactElement)
-                  }*
-                )
-              ): ReactElement)
-            else Fragment()
-          ),
-          mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
-            mui.Button
-              .normal()("Save")
-              .variant("contained")
-              .size("small")
-              .`type`("submit")
-              .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
-            mui.Button.normal()("Cancel").size("small").onClick(_ => props.onCancel())
-          )
+            .value(amount)
+            .onChange(e => setAmount(e.target.asInstanceOf[dom.HTMLInputElement].value))
+            .sx(new CSSPropertiesUtils { flex = "1" }),
+          mui.TextField
+            .outlined()
+            .label("Date")
+            .size("small")
+            .value(date)
+            .onChange(e => setDate(e.target.asInstanceOf[dom.HTMLInputElement].value))
+            .sx(new CSSPropertiesUtils { flex = "1" })
+        ),
+        mui.TextField
+          .outlined()
+          .label("Notes")
+          .size("small")
+          .value(notes)
+          .onChange(e => setNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+        (mui.Autocomplete.withProps(merchantAcProps).withKey("merchant"): ReactElement),
+        (mui.Autocomplete.withProps(categoryAcProps).withKey("category"): ReactElement),
+        mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
+          mui.Button
+            .normal()("Save")
+            .variant("contained")
+            .size("small")
+            .`type`("submit")
+            .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
+          mui.Button.normal()("Cancel").size("small").onClick(_ => props.onCancel())
         )
       )
     )
