@@ -53,9 +53,7 @@ object AiStatementExtractor {
   /** Outcome of re-checking a draft's arithmetic. `unverifiable` has the same meaning as on [[ExtractionResult]]. */
   final case class Reconciliation(reconciled: Boolean, unverifiable: Boolean, discrepancy: Option[String])
 
-  /** An unverifiable outcome can be accepted as-is only when there are transactions: with no rows there is nothing to
-    * accept. Shared by the extraction ladder, the draft payload flag and the confirm gate so they can't disagree.
-    */
+  /** An unverifiable outcome is acceptable only when there is at least one transaction. */
   def isTerminalUnverifiable(unverifiable: Boolean, transactionCount: Int): Boolean =
     unverifiable && transactionCount > 0
 

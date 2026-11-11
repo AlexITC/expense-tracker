@@ -38,7 +38,7 @@ class UpdateBankStatementDraftAction @Inject() (bankStatementDraftRepository: Ba
       closingBalance = payload.metadata.closingBalance,
       payload.transactions.map(t => (t.amount, t.runningBalance))
     )
-    // Same rule as the extraction ladder: with no rows there is nothing to accept unverified.
+    // With no rows there is nothing to accept unverified.
     payload.copy(
       reconciled = r.reconciled,
       discrepancy = r.discrepancy,

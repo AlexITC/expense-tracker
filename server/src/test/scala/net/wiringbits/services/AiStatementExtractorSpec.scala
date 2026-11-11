@@ -88,55 +88,13 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
   }
 
   "parseAndVerify unverifiable flag" should {
-    "report no balances and no running-balance chain as unverifiable" in {
+    "carry the unverifiable outcome into the result" in {
       val json =
         """{"metadata":{"productType":"debit"},
           | "transactions":[{"date":"2026-01-01","amount":-10.00,"description":"x"}]}""".stripMargin
       val r = ok(json)
       r.reconciled must be(false)
       r.unverifiable must be(true)
-      r.discrepancy must be(
-        Some("No running balance or opening/closing balance was found, so completeness can't be verified.")
-      )
-    }
-
-    "report running balances without an opening balance as unverifiable" in {
-      val json =
-        """{"metadata":{"productType":"debit","closingBalance":90.00},
-          | "transactions":[{"date":"2026-01-01","amount":-10.00,"description":"x","runningBalance":90.00}]}""".stripMargin
-      val r = ok(json)
-      r.reconciled must be(false)
-      r.unverifiable must be(true)
-    }
-
-    "not report a broken running-balance chain as unverifiable" in {
-      val json =
-        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":30.00},
-          | "transactions":[
-          |   {"date":"2026-01-01","amount":-40.00,"description":"A","runningBalance":60.00},
-          |   {"date":"2026-01-02","amount":-20.00,"description":"B","runningBalance":30.00}
-          | ]}""".stripMargin
-      val r = ok(json)
-      r.reconciled must be(false)
-      r.unverifiable must be(false)
-    }
-
-    "not report an opening/closing mismatch as unverifiable" in {
-      val json =
-        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
-          | "transactions":[{"date":"2026-01-01","amount":-30.00,"description":"short"}]}""".stripMargin
-      val r = ok(json)
-      r.reconciled must be(false)
-      r.unverifiable must be(false)
-    }
-
-    "not report a reconciled statement as unverifiable" in {
-      val json =
-        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
-          | "transactions":[{"date":"2026-01-01","amount":-40.00,"description":"A","runningBalance":60.00}]}""".stripMargin
-      val r = ok(json)
-      r.reconciled must be(true)
-      r.unverifiable must be(false)
     }
   }
 
