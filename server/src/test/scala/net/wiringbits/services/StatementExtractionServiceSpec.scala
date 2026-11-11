@@ -1,7 +1,7 @@
 package net.wiringbits.services
 
 import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
-import net.wiringbits.apis.{BdaClient, BedrockClient}
+import net.wiringbits.apis.{BdaClient, BedrockClient, BedrockRateLimitedException}
 import net.wiringbits.config.BedrockConfig
 import net.wiringbits.core.RepositorySpec
 import net.wiringbits.models.{AWSAccessKeyId, AWSSecretAccessKey}
@@ -215,6 +215,33 @@ class StatementExtractionServiceSpec extends RepositorySpec with BeforeAndAfterA
       run.result.unverifiable mustBe false
       run.result.discrepancy.exists(_.contains("off by")) mustBe true
       run.result.source mustBe Some(ExtractionSource.PdfText)
+    }
+
+    "fail with the throttle when a later rung's Bedrock call is rate limited" in withRepositories() { repositories =>
+      val marker = UUID.randomUUID().toString
+      val text = s"PDF statement $marker"
+      val bedrock = new BedrockClient {
+        override def extractBankStatement(statementText: String, feedback: Option[String]): Future[String] =
+          if (statementText == text) Future.successful(netMismatch)
+          else Future.failed(new BedrockRateLimitedException("limit reached"))
+        override def suggest(prompt: String): Future[String] =
+          Future.failed(new RuntimeException("unexpected suggest"))
+      }
+      val service = new StatementExtractionService(
+        bedrock,
+        bedrockConfig,
+        new RecordingTextract,
+        repositories.textractCache,
+        new RecordingBda(Some(s"BDA markdown $marker")),
+        system
+      )
+
+      val error = service
+        .extract(label = "test", sha256 = marker, storageKey = s"key-$marker", text = text)
+        .failed
+        .futureValue
+
+      error mustBe a[BedrockRateLimitedException]
     }
   }
 }

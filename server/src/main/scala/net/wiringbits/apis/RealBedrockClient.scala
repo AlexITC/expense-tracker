@@ -4,6 +4,8 @@ import net.wiringbits.config.BedrockConfig
 import net.wiringbits.models.RateLimitKey
 import net.wiringbits.util.RateLimiter
 import software.amazon.awssdk.auth.credentials.{AwsBasicCredentials, StaticCredentialsProvider}
+import software.amazon.awssdk.awscore.exception.AwsServiceException
+import software.amazon.awssdk.core.exception.SdkException
 import software.amazon.awssdk.http.nio.netty.NettyNioAsyncHttpClient
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeAsyncClient
 import software.amazon.awssdk.services.bedrockruntime.model.{
@@ -13,9 +15,11 @@ import software.amazon.awssdk.services.bedrockruntime.model.{
   ConverseResponse,
   InferenceConfiguration,
   Message,
-  StopReason
+  StopReason,
+  ThrottlingException
 }
 
+import scala.annotation.tailrec
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.FutureConverters.*
 
@@ -180,3 +184,36 @@ object RealBedrockClient {
   * next to RealBedrockClient (its only thrower) because the Layering wart only allows same-file siblings in `apis`.
   */
 class BedrockRateLimitedException(message: String) extends RuntimeException(message)
+
+/** Classifies Bedrock call failures. Lives in this file (not the BedrockClient companion) because it references
+  * BedrockRateLimitedException, and the Layering wart only allows same-file siblings in `apis`.
+  */
+object BedrockFailures {
+
+  /** True when the failure is a Bedrock throttle: our shared limiter denied the call, or AWS throttled it. Walks the
+    * cause chain because AWS async failures may arrive wrapped (e.g. in a `CompletionException`).
+    */
+  def isThrottled(ex: Throwable): Boolean =
+    existsInChain(ex) {
+      case _: BedrockRateLimitedException => true
+      case _: ThrottlingException => true
+      case e: AwsServiceException => e.statusCode() == 429
+      case _ => false
+    }
+
+  /** True when an AWS SDK exception is anywhere in the cause chain; its message is raw SDK text, unfit for users. */
+  def isAwsSdkFailure(ex: Throwable): Boolean =
+    existsInChain(ex) {
+      case _: SdkException => true
+      case _ => false
+    }
+
+  @tailrec
+  private def existsInChain(ex: Throwable)(p: Throwable => Boolean): Boolean =
+    if (p(ex)) true
+    else
+      Option(ex.getCause) match {
+        case Some(cause) if cause ne ex => existsInChain(cause)(p)
+        case _ => false
+      }
+}

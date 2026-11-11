@@ -1,6 +1,7 @@
 package net.wiringbits.actions.bankstatements
 
 import net.wiringbits.api.models.bankstatements.BankStatementDraft as ApiDraft
+import net.wiringbits.apis.BedrockFailures
 import net.wiringbits.models.documents.DocumentClass
 import net.wiringbits.repositories.{BankStatementDraftRepository, DocumentsRepository}
 import net.wiringbits.repositories.models.BankStatementDraft as DraftRecord
@@ -22,9 +23,11 @@ import scala.concurrent.{ExecutionContext, Future}
 /** Background job: read the draft's stored PDF, run the shared extraction ladder, and set the draft's payload
   * (status=ready). Before extracting, the PDF text goes through the AI document classifier: its answer is stored on the
   * draft's document, and a document confidently classified as something other than a bank statement fails the draft
-  * without running the (slow, paid) extraction; an inconclusive classification never blocks it. A hard failure is
-  * recorded on the draft (status=failed) rather than propagated, so the job doesn't retry forever and the user sees
-  * why. Skips drafts that are no longer processing, so a duplicate dispatch doesn't re-run the (slow, paid) extraction.
+  * without running the (slow, paid) extraction; an inconclusive classification never blocks it. A Bedrock throttle is
+  * propagated with the draft left processing, so the background job records the failure and retries it with backoff.
+  * Any other hard failure is recorded on the draft (status=failed) rather than propagated, so the job doesn't retry
+  * forever and the user sees why; raw AWS SDK messages are replaced with a fixed user-facing one. Skips drafts that are
+  * no longer processing, so a duplicate dispatch doesn't re-run the (slow, paid) extraction.
   */
 class ExtractBankStatementDraftAction @Inject() (
     bankStatementDraftRepository: BankStatementDraftRepository,
@@ -57,9 +60,20 @@ class ExtractBankStatementDraftAction @Inject() (
             case None => extract(draft, text)
           }
         } yield ()
-        run.recoverWith { case ex =>
-          logger.warn(s"Draft $draftId extraction failed: ${ex.getMessage}")
-          bankStatementDraftRepository.markFailed(draftId, ex.getMessage, clock.instant())
+        run.recoverWith {
+          case ex if BedrockFailures.isThrottled(ex) =>
+            logger.warn(s"Draft $draftId extraction throttled (${ex.getMessage}); retrying via job backoff")
+            Future.failed(ex)
+          case ex if BedrockFailures.isAwsSdkFailure(ex) =>
+            logger.warn(s"Draft $draftId extraction failed with an AWS error", ex)
+            bankStatementDraftRepository.markFailed(
+              draftId,
+              ExtractBankStatementDraftAction.AiServiceFailedMessage,
+              clock.instant()
+            )
+          case ex =>
+            logger.warn(s"Draft $draftId extraction failed: ${ex.getMessage}")
+            bankStatementDraftRepository.markFailed(draftId, ex.getMessage, clock.instant())
         }
     }
 
@@ -86,6 +100,8 @@ class ExtractBankStatementDraftAction @Inject() (
 }
 
 object ExtractBankStatementDraftAction {
+
+  private[bankstatements] val AiServiceFailedMessage = "The AI extraction service failed; please try uploading again."
 
   private[bankstatements] def toPayload(result: AiStatementExtractor.ExtractionResult): ApiDraft.Payload =
     ApiDraft.Payload(
