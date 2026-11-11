@@ -1305,7 +1305,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       val path = BankStatementReviewLogic.backToListPath(stmt)
       path must startWith("/bank-statements?")
       BankStatementsLogic.parseListQuery(path.stripPrefix("/bank-statements")) mustBe
-        BankStatementsLogic.ListQuery(account = "Banco Azteca~credit~1234", name = "")
+        BankStatementsLogic.ListQuery(account = "Banco Azteca~credit~1234~USD", name = "")
     }
   }
 

@@ -35,21 +35,32 @@ class BankStatementListSpec extends AnyWordSpec {
     )
 
   "accountKeyOf" should {
-    "build a key from bank + product type + last 4" in {
-      BankStatementList.accountKeyOf(stmt(bankName = "BBVA", productType = "credit", accountLast4 = "1234")) mustBe
-        "BBVA~credit~1234"
+    "build a key from bank + product type + last 4 + currency" in {
+      BankStatementList.accountKeyOf(
+        stmt(bankName = "BBVA", productType = "credit", accountLast4 = "1234", currency = "EUR")
+      ) mustBe "BBVA~credit~1234~EUR"
     }
   }
 
   "accountLabelOf" should {
-    "render bank, product label in parentheses and last 4" in {
-      BankStatementList.accountLabelOf(stmt(bankName = "BBVA", productType = "credit", accountLast4 = "8927")) mustBe
-        "BBVA (Credit) ••••8927"
+    "render bank, product label in parentheses, last 4 and currency" in {
+      BankStatementList.accountLabelOf(
+        stmt(bankName = "BBVA", productType = "credit", accountLast4 = "8927", currency = "EUR"),
+        Map.empty
+      ) mustBe "BBVA (Credit) ••••8927 · EUR"
     }
 
     "pass through unknown product types" in {
-      BankStatementList.accountLabelOf(stmt(bankName = "BBVA", productType = "savings", accountLast4 = "8927")) mustBe
-        "BBVA (savings) ••••8927"
+      BankStatementList.accountLabelOf(
+        stmt(bankName = "BBVA", productType = "savings", accountLast4 = "8927", currency = "EUR"),
+        Map.empty
+      ) mustBe "BBVA (savings) ••••8927 · EUR"
+    }
+
+    "use the account alias when the map has one for the account" in {
+      val s = stmt(bankName = "Example Bank", accountLast4 = "1111", currency = "EUR")
+      val aliasByKey = Map(BankStatementList.accountKeyOf(s) -> "Travel card")
+      BankStatementList.accountLabelOf(s, aliasByKey) mustBe "Travel card (Example Bank (Credit) ••••1111 · EUR)"
     }
   }
 

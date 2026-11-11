@@ -2,10 +2,13 @@ package net.wiringbits.components.pages.bankstatementreview
 
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.api.models.bankstatements.GetBankStatement
+import net.wiringbits.components.pages.bankstatements.{AccountAliasEditor, BankStatementsLogic}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.useHistory
 import slinky.core.facade.{Fragment, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
+
+import scala.concurrent.Future
 
 /** The review page title row (filename, row count, actions) and the statement metadata line. */
 object BankStatementReviewHeader {
@@ -14,9 +17,34 @@ object BankStatementReviewHeader {
   case class Props(
       statement: GetBankStatement.Response,
       rowCount: Int,
+      currentAlias: String,
       regenerateDisabled: Boolean,
-      onRegenerate: () => Unit
+      onRegenerate: () => Unit,
+      onSaveAlias: String => Future[Unit]
   )
+
+  /** The account the statement belongs to, by its display label (nickname included when set), and its nickname editor.
+    */
+  private def accountLine(
+      stmt: GetBankStatement.Response,
+      currentAlias: String,
+      onSaveAlias: String => Future[Unit]
+  ): ReactElement =
+    val label = BankStatementsLogic.accountLabel(
+      bankName = stmt.bankName,
+      productType = stmt.productType,
+      accountLast4 = stmt.accountLast4,
+      currency = stmt.currency,
+      alias = Option(currentAlias).filter(_.nonEmpty)
+    )
+    mui.Box.sx(new CSSPropertiesUtils {
+      display = "flex"; alignItems = "center"; flexWrap = "wrap"; gap = "12px"; marginBottom = "2px"
+    })(
+      mui
+        .Typography(s"Account: $label")
+        .sx(new CSSPropertiesUtils { fontSize = "13px"; color = "var(--lc-text-2)" }),
+      AccountAliasEditor(AccountAliasEditor.Props(currentAlias = currentAlias, onSave = onSaveAlias))
+    )
 
   /** A one-line summary of the statement metadata. */
   private def statementMetadataLine(stmt: GetBankStatement.Response): ReactElement = {
@@ -29,7 +57,6 @@ object BankStatementReviewHeader {
       s"Bank: ${stmt.bankName}",
       productType,
       s"Currency: ${stmt.currency}",
-      s"Account: ••••${stmt.accountLast4}",
       s"Period: ${stmt.periodStart} – ${stmt.periodEnd}"
     )
     mui
@@ -75,6 +102,7 @@ object BankStatementReviewHeader {
           .variant("outlined")
           .onClick(_ => history.push(BankStatementReviewLogic.backToListPath(stmt)))
       ),
+      accountLine(stmt, props.currentAlias, props.onSaveAlias),
       statementMetadataLine(stmt)
     )
   }

@@ -1,10 +1,13 @@
 package net.wiringbits.repositories
 import net.wiringbits.repositories.support.ConstraintViolations
 
+import com.github.f4b6a3.uuid.UuidCreator
+import io.scalaland.chimney.dsl.*
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, ExtractionInfo}
 import net.wiringbits.executors.DatabaseExecutionContext
 import net.wiringbits.repositories.daos.{
   BackgroundJobDAO,
+  BankAccountAliasDAO,
   BankStatementDAO,
   BankStatementRowDAO,
   DocumentDAO,
@@ -12,6 +15,7 @@ import net.wiringbits.repositories.daos.{
 }
 import net.wiringbits.repositories.models.{
   BackgroundJobData,
+  BankAccountAlias,
   BankStatement,
   BankStatementRow,
   BankStatementRowLinkedExpense,
@@ -43,9 +47,37 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
       if (DocumentDAO.find(id = stmt.documentId, userId = stmt.userId).isEmpty)
         throw new RuntimeException("Document not found")
       BankStatementDAO.create(stmt, metadata, extractionInfo)
+      BankAccountAliasDAO.ensureExists(
+        id = UuidCreator.getTimeOrderedEpoch(),
+        userId = stmt.userId,
+        key = metadata.transformInto[BankAccountAlias.Key],
+        now = stmt.createdAt
+      )
       BankStatementRowDAO.createAll(rows)
       BackgroundJobDAO.create(job)
       stmt.id
+    }
+  }
+
+  /** Names the account the given statement belongs to; the statement lookup is what proves the user owns it. */
+  def setAccountAlias(bankStatementId: UUID, userId: UUID, alias: String, now: Instant): Future[Unit] = Future {
+    database.withTransaction { implicit conn =>
+      val stmt = BankStatementDAO
+        .find(id = bankStatementId, userId = userId)
+        .getOrElse(throw new RuntimeException("Bank statement not found"))
+      BankAccountAliasDAO.upsert(
+        id = UuidCreator.getTimeOrderedEpoch(),
+        userId = userId,
+        key = stmt.transformInto[BankAccountAlias.Key],
+        alias = alias,
+        now = now
+      )
+    }
+  }
+
+  def listAccountAliases(userId: UUID): Future[List[BankAccountAlias]] = Future {
+    database.withConnection { implicit conn =>
+      BankAccountAliasDAO.listForUser(userId)
     }
   }
 

@@ -33,7 +33,9 @@ class BankStatementsController @Inject() (
     ignoreRowAction: IgnoreRowAction,
     unignoreRowAction: UnignoreRowAction,
     createRefundFromRowAction: CreateRefundFromRowAction,
-    unlinkRowRefundAction: UnlinkRowRefundAction
+    unlinkRowRefundAction: UnlinkRowRefundAction,
+    setAccountAliasAction: SetAccountAliasAction,
+    getAccountAliasesAction: GetAccountAliasesAction
 )(implicit ec: ExecutionContext) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
@@ -109,6 +111,14 @@ class BankStatementsController @Inject() (
       for {
         userId <- userIdF
         response <- getBankStatementsAction(userId)
+      } yield Right(response)
+    }
+
+  private def getAccountAliases(userIdF: Future[UUID]): Future[Either[ErrorResponse, GetAccountAliases.Response]] =
+    handleRequest {
+      for {
+        userId <- userIdF
+        response <- getAccountAliasesAction(userId)
       } yield Right(response)
     }
 
@@ -257,6 +267,17 @@ class BankStatementsController @Inject() (
     } yield Right(response)
   }
 
+  private def setAccountAlias(
+      bankStatementId: UUID,
+      request: SetAccountAlias.Request,
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, SetAccountAlias.Response]] = handleRequest {
+    for {
+      userId <- userIdF
+      response <- setAccountAliasAction(bankStatementId = bankStatementId, userId = userId, request)
+    } yield Right(response)
+  }
+
   def routes: List[ServerEndpoint[PekkoStreams & WebSockets, Future]] =
     List(
       BankStatementsEndpoints.createDraft.serverLogic(createDraft),
@@ -267,6 +288,7 @@ class BankStatementsController @Inject() (
       BankStatementsEndpoints.discardDraft.serverLogic(discardDraft),
       BankStatementsEndpoints.getAll.serverLogic(getAll),
       BankStatementsEndpoints.getAllRows.serverLogic(getAllRows),
+      BankStatementsEndpoints.getAccountAliases.serverLogic(getAccountAliases),
       BankStatementsEndpoints.getOne.serverLogic(getOne),
       BankStatementsEndpoints.regenerateAiSuggestions.serverLogic(regenerateAiSuggestions),
       BankStatementsEndpoints.confirmRow.serverLogic(confirmRow),
@@ -277,6 +299,7 @@ class BankStatementsController @Inject() (
       BankStatementsEndpoints.linkRowToExpense.serverLogic(linkRowToExpense),
       BankStatementsEndpoints.unlinkRow.serverLogic(unlinkRow),
       BankStatementsEndpoints.ignoreRow.serverLogic(ignoreRow),
-      BankStatementsEndpoints.unignoreRow.serverLogic(unignoreRow)
+      BankStatementsEndpoints.unignoreRow.serverLogic(unignoreRow),
+      BankStatementsEndpoints.setAccountAlias.serverLogic(setAccountAlias)
     )
 }

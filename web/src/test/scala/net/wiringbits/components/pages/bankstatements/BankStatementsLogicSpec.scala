@@ -1,6 +1,6 @@
 package net.wiringbits.components.pages.bankstatements
 
-import net.wiringbits.api.models.bankstatements.{GetBankStatement, GetBankStatements}
+import net.wiringbits.api.models.bankstatements.{GetAccountAliases, GetBankStatement, GetBankStatements}
 import net.wiringbits.api.models.documents.DocumentStatus
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
@@ -15,6 +15,7 @@ class BankStatementsLogicSpec extends AnyWordSpec {
       createdAt: Instant,
       bankName: String = "BBVA",
       productType: String = "credit",
+      currency: String = "EUR",
       periodStart: LocalDate = LocalDate.of(2026, 4, 1),
       documentFilename: String = "s.pdf",
       totalRows: Int = 0,
@@ -27,7 +28,7 @@ class BankStatementsLogicSpec extends AnyWordSpec {
       documentStatus = DocumentStatus.Parsed,
       bankName = bankName,
       productType = productType,
-      currency = "EUR",
+      currency = currency,
       accountLast4 = accountLast4,
       periodStart = periodStart,
       periodEnd = periodStart.plusMonths(1).minusDays(1),
@@ -46,7 +47,7 @@ class BankStatementsLogicSpec extends AnyWordSpec {
         stmt(accountLast4 = "2222", createdAt = t0.plusSeconds(3600)),
         stmt(accountLast4 = "3333", createdAt = t0.minusSeconds(3600))
       )
-      BankStatementsLogic.defaultAccountKey(stmts) mustBe Some("BBVA~credit~2222")
+      BankStatementsLogic.defaultAccountKey(stmts) mustBe Some("BBVA~credit~2222~EUR")
     }
 
     "return None for an empty list" in {
@@ -58,7 +59,7 @@ class BankStatementsLogicSpec extends AnyWordSpec {
         stmt(accountLast4 = "1111", createdAt = t0),
         stmt(accountLast4 = "2222", createdAt = t0)
       )
-      BankStatementsLogic.defaultAccountKey(stmts) mustBe Some("BBVA~credit~1111")
+      BankStatementsLogic.defaultAccountKey(stmts) mustBe Some("BBVA~credit~1111~EUR")
     }
   }
 
@@ -69,11 +70,11 @@ class BankStatementsLogicSpec extends AnyWordSpec {
     )
 
     "keep the chosen account while it exists, even when another account is newer" in {
-      BankStatementsLogic.selectedAccountKey("BBVA~credit~1111", stmts) mustBe Some("BBVA~credit~1111")
+      BankStatementsLogic.selectedAccountKey("BBVA~credit~1111~EUR", stmts) mustBe Some("BBVA~credit~1111~EUR")
     }
 
     "fall back to the newest account when the chosen one is gone" in {
-      BankStatementsLogic.selectedAccountKey("BBVA~credit~9999", stmts) mustBe Some("BBVA~credit~2222")
+      BankStatementsLogic.selectedAccountKey("BBVA~credit~9999~EUR", stmts) mustBe Some("BBVA~credit~2222~EUR")
     }
 
     "return None when nothing is chosen and there are no statements" in {
@@ -83,7 +84,7 @@ class BankStatementsLogicSpec extends AnyWordSpec {
 
   "timeline" should {
     def month(m: Int): LocalDate = LocalDate.of(2026, m, 1)
-    val key = Some("BBVA~credit~1111")
+    val key = Some("BBVA~credit~1111~EUR")
     val jan = stmt(accountLast4 = "1111", createdAt = t0, periodStart = month(1), documentFilename = "jan.pdf")
     val feb = stmt(accountLast4 = "1111", createdAt = t0, periodStart = month(2), documentFilename = "feb.pdf")
     val mar = stmt(accountLast4 = "1111", createdAt = t0, periodStart = month(3), documentFilename = "mar.pdf")
@@ -177,9 +178,13 @@ class BankStatementsLogicSpec extends AnyWordSpec {
   }
 
   "accountKey" should {
-    "join bank, product type and last 4 with ~" in {
-      BankStatementsLogic.accountKey(bankName = "Banco de Chile", productType = "debit", accountLast4 = "1234") mustBe
-        "Banco de Chile~debit~1234"
+    "join bank, product type, last 4 and currency with ~" in {
+      BankStatementsLogic.accountKey(
+        bankName = "Banco de Chile",
+        productType = "debit",
+        accountLast4 = "1234",
+        currency = "CLP"
+      ) mustBe "Banco de Chile~debit~1234~CLP"
     }
   }
 
@@ -209,7 +214,7 @@ class BankStatementsLogicSpec extends AnyWordSpec {
     "describe a statement with no rows" in {
       BankStatementsLogic.deleteSummaryLines(s, Nil) mustBe List(
         "File: apr.pdf",
-        "Account: BBVA (Credit) ••••1234",
+        "Account: BBVA (Credit) ••••1234 · EUR",
         "Period: 2026-04-01 → 2026-04-30",
         "Rows: 0",
         "0 linked expenses will be kept but unlinked from this statement.",
@@ -328,6 +333,79 @@ class BankStatementsLogicSpec extends AnyWordSpec {
       val result = BankStatementsLogic.removeStatement(List(a, b), a.id)
       result mustBe List(b.copy(overlappingStatementIds = Nil))
       BankStatementsLogic.duplicateBadgeText(result.head, result) mustBe None
+    }
+  }
+
+  "accountLabel" should {
+    "put the alias in front of the default label" in {
+      BankStatementsLogic.accountLabel(
+        bankName = "Example Bank",
+        productType = "credit",
+        accountLast4 = "1111",
+        currency = "EUR",
+        alias = Some("Travel card")
+      ) mustBe
+        "Travel card (Example Bank (Credit) ••••1111 · EUR)"
+    }
+
+    "return the default label for an empty alias" in {
+      BankStatementsLogic.accountLabel(
+        bankName = "Example Bank",
+        productType = "credit",
+        accountLast4 = "1111",
+        currency = "EUR",
+        alias = Some("")
+      ) mustBe
+        "Example Bank (Credit) ••••1111 · EUR"
+    }
+
+    "return the default label without an alias" in {
+      BankStatementsLogic.accountLabel(
+        bankName = "Example Bank",
+        productType = "debit",
+        accountLast4 = "1111",
+        currency = "USD",
+        alias = None
+      ) mustBe
+        "Example Bank (Debit) ••••1111 · USD"
+    }
+  }
+
+  "accountRepresentative" should {
+    "pick the newest-created statement of the account" in {
+      val older = stmt(accountLast4 = "1111", createdAt = t0, bankName = "Example Bank")
+      val newest = stmt(accountLast4 = "1111", createdAt = t0.plusSeconds(3600), bankName = "Example Bank")
+      val other = stmt(accountLast4 = "2222", createdAt = t0.plusSeconds(7200), bankName = "Example Bank")
+      val stmts = List(older, newest, other)
+      BankStatementsLogic.accountRepresentative(stmts, Some("Example Bank~credit~1111~EUR")) mustBe Some(newest)
+      BankStatementsLogic.accountRepresentative(stmts, None) mustBe None
+    }
+  }
+
+  "aliasByKey" should {
+    "key each account's nickname by bank, product, last 4 and currency" in {
+      val resp = GetAccountAliases.Response(
+        List(
+          GetAccountAliases.Account(
+            bankName = "Example Bank",
+            productType = "credit",
+            accountLast4 = "1111",
+            currency = "EUR",
+            alias = "Travel card"
+          ),
+          GetAccountAliases.Account(
+            bankName = "Example Bank",
+            productType = "credit",
+            accountLast4 = "1111",
+            currency = "USD",
+            alias = "US card"
+          )
+        )
+      )
+      BankStatementsLogic.aliasByKey(resp) mustBe Map(
+        "Example Bank~credit~1111~EUR" -> "Travel card",
+        "Example Bank~credit~1111~USD" -> "US card"
+      )
     }
   }
 }

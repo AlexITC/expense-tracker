@@ -54,7 +54,12 @@ object BankStatementReviewLogic {
     BankStatementsLogic.listPath(
       account = Some(
         BankStatementsLogic
-          .accountKey(bankName = stmt.bankName, productType = stmt.productType, accountLast4 = stmt.accountLast4)
+          .accountKey(
+            bankName = stmt.bankName,
+            productType = stmt.productType,
+            accountLast4 = stmt.accountLast4,
+            currency = stmt.currency
+          )
       ),
       name = ""
     )

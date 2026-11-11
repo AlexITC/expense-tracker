@@ -4,7 +4,12 @@ import anorm.*
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.github.f4b6a3.uuid.UuidCreator
 import controllers.common.PlayPostgresSpec
-import net.wiringbits.api.models.bankstatements.{BankStatementDraft, ConfirmWarningKind, ExtractionInfo}
+import net.wiringbits.api.models.bankstatements.{
+  BankStatementDraft,
+  ConfirmWarningKind,
+  ExtractionInfo,
+  SetAccountAlias
+}
 import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
 import net.wiringbits.api.models.documents.DocumentStatus
 import net.wiringbits.apis.models.EmailRequest
@@ -426,6 +431,19 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       val response = client.confirmBankStatementDraft(second, acceptWarnings = false).futureValue
       response.warnings must be(empty)
       response.bankStatementId must not be None
+    }
+
+    "keep the existing nickname of the account" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val first = seedReadyDraft(userId, reconcilingPayload)
+      val firstId = client.confirmBankStatementDraft(first, acceptWarnings = false).futureValue.bankStatementId.value
+      client.setBankStatementAccountAlias(firstId, SetAccountAlias.Request("Travel card")).futureValue
+
+      // Confirming a second statement of the same account must not clobber the existing nickname to empty.
+      val second = seedReadyDraft(userId, reconcilingPayload)
+      val _ = client.confirmBankStatementDraft(second, acceptWarnings = true).futureValue.bankStatementId.value
+
+      client.getBankStatementAccountAliases.futureValue.accounts.map(_.alias) must be(List("Travel card"))
     }
 
     "not warn about another user's overlapping statement" in withApiClient { implicit client =>

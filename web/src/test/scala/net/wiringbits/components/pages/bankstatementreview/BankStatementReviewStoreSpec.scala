@@ -201,6 +201,32 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
     }
   }
 
+  "setAccountAlias" should {
+    "be ignored while the statement is loading" in {
+      val store = new BankStatementReviewStore
+      store.setAccountAlias("Travel card")
+      store.$statement() mustBe Loadable.Loading
+    }
+
+    "be ignored once the statement failed" in {
+      val store = new BankStatementReviewStore
+      store.statementFailed("boom")
+      store.setAccountAlias("Travel card")
+      store.$statement() mustBe Loadable.Failed("boom")
+    }
+
+    "set the nickname in its own slot and keep the statement and rows" in {
+      val store = new BankStatementReviewStore
+      val row = sampleRow("A")
+      val stmt = statement(List(row))
+      store.statementLoaded(stmt)
+      store.setAccountAlias("Travel card")
+      store.$accountAlias() mustBe "Travel card"
+      store.$statement() mustBe Loadable.Loaded(stmt)
+      store.$rows() mustBe List(row)
+    }
+  }
+
   "patchRow" should {
     "change only the target row" in {
       val store = new BankStatementReviewStore

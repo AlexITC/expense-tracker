@@ -8,7 +8,8 @@ import net.wiringbits.api.models.bankstatements.{
   AiSuggestions,
   AiSuggestionsStatus,
   CreateExpenseFromRow,
-  LinkRowToExpense
+  LinkRowToExpense,
+  SetAccountAlias
 }
 import net.wiringbits.api.models.categories.CreateCategory
 import net.wiringbits.api.models.merchants.CreateMerchant
@@ -83,6 +84,18 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
     import net.wiringbits.api.ApiClient
     implicit val sttpBackend: sttp.client3.SttpBackend[scala.concurrent.Future, ?] = HttpClientFutureBackend()
     new ApiClient(ApiClient.Config(s"http://localhost:$port"))
+  }
+
+  // The nickname of the statement's account, read from the account-aliases list (keyed by the account tuple). None when
+  // the account has no (non-empty) nickname — the list leaves empty ones out.
+  private def aliasOf(stmtId: UUID)(implicit client: net.wiringbits.api.ApiClient): Option[String] = {
+    val s = client.getBankStatement(stmtId).futureValue
+    client.getBankStatementAccountAliases.futureValue.accounts
+      .find(a =>
+        a.bankName == s.bankName && a.productType == s.productType &&
+          a.accountLast4 == s.accountLast4 && a.currency == s.currency
+      )
+      .map(_.alias)
   }
 
   // Any status: the live executor may already have run the job against MockBedrockClient.
@@ -176,6 +189,20 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
       byId(otherAccount) must be(empty)
       byId.values.flatten must not contain otherUserStmt
       client2.getBankStatements.futureValue.data.flatMap(_.overlappingStatementIds) must be(empty)
+    }
+
+    "include the account alias" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val stmtId = createBankStatement(userId)
+      val unnamedId = createBankStatement(userId, defaultStatementMetadata.copy(accountLast4 = "1111"))
+      app.injector
+        .instanceOf[BankStatementRepository]
+        .setAccountAlias(stmtId, userId, "Travel card", Instant.now())
+        .futureValue
+
+      aliasOf(stmtId) must be(Some("Travel card"))
+      aliasOf(unnamedId) must be(None)
     }
   }
 
@@ -387,6 +414,18 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
 
       client.getBankStatement(stmtId).futureValue.aiSuggestions must be(Some(suggestions))
     }
+
+    "include the account alias" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val stmtId = createBankStatement(userId)
+      app.injector
+        .instanceOf[BankStatementRepository]
+        .setAccountAlias(stmtId, userId, "Travel card", Instant.now())
+        .futureValue
+
+      aliasOf(stmtId) must be(Some("Travel card"))
+    }
   }
 
   "POST /bank-statements/:id/ai-suggestions" should {
@@ -430,6 +469,80 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
     "reject requests without a valid session" in withApiClient { client =>
       val error = client.getBankStatements.expectError
       error must be("Unauthorized: Invalid or missing authentication")
+    }
+  }
+
+  "PUT /bank-statements/:id/account-alias" should {
+    "name every statement of the same account" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val stmtId = createBankStatement(userId)
+      val sameAccountId = createBankStatement(userId)
+      val otherAccountId = createBankStatement(userId, defaultStatementMetadata.copy(accountLast4 = "1111"))
+
+      val response = client.setBankStatementAccountAlias(stmtId, SetAccountAlias.Request("Travel card")).futureValue
+      response.alias must be("Travel card")
+
+      aliasOf(stmtId) must be(Some("Travel card"))
+      aliasOf(sameAccountId) must be(Some("Travel card"))
+      aliasOf(otherAccountId) must be(None)
+    }
+
+    "replace an existing nickname" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val stmtId = createBankStatement(client.currentUser.futureValue.id)
+
+      client.setBankStatementAccountAlias(stmtId, SetAccountAlias.Request("Travel card")).futureValue
+      client.setBankStatementAccountAlias(stmtId, SetAccountAlias.Request("Daily card")).futureValue
+
+      aliasOf(stmtId) must be(Some("Daily card"))
+    }
+
+    "store an empty nickname" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val stmtId = createBankStatement(client.currentUser.futureValue.id)
+      client.setBankStatementAccountAlias(stmtId, SetAccountAlias.Request("Travel card")).futureValue
+
+      val response = client.setBankStatementAccountAlias(stmtId, SetAccountAlias.Request("")).futureValue
+      response.alias must be("")
+
+      aliasOf(stmtId) must be(None)
+    }
+
+    "accept a nickname of exactly the maximum length" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val stmtId = createBankStatement(client.currentUser.futureValue.id)
+      val alias = "a" * SetAccountAlias.MaxAliasLength
+
+      client.setBankStatementAccountAlias(stmtId, SetAccountAlias.Request(alias)).futureValue
+
+      aliasOf(stmtId) must be(Some(alias))
+    }
+
+    "reject a nickname over the maximum length without changing the stored one" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val stmtId = createBankStatement(client.currentUser.futureValue.id)
+      client.setBankStatementAccountAlias(stmtId, SetAccountAlias.Request("Travel card")).futureValue
+
+      val error = client
+        .setBankStatementAccountAlias(stmtId, SetAccountAlias.Request("a" * (SetAccountAlias.MaxAliasLength + 1)))
+        .expectError
+      error must be("Nickname must be 60 characters or less")
+
+      aliasOf(stmtId) must be(Some("Travel card"))
+    }
+
+    "not name another user's account" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val stmtId = createBankStatement(client.currentUser.futureValue.id)
+      client.setBankStatementAccountAlias(stmtId, SetAccountAlias.Request("Travel card")).futureValue
+
+      val client2 = buildClient()
+      createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
+      val error = client2.setBankStatementAccountAlias(stmtId, SetAccountAlias.Request("Hijacked")).expectError
+      error must be("Bank statement not found")
+
+      aliasOf(stmtId) must be(Some("Travel card"))
     }
   }
 }
