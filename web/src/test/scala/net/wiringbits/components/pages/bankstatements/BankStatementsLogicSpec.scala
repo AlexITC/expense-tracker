@@ -34,7 +34,8 @@ class BankStatementsLogicSpec extends AnyWordSpec {
       createdAt = createdAt,
       totalRows = totalRows,
       processedRows = processedRows,
-      overlappingStatementIds = overlappingStatementIds
+      overlappingStatementIds = overlappingStatementIds,
+      accountAlias = None
     )
 
   private val t0 = Instant.parse("2026-05-01T10:00:00Z")
@@ -303,7 +304,8 @@ class BankStatementsLogicSpec extends AnyWordSpec {
       statementRows = List(row(expenseId = Some(UUID.randomUUID())), row(expenseId = None)),
       createdAt = s.createdAt,
       extractionInfo = None,
-      aiSuggestions = None
+      aiSuggestions = None,
+      accountAlias = Some("Travel card")
     )
 
     "replace the polled statement's status and row counts" in {
@@ -318,6 +320,11 @@ class BankStatementsLogicSpec extends AnyWordSpec {
     "keep the polled statement's known overlaps" in {
       val result = BankStatementsLogic.mergePolled(List(s, untouched), updated)
       result.find(_.id == s.id).map(_.overlappingStatementIds) mustBe Some(List(other))
+    }
+
+    "take the polled statement's account alias" in {
+      val result = BankStatementsLogic.mergePolled(List(s, untouched), updated)
+      result.find(_.id == s.id).flatMap(_.accountAlias) mustBe Some("Travel card")
     }
   }
 

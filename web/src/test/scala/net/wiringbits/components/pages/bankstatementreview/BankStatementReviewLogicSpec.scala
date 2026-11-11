@@ -1265,7 +1265,8 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         statementRows = rowDates.toList.map(d => sampleRow().copy(date = d)),
         createdAt = Instant.now(),
         extractionInfo = None,
-        aiSuggestions = None
+        aiSuggestions = None,
+        accountAlias = None
       )
 
     "span the period, starting the match tolerance before it" in {
@@ -1300,7 +1301,8 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         statementRows = Nil,
         createdAt = Instant.now(),
         extractionInfo = None,
-        aiSuggestions = None
+        aiSuggestions = None,
+        accountAlias = None
       )
       val path = BankStatementReviewLogic.backToListPath(stmt)
       path must startWith("/bank-statements?")

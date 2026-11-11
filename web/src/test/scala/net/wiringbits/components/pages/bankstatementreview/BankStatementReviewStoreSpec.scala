@@ -57,7 +57,8 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
       statementRows = rows,
       createdAt = Instant.EPOCH,
       extractionInfo = None,
-      aiSuggestions = suggestions
+      aiSuggestions = suggestions,
+      accountAlias = None
     )
 
   private val emptySupport = ReviewSupport(Nil, Nil, Nil, Nil, Nil)

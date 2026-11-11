@@ -177,6 +177,21 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
       byId.values.flatten must not contain otherUserStmt
       client2.getBankStatements.futureValue.data.flatMap(_.overlappingStatementIds) must be(empty)
     }
+
+    "include the account alias" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val stmtId = createBankStatement(userId)
+      val unnamedId = createBankStatement(userId, defaultStatementMetadata.copy(accountLast4 = "1111"))
+      app.injector
+        .instanceOf[BankStatementRepository]
+        .setAccountAlias(stmtId, userId, "Travel card", Instant.now())
+        .futureValue
+
+      val byId = client.getBankStatements.futureValue.data.map(s => s.id -> s.accountAlias).toMap
+      byId(stmtId) must be(Some("Travel card"))
+      byId(unnamedId) must be(Some(""))
+    }
   }
 
   "POST /bank-statements/:id/rows/:rowId/ignore" should {
@@ -386,6 +401,18 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
         .futureValue
 
       client.getBankStatement(stmtId).futureValue.aiSuggestions must be(Some(suggestions))
+    }
+
+    "include the account alias" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val stmtId = createBankStatement(userId)
+      app.injector
+        .instanceOf[BankStatementRepository]
+        .setAccountAlias(stmtId, userId, "Travel card", Instant.now())
+        .futureValue
+
+      client.getBankStatement(stmtId).futureValue.accountAlias must be(Some("Travel card"))
     }
   }
 

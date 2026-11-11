@@ -31,7 +31,8 @@ class BankStatementListSpec extends AnyWordSpec {
       createdAt = Instant.now(),
       totalRows = 0,
       processedRows = 0,
-      overlappingStatementIds = Nil
+      overlappingStatementIds = Nil,
+      accountAlias = None
     )
 
   "accountKeyOf" should {

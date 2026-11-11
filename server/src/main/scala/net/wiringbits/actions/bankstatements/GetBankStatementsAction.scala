@@ -19,21 +19,10 @@ class GetBankStatementsAction @Inject() (bankStatementRepository: BankStatementR
       overlaps <- bankStatementRepository.overlappingStatementIds(userId)
     } yield {
       val items = stmts.map { s =>
-        GetBankStatements.Response.BankStatement(
-          id = s.id,
-          documentFilename = s.documentFilename,
-          documentStatus = s.documentStatus.transformInto[ApiDocumentStatus],
-          bankName = s.bankName,
-          productType = s.productType,
-          currency = s.currency,
-          accountLast4 = s.accountLast4,
-          periodStart = s.periodStart,
-          periodEnd = s.periodEnd,
-          createdAt = s.createdAt,
-          totalRows = s.totalRows,
-          processedRows = s.processedRows,
-          overlappingStatementIds = overlaps.getOrElse(s.id, Nil)
-        )
+        s.into[GetBankStatements.Response.BankStatement]
+          .withFieldConst(_.documentStatus, s.documentStatus.transformInto[ApiDocumentStatus])
+          .withFieldConst(_.overlappingStatementIds, overlaps.getOrElse(s.id, Nil))
+          .transform
       }
       GetBankStatements.Response(items)
     }

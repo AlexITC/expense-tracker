@@ -121,6 +121,14 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       findAlias(user.id, sampleAliasKey).value.alias must be("")
     }
 
+    "make find and all read the empty alias" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val id = confirm(user.id, None)
+
+      repositories.bankStatements.find(id, user.id).futureValue.value.accountAlias must be(Some(""))
+      repositories.bankStatements.all(user.id).futureValue.map(_.accountAlias) must be(List(Some("")))
+    }
+
     "keep an alias set before a later statement for the same account" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val first = confirm(user.id, None)
@@ -340,6 +348,33 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
 
       repositories.bankStatements.find(created.id, userB.id).futureValue must be(None)
     }
+
+    "return no alias when the account has no alias row" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val created = createBankStatement(user.id).futureValue
+
+      repositories.bankStatements.find(created.id, user.id).futureValue.value.accountAlias must be(None)
+    }
+
+    "return the alias set through another statement of the same account" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val a = createBankStatement(user.id).futureValue
+        val b = createBankStatement(user.id).futureValue
+        repositories.bankStatements.setAccountAlias(a.id, user.id, "Travel card", Instant.now()).futureValue
+
+        repositories.bankStatements.find(a.id, user.id).futureValue.value.accountAlias must be(Some("Travel card"))
+        repositories.bankStatements.find(b.id, user.id).futureValue.value.accountAlias must be(Some("Travel card"))
+    }
+
+    "ignore another user's alias for the same account" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val other = createUser().futureValue
+      val created = createBankStatement(user.id).futureValue
+      upsertAlias(other.id, sampleAliasKey, "Other card")
+
+      repositories.bankStatements.find(created.id, user.id).futureValue.value.accountAlias must be(None)
+    }
   }
 
   "all" should {
@@ -357,6 +392,33 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     "return an empty list when the user has no statements" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       repositories.bankStatements.all(user.id).futureValue must be(empty)
+    }
+
+    "return no alias when the account has no alias row" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      createBankStatement(user.id).futureValue
+
+      repositories.bankStatements.all(user.id).futureValue.map(_.accountAlias) must be(List(None))
+    }
+
+    "return the alias on every statement of the same account" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val a = createBankStatement(user.id).futureValue
+      createBankStatement(user.id).futureValue
+      repositories.bankStatements.setAccountAlias(a.id, user.id, "Travel card", Instant.now()).futureValue
+
+      repositories.bankStatements.all(user.id).futureValue.map(_.accountAlias) must be(
+        List(Some("Travel card"), Some("Travel card"))
+      )
+    }
+
+    "ignore another user's alias for the same account" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val other = createUser().futureValue
+      createBankStatement(user.id).futureValue
+      upsertAlias(other.id, sampleAliasKey, "Other card")
+
+      repositories.bankStatements.all(user.id).futureValue.map(_.accountAlias) must be(List(None))
     }
   }
 

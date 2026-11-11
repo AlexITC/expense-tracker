@@ -24,25 +24,17 @@ class GetBankStatementAction @Inject() (bankStatementRepository: BankStatementRe
       rows <- bankStatementRepository.findRows(id)
       linkedExpenses <- bankStatementRepository.findRowLinkedExpenses(bankStatementId = id, userId = userId)
       linkedByRowId = linkedExpenses.map(l => l.rowId -> l).toMap
-    } yield GetBankStatement.Response(
-      id = view.id,
-      documentId = view.documentId,
-      documentFilename = view.documentFilename,
-      documentStatus = view.documentStatus.transformInto[ApiDocumentStatus],
-      bankName = view.bankName,
-      productType = view.productType,
-      currency = view.currency,
-      accountLast4 = view.accountLast4,
-      periodStart = view.periodStart,
-      periodEnd = view.periodEnd,
-      statementRows = rows.map { r =>
-        r.into[GetBankStatement.StatementRowData]
-          .withFieldComputed(_.expenseMerchantId, r => linkedByRowId.get(r.id).flatMap(_.merchantId))
-          .withFieldComputed(_.expenseCategoryId, r => linkedByRowId.get(r.id).flatMap(_.categoryId))
-          .transform
-      },
-      createdAt = view.createdAt,
-      extractionInfo = view.extractionInfo,
-      aiSuggestions = view.aiSuggestions
-    )
+    } yield view
+      .into[GetBankStatement.Response]
+      .withFieldConst(_.documentStatus, view.documentStatus.transformInto[ApiDocumentStatus])
+      .withFieldConst(
+        _.statementRows,
+        rows.map { r =>
+          r.into[GetBankStatement.StatementRowData]
+            .withFieldComputed(_.expenseMerchantId, r => linkedByRowId.get(r.id).flatMap(_.merchantId))
+            .withFieldComputed(_.expenseCategoryId, r => linkedByRowId.get(r.id).flatMap(_.categoryId))
+            .transform
+        }
+      )
+      .transform
 }

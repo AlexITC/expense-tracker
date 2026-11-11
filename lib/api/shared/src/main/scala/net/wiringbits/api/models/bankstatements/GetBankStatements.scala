@@ -27,7 +27,9 @@ object GetBankStatements {
         totalRows: Int,
         processedRows: Int,
         // Ids of this user's other statements for the same account whose period overlaps this one (possible duplicates).
-        overlappingStatementIds: List[UUID]
+        overlappingStatementIds: List[UUID],
+        // The account nickname as stored; None when the account has no alias row, Some("") when it is unnamed.
+        accountAlias: Option[String]
     )
 
     implicit val stmtFormat: Format[BankStatement] = Json.format[BankStatement]

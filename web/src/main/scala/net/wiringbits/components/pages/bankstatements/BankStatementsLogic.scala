@@ -98,7 +98,8 @@ object BankStatementsLogic {
           processedRows = updated.statementRows.count(row =>
             row.expenseId.isDefined || row.refundId.isDefined || row.ignoredAt.isDefined
           ),
-          overlappingStatementIds = s.overlappingStatementIds
+          overlappingStatementIds = s.overlappingStatementIds,
+          accountAlias = updated.accountAlias
         )
     }
 
