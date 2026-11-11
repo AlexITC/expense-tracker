@@ -87,6 +87,115 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
     }
   }
 
+  "parseAndVerify unverifiable flag" should {
+    "report no balances and no running-balance chain as unverifiable" in {
+      val json =
+        """{"metadata":{"productType":"debit"},
+          | "transactions":[{"date":"2026-01-01","amount":-10.00,"description":"x"}]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(false)
+      r.unverifiable must be(true)
+      r.discrepancy must be(
+        Some("No running balance or opening/closing balance was found, so completeness can't be verified.")
+      )
+    }
+
+    "report running balances without an opening balance as unverifiable" in {
+      val json =
+        """{"metadata":{"productType":"debit","closingBalance":90.00},
+          | "transactions":[{"date":"2026-01-01","amount":-10.00,"description":"x","runningBalance":90.00}]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(false)
+      r.unverifiable must be(true)
+    }
+
+    "not report a broken running-balance chain as unverifiable" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":30.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":-40.00,"description":"A","runningBalance":60.00},
+          |   {"date":"2026-01-02","amount":-20.00,"description":"B","runningBalance":30.00}
+          | ]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
+    }
+
+    "not report an opening/closing mismatch as unverifiable" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[{"date":"2026-01-01","amount":-30.00,"description":"short"}]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
+    }
+
+    "not report a reconciled statement as unverifiable" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[{"date":"2026-01-01","amount":-40.00,"description":"A","runningBalance":60.00}]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(true)
+      r.unverifiable must be(false)
+    }
+  }
+
+  "reconcile" should {
+    "report no balances and no running-balance chain as unverifiable" in {
+      val r = AiStatementExtractor.reconcile(None, None, List((BigDecimal("-10.00"), None)))
+      r.reconciled must be(false)
+      r.unverifiable must be(true)
+      r.discrepancy must be(
+        Some("No running balance or opening/closing balance was found, so completeness can't be verified.")
+      )
+    }
+
+    "report a partial running-balance chain without both balances as unverifiable" in {
+      val r = AiStatementExtractor.reconcile(
+        Some(BigDecimal("100.00")),
+        None,
+        List((BigDecimal("-10.00"), Some(BigDecimal("90.00"))), (BigDecimal("-10.00"), None))
+      )
+      r.reconciled must be(false)
+      r.unverifiable must be(true)
+    }
+
+    "not report a broken running-balance chain as unverifiable" in {
+      val r = AiStatementExtractor.reconcile(
+        Some(BigDecimal("100.00")),
+        Some(BigDecimal("30.00")),
+        List((BigDecimal("-40.00"), Some(BigDecimal("60.00"))), (BigDecimal("-20.00"), Some(BigDecimal("30.00"))))
+      )
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
+      r.discrepancy must be(
+        Some("The running balance does not add up across the 2 rows; a row is likely missing or misread.")
+      )
+    }
+
+    "not report an opening/closing mismatch as unverifiable" in {
+      val r = AiStatementExtractor.reconcile(
+        Some(BigDecimal("100.00")),
+        Some(BigDecimal("60.00")),
+        List((BigDecimal("-30.00"), None))
+      )
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
+      r.discrepancy must be(Some("Transactions sum to -30.00 but the balance changes by ±40.00 — off by 10.00."))
+    }
+
+    "not report a reconciled draft as unverifiable" in {
+      val r = AiStatementExtractor.reconcile(
+        Some(BigDecimal("100.00")),
+        Some(BigDecimal("60.00")),
+        List((BigDecimal("-40.00"), None))
+      )
+      r.reconciled must be(true)
+      r.unverifiable must be(false)
+      r.discrepancy must be(None)
+    }
+  }
+
   "bestOf" should {
     val emptyMeta = AiStatementExtractor.Meta(None, None, None, None, None, None, None, None)
     def result(reconciled: Boolean, residual: Option[BigDecimal]) =

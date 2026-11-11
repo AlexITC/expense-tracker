@@ -107,13 +107,13 @@ class ConfirmBankStatementDraftAction @Inject() (
   }
 
   private def requireReconciled(payload: BankStatementDraft.Payload): Unit = {
-    val (reconciled, discrepancy) = AiStatementExtractor.reconcile(
+    val r = AiStatementExtractor.reconcile(
       openingBalance = payload.metadata.openingBalance,
       closingBalance = payload.metadata.closingBalance,
       payload.transactions.map(t => (t.amount, t.runningBalance))
     )
-    if (!reconciled)
-      throw new RuntimeException(s"The draft does not reconcile and can't be imported: ${discrepancy.getOrElse("")}")
+    if (!r.reconciled)
+      throw new RuntimeException(s"The draft does not reconcile and can't be imported: ${r.discrepancy.getOrElse("")}")
   }
 
   /** Validate that every required metadata field is present and return it as the storage model. */
