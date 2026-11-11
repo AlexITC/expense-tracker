@@ -47,6 +47,10 @@ class ExtractBankStatementDraftActionSpec extends RepositorySpec with Repository
     "leave the stage empty when the result is untagged" in {
       ExtractBankStatementDraftAction.toPayload(result(None)).stage must be(None)
     }
+
+    "carry the unverifiable flag from the result" in {
+      ExtractBankStatementDraftAction.toPayload(result(None).copy(unverifiable = true)).unverifiable must be(true)
+    }
   }
 
   private class InMemoryBlobStorage(initial: Map[String, Array[Byte]]) extends BlobStorage {

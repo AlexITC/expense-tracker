@@ -105,6 +105,7 @@ object ExtractBankStatementDraftAction {
       reconciled = result.reconciled,
       discrepancy = result.discrepancy,
       model = result.model,
-      stage = result.source
+      stage = result.source,
+      unverifiable = result.unverifiable
     )
 }

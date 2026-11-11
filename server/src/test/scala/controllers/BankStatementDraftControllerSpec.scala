@@ -75,7 +75,8 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       reconciled = true,
       discrepancy = None,
       model = "test",
-      stage = Some(ExtractionSource.BdaMarkdown)
+      stage = Some(ExtractionSource.BdaMarkdown),
+      unverifiable = false
     )
 
   // Seed a ready draft directly (no job) and return its id, so the background executor doesn't race the test.
@@ -150,6 +151,16 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       val draft = client.getBankStatementDraft(id).futureValue
       draft.status must be("ready")
       draft.payload.value.stage must be(None)
+    }
+
+    "read a payload stored without an unverifiable key as verifiable" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val legacyJson = Json.toJson(reconcilingPayload).as[JsObject] - "unverifiable"
+      val id = seedReadyDraftJson(userId, legacyJson.toString)
+
+      val draft = client.getBankStatementDraft(id).futureValue
+      draft.status must be("ready")
+      draft.payload.value.unverifiable must be(false)
     }
   }
 
@@ -453,6 +464,33 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       val updated = client.updateBankStatementDraft(id, BankStatementDraft.Update.Request(edited)).futureValue
       updated.payload.value.reconciled must be(false)
       updated.payload.value.discrepancy must not be None
+      updated.payload.value.unverifiable must be(false)
+    }
+
+    "flag a payload with no balances and no running balances as unverifiable" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val id = seedReadyDraft(userId, reconcilingPayload)
+
+      val edited = reconcilingPayload.copy(
+        metadata = reconcilingPayload.metadata.copy(openingBalance = None, closingBalance = None),
+        transactions = List(reconcilingPayload.transactions.head.copy(runningBalance = None))
+      )
+      val updated = client.updateBankStatementDraft(id, BankStatementDraft.Update.Request(edited)).futureValue
+      updated.payload.value.reconciled must be(false)
+      updated.payload.value.unverifiable must be(true)
+    }
+
+    "not flag a payload with no balances and no transactions as unverifiable" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val id = seedReadyDraft(userId, reconcilingPayload)
+
+      val edited = reconcilingPayload.copy(
+        metadata = reconcilingPayload.metadata.copy(openingBalance = None, closingBalance = None),
+        transactions = Nil
+      )
+      val updated = client.updateBankStatementDraft(id, BankStatementDraft.Update.Request(edited)).futureValue
+      updated.payload.value.reconciled must be(false)
+      updated.payload.value.unverifiable must be(false)
     }
   }
 
