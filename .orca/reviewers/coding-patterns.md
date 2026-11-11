@@ -1,5 +1,5 @@
 ---
-description: Scala coding patterns — Chimney for case-class and sum-type mapping, no dropped Futures, no silent defaults for missing data
+description: Scala coding patterns — Chimney for case-class and sum-type mapping, no dropped Futures, no silent defaults for missing data, avoid default parameter values, no read-compat shims for regenerable persisted data, enums over stringly-typed values
 ---
 
 Review the added/changed lines for the patterns below only. Report clear,
@@ -33,6 +33,40 @@ Flag a parser/importer that invents a required value it cannot determine —
 `LocalDate.now()`, a hardcoded year, `0` for a missing amount, a default
 currency, `getOrElse(<guess>)`. It must fail (`Left`/throw) so the record is
 rejected. Not: a default for a genuinely optional field.
+
+## Avoid default parameter values
+Per `docs/design-decisions.md` ("Avoid default parameter in most cases"), a
+default value silently swallows a mistake that would otherwise be a compile
+error: a Chimney transform whose field was renamed, or a call site that forgot
+the new field, takes the default instead of failing to compile. Flag a default
+parameter value added to a domain/data model's constructor or to a function
+parameter that carries meaning — anything branched on, persisted, or produced by
+computation (e.g. a verification output like `residual`/`unverifiable`). Dropping
+the default makes every construction explicit and lets the compiler force each
+site to be reconsidered when the field is added. A default that biases to the
+empty/`false`/`None` value is the worst case, since an omission then fails
+silently and in the less-safe direction.
+
+Not: a default in the HTTP request/response wire layer, where defaulting a new
+parameter is the documented way to keep older callers working
+(`docs/design-decisions.md`); a default on test code (a fixture or helper under
+`src/test`), where terse construction is the point and no production behavior
+rides on it; a genuinely optional ergonomic knob whose default is unambiguously
+safe and drives no logic; or a two-phase lifecycle field filled in later by a
+known producer.
+
+## No read-compat shims for regenerable persisted data
+A model serialized into a stored JSON column (e.g. `bank_statement_draft.payload`)
+must derive its format normally (`Json.format`). Flag a hand-written `Reads`
+whose only job is to default a newly added field for rows written before it
+existed (`readWithDefault`, `readNullable.map(_.getOrElse)`), usually with a
+comment about old/legacy records. Frontend and backend deploy together and such
+data is short-lived and regenerable (a draft is deleted at confirm and can be
+re-uploaded), so the few stale rows are dropped or re-created, not read-shimmed.
+
+Not: durable data that cannot be regenerated — that needs a real
+evolution/backfill, not a read default; and not a genuinely optional field
+(`readNullable` into an `Option`), which is normal and not a compat shim.
 
 ## Prefer enums over stringly-typed values
 Flag a `String` (or bare `Int` code) used to represent a fixed, known set of
