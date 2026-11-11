@@ -156,8 +156,16 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
 
   "bestOf" should {
     val emptyMeta = AiStatementExtractor.Meta(None, None, None, None, None, None, None, None)
-    def result(reconciled: Boolean, residual: Option[BigDecimal]) =
-      AiStatementExtractor.ExtractionResult(reconciled, None, model, Nil, emptyMeta, residual)
+    def result(reconciled: Boolean, residual: Option[BigDecimal], unverifiable: Boolean = false) =
+      AiStatementExtractor.ExtractionResult(
+        reconciled,
+        None,
+        model,
+        Nil,
+        emptyMeta,
+        residual,
+        unverifiable = unverifiable
+      )
 
     "prefer a reconciled result over any non-reconciled one" in {
       val reconciled = result(reconciled = true, Some(BigDecimal(0)))

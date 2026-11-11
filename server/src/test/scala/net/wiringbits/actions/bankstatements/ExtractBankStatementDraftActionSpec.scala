@@ -34,7 +34,9 @@ class ExtractBankStatementDraftActionSpec extends RepositorySpec with Repository
       model = "test",
       transactions = Nil,
       metadata = Meta(None, None, None, None, None, None, None, None),
-      source = source
+      residual = None,
+      source = source,
+      unverifiable = false
     )
 
   "toPayload" should {

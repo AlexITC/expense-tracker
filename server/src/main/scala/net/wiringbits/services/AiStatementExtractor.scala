@@ -41,13 +41,13 @@ object AiStatementExtractor {
       metadata: Meta,
       // How far the transactions are from the balance, when a numeric gap is computable (the net-check path). None when
       // it isn't (running-balance chain, or no balances at all). Used to pick the best of several attempts.
-      residual: Option[BigDecimal] = None,
+      residual: Option[BigDecimal],
       // Which ladder stage produced this result, stamped by StatementExtractionService. None until the ladder tags
       // it — parseAndVerify on its own leaves it unset.
       source: Option[ExtractionSource] = None,
       // True only when completeness can't be checked at all: no opening/closing balance pair and no usable
       // running-balance chain. A chain break or a balance mismatch is a real discrepancy, not unverifiable.
-      unverifiable: Boolean = false
+      unverifiable: Boolean
   )
 
   /** Outcome of re-checking a draft's arithmetic. `unverifiable` has the same meaning as on [[ExtractionResult]]. */
