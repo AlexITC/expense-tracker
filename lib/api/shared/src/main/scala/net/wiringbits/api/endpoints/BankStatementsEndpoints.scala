@@ -251,6 +251,19 @@ object BankStatementsEndpoints {
       .errorOut(oneOf(HttpErrors.badRequest))
       .summary("Create a refund from a bank statement row and link it")
 
+  def setAccountAlias(implicit
+      authHandler: ServerRequest => Future[UUID]
+  ): Endpoint[Unit, (UUID, SetAccountAlias.Request, Future[UUID]), ErrorResponse, SetAccountAlias.Response, Any] =
+    baseEndpoint.put
+      .in(path[UUID]("bankStatementId") / "account-alias")
+      .in(jsonBody[SetAccountAlias.Request])
+      .in(userAuth)
+      .out(jsonBody[SetAccountAlias.Response])
+      .errorOut(oneOf(HttpErrors.badRequest))
+      .summary(
+        "Set the nickname of the account a bank statement belongs to; it applies to every statement of that account"
+      )
+
   def routes(implicit authHandler: ServerRequest => Future[UUID]): List[AnyEndpoint] =
     List(
       createDraft,
@@ -271,6 +284,7 @@ object BankStatementsEndpoints {
       linkRowToExpense,
       unlinkRow,
       ignoreRow,
-      unignoreRow
+      unignoreRow,
+      setAccountAlias
     )
 }

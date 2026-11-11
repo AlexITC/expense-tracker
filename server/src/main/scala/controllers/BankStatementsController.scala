@@ -33,7 +33,8 @@ class BankStatementsController @Inject() (
     ignoreRowAction: IgnoreRowAction,
     unignoreRowAction: UnignoreRowAction,
     createRefundFromRowAction: CreateRefundFromRowAction,
-    unlinkRowRefundAction: UnlinkRowRefundAction
+    unlinkRowRefundAction: UnlinkRowRefundAction,
+    setAccountAliasAction: SetAccountAliasAction
 )(implicit ec: ExecutionContext) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
@@ -257,6 +258,17 @@ class BankStatementsController @Inject() (
     } yield Right(response)
   }
 
+  private def setAccountAlias(
+      bankStatementId: UUID,
+      request: SetAccountAlias.Request,
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, SetAccountAlias.Response]] = handleRequest {
+    for {
+      userId <- userIdF
+      response <- setAccountAliasAction(bankStatementId = bankStatementId, userId = userId, request)
+    } yield Right(response)
+  }
+
   def routes: List[ServerEndpoint[PekkoStreams & WebSockets, Future]] =
     List(
       BankStatementsEndpoints.createDraft.serverLogic(createDraft),
@@ -277,6 +289,7 @@ class BankStatementsController @Inject() (
       BankStatementsEndpoints.linkRowToExpense.serverLogic(linkRowToExpense),
       BankStatementsEndpoints.unlinkRow.serverLogic(unlinkRow),
       BankStatementsEndpoints.ignoreRow.serverLogic(ignoreRow),
-      BankStatementsEndpoints.unignoreRow.serverLogic(unignoreRow)
+      BankStatementsEndpoints.unignoreRow.serverLogic(unignoreRow),
+      BankStatementsEndpoints.setAccountAlias.serverLogic(setAccountAlias)
     )
 }
