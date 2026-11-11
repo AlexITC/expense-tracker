@@ -23,5 +23,6 @@ case class RepositoryComponents(
     textractJobs: TextractJobRepository,
     telegram: TelegramRepository,
     telegramReceipt: TelegramReceiptRepository,
-    mcp: McpRepository
+    mcp: McpRepository,
+    rateLimitWindows: RateLimitWindowRepository
 )

@@ -450,6 +450,29 @@ trait RepositoryUtils {
       .map(_ => draft)
   }
 
+  /** Moves the rate-limit window of `key` back by `minutes`, simulating the passage of time (the window uses the DB
+    * clock, which can't be injected).
+    */
+  def moveRateLimitWindowBack(key: String, minutes: Int)(using repository: RepositoryComponents): Unit =
+    repository.database.withConnection { implicit conn =>
+      import anorm.*
+      val _ = SQL"""
+          UPDATE rate_limit_window
+          SET window_start = window_start - make_interval(mins => $minutes)
+          WHERE key = $key
+          """.executeUpdate()
+    }
+
+  def findRateLimitCount(key: String)(using repository: RepositoryComponents): Option[Int] =
+    repository.database.withConnection { implicit conn =>
+      import anorm.*
+      SQL"""
+          SELECT count
+          FROM rate_limit_window
+          WHERE key = $key
+          """.as(SqlParser.int("count").singleOpt)
+    }
+
   // --- test doubles for the AI classification gate (never exercised by non-classifier tests) ---
   def noOpBlobStorage: BlobStorage = new NoOpBlobStorage
 
