@@ -17,6 +17,7 @@ object BankStatementReviewHeader {
   case class Props(
       statement: GetBankStatement.Response,
       rowCount: Int,
+      currentAlias: String,
       regenerateDisabled: Boolean,
       onRegenerate: () => Unit,
       onSaveAlias: String => Future[Unit]
@@ -24,12 +25,17 @@ object BankStatementReviewHeader {
 
   /** The account the statement belongs to, by its display label (nickname included when set), and its nickname editor.
     */
-  private def accountLine(stmt: GetBankStatement.Response, onSaveAlias: String => Future[Unit]): ReactElement =
+  private def accountLine(
+      stmt: GetBankStatement.Response,
+      currentAlias: String,
+      onSaveAlias: String => Future[Unit]
+  ): ReactElement =
     val label = BankStatementsLogic.accountLabel(
       bankName = stmt.bankName,
       productType = stmt.productType,
       accountLast4 = stmt.accountLast4,
-      alias = stmt.accountAlias
+      currency = stmt.currency,
+      alias = Option(currentAlias).filter(_.nonEmpty)
     )
     mui.Box.sx(new CSSPropertiesUtils {
       display = "flex"; alignItems = "center"; flexWrap = "wrap"; gap = "12px"; marginBottom = "2px"
@@ -37,7 +43,7 @@ object BankStatementReviewHeader {
       mui
         .Typography(s"Account: $label")
         .sx(new CSSPropertiesUtils { fontSize = "13px"; color = "var(--lc-text-2)" }),
-      AccountAliasEditor(AccountAliasEditor.Props(currentAlias = stmt.accountAlias.getOrElse(""), onSave = onSaveAlias))
+      AccountAliasEditor(AccountAliasEditor.Props(currentAlias = currentAlias, onSave = onSaveAlias))
     )
 
   /** A one-line summary of the statement metadata. */
@@ -96,7 +102,7 @@ object BankStatementReviewHeader {
           .variant("outlined")
           .onClick(_ => history.push(BankStatementReviewLogic.backToListPath(stmt)))
       ),
-      accountLine(stmt, props.onSaveAlias),
+      accountLine(stmt, props.currentAlias, props.onSaveAlias),
       statementMetadataLine(stmt)
     )
   }

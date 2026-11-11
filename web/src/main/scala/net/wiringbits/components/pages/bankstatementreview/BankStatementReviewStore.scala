@@ -3,36 +3,52 @@ package net.wiringbits.components.pages.bankstatementreview
 import monix.execution.Scheduler
 import monix.reactive.subjects.Var
 import net.wiringbits.api.ApiClient
-import net.wiringbits.api.models.bankstatements.{AiSuggestions, GetBankStatement}
+import net.wiringbits.api.models.bankstatements.{AiSuggestions, GetAccountAliases, GetBankStatement}
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewLogic.{Loadable, ReviewSupport}
+import net.wiringbits.components.pages.bankstatements.BankStatementsLogic
 
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
 
 /** The review page's state for one statement, split so each part notifies only its own subscribers. `$statement` holds
-  * the metadata, which changes after loading only when the account nickname is set; rows and suggestions change
-  * independently of it.
+  * the metadata and never changes after loading; the account nickname lives in its own `$accountAlias`, and rows and
+  * suggestions change independently.
   */
 final class BankStatementReviewStore(using Scheduler) {
   val $statement: Var[Loadable[GetBankStatement.Response]] = Var(Loadable.Loading)
   val $rows: Var[List[GetBankStatement.StatementRowData]] = Var(Nil)
   val $support: Var[Loadable[ReviewSupport]] = Var(Loadable.Loading)
   val $suggestions: Var[Option[AiSuggestions]] = Var(None)
+  val $accountAlias: Var[String] = Var("")
 
-  /** Loads the statement first, then the support lists for it, recording each stage's outcome. */
+  /** Loads the statement first, then the support lists for it, recording each stage's outcome. The account nickname is
+    * fetched alongside; its failure is non-critical (no nickname shown) and never blocks the page.
+    */
   def load(client: ApiClient, stmtId: UUID)(using ExecutionContext): Unit =
     client.getBankStatement(stmtId).onComplete {
       case Success(stmt) =>
         statementLoaded(stmt)
+        client.getBankStatementAccountAliases.foreach(accountAliasLoaded(stmt, _))
         BankStatementReviewStore.loadSupport(client, stmt).onComplete {
           case Success(support) => supportLoaded(support)
           case Failure(ex) => supportFailed(ex.getMessage)
         }
       case Failure(ex) => statementFailed(ex.getMessage)
     }
+
+  /** Picks this statement's account nickname out of the user's aliases, by the account tuple. */
+  def accountAliasLoaded(stmt: GetBankStatement.Response, aliases: GetAccountAliases.Response): Unit = {
+    val key = BankStatementsLogic.accountKey(
+      bankName = stmt.bankName,
+      productType = stmt.productType,
+      accountLast4 = stmt.accountLast4,
+      currency = stmt.currency
+    )
+    $accountAlias := BankStatementsLogic.aliasByKey(aliases).getOrElse(key, "")
+  }
 
   def statementLoaded(resp: GetBankStatement.Response): Unit = {
     $rows := resp.statementRows
@@ -60,11 +76,7 @@ final class BankStatementReviewStore(using Scheduler) {
 
   def setSuggestions(s: Option[AiSuggestions]): Unit = $suggestions := s
 
-  /** Ignored until the statement is loaded, so an early update cannot fabricate it. */
-  def setAccountAlias(alias: String): Unit = $statement() match {
-    case Loadable.Loaded(stmt) => $statement := Loadable.Loaded(stmt.copy(accountAlias = Some(alias)))
-    case _ => ()
-  }
+  def setAccountAlias(alias: String): Unit = $accountAlias := alias
 
   /** Refetches the unlinked receipts, so one a form just attached can no longer match another row. A failure keeps the
     * current list and is reported through `onError`.

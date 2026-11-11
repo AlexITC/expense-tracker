@@ -75,6 +75,12 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
     }
   }
 
+  def listAccountAliases(userId: UUID): Future[List[BankAccountAlias]] = Future {
+    database.withConnection { implicit conn =>
+      BankAccountAliasDAO.listForUser(userId)
+    }
+  }
+
   def find(id: UUID, userId: UUID): Future[Option[BankStatementView]] = Future {
     database.withConnection { implicit conn =>
       BankStatementDAO.find(id = id, userId = userId)

@@ -5,6 +5,7 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{
   BankStatementDraft,
+  GetAccountAliases,
   GetBankStatement,
   GetBankStatements,
   SetAccountAlias
@@ -39,9 +40,13 @@ object BankStatementsPage {
     val (timesRefreshing, forceRefresh) = GenericHooks.useForceRefresh
 
     mui.Box.sx(new CSSPropertiesUtils { padding = "24px"; maxWidth = "900px" })(
-      AsyncComponent[GetBankStatements.Response](
-        fetch = () => props.ctx.api.client.getBankStatements,
-        render = stmts => BankStatementList(props.ctx, stmts, () => forceRefresh()),
+      AsyncComponent[(GetBankStatements.Response, GetAccountAliases.Response)](
+        fetch = () =>
+          for {
+            stmts <- props.ctx.api.client.getBankStatements
+            aliases <- props.ctx.api.client.getBankStatementAccountAliases
+          } yield (stmts, aliases),
+        render = { case (stmts, aliases) => BankStatementList(props.ctx, stmts, aliases, () => forceRefresh()) },
         progressIndicator = () => mui.CircularProgress(),
         watchedObjects = List(timesRefreshing)
       )
@@ -53,13 +58,15 @@ object BankStatementList {
   def apply(
       ctx: AppContext,
       stmts: GetBankStatements.Response,
+      aliases: GetAccountAliases.Response,
       onRefresh: () => Unit
   ): KeyAddingStage =
-    component(Props(ctx, stmts, onRefresh))
+    component(Props(ctx, stmts, aliases, onRefresh))
 
   case class Props(
       ctx: AppContext,
       stmts: GetBankStatements.Response,
+      aliases: GetAccountAliases.Response,
       onRefresh: () => Unit
   )
 
@@ -69,20 +76,22 @@ object BankStatementList {
     case other => other
   }
 
-  // An "account" groups a user's statements by bank + product type + last 4 digits.
+  // An "account" groups a user's statements by bank + product type + last 4 + currency.
   def accountKeyOf(s: GetBankStatements.Response.BankStatement): String =
     BankStatementsLogic.accountKey(
       bankName = s.bankName,
       productType = s.productType,
-      accountLast4 = s.accountLast4
+      accountLast4 = s.accountLast4,
+      currency = s.currency
     )
 
-  def accountLabelOf(s: GetBankStatements.Response.BankStatement): String =
+  def accountLabelOf(s: GetBankStatements.Response.BankStatement, aliasByKey: Map[String, String]): String =
     BankStatementsLogic.accountLabel(
       bankName = s.bankName,
       productType = s.productType,
       accountLast4 = s.accountLast4,
-      alias = s.accountAlias
+      currency = s.currency,
+      alias = aliasByKey.get(accountKeyOf(s))
     )
 
   /** One-line metadata summary for a statement. */
@@ -189,6 +198,13 @@ object BankStatementList {
     val stmtsKey = props.stmts.data.map(s => s"${s.id}:${s.documentStatus.entryName}").mkString("|")
     SafeHooks.useEffect(stmtsKey)(() => { setLocalStmts(props.stmts.data); () })
 
+    val (aliasByKey, setAliasByKey) = Hooks.useState(BankStatementsLogic.aliasByKey(props.aliases))
+    val aliasesKey =
+      props.aliases.accounts
+        .map(a => s"${a.bankName}~${a.productType}~${a.accountLast4}~${a.currency}=${a.alias}")
+        .mkString("|")
+    SafeHooks.useEffect(aliasesKey)(() => { setAliasByKey(BankStatementsLogic.aliasByKey(props.aliases)); () })
+
     val pendingStmts = localStmts.filter(s =>
       s.documentStatus == DocumentStatus.Ingested ||
         s.documentStatus == DocumentStatus.Processing ||
@@ -277,7 +293,7 @@ object BankStatementList {
           .build
     }
 
-    val accounts = localStmts.map(s => accountKeyOf(s) -> accountLabelOf(s)).distinctBy(_._1)
+    val accounts = localStmts.map(s => accountKeyOf(s) -> accountLabelOf(s, aliasByKey)).distinctBy(_._1)
     val selectedAccount = BankStatementsLogic.selectedAccountKey(urlQuery.account, localStmts)
     val selectedAccountStmt = BankStatementsLogic.accountRepresentative(localStmts, selectedAccount)
 
@@ -526,11 +542,11 @@ object BankStatementList {
           case Some(rep) =>
             AccountAliasEditor(
               AccountAliasEditor.Props(
-                currentAlias = rep.accountAlias.getOrElse(""),
+                currentAlias = aliasByKey.getOrElse(accountKeyOf(rep), ""),
                 onSave = alias =>
                   props.ctx.api.client
                     .setBankStatementAccountAlias(rep.id, SetAccountAlias.Request(alias))
-                    .map(r => setLocalStmts(cur => BankStatementsLogic.applyAlias(cur, rep, r.alias)))
+                    .map(r => setAliasByKey(cur => cur.updated(accountKeyOf(rep), r.alias)))
               )
             ).withKey(selectedAccount.getOrElse(""))
           case None => Fragment()
@@ -555,7 +571,7 @@ object BankStatementList {
       selectedAccountStmt match {
         case Some(rep) =>
           mui
-            .Typography(s"Statements · ${accountLabelOf(rep)}")
+            .Typography(s"Statements · ${accountLabelOf(rep, aliasByKey)}")
             .sx(new CSSPropertiesUtils {
               fontSize = "13px"; fontWeight = "600"; color = "var(--lc-text-2)"; marginBottom = "6px"
             })

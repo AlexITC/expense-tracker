@@ -53,6 +53,17 @@ object BankAccountAliasDAO {
         """.executeUpdate()
   }
 
+  /** The user's named accounts (empty aliases, created by `ensureExists` at confirm, are left out). */
+  def listForUser(userId: UUID)(implicit conn: Connection): List[BankAccountAlias] = {
+    SQL"""
+        SELECT id, user_id, bank_name, product_type, account_last4, currency, alias, created_at, updated_at
+        FROM bank_account_alias
+        WHERE user_id = ${userId.toString}::UUID
+          AND alias <> ''
+        ORDER BY bank_name, product_type, account_last4, currency
+        """.as(bankAccountAliasParser.*)
+  }
+
   def find(userId: UUID, key: BankAccountAlias.Key)(implicit conn: Connection): Option[BankAccountAlias] = {
     SQL"""
         SELECT id, user_id, bank_name, product_type, account_last4, currency, alias, created_at, updated_at

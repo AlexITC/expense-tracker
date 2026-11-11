@@ -86,6 +86,18 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
     new ApiClient(ApiClient.Config(s"http://localhost:$port"))
   }
 
+  // The nickname of the statement's account, read from the account-aliases list (keyed by the account tuple). None when
+  // the account has no (non-empty) nickname — the list leaves empty ones out.
+  private def aliasOf(stmtId: UUID)(implicit client: net.wiringbits.api.ApiClient): Option[String] = {
+    val s = client.getBankStatement(stmtId).futureValue
+    client.getBankStatementAccountAliases.futureValue.accounts
+      .find(a =>
+        a.bankName == s.bankName && a.productType == s.productType &&
+          a.accountLast4 == s.accountLast4 && a.currency == s.currency
+      )
+      .map(_.alias)
+  }
+
   // Any status: the live executor may already have run the job against MockBedrockClient.
   private def suggestionsJobCount(stmtId: UUID): Long =
     app.injector.instanceOf[Database].withConnection { implicit conn =>
@@ -189,9 +201,8 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
         .setAccountAlias(stmtId, userId, "Travel card", Instant.now())
         .futureValue
 
-      val byId = client.getBankStatements.futureValue.data.map(s => s.id -> s.accountAlias).toMap
-      byId(stmtId) must be(Some("Travel card"))
-      byId(unnamedId) must be(Some(""))
+      aliasOf(stmtId) must be(Some("Travel card"))
+      aliasOf(unnamedId) must be(None)
     }
   }
 
@@ -413,7 +424,7 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
         .setAccountAlias(stmtId, userId, "Travel card", Instant.now())
         .futureValue
 
-      client.getBankStatement(stmtId).futureValue.accountAlias must be(Some("Travel card"))
+      aliasOf(stmtId) must be(Some("Travel card"))
     }
   }
 
@@ -472,11 +483,9 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
       val response = client.setBankStatementAccountAlias(stmtId, SetAccountAlias.Request("Travel card")).futureValue
       response.alias must be("Travel card")
 
-      client.getBankStatement(stmtId).futureValue.accountAlias must be(Some("Travel card"))
-      val byId = client.getBankStatements.futureValue.data.map(s => s.id -> s.accountAlias).toMap
-      byId(stmtId) must be(Some("Travel card"))
-      byId(sameAccountId) must be(Some("Travel card"))
-      byId(otherAccountId) must be(Some(""))
+      aliasOf(stmtId) must be(Some("Travel card"))
+      aliasOf(sameAccountId) must be(Some("Travel card"))
+      aliasOf(otherAccountId) must be(None)
     }
 
     "replace an existing nickname" in withApiClient { implicit client =>
@@ -486,7 +495,7 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
       client.setBankStatementAccountAlias(stmtId, SetAccountAlias.Request("Travel card")).futureValue
       client.setBankStatementAccountAlias(stmtId, SetAccountAlias.Request("Daily card")).futureValue
 
-      client.getBankStatement(stmtId).futureValue.accountAlias must be(Some("Daily card"))
+      aliasOf(stmtId) must be(Some("Daily card"))
     }
 
     "store an empty nickname" in withApiClient { implicit client =>
@@ -497,7 +506,7 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
       val response = client.setBankStatementAccountAlias(stmtId, SetAccountAlias.Request("")).futureValue
       response.alias must be("")
 
-      client.getBankStatement(stmtId).futureValue.accountAlias must be(Some(""))
+      aliasOf(stmtId) must be(None)
     }
 
     "accept a nickname of exactly the maximum length" in withApiClient { implicit client =>
@@ -507,7 +516,7 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
 
       client.setBankStatementAccountAlias(stmtId, SetAccountAlias.Request(alias)).futureValue
 
-      client.getBankStatement(stmtId).futureValue.accountAlias must be(Some(alias))
+      aliasOf(stmtId) must be(Some(alias))
     }
 
     "reject a nickname over the maximum length without changing the stored one" in withApiClient { implicit client =>
@@ -520,7 +529,7 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
         .expectError
       error must be("Nickname must be 60 characters or less")
 
-      client.getBankStatement(stmtId).futureValue.accountAlias must be(Some("Travel card"))
+      aliasOf(stmtId) must be(Some("Travel card"))
     }
 
     "not name another user's account" in withApiClient { implicit client =>
@@ -533,7 +542,7 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
       val error = client2.setBankStatementAccountAlias(stmtId, SetAccountAlias.Request("Hijacked")).expectError
       error must be("Bank statement not found")
 
-      client.getBankStatement(stmtId).futureValue.accountAlias must be(Some("Travel card"))
+      aliasOf(stmtId) must be(Some("Travel card"))
     }
   }
 }

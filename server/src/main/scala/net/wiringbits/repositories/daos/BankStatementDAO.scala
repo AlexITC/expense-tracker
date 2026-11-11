@@ -63,11 +63,10 @@ object BankStatementDAO {
       get[Int]("processed_rows") ~
       get[Option[ExtractionInfo]]("extraction_info") ~
       get[Option[AiSuggestions]]("ai_suggestions") ~
-      bool("accepted_unverified") ~
-      get[Option[String]]("alias")).map {
+      bool("accepted_unverified")).map {
       case id ~ documentId ~ userId ~ bankName ~ productType ~ currency ~ accountLast4 ~
           periodStart ~ periodEnd ~ createdAt ~ updatedAt ~ filename ~ totalRows ~ processedRows ~
-          extractionInfo ~ aiSuggestions ~ acceptedUnverified ~ alias =>
+          extractionInfo ~ aiSuggestions ~ acceptedUnverified =>
         BankStatementView(
           id = id,
           documentId = documentId,
@@ -85,8 +84,7 @@ object BankStatementDAO {
           processedRows = processedRows,
           extractionInfo = extractionInfo,
           aiSuggestions = aiSuggestions,
-          acceptedUnverified = acceptedUnverified,
-          accountAlias = alias
+          acceptedUnverified = acceptedUnverified
         )
     }
 
@@ -121,7 +119,7 @@ object BankStatementDAO {
     SQL"""
       SELECT bs.id, bs.document_id, bs.user_id, bs.bank_name, bs.product_type, bs.currency,
              bs.account_last4, bs.period_start, bs.period_end, bs.created_at, bs.updated_at,
-             bs.extraction_info, bs.ai_suggestions, bs.accepted_unverified, d.filename, a.alias,
+             bs.extraction_info, bs.ai_suggestions, bs.accepted_unverified, d.filename,
              COALESCE(rc.total_rows, 0) AS total_rows,
              COALESCE(rc.processed_rows, 0) AS processed_rows
       FROM bank_statement bs
@@ -134,12 +132,6 @@ object BankStatementDAO {
         WHERE bank_statement_id = ${id.toString}::UUID
         GROUP BY bank_statement_id
       ) rc ON rc.bank_statement_id = bs.id
-      LEFT JOIN bank_account_alias a
-        ON a.user_id = bs.user_id
-        AND a.bank_name = bs.bank_name
-        AND a.product_type = bs.product_type
-        AND a.account_last4 = bs.account_last4
-        AND a.currency = bs.currency
       WHERE bs.id = ${id.toString}::UUID
         AND bs.user_id = ${userId.toString}::UUID
       """.as(viewParser.singleOpt)
@@ -148,7 +140,7 @@ object BankStatementDAO {
     SQL"""
       SELECT bs.id, bs.document_id, bs.user_id, bs.bank_name, bs.product_type, bs.currency,
              bs.account_last4, bs.period_start, bs.period_end, bs.created_at, bs.updated_at,
-             bs.extraction_info, bs.ai_suggestions, bs.accepted_unverified, d.filename, a.alias,
+             bs.extraction_info, bs.ai_suggestions, bs.accepted_unverified, d.filename,
              COALESCE(rc.total_rows, 0) AS total_rows,
              COALESCE(rc.processed_rows, 0) AS processed_rows
       FROM bank_statement bs
@@ -160,12 +152,6 @@ object BankStatementDAO {
         FROM bank_statement_row
         GROUP BY bank_statement_id
       ) rc ON rc.bank_statement_id = bs.id
-      LEFT JOIN bank_account_alias a
-        ON a.user_id = bs.user_id
-        AND a.bank_name = bs.bank_name
-        AND a.product_type = bs.product_type
-        AND a.account_last4 = bs.account_last4
-        AND a.currency = bs.currency
       WHERE bs.user_id = ${userId.toString}::UUID
       ORDER BY bs.created_at DESC, bs.id
       """.as(viewParser.*)

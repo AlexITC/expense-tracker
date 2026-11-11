@@ -1,6 +1,6 @@
 package net.wiringbits.components.pages.bankstatements
 
-import net.wiringbits.api.models.bankstatements.{GetBankStatement, GetBankStatements}
+import net.wiringbits.api.models.bankstatements.{GetAccountAliases, GetBankStatement, GetBankStatements}
 
 import java.util.UUID
 import scala.scalajs.js.URIUtils
@@ -41,21 +41,36 @@ object BankStatementsLogic {
     else params.map { case (k, v) => s"$k=${URIUtils.encodeURIComponent(v)}" }.mkString("/bank-statements?", "&", "")
   }
 
-  /** An "account" groups a user's statements by bank + product type + last 4 digits. Currency is deliberately left out
-    * (the key is used in `?account=` URLs), while the nickname is stored per bank + product type + last 4 + currency;
-    * so when one card has statements in several currencies, the group shows the newest statement's nickname (see
-    * `accountRepresentative` and `applyAlias`).
+  /** An "account" groups a user's statements by bank + product type + last 4 + currency — the same tuple the nickname
+    * is keyed by, so each account maps to exactly one nickname. The key also appears in `?account=` URLs.
     */
-  def accountKey(bankName: String, productType: String, accountLast4: String): String =
-    s"$bankName~$productType~$accountLast4"
+  def accountKey(bankName: String, productType: String, accountLast4: String, currency: String): String =
+    s"$bankName~$productType~$accountLast4~$currency"
 
-  /** Display label of an account: the nickname, when set, in front of the bank/product/last-4 label. An empty nickname
-    * counts as none.
+  /** Display label of an account: the nickname, when set, in front of the bank/product/last-4/currency label. An empty
+    * nickname counts as none.
     */
-  def accountLabel(bankName: String, productType: String, accountLast4: String, alias: Option[String]): String = {
-    val default = s"$bankName (${BankStatementList.productLabel(productType)}) ••••$accountLast4"
+  def accountLabel(
+      bankName: String,
+      productType: String,
+      accountLast4: String,
+      currency: String,
+      alias: Option[String]
+  ): String = {
+    val default = s"$bankName (${BankStatementList.productLabel(productType)}) ••••$accountLast4 · $currency"
     alias.filter(_.nonEmpty).fold(default)(a => s"$a ($default)")
   }
+
+  /** The user's nicknames keyed by account, for looking one up from a statement's account key. */
+  def aliasByKey(aliases: GetAccountAliases.Response): Map[String, String] =
+    aliases.accounts.map { a =>
+      accountKey(
+        bankName = a.bankName,
+        productType = a.productType,
+        accountLast4 = a.accountLast4,
+        currency = a.currency
+      ) -> a.alias
+    }.toMap
 
   /** The newest-created statement of the account; the same one whose label the account dropdown shows. */
   def accountRepresentative(
@@ -63,16 +78,6 @@ object BankStatementsLogic {
       accountKey: Option[String]
   ): Option[GetBankStatements.Response.BankStatement] =
     stmts.filter(s => accountKey.contains(BankStatementList.accountKeyOf(s))).maxByOption(_.createdAt)
-
-  /** Sets the nickname on every statement of the same account as `of` (bank, product type, last 4 and currency). */
-  def applyAlias(
-      stmts: List[GetBankStatements.Response.BankStatement],
-      of: GetBankStatements.Response.BankStatement,
-      alias: String
-  ): List[GetBankStatements.Response.BankStatement] = {
-    def tuple(s: GetBankStatements.Response.BankStatement) = (s.bankName, s.productType, s.accountLast4, s.currency)
-    stmts.map(s => if (tuple(s) == tuple(of)) s.copy(accountAlias = Some(alias)) else s)
-  }
 
   /** Account key of the most recently uploaded statement; on a tie the first in list order wins. */
   def defaultAccountKey(stmts: List[GetBankStatements.Response.BankStatement]): Option[String] =
@@ -127,8 +132,7 @@ object BankStatementsLogic {
           processedRows = updated.statementRows.count(row =>
             row.expenseId.isDefined || row.refundId.isDefined || row.ignoredAt.isDefined
           ),
-          overlappingStatementIds = s.overlappingStatementIds,
-          accountAlias = updated.accountAlias
+          overlappingStatementIds = s.overlappingStatementIds
         )
     }
 
@@ -167,7 +171,7 @@ object BankStatementsLogic {
     val linked = rows.count(_.expenseId.isDefined)
     List(
       s"File: ${s.documentFilename}",
-      s"Account: ${BankStatementList.accountLabelOf(s)}",
+      s"Account: ${accountLabel(bankName = s.bankName, productType = s.productType, accountLast4 = s.accountLast4, currency = s.currency, alias = None)}",
       s"Period: ${s.periodStart} → ${s.periodEnd}",
       s"Rows: ${rows.size}",
       s"${plural(linked, singular = "linked expense", pluralForm = "linked expenses")} will be kept but unlinked from this statement.",

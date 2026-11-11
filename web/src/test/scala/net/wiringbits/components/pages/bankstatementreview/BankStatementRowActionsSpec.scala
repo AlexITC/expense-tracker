@@ -67,8 +67,7 @@ class BankStatementRowActionsSpec extends AnyWordSpec {
       statementRows = rows,
       createdAt = Instant.EPOCH,
       extractionInfo = None,
-      aiSuggestions = None,
-      accountAlias = None
+      aiSuggestions = None
     )
 
   /** Records the latest value a setter or updater produces, applying updater functions like React does. */

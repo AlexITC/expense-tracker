@@ -34,7 +34,8 @@ class BankStatementsController @Inject() (
     unignoreRowAction: UnignoreRowAction,
     createRefundFromRowAction: CreateRefundFromRowAction,
     unlinkRowRefundAction: UnlinkRowRefundAction,
-    setAccountAliasAction: SetAccountAliasAction
+    setAccountAliasAction: SetAccountAliasAction,
+    getAccountAliasesAction: GetAccountAliasesAction
 )(implicit ec: ExecutionContext) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
@@ -110,6 +111,14 @@ class BankStatementsController @Inject() (
       for {
         userId <- userIdF
         response <- getBankStatementsAction(userId)
+      } yield Right(response)
+    }
+
+  private def getAccountAliases(userIdF: Future[UUID]): Future[Either[ErrorResponse, GetAccountAliases.Response]] =
+    handleRequest {
+      for {
+        userId <- userIdF
+        response <- getAccountAliasesAction(userId)
       } yield Right(response)
     }
 
@@ -279,6 +288,7 @@ class BankStatementsController @Inject() (
       BankStatementsEndpoints.discardDraft.serverLogic(discardDraft),
       BankStatementsEndpoints.getAll.serverLogic(getAll),
       BankStatementsEndpoints.getAllRows.serverLogic(getAllRows),
+      BankStatementsEndpoints.getAccountAliases.serverLogic(getAccountAliases),
       BankStatementsEndpoints.getOne.serverLogic(getOne),
       BankStatementsEndpoints.regenerateAiSuggestions.serverLogic(regenerateAiSuggestions),
       BankStatementsEndpoints.confirmRow.serverLogic(confirmRow),

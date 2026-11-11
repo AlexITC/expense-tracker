@@ -45,9 +45,7 @@ object GetBankStatement {
       statementRows: List[StatementRowData],
       createdAt: Instant,
       extractionInfo: Option[ExtractionInfo],
-      aiSuggestions: Option[AiSuggestions],
-      // The account nickname as stored; None when the account has no alias row, Some("") when it is unnamed.
-      accountAlias: Option[String]
+      aiSuggestions: Option[AiSuggestions]
   )
 
   object Response {

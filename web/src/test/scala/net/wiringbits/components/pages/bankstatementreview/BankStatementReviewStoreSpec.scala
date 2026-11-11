@@ -57,8 +57,7 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
       statementRows = rows,
       createdAt = Instant.EPOCH,
       extractionInfo = None,
-      aiSuggestions = suggestions,
-      accountAlias = None
+      aiSuggestions = suggestions
     )
 
   private val emptySupport = ReviewSupport(Nil, Nil, Nil, Nil, Nil)
@@ -216,13 +215,14 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
       store.$statement() mustBe Loadable.Failed("boom")
     }
 
-    "set the nickname on the loaded statement and keep its rows" in {
+    "set the nickname in its own slot and keep the statement and rows" in {
       val store = new BankStatementReviewStore
       val row = sampleRow("A")
       val stmt = statement(List(row))
       store.statementLoaded(stmt)
       store.setAccountAlias("Travel card")
-      store.$statement() mustBe Loadable.Loaded(stmt.copy(accountAlias = Some("Travel card")))
+      store.$accountAlias() mustBe "Travel card"
+      store.$statement() mustBe Loadable.Loaded(stmt)
       store.$rows() mustBe List(row)
     }
   }

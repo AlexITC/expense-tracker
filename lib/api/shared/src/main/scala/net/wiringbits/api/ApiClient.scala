@@ -317,6 +317,9 @@ class ApiClient(config: ApiClient.Config)(implicit
   def unlinkRowRefund(bankStatementId: UUID, rowId: UUID): Future[UnlinkRowRefund.Response] =
     handleRequest(BankStatementsEndpoints.unlinkRowRefund, (bankStatementId, rowId, dummyUserId))
 
+  def getBankStatementAccountAliases: Future[GetAccountAliases.Response] =
+    handleRequest(BankStatementsEndpoints.getAccountAliases, dummyUserId)
+
   def setBankStatementAccountAlias(
       bankStatementId: UUID,
       request: SetAccountAlias.Request

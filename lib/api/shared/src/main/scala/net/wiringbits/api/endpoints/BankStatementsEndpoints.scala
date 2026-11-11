@@ -251,6 +251,16 @@ object BankStatementsEndpoints {
       .errorOut(oneOf(HttpErrors.badRequest))
       .summary("Create a refund from a bank statement row and link it")
 
+  def getAccountAliases(implicit
+      authHandler: ServerRequest => Future[UUID]
+  ): Endpoint[Unit, Future[UUID], ErrorResponse, GetAccountAliases.Response, Any] =
+    baseEndpoint.get
+      .in("account-aliases")
+      .in(userAuth)
+      .out(jsonBody[GetAccountAliases.Response])
+      .errorOut(oneOf(HttpErrors.badRequest))
+      .summary("Get the authenticated user's account nicknames")
+
   def setAccountAlias(implicit
       authHandler: ServerRequest => Future[UUID]
   ): Endpoint[Unit, (UUID, SetAccountAlias.Request, Future[UUID]), ErrorResponse, SetAccountAlias.Response, Any] =
@@ -274,6 +284,7 @@ object BankStatementsEndpoints {
       discardDraft,
       getAll,
       getAllRows,
+      getAccountAliases,
       getOne,
       regenerateAiSuggestions,
       confirmRow,

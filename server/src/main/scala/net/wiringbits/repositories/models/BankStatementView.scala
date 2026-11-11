@@ -23,9 +23,7 @@ case class BankStatementView(
     processedRows: Int,
     extractionInfo: Option[ExtractionInfo],
     aiSuggestions: Option[AiSuggestions],
-    acceptedUnverified: Boolean,
-    // The account's nickname; None when no alias row exists for the account.
-    accountAlias: Option[String]
+    acceptedUnverified: Boolean
 ) {
 
   // A bank_statement row only exists once a draft is confirmed (statement-at-confirm), and a confirmed statement is

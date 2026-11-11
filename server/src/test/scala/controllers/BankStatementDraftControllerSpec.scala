@@ -439,11 +439,11 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       val firstId = client.confirmBankStatementDraft(first, acceptWarnings = false).futureValue.bankStatementId.value
       client.setBankStatementAccountAlias(firstId, SetAccountAlias.Request("Travel card")).futureValue
 
+      // Confirming a second statement of the same account must not clobber the existing nickname to empty.
       val second = seedReadyDraft(userId, reconcilingPayload)
-      val secondId = client.confirmBankStatementDraft(second, acceptWarnings = true).futureValue.bankStatementId.value
+      val _ = client.confirmBankStatementDraft(second, acceptWarnings = true).futureValue.bankStatementId.value
 
-      client.getBankStatement(secondId).futureValue.accountAlias must be(Some("Travel card"))
-      client.getBankStatement(firstId).futureValue.accountAlias must be(Some("Travel card"))
+      client.getBankStatementAccountAliases.futureValue.accounts.map(_.alias) must be(List("Travel card"))
     }
 
     "not warn about another user's overlapping statement" in withApiClient { implicit client =>

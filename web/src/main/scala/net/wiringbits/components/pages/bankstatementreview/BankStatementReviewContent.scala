@@ -59,6 +59,7 @@ object BankStatementReviewContent {
     val statementRows = ReactiveHooks.useValue(store.$rows)
     val supportState = ReactiveHooks.useValue(store.$support)
     val aiSuggestions = ReactiveHooks.useValue(store.$suggestions)
+    val accountAlias = ReactiveHooks.useValue(store.$accountAlias)
 
     // Until the support lists load, rows are shown without rule or expense matching and actions that need them are off.
     val support = supportState.toOption
@@ -207,6 +208,7 @@ object BankStatementReviewContent {
             BankStatementReviewHeader.Props(
               statement = stmt,
               rowCount = statementRows.size,
+              currentAlias = accountAlias,
               regenerateDisabled = suggestions.regenerateDisabled,
               onRegenerate = suggestions.regenerate,
               onSaveAlias = alias =>

@@ -1265,8 +1265,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         statementRows = rowDates.toList.map(d => sampleRow().copy(date = d)),
         createdAt = Instant.now(),
         extractionInfo = None,
-        aiSuggestions = None,
-        accountAlias = None
+        aiSuggestions = None
       )
 
     "span the period, starting the match tolerance before it" in {
@@ -1301,13 +1300,12 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         statementRows = Nil,
         createdAt = Instant.now(),
         extractionInfo = None,
-        aiSuggestions = None,
-        accountAlias = None
+        aiSuggestions = None
       )
       val path = BankStatementReviewLogic.backToListPath(stmt)
       path must startWith("/bank-statements?")
       BankStatementsLogic.parseListQuery(path.stripPrefix("/bank-statements")) mustBe
-        BankStatementsLogic.ListQuery(account = "Banco Azteca~credit~1234", name = "")
+        BankStatementsLogic.ListQuery(account = "Banco Azteca~credit~1234~USD", name = "")
     }
   }
 
