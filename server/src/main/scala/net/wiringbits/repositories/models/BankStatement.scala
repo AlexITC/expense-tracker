@@ -23,7 +23,8 @@ object BankStatement {
       documentId: UUID,
       userId: UUID,
       createdAt: Instant,
-      updatedAt: Instant
+      updatedAt: Instant,
+      acceptedUnverified: Boolean
   )
 
   /** Required statement metadata; the draft-import confirm step guarantees every field is present. */

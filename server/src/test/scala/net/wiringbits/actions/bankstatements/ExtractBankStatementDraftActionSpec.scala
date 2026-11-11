@@ -34,7 +34,9 @@ class ExtractBankStatementDraftActionSpec extends RepositorySpec with Repository
       model = "test",
       transactions = Nil,
       metadata = Meta(None, None, None, None, None, None, None, None),
-      source = source
+      residual = None,
+      source = source,
+      unverifiable = false
     )
 
   "toPayload" should {
@@ -46,6 +48,10 @@ class ExtractBankStatementDraftActionSpec extends RepositorySpec with Repository
 
     "leave the stage empty when the result is untagged" in {
       ExtractBankStatementDraftAction.toPayload(result(None)).stage must be(None)
+    }
+
+    "carry the unverifiable flag from the result" in {
+      ExtractBankStatementDraftAction.toPayload(result(None).copy(unverifiable = true)).unverifiable must be(true)
     }
   }
 

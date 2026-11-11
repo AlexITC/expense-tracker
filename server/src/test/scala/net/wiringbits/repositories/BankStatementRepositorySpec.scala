@@ -57,7 +57,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       val user = createUser().futureValue
       val doc = createDocument(user.id, kind = DocumentKind.BankStatementPdf).futureValue
       val now = Instant.now()
-      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
+      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now, acceptedUnverified = false)
       val rows = List(buildRow(stmt.id, 0), buildRow(stmt.id, 1))
       createStatement(stmt, sampleStatementMetadata, rows).futureValue
 
@@ -67,7 +67,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
   }
 
   "createConfirmedStatement" should {
-    def confirm(userId: UUID, extractionInfo: Option[ExtractionInfo])(implicit
+    def confirm(userId: UUID, extractionInfo: Option[ExtractionInfo], acceptedUnverified: Boolean = false)(implicit
         repositories: RepositoryComponents
     ): UUID = {
       val now = Instant.now()
@@ -83,7 +83,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         updatedAt = now
       )
       repositories.database.withConnection { implicit conn => DocumentDAO.create(document) }
-      val stmt = BankStatement.Create(UUID.randomUUID(), document.id, userId, now, now)
+      val stmt = BankStatement.Create(UUID.randomUUID(), document.id, userId, now, now, acceptedUnverified)
       val job = BackgroundJobData.Create(
         id = UUID.randomUUID(),
         `type` = BackgroundJobType.ResolveStatementSuggestions,
@@ -96,6 +96,20 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       repositories.bankStatements
         .createConfirmedStatement(stmt, sampleStatementMetadata, List(buildRow(stmt.id)), extractionInfo, job)
         .futureValue
+    }
+
+    "persist an accepted-unverified statement" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val id = confirm(user.id, None, acceptedUnverified = true)
+
+      repositories.bankStatements.find(id, user.id).futureValue.value.acceptedUnverified must be(true)
+    }
+
+    "default to not accepted-unverified" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val id = confirm(user.id, None)
+
+      repositories.bankStatements.find(id, user.id).futureValue.value.acceptedUnverified must be(false)
     }
 
     "mark the existing document parsed without creating another" in withRepositories() { implicit repositories =>
@@ -122,7 +136,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         updatedAt = now
       )
       repositories.database.withConnection { implicit conn => DocumentDAO.create(document) }
-      val stmt = BankStatement.Create(UUID.randomUUID(), document.id, other.id, now, now)
+      val stmt = BankStatement.Create(UUID.randomUUID(), document.id, other.id, now, now, acceptedUnverified = false)
       val job = BackgroundJobData.Create(
         id = UUID.randomUUID(),
         `type` = BackgroundJobType.ResolveStatementSuggestions,
@@ -428,7 +442,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
   ): List[BankStatementRow.Create] = {
     val doc = createDocument(userId, kind = DocumentKind.BankStatementPdf).futureValue
     val now = Instant.now()
-    val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, userId, now, now)
+    val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, userId, now, now, acceptedUnverified = false)
     val rows = descriptions.zipWithIndex.map { case (description, i) =>
       buildRow(stmt.id, i).copy(description = description, date = LocalDate.of(2024, 1, i + 1))
     }
@@ -671,7 +685,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       val user = createUser().futureValue
       val doc = createDocument(user.id, kind = DocumentKind.BankStatementPdf).futureValue
       val now = Instant.now()
-      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
+      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now, acceptedUnverified = false)
       createStatement(stmt, sampleStatementMetadata, List(buildRow(stmt.id, 0), buildRow(stmt.id, 1))).futureValue
 
       val rows = repositories.bankStatements.allRows(user.id).futureValue
@@ -684,7 +698,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       val user = createUser().futureValue
       val doc = createDocument(user.id, kind = DocumentKind.BankStatementPdf).futureValue
       val now = Instant.now()
-      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
+      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now, acceptedUnverified = false)
       val row = buildRow(stmt.id)
       createStatement(stmt, sampleStatementMetadata, List(row)).futureValue
 
@@ -702,7 +716,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       val expense = createExpense(user.id).futureValue
       val doc = createDocument(user.id, kind = DocumentKind.BankStatementPdf).futureValue
       val now = Instant.now()
-      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
+      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now, acceptedUnverified = false)
       val row = buildRow(stmt.id)
       createStatement(stmt, sampleStatementMetadata, List(row)).futureValue
 
@@ -803,7 +817,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
       val user = createUser().futureValue
       val doc = createDocument(user.id, kind = DocumentKind.BankStatementPdf).futureValue
       val now = Instant.now()
-      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
+      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now, acceptedUnverified = false)
       val row = buildRow(stmt.id)
       createStatement(stmt, sampleStatementMetadata, List(row)).futureValue
 
@@ -835,7 +849,8 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
         documentId = doc.id,
         userId = userId,
         createdAt = now,
-        updatedAt = now
+        updatedAt = now,
+        acceptedUnverified = false
       )
       createStatement(stmt, metadata, Nil).futureValue
       stmt.id

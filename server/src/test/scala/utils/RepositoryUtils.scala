@@ -313,7 +313,8 @@ trait RepositoryUtils {
         documentId = doc.id,
         userId = userId,
         createdAt = now,
-        updatedAt = now
+        updatedAt = now,
+        acceptedUnverified = false
       )
       _ <- createStatement(stmt, sampleStatementMetadata, Nil)
     } yield stmt

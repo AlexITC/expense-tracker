@@ -170,7 +170,7 @@ class ReceiptRepositorySpec extends RepositorySpec with RepositoryUtils {
       val receipt = createReceipt(user.id).futureValue
       val doc = createDocument(user.id, kind = DocumentKind.BankStatementPdf).futureValue
       val now = Instant.now()
-      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now)
+      val stmt = BankStatement.Create(UUID.randomUUID(), doc.id, user.id, now, now, acceptedUnverified = false)
       val row = BankStatementRow.Create(
         id = UUID.randomUUID(),
         bankStatementId = stmt.id,

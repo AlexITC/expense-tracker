@@ -35,6 +35,16 @@ object BankStatementTemplatePage {
       m.currency.exists(_.trim.nonEmpty) && m.accountLast4.exists(_.trim.nonEmpty) &&
       m.periodStart.isDefined && m.periodEnd.isDefined
 
+  /** The statement has rows but no balances to check them against, so the user may vouch for completeness. */
+  def unverifiedAckAvailable(p: BankStatementDraft.Payload): Boolean =
+    !p.reconciled && p.unverifiable && p.transactions.nonEmpty
+
+  def canConfirm(p: BankStatementDraft.Payload, acked: Boolean, busy: Boolean): Boolean =
+    metaComplete(p.metadata) && !busy && (p.reconciled || (unverifiedAckAvailable(p) && acked))
+
+  def acceptUnverifiedFlag(p: BankStatementDraft.Payload, acked: Boolean): Boolean =
+    unverifiedAckAvailable(p) && acked
+
   private[pages] def notReadyText: ReactElement =
     mui
       .Typography("This draft isn't ready yet, or no longer exists.")
@@ -80,7 +90,15 @@ object BankStatementTemplatePage {
 }
 
 object BankStatementTemplateEditor {
-  import BankStatementTemplatePage.{amountColor, errorText, metaComplete, notReadyText}
+  import BankStatementTemplatePage.{
+    acceptUnverifiedFlag,
+    amountColor,
+    canConfirm,
+    errorText,
+    metaComplete,
+    notReadyText,
+    unverifiedAckAvailable
+  }
 
   private val txnTypes = List("purchase", "payment", "fee", "interest", "refund")
 
@@ -104,6 +122,7 @@ object BankStatementTemplateEditor {
     val (payloadOpt, setPayloadOpt) = Hooks.useState[Option[BankStatementDraft.Payload]](props.draft.payload)
     val (saveState, setSaveState) = Hooks.useState[SaveState](SaveState.Idle)
     val (pendingWarnings, setPendingWarnings) = Hooks.useState[List[ConfirmWarning]](Nil)
+    val (unverifiedAcked, setUnverifiedAcked) = Hooks.useState(false)
     val busy = saveState.isSaving
 
     def setMeta(f: BankStatementDraft.Metadata => BankStatementDraft.Metadata): Unit =
@@ -139,7 +158,11 @@ object BankStatementTemplateEditor {
       setSaveState(SaveState.Saving)
       val run = for {
         _ <- client.updateBankStatementDraft(id, BankStatementDraft.Update.Request(p))
-        confirmed <- client.confirmBankStatementDraft(id, acceptWarnings = false)
+        confirmed <- client.confirmBankStatementDraft(
+          id,
+          acceptWarnings = false,
+          acceptUnverified = acceptUnverifiedFlag(p, unverifiedAcked)
+        )
       } yield confirmed
       run.onComplete {
         case Success(resp) =>
@@ -153,20 +176,26 @@ object BankStatementTemplateEditor {
       }
     }
 
-    def doConfirmAnyway(): Unit = {
+    def doConfirmAnyway(): Unit = payloadOpt.foreach { p =>
       setSaveState(SaveState.Saving)
-      client.confirmBankStatementDraft(id, acceptWarnings = true).onComplete {
-        case Success(resp) =>
-          resp.bankStatementId match {
-            case Some(stmtId) => history.push(s"/bank-statements/$stmtId")
-            case None =>
-              setPendingWarnings(Nil)
-              setSaveState(SaveState.Failed("The statement could not be imported"))
-          }
-        case Failure(ex) =>
-          setPendingWarnings(Nil)
-          setSaveState(SaveState.Failed(ex.getMessage))
-      }
+      client
+        .confirmBankStatementDraft(
+          id,
+          acceptWarnings = true,
+          acceptUnverified = acceptUnverifiedFlag(p, unverifiedAcked)
+        )
+        .onComplete {
+          case Success(resp) =>
+            resp.bankStatementId match {
+              case Some(stmtId) => history.push(s"/bank-statements/$stmtId")
+              case None =>
+                setPendingWarnings(Nil)
+                setSaveState(SaveState.Failed("The statement could not be imported"))
+            }
+          case Failure(ex) =>
+            setPendingWarnings(Nil)
+            setSaveState(SaveState.Failed(ex.getMessage))
+        }
     }
 
     def warningsDialog: ReactElement =
@@ -350,7 +379,6 @@ object BankStatementTemplateEditor {
 
     def editingView(payload: BankStatementDraft.Payload): ReactElement = {
       val reconciled = payload.reconciled
-      val canConfirm = reconciled && metaComplete(payload.metadata) && !busy
       Fragment(
         mui.Box.sx(new CSSPropertiesUtils {
           display = "flex"; alignItems = "baseline"; gap = "12px"; marginBottom = "8px"
@@ -373,6 +401,16 @@ object BankStatementTemplateEditor {
         ),
         metadataForm(payload.metadata),
         transactionsTable(payload.transactions),
+        if (unverifiedAckAvailable(payload))
+          mui.FormControlLabel(
+            control = mui.Checkbox
+              .checked(unverifiedAcked)
+              .disabled(busy)
+              .size("small")
+              .onChange((_, checked) => setUnverifiedAcked(checked)),
+            label = "No balances were found to verify against. I reviewed the rows and they are complete."
+          )
+        else Fragment(),
         if (!metaComplete(payload.metadata))
           mui
             .Typography("Fill in every metadata field (bank, type, currency, account, period) before confirming.")
@@ -389,7 +427,7 @@ object BankStatementTemplateEditor {
             .normal()("Confirm import")
             .size("small")
             .variant("contained")
-            .disabled(!canConfirm)
+            .disabled(!canConfirm(payload, acked = unverifiedAcked, busy = busy))
             .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
             .onClick(_ => doConfirm()),
           mui.Button

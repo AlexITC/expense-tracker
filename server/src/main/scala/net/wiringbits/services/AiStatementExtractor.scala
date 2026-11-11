@@ -41,14 +41,32 @@ object AiStatementExtractor {
       metadata: Meta,
       // How far the transactions are from the balance, when a numeric gap is computable (the net-check path). None when
       // it isn't (running-balance chain, or no balances at all). Used to pick the best of several attempts.
-      residual: Option[BigDecimal] = None,
+      residual: Option[BigDecimal],
       // Which ladder stage produced this result, stamped by StatementExtractionService. None until the ladder tags
       // it — parseAndVerify on its own leaves it unset.
-      source: Option[ExtractionSource] = None
+      source: Option[ExtractionSource] = None,
+      // True only when completeness can't be checked at all: no opening/closing balance pair and no usable
+      // running-balance chain. A chain break or a balance mismatch is a real discrepancy, not unverifiable.
+      unverifiable: Boolean
   )
 
-  /** Pick the best of several extraction attempts: any that reconciles wins; otherwise the one with the smallest
-    * numeric gap to the balance; an attempt with no computable gap is considered worst.
+  /** Outcome of re-checking a draft's arithmetic. `unverifiable` has the same meaning as on [[ExtractionResult]]. */
+  final case class Reconciliation(reconciled: Boolean, unverifiable: Boolean, discrepancy: Option[String])
+
+  /** An unverifiable outcome is acceptable only when there is at least one transaction. */
+  def isTerminalUnverifiable(unverifiable: Boolean, transactionCount: Int): Boolean =
+    unverifiable && transactionCount > 0
+
+  private final case class Verification(
+      reconciled: Boolean,
+      unverifiable: Boolean,
+      discrepancy: Option[String],
+      residual: Option[BigDecimal]
+  )
+
+  /** Pick the best of several extraction attempts: any that reconciles wins; otherwise one that found balances (a real
+    * discrepancy) beats an unverifiable one, then the smallest numeric gap to the balance; an attempt with no
+    * computable gap is considered worst.
     */
   def bestOf(results: List[ExtractionResult]): Option[ExtractionResult] =
     if (results.isEmpty) None
@@ -56,7 +74,11 @@ object AiStatementExtractor {
       Some(
         results
           .find(_.reconciled)
-          .getOrElse(results.minBy(_.residual.getOrElse(BigDecimal(Long.MaxValue))))
+          .getOrElse {
+            val anchored = results.filterNot(_.unverifiable)
+            val pool = if (anchored.nonEmpty) anchored else results
+            pool.minBy(_.residual.getOrElse(BigDecimal(Long.MaxValue)))
+          }
       )
 
   def parseAndVerify(rawJson: String, model: String): Either[String, ExtractionResult] =
@@ -94,8 +116,18 @@ object AiStatementExtractor {
             openingBalance = (m \ "openingBalance").asOpt[BigDecimal],
             closingBalance = (m \ "closingBalance").asOpt[BigDecimal]
           )
-          val (reconciled, discrepancy, residual) = verify(meta, txns)
-          Right(ExtractionResult(reconciled, discrepancy, model, txns, meta, residual))
+          val v = verify(meta, txns)
+          Right(
+            ExtractionResult(
+              v.reconciled,
+              v.discrepancy,
+              model,
+              txns,
+              meta,
+              v.residual,
+              unverifiable = v.unverifiable
+            )
+          )
         }
       }
 
@@ -106,9 +138,9 @@ object AiStatementExtractor {
       openingBalance: Option[BigDecimal],
       closingBalance: Option[BigDecimal],
       rows: List[(BigDecimal, Option[BigDecimal])]
-  ): (Boolean, Option[String]) = {
+  ): Reconciliation = {
     val txns = rows.map { case (amount, runningBalance) => Txn(LocalDate.MIN, amount, "", runningBalance, None) }
-    val (reconciled, discrepancy, _) =
+    val v =
       verify(
         Meta(
           bankName = None,
@@ -122,10 +154,10 @@ object AiStatementExtractor {
         ),
         txns
       )
-    (reconciled, discrepancy)
+    Reconciliation(reconciled = v.reconciled, unverifiable = v.unverifiable, discrepancy = v.discrepancy)
   }
 
-  private def verify(meta: Meta, txns: List[Txn]): (Boolean, Option[String], Option[BigDecimal]) = {
+  private def verify(meta: Meta, txns: List[Txn]): Verification = {
     val sumAll = txns.map(_.amount).foldLeft(BigDecimal(0))(_ + _)
 
     val chain: Option[Boolean] = meta.openingBalance
@@ -133,10 +165,11 @@ object AiStatementExtractor {
       .map(o => chainHolds(o, txns, sign = 1) || chainHolds(o, txns, sign = -1))
 
     chain match {
-      case Some(true) => (true, None, Some(BigDecimal(0)))
+      case Some(true) => Verification(reconciled = true, unverifiable = false, None, Some(BigDecimal(0)))
       case Some(false) =>
-        (
-          false,
+        Verification(
+          reconciled = false,
+          unverifiable = false,
           Some(
             s"The running balance does not add up across the ${txns.size} rows; a row is likely missing or misread."
           ),
@@ -147,18 +180,20 @@ object AiStatementExtractor {
           case (Some(o), Some(c)) =>
             // Accept either balance-sign convention (debit: c-o; credit/owed: o-c).
             val missing = List(sumAll - (c - o), sumAll - (o - c)).minBy(_.abs)
-            if (missing.abs < Tolerance) (true, None, Some(missing.abs))
+            if (missing.abs < Tolerance) Verification(reconciled = true, unverifiable = false, None, Some(missing.abs))
             else
-              (
-                false,
+              Verification(
+                reconciled = false,
+                unverifiable = false,
                 Some(
                   s"Transactions sum to $sumAll but the balance changes by ±${(c - o).abs} — off by ${missing.abs}."
                 ),
                 Some(missing.abs)
               )
           case _ =>
-            (
-              false,
+            Verification(
+              reconciled = false,
+              unverifiable = true,
               Some("No running balance or opening/closing balance was found, so completeness can't be verified."),
               None
             )

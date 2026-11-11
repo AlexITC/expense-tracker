@@ -33,11 +33,16 @@ class UpdateBankStatementDraftAction @Inject() (bankStatementDraftRepository: Ba
     } yield BankStatementDraft.Data(draft.id, filename = draft.filename, status = "ready", None, Some(recomputed))
 
   private def recompute(payload: BankStatementDraft.Payload): BankStatementDraft.Payload = {
-    val (reconciled, discrepancy) = AiStatementExtractor.reconcile(
+    val r = AiStatementExtractor.reconcile(
       openingBalance = payload.metadata.openingBalance,
       closingBalance = payload.metadata.closingBalance,
       payload.transactions.map(t => (t.amount, t.runningBalance))
     )
-    payload.copy(reconciled = reconciled, discrepancy = discrepancy)
+    // With no rows there is nothing to accept unverified.
+    payload.copy(
+      reconciled = r.reconciled,
+      discrepancy = r.discrepancy,
+      unverifiable = AiStatementExtractor.isTerminalUnverifiable(r.unverifiable, payload.transactions.size)
+    )
   }
 }

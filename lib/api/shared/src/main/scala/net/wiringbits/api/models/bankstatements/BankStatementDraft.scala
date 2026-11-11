@@ -48,7 +48,10 @@ object BankStatementDraft {
       reconciled: Boolean,
       discrepancy: Option[String],
       model: String,
-      stage: Option[ExtractionSource]
+      stage: Option[ExtractionSource],
+      // true when the statement has neither a running-balance chain nor opening/closing balances, so completeness
+      // can't be checked at all (as opposed to a real discrepancy).
+      unverifiable: Boolean
   )
   object Payload {
     implicit val format: Format[Payload] = Json.format[Payload]
@@ -85,10 +88,11 @@ object BankStatementDraft {
 
   /** Confirming runs non-blocking sanity checks (period, overlap). When they produce warnings and `acceptWarnings` is
     * false, nothing is created and `bankStatementId` is None; otherwise the statement is created and the warnings are
-    * echoed back.
+    * echoed back. `acceptUnverified` allows importing a draft whose completeness can't be verified (no balances to
+    * check against); it never overrides a real discrepancy and is independent of `acceptWarnings`.
     */
   object Confirm {
-    case class Request(acceptWarnings: Boolean)
+    case class Request(acceptWarnings: Boolean, acceptUnverified: Boolean)
     object Request {
       implicit val format: Format[Request] = Json.format[Request]
       implicit val schema: Schema[Request] =

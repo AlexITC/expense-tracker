@@ -50,8 +50,12 @@ class StatementExtractionService @Inject() (
 
   /** Run the full ladder. `label` is only for logging (a draft or statement id). */
   def extract(label: String, sha256: String, storageKey: String, text: String): Future[ExtractionResult] = {
-    def rung(prev: ExtractionResult, stage: ExtractionSource, input: Future[Option[String]]): Future[ExtractionResult] =
-      if (prev.reconciled) Future.successful(prev)
+    def rung(
+        prev: ExtractionResult,
+        stage: ExtractionSource,
+        input: => Future[Option[String]]
+    ): Future[ExtractionResult] =
+      if (terminal(prev, earlier = None)) Future.successful(prev)
       else
         input
           .flatMap {
@@ -93,7 +97,10 @@ class StatementExtractionService @Inject() (
         fetchBdaCustom(sha256 = sha256, storageKey = storageKey).map(_.map(Json.prettyPrint))
       )
     } yield {
-      logger.info(s"[$label] extraction done: reconciled=${r4.reconciled} transactions=${r4.transactions.size}")
+      logger.info(
+        s"[$label] extraction done: reconciled=${r4.reconciled} unverifiable=${r4.unverifiable} " +
+          s"transactions=${r4.transactions.size}"
+      )
       r4
     }
   }
@@ -196,6 +203,16 @@ class StatementExtractionService @Inject() (
       }
     }
 
+  /** A result the ladder stops at: it reconciles, or it has transactions but the statement carries no balances to
+    * verify them against — retrying or escalating can't make that verifiable, so it's returned as-is. An unverifiable
+    * result is terminal only when no earlier candidate found balances: if one did (a real discrepancy), the document
+    * has anchors and a later candidate dropping them must not displace that evidence.
+    */
+  private def terminal(r: ExtractionResult, earlier: Option[ExtractionResult]): Boolean =
+    r.reconciled || (AiStatementExtractor.isTerminalUnverifiable(r.unverifiable, r.transactions.size) && earlier.forall(
+      _.unverifiable
+    ))
+
   private def extractReconciling(
       label: String,
       text: String,
@@ -208,7 +225,7 @@ class StatementExtractionService @Inject() (
       AiStatementExtractor.parseAndVerify(rawJson = raw, model = bedrockConfig.statementModelId) match {
         case Right(parsed) =>
           val result = parsed.copy(source = Some(stage)) // tag which ladder stage produced this candidate
-          if (result.reconciled) Future.successful(result)
+          if (terminal(result, earlier = bestSoFar)) Future.successful(result)
           else {
             val best = AiStatementExtractor.bestOf(bestSoFar.toList :+ result).getOrElse(result)
             val failure = result.discrepancy.getOrElse("the transactions did not reconcile")

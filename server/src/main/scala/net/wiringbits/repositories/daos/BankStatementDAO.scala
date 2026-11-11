@@ -62,10 +62,11 @@ object BankStatementDAO {
       get[Int]("total_rows") ~
       get[Int]("processed_rows") ~
       get[Option[ExtractionInfo]]("extraction_info") ~
-      get[Option[AiSuggestions]]("ai_suggestions")).map {
+      get[Option[AiSuggestions]]("ai_suggestions") ~
+      bool("accepted_unverified")).map {
       case id ~ documentId ~ userId ~ bankName ~ productType ~ currency ~ accountLast4 ~
           periodStart ~ periodEnd ~ createdAt ~ updatedAt ~ filename ~ totalRows ~ processedRows ~
-          extractionInfo ~ aiSuggestions =>
+          extractionInfo ~ aiSuggestions ~ acceptedUnverified =>
         BankStatementView(
           id = id,
           documentId = documentId,
@@ -82,7 +83,8 @@ object BankStatementDAO {
           totalRows = totalRows,
           processedRows = processedRows,
           extractionInfo = extractionInfo,
-          aiSuggestions = aiSuggestions
+          aiSuggestions = aiSuggestions,
+          acceptedUnverified = acceptedUnverified
         )
     }
 
@@ -93,7 +95,7 @@ object BankStatementDAO {
       INSERT INTO bank_statement (
         id, document_id, user_id,
         bank_name, product_type, currency, account_last4, period_start, period_end,
-        created_at, updated_at, extraction_info
+        created_at, updated_at, extraction_info, accepted_unverified
       )
       VALUES (
         ${stmt.id.toString}::UUID,
@@ -107,7 +109,8 @@ object BankStatementDAO {
         ${metadata.periodEnd},
         ${stmt.createdAt},
         ${stmt.updatedAt},
-        ${extractionInfo.map(Json.toJson(_))}
+        ${extractionInfo.map(Json.toJson(_))},
+        ${stmt.acceptedUnverified}
       )
       """.execute()
   }
@@ -116,7 +119,7 @@ object BankStatementDAO {
     SQL"""
       SELECT bs.id, bs.document_id, bs.user_id, bs.bank_name, bs.product_type, bs.currency,
              bs.account_last4, bs.period_start, bs.period_end, bs.created_at, bs.updated_at,
-             bs.extraction_info, bs.ai_suggestions, d.filename,
+             bs.extraction_info, bs.ai_suggestions, bs.accepted_unverified, d.filename,
              COALESCE(rc.total_rows, 0) AS total_rows,
              COALESCE(rc.processed_rows, 0) AS processed_rows
       FROM bank_statement bs
@@ -137,7 +140,7 @@ object BankStatementDAO {
     SQL"""
       SELECT bs.id, bs.document_id, bs.user_id, bs.bank_name, bs.product_type, bs.currency,
              bs.account_last4, bs.period_start, bs.period_end, bs.created_at, bs.updated_at,
-             bs.extraction_info, bs.ai_suggestions, d.filename,
+             bs.extraction_info, bs.ai_suggestions, bs.accepted_unverified, d.filename,
              COALESCE(rc.total_rows, 0) AS total_rows,
              COALESCE(rc.processed_rows, 0) AS processed_rows
       FROM bank_statement bs
