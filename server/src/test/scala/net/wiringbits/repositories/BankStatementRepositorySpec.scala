@@ -1064,7 +1064,7 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
   }
 
-  "findSameCardMismatches" should {
+  "findSameCard" should {
     val january = sampleStatementMetadata.copy(
       bankName = "Test Bank",
       productType = "credit",
@@ -1075,39 +1075,40 @@ class BankStatementRepositorySpec extends RepositorySpec with RepositoryUtils {
     )
     val february = january.copy(periodStart = LocalDate.of(2026, 2, 1), periodEnd = LocalDate.of(2026, 2, 28))
 
-    def mismatches(userId: UUID, metadata: BankStatement.Metadata)(implicit
+    def sameCard(userId: UUID, metadata: BankStatement.Metadata)(implicit
         repositories: RepositoryComponents
     ): List[UUID] =
-      repositories.bankStatements.findSameCardMismatches(userId, metadata).futureValue.map(_.id)
+      repositories.bankStatements.findSameCard(userId, metadata).futureValue.map(_.id)
 
-    "match a different product type or currency regardless of period" in withRepositories() { implicit repositories =>
-      val user = createUser().futureValue
-      val debit = seed(user.id, january.copy(productType = "debit"))
-      val eur = seed(
-        user.id,
-        january.copy(periodStart = LocalDate.of(2026, 3, 1), periodEnd = LocalDate.of(2026, 3, 31), currency = "EUR")
-      )
-      mismatches(user.id, february) must be(List(debit, eur))
+    "return different product types or currencies regardless of period, in period_start order" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val eur = seed(
+          user.id,
+          january.copy(periodStart = LocalDate.of(2026, 3, 1), periodEnd = LocalDate.of(2026, 3, 31), currency = "EUR")
+        )
+        val debit = seed(user.id, january.copy(productType = "debit"))
+        sameCard(user.id, february) must be(List(debit, eur))
     }
 
-    "not match the exact same card, type and currency" in withRepositories() { implicit repositories =>
+    "return the exact same card, type and currency" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
-      seed(user.id, january)
-      mismatches(user.id, february) must be(Nil)
+      val statement = seed(user.id, january)
+      sameCard(user.id, february) must be(List(statement))
     }
 
     "not match a different last4 or a different bank" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       seed(user.id, january.copy(accountLast4 = "0000", productType = "debit"))
       seed(user.id, january.copy(bankName = "Other Bank", currency = "EUR"))
-      mismatches(user.id, february) must be(Nil)
+      sameCard(user.id, february) must be(Nil)
     }
 
     "never match another user's statement" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val other = createUser().futureValue
       seed(other.id, january.copy(productType = "debit"))
-      mismatches(user.id, february) must be(Nil)
+      sameCard(user.id, february) must be(Nil)
     }
   }
 }

@@ -52,8 +52,8 @@ object BankStatementConfirmChecks {
     }
 
   /** Flags a product type or currency that differs from what earlier statements of the same card (bank + last4) were
-    * saved with, which usually means the extraction misread it. `existing` should come from `findSameCardMismatches`;
-    * values matching the current statement are ignored.
+    * saved with, which usually means the extraction misread it. `existing` should come from `findSameCard`; values
+    * matching the current statement are ignored.
     */
   def cardMismatchWarnings(metadata: BankStatement.Metadata, existing: List[BankStatement]): List[ConfirmWarning] = {
     val card = s"••••${metadata.accountLast4}"

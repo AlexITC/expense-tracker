@@ -49,13 +49,13 @@ class ConfirmBankStatementDraftAction @Inject() (
       acceptedUnverified = requireReconciled(payload, acceptUnverified)
       metadata = requireMetadata(payload.metadata)
       overlapping <- bankStatementRepository.findOverlapping(userId, metadata)
-      mismatches <- bankStatementRepository.findSameCardMismatches(userId, metadata)
+      sameCard <- bankStatementRepository.findSameCard(userId, metadata)
       warnings = BankStatementConfirmChecks.periodWarnings(
         start = metadata.periodStart,
         end = metadata.periodEnd,
         today = LocalDate.now(clock)
       ) ++ BankStatementConfirmChecks.overlapWarning(overlapping).toList ++
-        BankStatementConfirmChecks.cardMismatchWarnings(metadata, mismatches)
+        BankStatementConfirmChecks.cardMismatchWarnings(metadata, sameCard)
       response <-
         if (warnings.nonEmpty && !acceptWarnings)
           Future.successful(BankStatementDraft.Confirm.Response(None, warnings))
