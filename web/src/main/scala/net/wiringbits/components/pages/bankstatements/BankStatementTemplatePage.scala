@@ -203,14 +203,14 @@ object BankStatementTemplateEditor {
       else
         mui
           .Dialog(true)(
-            mui.DialogTitle("This statement may be a duplicate"),
+            mui.DialogTitle("Please double-check before importing"),
             mui.DialogContent(
               pendingWarnings.zipWithIndex.map { case (w, i) =>
                 mui.DialogContentText(w.message).withKey(i.toString).build: ReactElement
               }*
             ),
             mui.DialogActions(
-              mui.Button.normal()("Cancel").disabled(busy).onClick(_ => setPendingWarnings(Nil)),
+              mui.Button.normal()("Go back and edit").disabled(busy).onClick(_ => setPendingWarnings(Nil)),
               mui.Button
                 .normal()(if (busy) "Importing…" else "Import anyway")
                 .color("warning")
