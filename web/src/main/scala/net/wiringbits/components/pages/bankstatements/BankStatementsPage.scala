@@ -7,8 +7,7 @@ import net.wiringbits.api.models.bankstatements.{
   BankStatementDraft,
   GetAccountAliases,
   GetBankStatement,
-  GetBankStatements,
-  SetAccountAlias
+  GetBankStatements
 }
 import net.wiringbits.api.models.documents.DocumentStatus
 import net.wiringbits.core.SafeHooks
@@ -85,12 +84,13 @@ object BankStatementList {
       currency = s.currency
     )
 
-  def accountLabelOf(s: GetBankStatements.Response.BankStatement): String =
+  def accountLabelOf(s: GetBankStatements.Response.BankStatement, aliasByKey: Map[String, String]): String =
     BankStatementsLogic.accountLabel(
       bankName = s.bankName,
       productType = s.productType,
       accountLast4 = s.accountLast4,
-      currency = s.currency
+      currency = s.currency,
+      alias = aliasByKey.get(accountKeyOf(s))
     )
 
   /** One-line metadata summary for a statement. */
@@ -289,7 +289,7 @@ object BankStatementList {
           .build
     }
 
-    val accounts = localStmts.map(s => accountKeyOf(s) -> accountLabelOf(s)).distinctBy(_._1)
+    val accounts = localStmts.map(s => accountKeyOf(s) -> accountLabelOf(s, aliasByKey)).distinctBy(_._1)
     val selectedAccount = BankStatementsLogic.selectedAccountKey(urlQuery.account, localStmts)
     val selectedAccountStmt = BankStatementsLogic.accountRepresentative(localStmts, selectedAccount)
 
@@ -534,19 +534,6 @@ object BankStatementList {
               }*
             )
         else Fragment(),
-        selectedAccountStmt match {
-          case Some(rep) =>
-            AccountAliasEditor(
-              AccountAliasEditor.Props(
-                currentAlias = aliasByKey.getOrElse(accountKeyOf(rep), ""),
-                onSave = alias =>
-                  props.ctx.api.client
-                    .setBankStatementAccountAlias(rep.id, SetAccountAlias.Request(alias))
-                    .map(r => setAliasByKey(cur => cur.updated(accountKeyOf(rep), r.alias)))
-              )
-            ).withKey(selectedAccount.getOrElse(""))
-          case None => Fragment()
-        },
         mui.TextField
           .outlined()
           .label("Filter by name")
@@ -567,7 +554,7 @@ object BankStatementList {
       selectedAccountStmt match {
         case Some(rep) =>
           mui
-            .Typography(s"Statements · ${accountLabelOf(rep)}")
+            .Typography(s"Statements · ${accountLabelOf(rep, aliasByKey)}")
             .sx(new CSSPropertiesUtils {
               fontSize = "13px"; fontWeight = "600"; color = "var(--lc-text-2)"; marginBottom = "6px"
             })

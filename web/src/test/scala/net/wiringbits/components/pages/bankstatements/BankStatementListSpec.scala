@@ -45,14 +45,22 @@ class BankStatementListSpec extends AnyWordSpec {
   "accountLabelOf" should {
     "render bank, product label in parentheses, last 4 and currency" in {
       BankStatementList.accountLabelOf(
-        stmt(bankName = "BBVA", productType = "credit", accountLast4 = "8927", currency = "EUR")
+        stmt(bankName = "BBVA", productType = "credit", accountLast4 = "8927", currency = "EUR"),
+        Map.empty
       ) mustBe "BBVA (Credit) ••••8927 · EUR"
     }
 
     "pass through unknown product types" in {
       BankStatementList.accountLabelOf(
-        stmt(bankName = "BBVA", productType = "savings", accountLast4 = "8927", currency = "EUR")
+        stmt(bankName = "BBVA", productType = "savings", accountLast4 = "8927", currency = "EUR"),
+        Map.empty
       ) mustBe "BBVA (savings) ••••8927 · EUR"
+    }
+
+    "prefix the account alias when the map has one for the account" in {
+      val s = stmt(bankName = "Example Bank", accountLast4 = "1111", currency = "EUR")
+      val aliasByKey = Map(BankStatementList.accountKeyOf(s) -> "Travel card")
+      BankStatementList.accountLabelOf(s, aliasByKey) mustBe "Travel card (Example Bank (Credit) ••••1111 · EUR)"
     }
   }
 

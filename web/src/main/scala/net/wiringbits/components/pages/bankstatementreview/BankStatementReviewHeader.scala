@@ -33,7 +33,8 @@ object BankStatementReviewHeader {
       bankName = stmt.bankName,
       productType = stmt.productType,
       accountLast4 = stmt.accountLast4,
-      currency = stmt.currency
+      currency = stmt.currency,
+      alias = None
     )
     mui.Box.sx(new CSSPropertiesUtils {
       display = "flex"; alignItems = "center"; flexWrap = "wrap"; gap = "12px"; marginBottom = "2px"

@@ -359,22 +359,35 @@ class BankStatementsLogicSpec extends AnyWordSpec {
   }
 
   "accountLabel" should {
-    "render bank, product label, last 4 and currency, without the nickname" in {
+    "put the alias in front of the default label" in {
       BankStatementsLogic.accountLabel(
         bankName = "Example Bank",
         productType = "credit",
         accountLast4 = "1111",
-        currency = "EUR"
+        currency = "EUR",
+        alias = Some("Travel card")
+      ) mustBe
+        "Travel card (Example Bank (Credit) ••••1111 · EUR)"
+    }
+
+    "return the default label for an empty alias" in {
+      BankStatementsLogic.accountLabel(
+        bankName = "Example Bank",
+        productType = "credit",
+        accountLast4 = "1111",
+        currency = "EUR",
+        alias = Some("")
       ) mustBe
         "Example Bank (Credit) ••••1111 · EUR"
     }
 
-    "map the debit product type to its label" in {
+    "return the default label without an alias" in {
       BankStatementsLogic.accountLabel(
         bankName = "Example Bank",
         productType = "debit",
         accountLast4 = "1111",
-        currency = "USD"
+        currency = "USD",
+        alias = None
       ) mustBe
         "Example Bank (Debit) ••••1111 · USD"
     }

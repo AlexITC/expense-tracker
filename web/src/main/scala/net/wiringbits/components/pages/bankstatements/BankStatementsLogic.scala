@@ -51,16 +51,19 @@ object BankStatementsLogic {
   /** Display label of an account: the nickname, when set, in front of the bank/product/last-4/currency label. An empty
     * nickname counts as none.
     */
-  /** The account's identity label. The nickname is not part of it; it is shown and edited separately via
-    * [[AccountAliasEditor]].
+  /** The account's label. The nickname, when set, prefixes the identity so the account picker and list are readable;
+    * pass `alias = None` where the nickname is shown separately (e.g. next to [[AccountAliasEditor]]).
     */
   def accountLabel(
       bankName: String,
       productType: String,
       accountLast4: String,
-      currency: String
-  ): String =
-    s"$bankName (${BankStatementList.productLabel(productType)}) ••••$accountLast4 · $currency"
+      currency: String,
+      alias: Option[String]
+  ): String = {
+    val default = s"$bankName (${BankStatementList.productLabel(productType)}) ••••$accountLast4 · $currency"
+    alias.filter(_.nonEmpty).fold(default)(a => s"$a ($default)")
+  }
 
   /** The user's nicknames keyed by account, for looking one up from a statement's account key. */
   def aliasByKey(aliases: GetAccountAliases.Response): Map[String, String] =
@@ -197,7 +200,7 @@ object BankStatementsLogic {
     val linked = rows.count(_.expenseId.isDefined)
     List(
       s"File: ${s.documentFilename}",
-      s"Account: ${accountLabel(bankName = s.bankName, productType = s.productType, accountLast4 = s.accountLast4, currency = s.currency)}",
+      s"Account: ${accountLabel(bankName = s.bankName, productType = s.productType, accountLast4 = s.accountLast4, currency = s.currency, alias = None)}",
       s"Period: ${s.periodStart} → ${s.periodEnd}",
       s"Rows: ${rows.size}",
       s"${plural(linked, singular = "linked expense", pluralForm = "linked expenses")} will be kept but unlinked from this statement.",
