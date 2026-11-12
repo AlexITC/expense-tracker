@@ -51,8 +51,8 @@ object BankStatementsLogic {
   /** Display label of an account: the nickname, when set, in front of the bank/product/last-4/currency label. An empty
     * nickname counts as none.
     */
-  /** The account's label. The nickname, when set, prefixes the identity so the account picker and list are readable;
-    * pass `alias = None` where the nickname is shown separately (e.g. next to [[AccountAliasEditor]]).
+  /** The account's label. The nickname, when set, replaces the identity so the account picker and list read as the
+    * nickname alone; pass `alias = None` where the nickname is shown separately (e.g. next to [[AccountAliasEditor]]).
     */
   def accountLabel(
       bankName: String,
@@ -62,7 +62,7 @@ object BankStatementsLogic {
       alias: Option[String]
   ): String = {
     val default = s"$bankName (${BankStatementList.productLabel(productType)}) ••••$accountLast4 · $currency"
-    alias.filter(_.nonEmpty).fold(default)(a => s"$a ($default)")
+    alias.filter(_.nonEmpty).getOrElse(default)
   }
 
   /** The user's nicknames keyed by account, for looking one up from a statement's account key. */

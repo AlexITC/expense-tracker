@@ -359,7 +359,7 @@ class BankStatementsLogicSpec extends AnyWordSpec {
   }
 
   "accountLabel" should {
-    "put the alias in front of the default label" in {
+    "use the alias alone when set" in {
       BankStatementsLogic.accountLabel(
         bankName = "Example Bank",
         productType = "credit",
@@ -367,7 +367,7 @@ class BankStatementsLogicSpec extends AnyWordSpec {
         currency = "EUR",
         alias = Some("Travel card")
       ) mustBe
-        "Travel card (Example Bank (Credit) ••••1111 · EUR)"
+        "Travel card"
     }
 
     "return the default label for an empty alias" in {
