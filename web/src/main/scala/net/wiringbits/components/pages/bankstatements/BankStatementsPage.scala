@@ -110,22 +110,19 @@ object BankStatementList {
   def gapWarning(
       newer: GetBankStatements.Response.BankStatement,
       older: GetBankStatements.Response.BankStatement
-  ): Option[ReactElement] = {
-    val start = newer.periodStart
-    val end = older.periodEnd
-    Option.when(start.toEpochDay - end.toEpochDay > 20)(
+  ): Option[ReactElement] =
+    BankStatementsLogic.gapWarningText(older = older, newer = newer).map { text =>
       mui.Box
         .sx(new CSSPropertiesUtils {
           border = "1px dashed var(--lc-warning-text)"; borderRadius = "8px"; padding = "8px 16px";
           marginBottom = "6px"; backgroundColor = "var(--lc-paper)"
         })(
           mui
-            .Typography(s"⚠ Gap — a statement between $end and $start appears to be missing")
+            .Typography(text)
             .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-warning-text)" })
         )
         .withKey(s"gap-${older.id}")
-    )
-  }
+    }
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext

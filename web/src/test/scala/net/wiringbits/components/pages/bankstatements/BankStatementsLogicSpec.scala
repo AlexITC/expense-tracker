@@ -273,6 +273,28 @@ class BankStatementsLogicSpec extends AnyWordSpec {
     }
   }
 
+  "gapWarningText" should {
+    "name the missing cycle, not the neighbors' boundary dates" in {
+      val older = stmt(accountLast4 = "1111", createdAt = t0, periodStart = LocalDate.of(2026, 6, 1))
+      val newer = stmt(accountLast4 = "1111", createdAt = t0, periodStart = LocalDate.of(2026, 8, 1))
+      BankStatementsLogic.gapWarningText(older = older, newer = newer) mustBe
+        Some("⚠ Gap — a statement covering 2026-07-01 to 2026-07-31 appears to be missing")
+    }
+
+    "span the whole hole for a multi-cycle gap" in {
+      val older = stmt(accountLast4 = "1111", createdAt = t0, periodStart = LocalDate.of(2026, 6, 1))
+      val newer = stmt(accountLast4 = "1111", createdAt = t0, periodStart = LocalDate.of(2026, 9, 1))
+      BankStatementsLogic.gapWarningText(older = older, newer = newer) mustBe
+        Some("⚠ Gap — a statement covering 2026-07-01 to 2026-08-31 appears to be missing")
+    }
+
+    "return None for consecutive statements" in {
+      val older = stmt(accountLast4 = "1111", createdAt = t0, periodStart = LocalDate.of(2026, 6, 1))
+      val newer = stmt(accountLast4 = "1111", createdAt = t0, periodStart = LocalDate.of(2026, 7, 1))
+      BankStatementsLogic.gapWarningText(older = older, newer = newer) mustBe None
+    }
+  }
+
   "mergePolled" should {
     val other = UUID.randomUUID()
     val s = stmt(accountLast4 = "1111", createdAt = t0, overlappingStatementIds = List(other))
