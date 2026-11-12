@@ -85,13 +85,12 @@ object BankStatementList {
       currency = s.currency
     )
 
-  def accountLabelOf(s: GetBankStatements.Response.BankStatement, aliasByKey: Map[String, String]): String =
+  def accountLabelOf(s: GetBankStatements.Response.BankStatement): String =
     BankStatementsLogic.accountLabel(
       bankName = s.bankName,
       productType = s.productType,
       accountLast4 = s.accountLast4,
-      currency = s.currency,
-      alias = aliasByKey.get(accountKeyOf(s))
+      currency = s.currency
     )
 
   /** One-line metadata summary for a statement. */
@@ -290,7 +289,7 @@ object BankStatementList {
           .build
     }
 
-    val accounts = localStmts.map(s => accountKeyOf(s) -> accountLabelOf(s, aliasByKey)).distinctBy(_._1)
+    val accounts = localStmts.map(s => accountKeyOf(s) -> accountLabelOf(s)).distinctBy(_._1)
     val selectedAccount = BankStatementsLogic.selectedAccountKey(urlQuery.account, localStmts)
     val selectedAccountStmt = BankStatementsLogic.accountRepresentative(localStmts, selectedAccount)
 
@@ -568,7 +567,7 @@ object BankStatementList {
       selectedAccountStmt match {
         case Some(rep) =>
           mui
-            .Typography(s"Statements · ${accountLabelOf(rep, aliasByKey)}")
+            .Typography(s"Statements · ${accountLabelOf(rep)}")
             .sx(new CSSPropertiesUtils {
               fontSize = "13px"; fontWeight = "600"; color = "var(--lc-text-2)"; marginBottom = "6px"
             })
