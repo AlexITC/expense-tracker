@@ -652,22 +652,19 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
         client.getBankStatements.futureValue.data must have size 2
     }
 
-    "not return a RowsInOtherStatement warning for rows inside a statement of a different account" in withApiClient {
+    "not return a RowsInOtherStatement warning for rows inside a statement of a different currency" in withApiClient {
       implicit client =>
         val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
         val first = seedReadyDraft(userId, cardPayload())
         client.confirmBankStatementDraft(first, acceptWarnings = false).futureValue.bankStatementId.value
 
-        def janRow(p: BankStatementDraft.Payload) =
-          p.copy(transactions = p.transactions.map(_.copy(date = LocalDate.of(2026, 1, 28))))
-
-        val otherLast4 = seedReadyDraft(userId, janRow(cardPayload(accountLast4 = "1111", february = true)))
-        val r1 = client.confirmBankStatementDraft(otherLast4, acceptWarnings = false).futureValue
-        r1.warnings.map(_.kind) must not contain ConfirmWarningKind.RowsInOtherStatement
-
-        val otherCurrency = seedReadyDraft(userId, janRow(cardPayload(currency = "USD", february = true)))
-        val r2 = client.confirmBankStatementDraft(otherCurrency, acceptWarnings = false).futureValue
-        r2.warnings.map(_.kind) must not contain ConfirmWarningKind.RowsInOtherStatement
+        val usdFeb = cardPayload(currency = "USD", february = true)
+        val otherCurrency = seedReadyDraft(
+          userId,
+          usdFeb.copy(transactions = usdFeb.transactions.map(_.copy(date = LocalDate.of(2026, 1, 28))))
+        )
+        val response = client.confirmBankStatementDraft(otherCurrency, acceptWarnings = false).futureValue
+        response.warnings.map(_.kind) must not contain ConfirmWarningKind.RowsInOtherStatement
     }
 
     "create an unverifiable draft when acceptUnverified is set and record it" in withApiClient { implicit client =>

@@ -221,6 +221,25 @@ class BankStatementConfirmChecksSpec extends AnyWordSpec with Matchers {
       result.map(_.message).getOrElse("") must not include "2025-12-05"
     }
 
+    "group the dates by each existing statement they fall into" in {
+      val october = statement("2025-10-01", "2025-10-31")
+      val message = check(List("2025-10-20", "2025-11-27", "2025-12-05"), List(october, november))
+        .map(_.message)
+        .getOrElse("")
+
+      message must (include("2025-10-20 (in 2025-10-01 → 2025-10-31)") and
+        include("2025-11-27 (in 2025-11-01 → 2025-11-30)"))
+    }
+
+    "cap the listed statements at 5 and summarise the rest" in {
+      val months = (1 to 7).toList.map(m => statement(f"2025-$m%02d-01", f"2025-$m%02d-28"))
+      val rows = (1 to 7).toList.map(m => f"2025-$m%02d-15")
+      val message = check(rows, months).map(_.message).getOrElse("")
+
+      message must (include("2025-05-15") and include("; +2 more"))
+      message must (not include "2025-06-15" and not include "2025-07-15")
+    }
+
     "list each date once" in {
       val message = check(List("2025-11-27", "2025-11-27"), List(november)).map(_.message).getOrElse("")
 
