@@ -121,6 +121,12 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
     }
   }
 
+  def findSameCardMismatches(userId: UUID, metadata: BankStatement.Metadata): Future[List[BankStatement]] = Future {
+    database.withConnection { implicit conn =>
+      BankStatementDAO.findSameCardMismatches(userId, metadata)
+    }
+  }
+
   def overlappingStatementIds(userId: UUID): Future[Map[UUID, List[UUID]]] = Future {
     database.withConnection { implicit conn =>
       BankStatementDAO.overlappingStatementIds(userId)
