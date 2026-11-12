@@ -2,6 +2,7 @@ package net.wiringbits.components.pages.bankstatements
 
 import net.wiringbits.api.models.bankstatements.{GetAccountAliases, GetBankStatement, GetBankStatements}
 
+import java.time.LocalDate
 import java.util.UUID
 import scala.scalajs.js.URIUtils
 import scala.util.Try
@@ -160,6 +161,31 @@ object BankStatementsLogic {
 
   private def plural(n: Int, singular: String, pluralForm: String): String =
     s"$n ${if (n == 1) singular else pluralForm}"
+
+  /** A gap this many days or less between an older statement's end and the next one's start is treated as consecutive;
+    * a larger gap means at least one whole cycle is missing.
+    */
+  private val MaxConsecutiveGapDays = 20L
+
+  /** The coverage range that is actually missing between two period-adjacent statements of one account: from the day
+    * after the older statement's end to the day before the newer statement's start. `None` when they are close enough
+    * to be consecutive. Generalizes to multi-cycle gaps.
+    */
+  def gapMissingRange(
+      older: GetBankStatements.Response.BankStatement,
+      newer: GetBankStatements.Response.BankStatement
+  ): Option[(LocalDate, LocalDate)] =
+    Option.when(newer.periodStart.toEpochDay - older.periodEnd.toEpochDay > MaxConsecutiveGapDays)(
+      (older.periodEnd.plusDays(1), newer.periodStart.minusDays(1))
+    )
+
+  def gapWarningText(
+      older: GetBankStatements.Response.BankStatement,
+      newer: GetBankStatements.Response.BankStatement
+  ): Option[String] =
+    gapMissingRange(older = older, newer = newer).map { case (missingStart, missingEnd) =>
+      s"⚠ Gap — a statement covering $missingStart to $missingEnd appears to be missing"
+    }
 
   /** Lines describing what deleting a statement does, given its rows. Only rows linked to an expense count as linked
     * expenses (refund-only or ignored rows don't). Deleting keeps those expenses but unlinks them.
