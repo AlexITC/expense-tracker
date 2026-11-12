@@ -262,8 +262,8 @@ js.Dynamic.literal(
 MUI 5's `Autocomplete` requires a specific construction pattern because ScalablyTyped does not expose all its props via the fluent builder. Use `AutocompleteProps` + `js.Dynamic` mutation, then pass the typed ref to `withProps`:
 
 ```scala
-import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps, AutocompleteRenderInputParams}
-import scala.scalajs.js.JSConverters.*
+import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
+import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 
 // Define outside the component body (no closures needed)
 private def renderTextField(label: String)(params: AutocompleteRenderInputParams): ReactElement = {
@@ -276,16 +276,6 @@ private def renderTextField(label: String)(params: AutocompleteRenderInputParams
     .withKey("tf"): ReactElement)
 }
 
-// Inside FunctionalComponent body:
-val acProps = AutocompleteProps[MyOption, Boolean, Boolean, Boolean, "div"](
-  options = myOptions.toJSArray,
-  renderInput = renderTextField("My Label")
-)
-val dyn = acProps.asInstanceOf[js.Dynamic]
-dyn.freeSolo = true       // allow free-text beyond the option list
-dyn.size = "small"
-dyn.disabled = isDisabled
-dyn.inputValue = currentText  // controlled input value
 // Extract getOptionLabel as a private[pages] def so it can be unit-tested directly.
 // Ascribe opt as Any — Scala 3 rejects `case s: String` when scrutinee is js.Any
 // (unrelated type hierarchies), but String and MyOption are both subtypes of Any.
@@ -298,21 +288,28 @@ private[pages] def myOptionLabel(opt: js.Any): String =
     case _           => ""  // handles undefined/null/unexpected types safely
   }
 
-dyn.getOptionLabel = (opt: js.Any) => myOptionLabel(opt)
-dyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
-  (value: Any) match {
-    case o: MyOption =>
-      setSelectedId(Some(o.id))
-      // ... any auto-fill side effects
-    case _ => ()
-  }
-dyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-  val text = if (js.typeOf(value) == "string") value.asInstanceOf[String] else ""
-  val rsn  = if (js.typeOf(reason) == "string") reason.asInstanceOf[String] else ""
-  setText(text)
-  // Skip clearing id on "reset": onChange fires first and just set it
-  if (rsn != "reset") setSelectedId(None)
-}
+// Inside FunctionalComponent body:
+// freeSolo = true and size = "small" are always set; disabled/fullWidth must be passed explicitly.
+val acProps = MuiCompat.freeSoloAutocompleteProps(
+  options = myOptions,
+  renderInput = renderTextField("My Label"),
+  inputValue = currentText,  // controlled input value
+  getOptionLabel = myOptionLabel,
+  onSelect = value =>
+    (value: Any) match {
+      case o: MyOption =>
+        setSelectedId(Some(o.id))
+        // ... any auto-fill side effects
+      case _ => ()
+    },
+  onInput = (text, reason) => {
+    setText(text)
+    // Skip clearing id on "reset": onChange fires first and just set it
+    if (reason != "reset") setSelectedId(None)
+  },
+  disabled = isDisabled,
+  fullWidth = false
+)
 
 (mui.Autocomplete.withProps(acProps).withKey("my-ac"): ReactElement)
 ```
@@ -321,13 +318,13 @@ Key rules:
 
 - **Type parameters**: `AutocompleteProps[T, Boolean, Boolean, Boolean, "div"]` — the 5th must be the literal type `"div"`, not `String`.
 - **`TextField` factory vs builder**: `mui.TextField.outlined.withProps(...)` — `outlined` without `()` is the factory; `outlined()` returns a builder that does **not** have `withProps`.
-- **`js.Dynamic` mutation**: set all optional props (`freeSolo`, `getOptionLabel`, `onChange`, etc.) by mutating the JS object, then pass the original typed ref (`acProps`) to `withProps`.
+- **`js.Dynamic` mutation**: ScalablyTyped does not expose `freeSolo`, `getOptionLabel`, `onChange`, etc., so they are set by mutating the JS object. That cast-and-mutate lives only in `MuiCompat.freeSoloAutocompleteProps`; pages must not repeat it. Shapes the helper doesn't cover (e.g. value-controlled, non-freeSolo, extra props such as `sx`) still build `AutocompleteProps` directly and pass the typed ref to `withProps`.
 - **`.withKey(k)` to render**: `withProps` returns a `Builder` AnyVal (just the props — NOT a React element). Call `.withKey(anyUniqueKey)` to materialise the actual React element via `KeyAddingStage`; then ascribe `: ReactElement` to trigger the implicit conversion. Using `.asInstanceOf[ReactElement]` on the Builder directly passes the raw props object to React and causes a runtime crash.
 - **Controlled input**: pair `inputValue` with `onInputChange`. In `onInputChange`, skip `setSelectedId(None)` when `reason == "reset"` (MUI fires this after `onChange` selects an option — clearing the id there would undo the selection).
 - **`freeSolo` + `onChange`**: with `freeSolo = true`, `onChange` fires with a plain string when the user presses Enter on typed text. Use `(value: Any) match { case o: MyOption => ...; case _ => () }` — this safely excludes strings, undefined, and null without needing `js.typeOf` guards.
 - **`getOptionLabel` must use `(opt: Any) match`**: MUI calls `getOptionLabel` for every rendered list option and also with `undefined` when the dropdown first opens. Using `opt.asInstanceOf[js.Dynamic].name` crashes because Scala.js case class fields are name-mangled in JS output (`.name` returns `undefined`). Ascribing `opt` as `Any` and using a pattern match is the only correct approach. Extract this function as `private[pages]` so you can unit-test it directly with Merchant instances, plain strings, undefined, and null.
 
-@file: web/src/main/scala/net/wiringbits/components/pages/merchants/BulkMerchantSetupPage.scala (DescriptionRow — real usage with merchant + category Autocomplete)
+@file: web/src/main/scala/net/wiringbits/components/pages/bankstatementreview/BankRowRuleForm.scala
 
 **RULE-FE-013 — Pages must be URL friendly**
 
@@ -382,6 +379,7 @@ Use the approved compat entry points for all JS-interop needs:
 | Pagination props | `MuiCompat.paginationProps(count, page, onChange)` |
 | Autocomplete `renderInput` | `MuiCompat.textFieldProps(params, label, size)` |
 | Autocomplete `onInputChange` text + reason | `MuiCompat.autocompleteInputChange(value, reason)` |
+| Free-solo Autocomplete props | `MuiCompat.freeSoloAutocompleteProps(...)` |
 | Tabs `onChange` value | `MuiCompat.tabValue(v)` |
 | JS value coercion (`js.Any` → `String`/`Double`) | `JsValueCompat.asString(v)` / `JsValueCompat.asDouble(v)` |
 | Current route pathname and search | `RouterCompat.useTypedLocation()` |

@@ -1,10 +1,12 @@
 package net.wiringbits.webapp.utils.slinkyUtils.compat
 
-import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
+import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps, AutocompleteRenderInputParams}
 import com.olvind.mui.muiMaterial.paginationPaginationMod.PaginationProps
 import com.olvind.mui.muiMaterial.textFieldTextFieldMod.OutlinedTextFieldProps
+import slinky.core.facade.ReactElement
 
 import scala.scalajs.js
+import scala.scalajs.js.JSConverters.*
 
 object MuiCompat {
   // size: MUI Pagination size prop — valid values are "small", "medium", "large"
@@ -36,6 +38,38 @@ object MuiCompat {
     if (js.typeOf(value) == "string") value.asInstanceOf[String] else "",
     if (js.typeOf(reason) == "string") reason.asInstanceOf[String] else ""
   )
+
+  // ScalablyTyped's AutocompleteProps does not expose freeSolo/size/inputValue/getOptionLabel/onChange/
+  // onInputChange/disabled/fullWidth as settable fields, so they are assigned through js.Dynamic here.
+  // Pages must use this helper instead of repeating the cast-and-mutate pattern.
+  def freeSoloAutocompleteProps[T](
+      options: Seq[T],
+      renderInput: AutocompleteRenderInputParams => ReactElement,
+      inputValue: String,
+      getOptionLabel: js.Any => String,
+      onSelect: js.Any => Unit,
+      onInput: (String, String) => Unit,
+      disabled: Boolean,
+      fullWidth: Boolean
+  ): AutocompleteProps[T, Boolean, Boolean, Boolean, "div"] = {
+    val props = AutocompleteProps[T, Boolean, Boolean, Boolean, "div"](
+      options = options.toJSArray,
+      renderInput = renderInput
+    )
+    val dyn = props.asInstanceOf[js.Dynamic]
+    dyn.freeSolo = true
+    dyn.size = "small"
+    dyn.inputValue = inputValue
+    dyn.getOptionLabel = (opt: js.Any) => getOptionLabel(opt)
+    if (disabled) dyn.disabled = true
+    if (fullWidth) dyn.fullWidth = true
+    dyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) => onSelect(value)
+    dyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
+      val (text, rsn) = autocompleteInputChange(value = value, reason = reason)
+      onInput(text, rsn)
+    }
+    props
+  }
 
   def tabValue(v: Any): String =
     if (js.typeOf(v.asInstanceOf[js.Any]) == "string") v.asInstanceOf[String] else ""

@@ -1,7 +1,7 @@
 package net.wiringbits.components.pages.importrules
 import net.wiringbits.components.pages.{AutocompleteLabels, CategoryResolver}
 
-import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps, AutocompleteRenderInputParams}
+import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
@@ -28,8 +28,6 @@ import slinky.web.html.{form, onSubmit}
 
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
-import scala.scalajs.js
-import scala.scalajs.js.JSConverters.*
 import scala.util.{Failure, Success}
 
 object ImportRulesPage {
@@ -319,25 +317,23 @@ object ImportRuleList {
         onInputChange: String => Unit,
         onIdChange: Option[UUID] => Unit
     ): ReactElement = {
-      val acProps = AutocompleteProps[GetMerchants.Response.Merchant, Boolean, Boolean, Boolean, "div"](
-        options = localMerchants.toJSArray,
-        renderInput = renderMerchantTextField
+      val acProps = MuiCompat.freeSoloAutocompleteProps(
+        options = localMerchants,
+        renderInput = renderMerchantTextField,
+        inputValue = inputValue,
+        getOptionLabel = AutocompleteLabels.merchantOptionLabel,
+        onSelect = value =>
+          (value: Any) match {
+            case m: GetMerchants.Response.Merchant => onIdChange(Some(m.id)); onInputChange(m.name)
+            case _ => ()
+          },
+        onInput = (text, rsn) => {
+          onInputChange(text)
+          if (rsn != "reset") onIdChange(None)
+        },
+        disabled = false,
+        fullWidth = false
       )
-      val acDyn = acProps.asInstanceOf[js.Dynamic]
-      acDyn.freeSolo = true
-      acDyn.size = "small"
-      acDyn.inputValue = inputValue
-      acDyn.getOptionLabel = (opt: js.Any) => AutocompleteLabels.merchantOptionLabel(opt)
-      acDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
-        (value: Any) match {
-          case m: GetMerchants.Response.Merchant => onIdChange(Some(m.id)); onInputChange(m.name)
-          case _ => ()
-        }
-      acDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-        val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
-        onInputChange(text)
-        if (rsn != "reset") onIdChange(None)
-      }
       (mui.Autocomplete.withProps(acProps).withKey("merchant-ac"): ReactElement)
     }
 
@@ -346,25 +342,23 @@ object ImportRuleList {
         onInputChange: String => Unit,
         onIdChange: Option[UUID] => Unit
     ): ReactElement = {
-      val acProps = AutocompleteProps[GetCategories.Response.Category, Boolean, Boolean, Boolean, "div"](
-        options = localCategories.toJSArray,
-        renderInput = renderCategoryTextField
+      val acProps = MuiCompat.freeSoloAutocompleteProps(
+        options = localCategories,
+        renderInput = renderCategoryTextField,
+        inputValue = inputValue,
+        getOptionLabel = AutocompleteLabels.categoryOptionLabel,
+        onSelect = value =>
+          (value: Any) match {
+            case c: GetCategories.Response.Category => onIdChange(Some(c.id)); onInputChange(c.name)
+            case _ => ()
+          },
+        onInput = (text, rsn) => {
+          onInputChange(text)
+          if (rsn != "reset") onIdChange(None)
+        },
+        disabled = false,
+        fullWidth = false
       )
-      val acDyn = acProps.asInstanceOf[js.Dynamic]
-      acDyn.freeSolo = true
-      acDyn.size = "small"
-      acDyn.inputValue = inputValue
-      acDyn.getOptionLabel = (opt: js.Any) => AutocompleteLabels.categoryOptionLabel(opt)
-      acDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
-        (value: Any) match {
-          case c: GetCategories.Response.Category => onIdChange(Some(c.id)); onInputChange(c.name)
-          case _ => ()
-        }
-      acDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-        val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
-        onInputChange(text)
-        if (rsn != "reset") onIdChange(None)
-      }
       (mui.Autocomplete.withProps(acProps).withKey("category-ac"): ReactElement)
     }
 

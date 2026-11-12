@@ -1,7 +1,7 @@
 package net.wiringbits.components.pages.bankstatementreview
 import net.wiringbits.components.pages.AutocompleteLabels
 
-import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps, AutocompleteRenderInputParams}
+import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{CreateRefundFromRow, GetBankStatement}
@@ -18,8 +18,6 @@ import slinky.web.html.{form, onSubmit}
 import java.time.LocalDate
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
-import scala.scalajs.js
-import scala.scalajs.js.JSConverters.*
 import scala.util.{Failure, Success, Try}
 
 object BankRowCreateRefundForm {
@@ -154,47 +152,41 @@ object BankRowCreateRefundForm {
           }
       }
 
-    val merchantAcProps = AutocompleteProps[GetMerchants.Response.Merchant, Boolean, Boolean, Boolean, "div"](
-      options = props.merchants.toJSArray,
-      renderInput = renderTextField("Merchant (optional)")
+    val merchantAcProps = MuiCompat.freeSoloAutocompleteProps(
+      options = props.merchants,
+      renderInput = renderTextField("Merchant (optional)"),
+      inputValue = merchantInput,
+      getOptionLabel = AutocompleteLabels.merchantOptionLabel,
+      onSelect = value =>
+        (value: Any) match {
+          case m: GetMerchants.Response.Merchant => selectMerchant(m)
+          case _ => ()
+        },
+      onInput = (text, rsn) => {
+        setMerchantInput(text)
+        if (rsn != "reset") setMerchantIdOpt(None)
+      },
+      disabled = false,
+      fullWidth = true
     )
-    val merchantDyn = merchantAcProps.asInstanceOf[js.Dynamic]
-    merchantDyn.freeSolo = true
-    merchantDyn.size = "small"
-    merchantDyn.fullWidth = true
-    merchantDyn.inputValue = merchantInput
-    merchantDyn.getOptionLabel = (opt: js.Any) => AutocompleteLabels.merchantOptionLabel(opt)
-    merchantDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
-      (value: Any) match {
-        case m: GetMerchants.Response.Merchant => selectMerchant(m)
-        case _ => ()
-      }
-    merchantDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
-      setMerchantInput(text)
-      if (rsn != "reset") setMerchantIdOpt(None)
-    }
 
-    val categoryAcProps = AutocompleteProps[GetCategories.Response.Category, Boolean, Boolean, Boolean, "div"](
-      options = props.categories.toJSArray,
-      renderInput = renderTextField("Category (optional)")
+    val categoryAcProps = MuiCompat.freeSoloAutocompleteProps(
+      options = props.categories,
+      renderInput = renderTextField("Category (optional)"),
+      inputValue = categoryInput,
+      getOptionLabel = AutocompleteLabels.categoryOptionLabel,
+      onSelect = value =>
+        (value: Any) match {
+          case c: GetCategories.Response.Category => setCategoryIdOpt(Some(c.id)); setCategoryInput(c.name)
+          case _ => ()
+        },
+      onInput = (text, rsn) => {
+        setCategoryInput(text)
+        if (rsn != "reset") setCategoryIdOpt(None)
+      },
+      disabled = false,
+      fullWidth = true
     )
-    val categoryDyn = categoryAcProps.asInstanceOf[js.Dynamic]
-    categoryDyn.freeSolo = true
-    categoryDyn.size = "small"
-    categoryDyn.fullWidth = true
-    categoryDyn.inputValue = categoryInput
-    categoryDyn.getOptionLabel = (opt: js.Any) => AutocompleteLabels.categoryOptionLabel(opt)
-    categoryDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
-      (value: Any) match {
-        case c: GetCategories.Response.Category => setCategoryIdOpt(Some(c.id)); setCategoryInput(c.name)
-        case _ => ()
-      }
-    categoryDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
-      setCategoryInput(text)
-      if (rsn != "reset") setCategoryIdOpt(None)
-    }
 
     form(onSubmit := { e =>
       e.preventDefault()

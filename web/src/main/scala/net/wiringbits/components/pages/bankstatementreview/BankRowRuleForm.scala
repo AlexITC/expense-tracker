@@ -1,7 +1,7 @@
 package net.wiringbits.components.pages.bankstatementreview
 import net.wiringbits.components.pages.{AutocompleteLabels, CategoryResolver}
 
-import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps, AutocompleteRenderInputParams}
+import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.GetBankStatement
@@ -24,8 +24,6 @@ import slinky.web.html.{form, onSubmit}
 import java.time.Instant
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
-import scala.scalajs.js
-import scala.scalajs.js.JSConverters.*
 import scala.util.{Failure, Success}
 
 object BankRowRuleForm {
@@ -161,47 +159,41 @@ object BankRowRuleForm {
       }
     }
 
-    val acProps = AutocompleteProps[GetMerchants.Response.Merchant, Boolean, Boolean, Boolean, "div"](
-      options = props.merchants.toJSArray,
-      renderInput = renderTextField("Merchant")
+    val acProps = MuiCompat.freeSoloAutocompleteProps(
+      options = props.merchants,
+      renderInput = renderTextField("Merchant"),
+      inputValue = merchantInput,
+      getOptionLabel = AutocompleteLabels.merchantOptionLabel,
+      onSelect = value =>
+        (value: Any) match {
+          case m: GetMerchants.Response.Merchant => setMerchantIdOpt(Some(m.id)); setMerchantInput(m.name)
+          case _ => ()
+        },
+      onInput = (text, rsn) => {
+        setMerchantInput(text)
+        if (rsn != "reset") setMerchantIdOpt(None)
+      },
+      disabled = saving,
+      fullWidth = false
     )
-    val acDyn = acProps.asInstanceOf[js.Dynamic]
-    acDyn.freeSolo = true
-    acDyn.size = "small"
-    acDyn.disabled = saving
-    acDyn.inputValue = merchantInput
-    acDyn.getOptionLabel = (opt: js.Any) => AutocompleteLabels.merchantOptionLabel(opt)
-    acDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
-      (value: Any) match {
-        case m: GetMerchants.Response.Merchant => setMerchantIdOpt(Some(m.id)); setMerchantInput(m.name)
-        case _ => ()
-      }
-    acDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
-      setMerchantInput(text)
-      if (rsn != "reset") setMerchantIdOpt(None)
-    }
 
-    val catAcProps = AutocompleteProps[GetCategories.Response.Category, Boolean, Boolean, Boolean, "div"](
-      options = props.categories.toJSArray,
-      renderInput = renderTextField("Category")
+    val catAcProps = MuiCompat.freeSoloAutocompleteProps(
+      options = props.categories,
+      renderInput = renderTextField("Category"),
+      inputValue = categoryInput,
+      getOptionLabel = AutocompleteLabels.categoryOptionLabel,
+      onSelect = value =>
+        (value: Any) match {
+          case c: GetCategories.Response.Category => setCategoryIdOpt(Some(c.id)); setCategoryInput(c.name)
+          case _ => ()
+        },
+      onInput = (text, rsn) => {
+        setCategoryInput(text)
+        if (rsn != "reset") setCategoryIdOpt(None)
+      },
+      disabled = saving,
+      fullWidth = false
     )
-    val catDyn = catAcProps.asInstanceOf[js.Dynamic]
-    catDyn.freeSolo = true
-    catDyn.size = "small"
-    catDyn.disabled = saving
-    catDyn.inputValue = categoryInput
-    catDyn.getOptionLabel = (opt: js.Any) => AutocompleteLabels.categoryOptionLabel(opt)
-    catDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
-      (value: Any) match {
-        case c: GetCategories.Response.Category => setCategoryIdOpt(Some(c.id)); setCategoryInput(c.name)
-        case _ => ()
-      }
-    catDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
-      setCategoryInput(text)
-      if (rsn != "reset") setCategoryIdOpt(None)
-    }
 
     val actionItems =
       Seq(ImportRuleActionKind.SetMerchant, ImportRuleActionKind.SetCategory, ImportRuleActionKind.Ignore).map { a =>
