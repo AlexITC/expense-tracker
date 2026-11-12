@@ -7,8 +7,7 @@ import net.wiringbits.api.models.bankstatements.{
   BankStatementDraft,
   GetAccountAliases,
   GetBankStatement,
-  GetBankStatements,
-  SetAccountAlias
+  GetBankStatements
 }
 import net.wiringbits.api.models.documents.DocumentStatus
 import net.wiringbits.core.SafeHooks
@@ -535,19 +534,6 @@ object BankStatementList {
               }*
             )
         else Fragment(),
-        selectedAccountStmt match {
-          case Some(rep) =>
-            AccountAliasEditor(
-              AccountAliasEditor.Props(
-                currentAlias = aliasByKey.getOrElse(accountKeyOf(rep), ""),
-                onSave = alias =>
-                  props.ctx.api.client
-                    .setBankStatementAccountAlias(rep.id, SetAccountAlias.Request(alias))
-                    .map(r => setAliasByKey(cur => cur.updated(accountKeyOf(rep), r.alias)))
-              )
-            ).withKey(selectedAccount.getOrElse(""))
-          case None => Fragment()
-        },
         mui.TextField
           .outlined()
           .label("Filter by name")

@@ -23,8 +23,7 @@ object BankStatementReviewHeader {
       onSaveAlias: String => Future[Unit]
   )
 
-  /** The account the statement belongs to, by its display label (nickname included when set), and its nickname editor.
-    */
+  /** The account the statement belongs to, by its identity label, and its nickname editor. */
   private def accountLine(
       stmt: GetBankStatement.Response,
       currentAlias: String,
@@ -35,7 +34,7 @@ object BankStatementReviewHeader {
       productType = stmt.productType,
       accountLast4 = stmt.accountLast4,
       currency = stmt.currency,
-      alias = Option(currentAlias).filter(_.nonEmpty)
+      alias = None
     )
     mui.Box.sx(new CSSPropertiesUtils {
       display = "flex"; alignItems = "center"; flexWrap = "wrap"; gap = "12px"; marginBottom = "2px"

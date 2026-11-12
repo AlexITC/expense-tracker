@@ -57,7 +57,7 @@ class BankStatementListSpec extends AnyWordSpec {
       ) mustBe "BBVA (savings) ••••8927 · EUR"
     }
 
-    "use the account alias when the map has one for the account" in {
+    "prefix the account alias when the map has one for the account" in {
       val s = stmt(bankName = "Example Bank", accountLast4 = "1111", currency = "EUR")
       val aliasByKey = Map(BankStatementList.accountKeyOf(s) -> "Travel card")
       BankStatementList.accountLabelOf(s, aliasByKey) mustBe "Travel card (Example Bank (Credit) ••••1111 · EUR)"

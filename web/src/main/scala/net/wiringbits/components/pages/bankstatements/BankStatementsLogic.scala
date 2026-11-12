@@ -51,6 +51,9 @@ object BankStatementsLogic {
   /** Display label of an account: the nickname, when set, in front of the bank/product/last-4/currency label. An empty
     * nickname counts as none.
     */
+  /** The account's label. The nickname, when set, prefixes the identity so the account picker and list are readable;
+    * pass `alias = None` where the nickname is shown separately (e.g. next to [[AccountAliasEditor]]).
+    */
   def accountLabel(
       bankName: String,
       productType: String,
