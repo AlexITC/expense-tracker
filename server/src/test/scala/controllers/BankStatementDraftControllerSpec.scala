@@ -426,7 +426,7 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
 
         val response = client.confirmBankStatementDraft(second, acceptWarnings = false).futureValue
         response.bankStatementId must be(None)
-        response.warnings.map(_.kind) must be(List(ConfirmWarningKind.Overlap))
+        response.warnings.map(_.kind) must be(List(ConfirmWarningKind.Overlap, ConfirmWarningKind.RowsInOtherStatement))
         client.listBankStatementDrafts.futureValue.drafts.map(_.id) must be(List(second))
         client.getBankStatements.futureValue.data must have size 1
     }
@@ -439,7 +439,7 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       client.confirmBankStatementDraft(second, acceptWarnings = false).futureValue.bankStatementId must be(None)
 
       val response = client.confirmBankStatementDraft(second, acceptWarnings = true).futureValue
-      response.warnings.map(_.kind) must be(List(ConfirmWarningKind.Overlap))
+      response.warnings.map(_.kind) must be(List(ConfirmWarningKind.Overlap, ConfirmWarningKind.RowsInOtherStatement))
       val stmtId = response.bankStatementId.value
       client.getBankStatements.futureValue.data.map(_.id) must contain(stmtId)
       client.listBankStatementDrafts.futureValue.drafts must be(empty)
@@ -586,20 +586,85 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
 
       val response = client.confirmBankStatementDraft(id, acceptWarnings = false).futureValue
       response.bankStatementId must be(None)
-      response.warnings.map(_.kind) must be(List(ConfirmWarningKind.PeriodOrder))
+      response.warnings.map(_.kind) must be(
+        List(ConfirmWarningKind.PeriodOrder, ConfirmWarningKind.RowsOutsidePeriod)
+      )
     }
 
     "return a FuturePeriod warning when the period ends in the future" in withApiClient { implicit client =>
       val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
       val end = LocalDate.now().plusDays(5)
-      val future = reconcilingPayload.copy(metadata =
-        reconcilingPayload.metadata.copy(periodStart = Some(end.minusDays(30)), periodEnd = Some(end))
+      val future = reconcilingPayload.copy(
+        metadata = reconcilingPayload.metadata.copy(periodStart = Some(end.minusDays(30)), periodEnd = Some(end)),
+        transactions = reconcilingPayload.transactions.map(_.copy(date = end.minusDays(10)))
       )
       val id = seedReadyDraft(userId, future)
 
       val response = client.confirmBankStatementDraft(id, acceptWarnings = false).futureValue
       response.bankStatementId must be(None)
       response.warnings.map(_.kind) must be(List(ConfirmWarningKind.FuturePeriod))
+    }
+
+    "return a RowsOutsidePeriod warning for a row dated after the period end and store it as-is when accepted" in withApiClient {
+      implicit client =>
+        val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+        val lateRow =
+          cardPayload().copy(transactions = cardPayload().transactions.map(_.copy(date = LocalDate.of(2026, 2, 3))))
+        val id = seedReadyDraft(userId, lateRow)
+
+        val blocked = client.confirmBankStatementDraft(id, acceptWarnings = false).futureValue
+        blocked.bankStatementId must be(None)
+        blocked.warnings.map(_.kind) must be(List(ConfirmWarningKind.RowsOutsidePeriod))
+        client.listBankStatementDrafts.futureValue.drafts.map(_.id) must be(List(id))
+
+        val response = client.confirmBankStatementDraft(id, acceptWarnings = true).futureValue
+        val stmt = client.getBankStatement(response.bankStatementId.value).futureValue
+        stmt.statementRows.map(_.date) must be(List(LocalDate.of(2026, 2, 3)))
+        stmt.periodStart must be(LocalDate.of(2026, 1, 1))
+        stmt.periodEnd must be(LocalDate.of(2026, 1, 31))
+        client.listBankStatementDrafts.futureValue.drafts must be(empty)
+    }
+
+    "return a RowsInOtherStatement warning when rows fall inside an existing statement of the same account" in withApiClient {
+      implicit client =>
+        val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+        val first = seedReadyDraft(userId, cardPayload())
+        client.confirmBankStatementDraft(first, acceptWarnings = false).futureValue.bankStatementId.value
+        val feb = cardPayload(february = true)
+        val second =
+          seedReadyDraft(
+            userId,
+            feb.copy(transactions = feb.transactions.map(_.copy(date = LocalDate.of(2026, 1, 28))))
+          )
+
+        val blocked = client.confirmBankStatementDraft(second, acceptWarnings = false).futureValue
+        blocked.bankStatementId must be(None)
+        blocked.warnings.map(_.kind) must be(
+          List(ConfirmWarningKind.RowsOutsidePeriod, ConfirmWarningKind.RowsInOtherStatement)
+        )
+        val message = blocked.warnings.find(_.kind == ConfirmWarningKind.RowsInOtherStatement).value.message
+        message must include("2026-01-28")
+        message must include("2026-01-01 → 2026-01-31")
+        client.getBankStatements.futureValue.data must have size 1
+
+        val response = client.confirmBankStatementDraft(second, acceptWarnings = true).futureValue
+        response.bankStatementId must not be None
+        client.getBankStatements.futureValue.data must have size 2
+    }
+
+    "not return a RowsInOtherStatement warning for rows inside a statement of a different currency" in withApiClient {
+      implicit client =>
+        val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+        val first = seedReadyDraft(userId, cardPayload())
+        client.confirmBankStatementDraft(first, acceptWarnings = false).futureValue.bankStatementId.value
+
+        val usdFeb = cardPayload(currency = "USD", february = true)
+        val otherCurrency = seedReadyDraft(
+          userId,
+          usdFeb.copy(transactions = usdFeb.transactions.map(_.copy(date = LocalDate.of(2026, 1, 28))))
+        )
+        val response = client.confirmBankStatementDraft(otherCurrency, acceptWarnings = false).futureValue
+        response.warnings.map(_.kind) must not contain ConfirmWarningKind.RowsInOtherStatement
     }
 
     "create an unverifiable draft when acceptUnverified is set and record it" in withApiClient { implicit client =>
@@ -658,7 +723,7 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
         val response =
           client.confirmBankStatementDraft(second, acceptWarnings = false, acceptUnverified = true).futureValue
         response.bankStatementId must be(None)
-        response.warnings.map(_.kind) must be(List(ConfirmWarningKind.Overlap))
+        response.warnings.map(_.kind) must be(List(ConfirmWarningKind.Overlap, ConfirmWarningKind.RowsInOtherStatement))
         client.listBankStatementDrafts.futureValue.drafts.map(_.id) must be(List(second))
     }
 

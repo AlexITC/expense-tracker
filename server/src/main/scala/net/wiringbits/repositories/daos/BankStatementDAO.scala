@@ -196,10 +196,11 @@ object BankStatementDAO {
       ORDER BY period_start, id
       """.as(parser.*)
 
-  /** The user's statements for the same card (exact bank and last4) whose product type or currency differs from the
-    * given one, regardless of period. Used to flag a likely misread type/currency before confirming a draft.
+  /** Every one of the user's statements for the same card (exact bank and last4), regardless of product type, currency
+    * or period. Used for the type/currency mismatch check and the rows-in-other-statement check before confirming a
+    * draft.
     */
-  def findSameCardMismatches(userId: UUID, metadata: BankStatement.Metadata)(implicit
+  def findSameCard(userId: UUID, metadata: BankStatement.Metadata)(implicit
       conn: Connection
   ): List[BankStatement] =
     SQL"""
@@ -208,7 +209,6 @@ object BankStatementDAO {
       WHERE user_id = ${userId.toString}::UUID
         AND bank_name = ${metadata.bankName}
         AND account_last4 = ${metadata.accountLast4}
-        AND (product_type <> ${metadata.productType} OR currency <> ${metadata.currency})
       ORDER BY period_start, id
       """.as(parser.*)
 

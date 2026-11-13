@@ -121,9 +121,12 @@ class BankStatementRepository @Inject() (database: Database)(implicit ec: Databa
     }
   }
 
-  def findSameCardMismatches(userId: UUID, metadata: BankStatement.Metadata): Future[List[BankStatement]] = Future {
+  /** Every one of the user's statements for the same card (bank + last4), regardless of type, currency or period. Used
+    * for the type/currency mismatch check and the rows-in-other-statement check.
+    */
+  def findSameCard(userId: UUID, metadata: BankStatement.Metadata): Future[List[BankStatement]] = Future {
     database.withConnection { implicit conn =>
-      BankStatementDAO.findSameCardMismatches(userId, metadata)
+      BankStatementDAO.findSameCard(userId, metadata)
     }
   }
 

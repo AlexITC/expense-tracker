@@ -145,4 +145,131 @@ class BankStatementConfirmChecksSpec extends AnyWordSpec with Matchers {
       }
     }
   }
+
+  "rowsOutsidePeriodWarning" should {
+    def check(rows: List[String], start: String, end: String) =
+      BankStatementConfirmChecks.rowsOutsidePeriodWarning(
+        rowDates = rows.map(LocalDate.parse),
+        periodStart = LocalDate.parse(start),
+        periodEnd = LocalDate.parse(end)
+      )
+
+    "not fire when every row is inside the period, including the boundary days" in {
+      check(List("2026-01-01", "2026-01-15", "2026-01-31"), "2026-01-01", "2026-01-31") must be(None)
+    }
+
+    "not fire when there are no rows" in {
+      check(Nil, "2026-01-01", "2026-01-31") must be(None)
+    }
+
+    "fire for a row before the period start" in {
+      check(List("2025-12-31", "2026-01-15"), "2026-01-01", "2026-01-31").map(_.kind) must be(
+        Some(ConfirmWarningKind.RowsOutsidePeriod)
+      )
+    }
+
+    "fire for a row after the period end" in {
+      check(List("2026-01-15", "2026-02-01"), "2026-01-01", "2026-01-31").map(_.kind) must be(
+        Some(ConfirmWarningKind.RowsOutsidePeriod)
+      )
+    }
+
+    "fire when every row is outside the period" in {
+      check(List("2026-03-01", "2026-03-02"), "2026-01-01", "2026-01-31").map(_.kind) must be(
+        Some(ConfirmWarningKind.RowsOutsidePeriod)
+      )
+    }
+
+    "fire for every row when the period is reversed" in {
+      val result = check(List("2026-01-15"), "2026-01-31", "2026-01-01")
+
+      result.map(_.kind) must be(Some(ConfirmWarningKind.RowsOutsidePeriod))
+      result.map(_.message).getOrElse("") must include("1 of 1 rows")
+    }
+
+    "mention the count, the period and the earliest and latest out-of-range dates" in {
+      val result = check(List("2026-02-03", "2025-12-30", "2026-01-15", "2026-02-01"), "2026-01-01", "2026-01-31")
+
+      result.map(_.message).getOrElse("") must (include("3 of 4 rows") and include("2026-01-01 → 2026-01-31") and
+        include("2025-12-30") and include("2026-02-03"))
+    }
+  }
+
+  "rowsInOtherStatementWarning" should {
+    val metadata = BankStatement.Metadata(
+      bankName = "BBVA",
+      productType = "debit",
+      currency = "EUR",
+      accountLast4 = "1234",
+      periodStart = LocalDate.parse("2025-12-01"),
+      periodEnd = LocalDate.parse("2025-12-31")
+    )
+    val november = statement("2025-11-01", "2025-11-30")
+
+    def check(rows: List[String], sameCard: List[BankStatement]) =
+      BankStatementConfirmChecks.rowsInOtherStatementWarning(
+        metadata = metadata,
+        rowDates = rows.map(LocalDate.parse),
+        sameCard = sameCard
+      )
+
+    "fire when a row lands inside an existing statement of the same account" in {
+      val result = check(List("2025-11-27", "2025-12-05"), List(november))
+
+      result.map(_.kind) must be(Some(ConfirmWarningKind.RowsInOtherStatement))
+      result.map(_.message).getOrElse("") must (include("2025-11-27") and include("2025-11-01 → 2025-11-30"))
+      result.map(_.message).getOrElse("") must not include "2025-12-05"
+    }
+
+    "group the dates by each existing statement they fall into" in {
+      val october = statement("2025-10-01", "2025-10-31")
+      val message = check(List("2025-10-20", "2025-11-27", "2025-12-05"), List(october, november))
+        .map(_.message)
+        .getOrElse("")
+
+      message must (include("2025-10-20 (in 2025-10-01 → 2025-10-31)") and
+        include("2025-11-27 (in 2025-11-01 → 2025-11-30)"))
+    }
+
+    "cap the listed statements at 5 and summarise the rest" in {
+      val months = (1 to 7).toList.map(m => statement(f"2025-$m%02d-01", f"2025-$m%02d-28"))
+      val rows = (1 to 7).toList.map(m => f"2025-$m%02d-15")
+      val message = check(rows, months).map(_.message).getOrElse("")
+
+      message must (include("2025-05-15") and include("; +2 more"))
+      message must (not include "2025-06-15" and not include "2025-07-15")
+    }
+
+    "list each date once" in {
+      val message = check(List("2025-11-27", "2025-11-27"), List(november)).map(_.message).getOrElse("")
+
+      message.split("2025-11-27", -1).length - 1 must be(1)
+    }
+
+    "not fire for statements of a different card" in {
+      val others = List(
+        november.copy(accountLast4 = "9999"),
+        november.copy(bankName = "Other Bank"),
+        november.copy(productType = "credit"),
+        november.copy(currency = "USD")
+      )
+      check(List("2025-11-27"), others) must be(None)
+    }
+
+    "not fire when no existing statement covers the row dates" in {
+      check(List("2025-12-05", "2025-12-20"), List(november)) must be(None)
+    }
+
+    "not fire when there are no existing statements" in {
+      check(List("2025-11-27"), Nil) must be(None)
+    }
+
+    "cap the listed dates at 5 and summarise the rest" in {
+      val rows = (20 to 26).map(d => s"2025-11-$d").toList
+      val message = check(rows, List(november)).map(_.message).getOrElse("")
+
+      message must (include("2025-11-20") and include("2025-11-24") and include("+2 more"))
+      message must (not include "2025-11-25" and not include "2025-11-26")
+    }
+  }
 }

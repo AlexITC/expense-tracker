@@ -13,9 +13,20 @@ object ConfirmWarningKind {
   case object FuturePeriod extends ConfirmWarningKind("FuturePeriod")
   case object ProductTypeMismatch extends ConfirmWarningKind("ProductTypeMismatch")
   case object CurrencyMismatch extends ConfirmWarningKind("CurrencyMismatch")
+  case object RowsOutsidePeriod extends ConfirmWarningKind("RowsOutsidePeriod")
+  case object RowsInOtherStatement extends ConfirmWarningKind("RowsInOtherStatement")
 
   val values: Seq[ConfirmWarningKind] =
-    Seq(Overlap, PeriodLength, PeriodOrder, FuturePeriod, ProductTypeMismatch, CurrencyMismatch)
+    Seq(
+      Overlap,
+      PeriodLength,
+      PeriodOrder,
+      FuturePeriod,
+      ProductTypeMismatch,
+      CurrencyMismatch,
+      RowsOutsidePeriod,
+      RowsInOtherStatement
+    )
 
   implicit val format: Format[ConfirmWarningKind] = Format(
     Reads(_.validate[String].flatMap { s =>
