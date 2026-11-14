@@ -77,13 +77,14 @@ class ExpensesController @Inject() (
     for {
       userId <- userIdF
       _ = logger.info(
-        s"Merge expense ${request.loserId} into $survivorId keepDetailsFrom=${request.keepDetailsFrom} userId=$userId"
+        s"Merge expense ${request.loserId} into $survivorId keepDetailsFrom=${request.keepDetailsFrom} shape=${request.shape} userId=$userId"
       )
       response <- mergeExpensesAction(
         survivorId = survivorId,
         loserId = request.loserId,
         userId = userId,
-        keepDetailsFrom = request.keepDetailsFrom
+        keepDetailsFrom = request.keepDetailsFrom,
+        shape = request.shape
       )
     } yield Right(response)
   }

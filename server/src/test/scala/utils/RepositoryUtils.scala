@@ -354,7 +354,8 @@ trait RepositoryUtils {
 
   def createReceipt(
       userId: UUID,
-      kind: DocumentKind = DocumentKind.Receipt
+      kind: DocumentKind = DocumentKind.Receipt,
+      storageKey: String = ""
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[Receipt.Create] = {
     val now = Instant.now()
     val docId = UUID.randomUUID()
@@ -362,7 +363,7 @@ trait RepositoryUtils {
       id = docId,
       userId = userId,
       sha256 = "sha-" + docId.toString,
-      storageKey = "",
+      storageKey = storageKey,
       kind = kind,
       filename = "receipt.pdf",
       createdAt = now,

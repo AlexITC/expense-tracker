@@ -7,7 +7,14 @@ import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.core.SafeHooks
 import net.wiringbits.api.models.categories.GetCategories
-import net.wiringbits.api.models.expenses.{CreateExpense, GetExpenses, MergeDetailsSource, MergeExpenses, UpdateExpense}
+import net.wiringbits.api.models.expenses.{
+  CreateExpense,
+  GetExpenses,
+  MergeDetailsSource,
+  MergeExpenses,
+  MergeShape,
+  UpdateExpense
+}
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.models.User
@@ -337,7 +344,11 @@ object ExpenseList {
       props.ctx.api.client
         .mergeExpenses(
           c.survivor.id,
-          MergeExpenses.Request(loserId = c.loser.id, keepDetailsFrom = source)
+          MergeExpenses.Request(
+            loserId = c.loser.id,
+            keepDetailsFrom = source,
+            shape = if (c.receiptId.isDefined) MergeShape.Receipt else MergeShape.Orphan
+          )
         )
         .map { _ =>
           setDeletedIds(_ + c.loser.id)
