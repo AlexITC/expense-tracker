@@ -203,6 +203,24 @@ class JevStatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with 
       )
     }
 
+    "use the bare category name for a whitespace-only description" in {
+      val food = category("Food").copy(description = Some("   "))
+      val client = stub(food)
+
+      resolve(client, List(row("CORNER SHOP")), Nil, List(food, transport))
+
+      client.categoryCalls.map(_.criteria(food.id.toString)) must be(List("Food"))
+    }
+
+    "collapse a multi-line description onto one line in the criteria" in {
+      val food = category("Food").copy(description = Some("line1\nline2"))
+      val client = stub(food)
+
+      resolve(client, List(row("CORNER SHOP")), Nil, List(food, transport))
+
+      client.categoryCalls.map(_.criteria(food.id.toString)) must be(List("Food: line1 line2"))
+    }
+
     "fail when JEV chooses a key that is not an offered category" in {
       val client = new StubJevClient((_, _, _) => Future.successful(UUID.randomUUID().toString))
 

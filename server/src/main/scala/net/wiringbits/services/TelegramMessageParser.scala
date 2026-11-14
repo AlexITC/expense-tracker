@@ -1,5 +1,7 @@
 package net.wiringbits.services
 
+import net.wiringbits.common.models.CategoryName
+
 import scala.util.Try
 
 object TelegramMessageParser {
@@ -51,8 +53,8 @@ object TelegramMessageParser {
       Left("Merchant name must not be empty")
     else if (merchant.length > 100)
       Left("Merchant name must be 100 characters or less")
-    else if (category.exists(_.length > 25))
-      Left("Category name must be 25 characters or less")
+    else if (category.exists(_.length > CategoryName.MaxLength))
+      Left(s"Category name must be ${CategoryName.MaxLength} characters or less")
     else if (notes.exists(_.length > 500))
       Left("Note must be 500 characters or less")
     else

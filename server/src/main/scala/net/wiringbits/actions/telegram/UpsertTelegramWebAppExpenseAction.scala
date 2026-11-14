@@ -3,6 +3,7 @@ package net.wiringbits.actions.telegram
 import com.github.f4b6a3.uuid.UuidCreator
 import net.wiringbits.actions.telegram.UpsertTelegramWebAppExpenseAction.Error
 import net.wiringbits.apis.TelegramApi
+import net.wiringbits.common.models.CategoryName
 import net.wiringbits.config.WebAppConfig
 import net.wiringbits.repositories.models.{Expense, ExpenseCategorySplit}
 import net.wiringbits.repositories.{
@@ -105,7 +106,8 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
   ): Either[String, Unit] =
     if (merchantName.isEmpty) Left("Merchant name must not be empty")
     else if (merchantName.length > 100) Left("Merchant name must be 100 characters or less")
-    else if (category.exists(_.length > 25)) Left("Category name must be 25 characters or less")
+    else if (category.exists(_.length > CategoryName.MaxLength))
+      Left(s"Category name must be ${CategoryName.MaxLength} characters or less")
     else if (notes.exists(_.length > 500)) Left("Note must be 500 characters or less")
     else if (amount <= 0) Left("Amount must be positive")
     else Right(())

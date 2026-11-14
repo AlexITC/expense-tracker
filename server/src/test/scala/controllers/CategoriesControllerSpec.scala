@@ -11,6 +11,8 @@ import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.*
 import org.scalatestplus.mockito.MockitoSugar
 import play.api.inject
+import play.api.libs.json.Json
+import play.api.test.Helpers.*
 import play.api.inject.guice.GuiceApplicationBuilder
 import utils.LoginUtils
 
@@ -137,15 +139,39 @@ class CategoriesControllerSpec extends PlayPostgresSpec with LoginUtils with Moc
       categories.data.map(_.description) must be(List(Some("Supermarket purchases")))
     }
 
-    "keep the existing description when the name already exists" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-      val first =
+    "fail and keep the existing description when the name already exists with a different one" in withApiClient {
+      implicit client =>
+        createVerifyLoginUser(tokenGenerator).futureValue
         client.createCategory(CreateCategory.Request("Groceries", description = Some("Food"))).futureValue
 
-      val second =
-        client.createCategory(CreateCategory.Request("Groceries", description = Some("Supermarket"))).futureValue
-      second.id must be(first.id)
-      client.getCategories.futureValue.data.map(_.description) must be(List(Some("Food")))
+        val error =
+          client.createCategory(CreateCategory.Request("groceries", description = Some("Supermarket"))).expectError
+        error must be("A category with that name already exists; edit it to change its description")
+        client.getCategories.futureValue.data.map(_.description) must be(List(Some("Food")))
+    }
+
+    "fail when a description is given for an existing name that has none" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      client.createCategory(CreateCategory.Request("Groceries")).futureValue
+
+      val error =
+        client.createCategory(CreateCategory.Request("Groceries", description = Some("Food"))).expectError
+      error must be("A category with that name already exists; edit it to change its description")
+      client.getCategories.futureValue.data.map(_.description) must be(List(None))
+    }
+
+    "return the existing category when the name already exists and no different description is given" in withApiClient {
+      implicit client =>
+        createVerifyLoginUser(tokenGenerator).futureValue
+        val first =
+          client.createCategory(CreateCategory.Request("Groceries", description = Some("Food"))).futureValue
+
+        client.createCategory(CreateCategory.Request("Groceries")).futureValue.id must be(first.id)
+        client
+          .createCategory(CreateCategory.Request("Groceries", description = Some(" Food ")))
+          .futureValue
+          .id must be(first.id)
+        client.getCategories.futureValue.data.map(_.description) must be(List(Some("Food")))
     }
 
     "store a blank description as none" in withApiClient { implicit client =>
@@ -162,6 +188,19 @@ class CategoriesControllerSpec extends PlayPostgresSpec with LoginUtils with Moc
       val error =
         client.createCategory(CreateCategory.Request("Groceries", description = Some("a" * 501))).expectError
       error must be("Description must be 500 characters or less")
+    }
+
+    "reject a name over the transport cap when decoding the body" in {
+      val response = POST("/categories", Json.toJson(CreateCategory.Request("a" * 101)).toString)(using app)
+      status(response) must be(BAD_REQUEST)
+      contentAsString(response) must include("expected name to have length less than or equal to 100")
+    }
+
+    "reject a description over the transport cap when decoding the body" in {
+      val body = Json.toJson(CreateCategory.Request("Groceries", description = Some("a" * 2001))).toString
+      val response = POST("/categories", body)(using app)
+      status(response) must be(BAD_REQUEST)
+      contentAsString(response) must include("expected description to have length less than or equal to 2000")
     }
 
     "accept a 500 character description surrounded by spaces and trim it" in withApiClient { implicit client =>
@@ -208,6 +247,20 @@ class CategoriesControllerSpec extends PlayPostgresSpec with LoginUtils with Moc
 
       val error = client.updateCategory(other.id, UpdateCategory.Request("food", description = None)).expectError
       error must be("A category with that name already exists")
+    }
+
+    "reject a name over the transport cap when decoding the body" in {
+      val body = Json.toJson(UpdateCategory.Request("a" * 101, description = None)).toString
+      val response = PUT(s"/categories/${UUID.randomUUID()}", body)(using app)
+      status(response) must be(BAD_REQUEST)
+      contentAsString(response) must include("expected name to have length less than or equal to 100")
+    }
+
+    "reject a description over the transport cap when decoding the body" in {
+      val body = Json.toJson(UpdateCategory.Request("Groceries", description = Some("a" * 2001))).toString
+      val response = PUT(s"/categories/${UUID.randomUUID()}", body)(using app)
+      status(response) must be(BAD_REQUEST)
+      contentAsString(response) must include("expected description to have length less than or equal to 2000")
     }
 
     "fail when the category does not belong to the user" in withApiClient { implicit client =>

@@ -4,6 +4,7 @@ import com.github.f4b6a3.uuid.UuidCreator
 import io.scalaland.chimney.dsl.*
 import net.wiringbits.api.models.merchants.ImportRuleAction
 import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.common.models.CategoryName
 import net.wiringbits.config.MerchantsConfig
 import net.wiringbits.repositories.models.{Expense, ExpenseCategorySplit, Merchant}
 import net.wiringbits.repositories.{CategoriesRepository, ExpensesRepository, ImportRuleRepository, MerchantsRepository}
@@ -80,8 +81,8 @@ class TelegramExpenseService @Inject() (
                     case Some(catName) =>
                       if (msg.merchantName.length > 100)
                         Future.successful(Left("Merchant name must be 100 characters or less"))
-                      else if (catName.length > 25)
-                        Future.successful(Left("Category name must be 25 characters or less"))
+                      else if (catName.length > CategoryName.MaxLength)
+                        Future.successful(Left(s"Category name must be ${CategoryName.MaxLength} characters or less"))
                       else
                         merchantsRepository.count(userId).flatMap { merchantCount =>
                           if (merchantCount >= merchantsConfig.maxPerUser)
@@ -119,8 +120,8 @@ class TelegramExpenseService @Inject() (
 
                 case Some(merchant) =>
                   msg.category match {
-                    case Some(catName) if catName.length > 25 =>
-                      Future.successful(Left("Category name must be 25 characters or less"))
+                    case Some(catName) if catName.length > CategoryName.MaxLength =>
+                      Future.successful(Left(s"Category name must be ${CategoryName.MaxLength} characters or less"))
                     case catOpt =>
                       for {
                         catIdOpt <- catOpt match {

@@ -193,6 +193,28 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       prompt must not include "- Transport\n    description:"
     }
 
+    "omit the description line for a whitespace-only description" in {
+      val food = category("Food").copy(description = Some("   "))
+      val client = stub("Food")
+
+      resolve(client, List(row("CORNER SHOP")), Nil, List(food, transport))
+
+      val prompt = client.categoryPrompts.head
+      prompt must include("- Food\n")
+      prompt must not include "description: "
+    }
+
+    "collapse a multi-line description onto a single description line" in {
+      val food = category("Food").copy(description = Some("line1\n- line2"))
+      val client = stub("Food")
+
+      resolve(client, List(row("CORNER SHOP")), Nil, List(food, transport))
+
+      val prompt = client.categoryPrompts.head
+      prompt must include("- Food\n    description: line1 - line2\n")
+      prompt must not include "\n- line2"
+    }
+
     "map the returned category name to its id ignoring case and accents" in {
       val shop = row("CORNER SHOP")
       resolve(stub("Gróceries"), List(shop), Nil, categories).rows must be(
