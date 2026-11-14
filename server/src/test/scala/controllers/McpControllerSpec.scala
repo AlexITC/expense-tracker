@@ -186,6 +186,32 @@ class McpControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUti
       names must be(List("Restaurants"))
     }
 
+    "include category descriptions via list_categories, scoped to the authenticated user" in withApiClient {
+      implicit clientA =>
+        createVerifyLoginUser(tokenGenerator).futureValue
+        clientA
+          .createCategory(CreateCategory.Request(name = "Groceries", description = Some("Food for home")))
+          .futureValue
+        clientA.createCategory(CreateCategory.Request(name = "Transport", description = None)).futureValue
+        val tokenA = clientA.createMcpToken.futureValue.token.value
+
+        withApiClient { implicit clientB =>
+          createVerifyLoginUser(tokenGenerator).futureValue
+          clientB
+            .createCategory(CreateCategory.Request(name = "Other user", description = Some("Not mine")))
+            .futureValue
+
+          val params = Json.obj("name" -> "list_categories")
+          val response = POST("/mcp", rpc("tools/call", params = params), bearer(tokenA))
+          status(response) must be(OK)
+          val text = ((contentAsJson(response) \ "result" \ "content").as[List[JsValue]].head \ "text").as[String]
+          val categories = (Json.parse(text) \ "data").as[List[JsValue]]
+          categories.map(c => (c \ "name").as[String]) must be(List("Groceries", "Transport"))
+          (categories.head \ "description").as[String] must be("Food for home")
+          (categories(1) \ "description").asOpt[String] must be(None)
+        }
+    }
+
     "return a JSON-RPC error for an unknown tool" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val token = client.createMcpToken.futureValue.token.value

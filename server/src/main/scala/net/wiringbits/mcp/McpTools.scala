@@ -24,7 +24,8 @@ object McpTools {
         "name" -> ListCategories,
         "title" -> "List categories",
         "description" -> ("Returns every expense category belonging to the authenticated user. The returned " +
-          "category ids are the ones referenced by the splits in list_expenses."),
+          "category ids are the ones referenced by the splits in list_expenses. Each category may include an " +
+          "optional description of what kind of expense belongs in it."),
         "inputSchema" -> noArgsSchema
       ),
       Json.obj(
