@@ -7,6 +7,7 @@ import net.wiringbits.api.models.merchants.{GetMerchants, GetPendingMerchants, M
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.core.SafeHooks
 import net.wiringbits.models.User
+import net.wiringbits.ui.forms.SubmitHooks
 import net.wiringbits.utils.ReceiptFileViewer
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
@@ -255,54 +256,45 @@ object PendingMerchantItem {
 
     val (editName, setEditName) = Hooks.useState(props.merchant.name)
     val (duplicateTarget, setDuplicateTarget) = Hooks.useState("")
-    val (working, setWorking) = Hooks.useState(false)
-    val (itemError, setItemError) = Hooks.useState("")
+    val submit = SubmitHooks.useSubmit()
 
     val realMerchants = props.allMerchants.filterNot(_.id == props.merchant.id)
 
     def handleConfirm(): Unit = {
       val trimmed = editName.trim
       if (trimmed.nonEmpty) {
-        setWorking(true)
-        setItemError("")
+        submit.begin()
         val nameOpt = Some(trimmed).filter(_ != props.merchant.name)
         props.ctx.api.client
           .reviewMerchant(props.merchant.id, ReviewMerchant.Request(name = nameOpt, categoryId = None))
           .onComplete {
             case Success(_) => props.onConfirmed(trimmed)
-            case Failure(ex) =>
-              setItemError(ex.getMessage)
-              setWorking(false)
+            case Failure(ex) => submit.fail(ex.getMessage)
           }
       }
     }
 
     def handleDiscard(): Unit = {
-      setWorking(true)
-      setItemError("")
+      submit.begin()
       props.ctx.api.client
         .deleteMerchant(props.merchant.id)
         .onComplete {
           case Success(_) => props.onRemoved()
-          case Failure(ex) =>
-            setItemError(ex.getMessage)
-            setWorking(false)
+          case Failure(ex) => submit.fail(ex.getMessage)
         }
     }
 
     def handleDuplicateChange(targetId: String): Unit =
       if (targetId.nonEmpty) {
         setDuplicateTarget(targetId)
-        setWorking(true)
-        setItemError("")
+        submit.begin()
         props.ctx.api.client
           .markMerchantAsDuplicate(props.merchant.id, MarkMerchantAsDuplicate.Request(UUID.fromString(targetId)))
           .onComplete {
             case Success(_) => props.onRemoved()
             case Failure(ex) =>
               setDuplicateTarget("")
-              setItemError(ex.getMessage)
-              setWorking(false)
+              submit.fail(ex.getMessage)
           }
       }
 
@@ -318,7 +310,7 @@ object PendingMerchantItem {
           )
           val url = dom.URL.createObjectURL(blob)
           dom.window.open(url, "_blank")
-        case Failure(ex) => setItemError(ex.getMessage)
+        case Failure(ex) => submit.fail(ex.getMessage)
       }
     }
 
@@ -367,7 +359,7 @@ object PendingMerchantItem {
             .label("Canonical name")
             .value(editName)
             .size("small")
-            .disabled(working)
+            .disabled(submit.isSubmitting)
             .onChange(e => setEditName(e.target.asInstanceOf[dom.HTMLInputElement].value)),
           mui.Button
             .normal()("Confirm")
@@ -375,13 +367,13 @@ object PendingMerchantItem {
             .size("small")
             .`type`("submit")
             .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
-            .disabled(working || editName.trim.isEmpty),
+            .disabled(submit.isSubmitting || editName.trim.isEmpty),
           mui.Button
             .normal()("Discard")
             .variant("outlined")
             .size("small")
             .color("error")
-            .disabled(working)
+            .disabled(submit.isSubmitting)
             .onClick(_ => handleDiscard())
         )
       ),
@@ -393,7 +385,7 @@ object PendingMerchantItem {
           )
           val acDyn = acProps.asInstanceOf[js.Dynamic]
           acDyn.size = "small"
-          acDyn.disabled = working
+          acDyn.disabled = submit.isSubmitting
           acDyn.value = realMerchants
             .find(_.id.toString == duplicateTarget)
             .map(_.asInstanceOf[js.Any])
@@ -411,11 +403,13 @@ object PendingMerchantItem {
           (mui.Autocomplete.withProps(acProps).withKey(s"dup-ac-${props.merchant.id}"): ReactElement)
         }
       ),
-      if (itemError.nonEmpty)
-        mui
-          .Typography(itemError)
-          .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px"; marginTop = "8px" })
-      else Fragment()
+      submit.error match {
+        case Some(msg) =>
+          mui
+            .Typography(msg)
+            .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px"; marginTop = "8px" })
+        case None => Fragment()
+      }
     )
   }
 }

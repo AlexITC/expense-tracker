@@ -9,6 +9,7 @@ import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.core.SafeHooks
 import net.wiringbits.models.User
+import net.wiringbits.ui.forms.SubmitHooks
 import net.wiringbits.utils.ReconciliationMatcher
 import net.wiringbits.utils.ReconciliationMatcher.ProposedAction
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -84,8 +85,7 @@ object ReconcileContent {
     val (rowActions, setRowActions) = Hooks.useState(initial)
     val (ruleList, setRuleList) = Hooks.useState[List[ImportRuleMatcher.Rule]](Nil)
     val (merchantList, setMerchantList) = Hooks.useState[List[GetMerchants.Response.Merchant]](Nil)
-    val (submitting, setSubmitting) = Hooks.useState(false)
-    val (applyError, setApplyError) = Hooks.useState[Option[String]](None)
+    val submit = SubmitHooks.useSubmit()
 
     SafeHooks.useEffect()(() => {
       props.ctx.api.client.getImportRules.onComplete {
@@ -137,7 +137,7 @@ object ReconcileContent {
     val applyCount = autoLinkPairs.size + qualifyingCreateNewRows.size
 
     def handleApply(): Unit = {
-      setSubmitting(true)
+      submit.begin()
       val stmtId = props.stmt.id
       val linkFutures: List[Future[Unit]] = autoLinkPairs.map { case (row, expId) =>
         props.ctx.api.client
@@ -149,11 +149,10 @@ object ReconcileContent {
       }
       Future.sequence(linkFutures ++ createFutures).onComplete {
         case Success(_) =>
-          setSubmitting(false)
+          submit.succeed()
           props.onRefresh()
         case Failure(ex) =>
-          setSubmitting(false)
-          setApplyError(Some(ex.getMessage))
+          submit.fail(ex.getMessage)
           props.onRefresh()
       }
     }
@@ -305,7 +304,7 @@ object ReconcileContent {
           mui.Button
             .normal()(s"Apply ($applyCount actions)")
             .variant("contained")
-            .disabled(submitting)
+            .disabled(submit.isSubmitting)
             .onClick(_ => handleApply())
             .build
         )
@@ -369,13 +368,13 @@ object ReconcileContent {
         )
       else Fragment(),
       // ── Error snackbar ──
-      applyError match {
+      submit.error match {
         case None => Fragment()
         case Some(msg) =>
           mui.Snackbar
             .open(true)
             .autoHideDuration(5000.0)
-            .onClose((_, _) => setApplyError(None))(
+            .onClose((_, _) => submit.reset())(
               mui.Alert.severity("error")(msg)
             )
       }
