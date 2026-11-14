@@ -54,8 +54,23 @@ class TelegramApiSpec extends AnyWordSpec with MockitoSugar {
       import com.bot4s.telegram.models.Message
       val handler = new FakeRequestHandler(Message(messageId = 42, date = 0, chat = fakeChat))
 
-      val result = makeApi(handler).sendMessageReturningId(chatId = 12345L, text = "Hello", button = None).futureValue
+      val result = makeApi(handler)
+        .sendMessageReturningId(chatId = 12345L, text = "Hello", button = None, replyToMessageId = None)
+        .futureValue
       result must be(42L)
+    }
+
+    "anchor the message as a reply and allow sending without the reply target" in {
+      import com.bot4s.telegram.models.Message
+      val handler = new FakeRequestHandler(Message(messageId = 42, date = 0, chat = fakeChat))
+
+      makeApi(handler)
+        .sendMessageReturningId(chatId = 12345L, text = "Hello", button = None, replyToMessageId = Some(777L))
+        .futureValue
+
+      val sent = handler.lastRequest.asInstanceOf[SendMessage]
+      sent.replyToMessageId must be(Some(777))
+      sent.allowSendingWithoutReply must be(Some(true))
     }
 
     "attach the web-app button markup" in {
@@ -66,7 +81,8 @@ class TelegramApiSpec extends AnyWordSpec with MockitoSugar {
         .sendMessageReturningId(
           chatId = 99L,
           text = "Hi",
-          button = Some(TelegramApi.WebAppButton(label = "Launch App", url = "https://web.example.com"))
+          button = Some(TelegramApi.WebAppButton(label = "Launch App", url = "https://web.example.com")),
+          replyToMessageId = None
         )
         .futureValue
 
@@ -82,7 +98,9 @@ class TelegramApiSpec extends AnyWordSpec with MockitoSugar {
       import com.bot4s.telegram.models.Message
       val handler = new FakeRequestHandler(Message(messageId = 7, date = 0, chat = fakeChat))
 
-      makeApi(handler).sendMessageReturningId(chatId = 99L, text = "Hi", button = None).futureValue
+      makeApi(handler)
+        .sendMessageReturningId(chatId = 99L, text = "Hi", button = None, replyToMessageId = None)
+        .futureValue
 
       handler.lastRequest.asInstanceOf[SendMessage].replyMarkup must be(None)
     }

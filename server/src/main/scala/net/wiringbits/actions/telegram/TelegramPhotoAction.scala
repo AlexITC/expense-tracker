@@ -41,6 +41,7 @@ class TelegramPhotoAction @Inject() (
       fileId: String,
       telegramUserId: Long,
       chatId: Long,
+      uploadMessageId: Option[Long],
       originalFilename: Option[String] = None
   ): Future[Unit] =
     telegramRepository.findBotUserByTelegramId(telegramUserId).flatMap {
@@ -58,14 +59,20 @@ class TelegramPhotoAction @Inject() (
           existing <- documentsRepository.findBySha256(botUser.userId, sha256)
           _ <- existing match {
             case Some(document) =>
-              linkExistingReceipt(userId = botUser.userId, documentId = document.id, chatId = chatId)
+              linkExistingReceipt(
+                userId = botUser.userId,
+                documentId = document.id,
+                chatId = chatId,
+                uploadMessageId = uploadMessageId
+              )
             case None =>
               storeNewReceipt(
                 userId = botUser.userId,
                 bytes = bytes,
                 sha256 = sha256,
                 filename = filename,
-                chatId = chatId
+                chatId = chatId,
+                uploadMessageId = uploadMessageId
               )
           }
         } yield ()
@@ -73,7 +80,12 @@ class TelegramPhotoAction @Inject() (
 
   // A duplicate photo enqueues no job, so the link can be created after sending. Only a receipt still being processed
   // gets the analyzing text, since a pending job will update it; any other state gets a static acknowledgement.
-  private def linkExistingReceipt(userId: UUID, documentId: UUID, chatId: Long): Future[Unit] =
+  private def linkExistingReceipt(
+      userId: UUID,
+      documentId: UUID,
+      chatId: Long,
+      uploadMessageId: Option[Long]
+  ): Future[Unit] =
     receiptRepository.findByDocumentId(documentId).flatMap {
       case None => Future.failed(new RuntimeException("Receipt not found for existing document"))
       case Some(receipt) =>
@@ -87,7 +99,12 @@ class TelegramPhotoAction @Inject() (
             val text =
               if (InFlightStatuses.contains(receipt.status)) AnalyzingText else "This receipt was already received."
             for {
-              messageId <- sendInitialMessage(userId = userId, chatId = chatId, text = text)
+              messageId <- sendInitialMessage(
+                userId = userId,
+                chatId = chatId,
+                text = text,
+                replyToMessageId = uploadMessageId
+              )
               _ <- withOrphanCleanup(userId = userId, chatId = chatId, messageId = messageId) {
                 telegramReceiptRepository.create(
                   id = UuidCreator.getTimeOrderedEpoch(),
@@ -107,7 +124,8 @@ class TelegramPhotoAction @Inject() (
       bytes: Array[Byte],
       sha256: String,
       filename: String,
-      chatId: Long
+      chatId: Long,
+      uploadMessageId: Option[Long]
   ): Future[Unit] = {
     val now = clock.instant()
     val uploadDate = LocalDate.now(clock)
@@ -144,7 +162,12 @@ class TelegramPhotoAction @Inject() (
     )
     for {
       _ <- blobStorage.put(storageKey, bytes)
-      messageId <- sendInitialMessage(userId = userId, chatId = chatId, text = AnalyzingText)
+      messageId <- sendInitialMessage(
+        userId = userId,
+        chatId = chatId,
+        text = AnalyzingText,
+        replyToMessageId = uploadMessageId
+      )
       _ <- withOrphanCleanup(userId = userId, chatId = chatId, messageId = messageId) {
         receiptRepository.createWithDocumentFromTelegram(
           document = document,
@@ -160,9 +183,14 @@ class TelegramPhotoAction @Inject() (
   }
 
   // When sending fails, the link is stored without a message id and later stages send a fresh one.
-  private def sendInitialMessage(userId: UUID, chatId: Long, text: String): Future[Option[Long]] =
+  private def sendInitialMessage(
+      userId: UUID,
+      chatId: Long,
+      text: String,
+      replyToMessageId: Option[Long]
+  ): Future[Option[Long]] =
     telegramApi
-      .sendMessageReturningId(chatId = chatId, text = text, button = None)
+      .sendMessageReturningId(chatId = chatId, text = text, button = None, replyToMessageId = replyToMessageId)
       .map(Option(_))
       .recover { case e =>
         logger.warn(s"Telegram photo: failed to send initial message userId=$userId: ${e.getMessage}", e)

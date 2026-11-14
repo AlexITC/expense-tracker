@@ -95,7 +95,7 @@ class TelegramPhotoActionSpec extends RepositorySpec with RepositoryUtils {
         val receiptId = createWebReceipt(userId, DocumentStatus.Parsed)
         val api = fakeTelegramApi()
 
-        newAction(api).apply("file-abc", telegramUserId, fakeChatId).futureValue
+        newAction(api).apply("file-abc", telegramUserId, fakeChatId, uploadMessageId = None).futureValue
 
         api.sent must be(
           List(FakeTelegramApi.Sent(chatId = fakeChatId, text = "This receipt was already received.", button = None))
@@ -111,7 +111,7 @@ class TelegramPhotoActionSpec extends RepositorySpec with RepositoryUtils {
         createWebReceipt(userId, DocumentStatus.Processing)
         val api = fakeTelegramApi()
 
-        newAction(api).apply("file-abc", telegramUserId, fakeChatId).futureValue
+        newAction(api).apply("file-abc", telegramUserId, fakeChatId, uploadMessageId = None).futureValue
 
         api.sent must be(
           List(FakeTelegramApi.Sent(chatId = fakeChatId, text = "Receipt received, analyzing...", button = None))
@@ -129,7 +129,7 @@ class TelegramPhotoActionSpec extends RepositorySpec with RepositoryUtils {
         }
 
         newAction(api, telegramReceiptRepository = Some(failingStore))
-          .apply("file-abc", telegramUserId, fakeChatId)
+          .apply("file-abc", telegramUserId, fakeChatId, uploadMessageId = None)
           .failed
           .futureValue
           .getMessage must be("db down")
@@ -151,7 +151,7 @@ class TelegramPhotoActionSpec extends RepositorySpec with RepositoryUtils {
         val (userId, telegramUserId) = linkedTelegramUserId()
         val api = fakeTelegramApi()
 
-        newAction(api).apply("file-abc", telegramUserId, fakeChatId).futureValue
+        newAction(api).apply("file-abc", telegramUserId, fakeChatId, uploadMessageId = None).futureValue
 
         api.sent must be(
           List(FakeTelegramApi.Sent(chatId = fakeChatId, text = "Receipt received, analyzing...", button = None))
@@ -164,13 +164,26 @@ class TelegramPhotoActionSpec extends RepositorySpec with RepositoryUtils {
         telegramReceipt.expenseMessageId must be(Some(FakeTelegramApi.FirstMessageId))
     }
 
+    "reply the initial message to the upload message so bursts stay attributed" in withRepositories() {
+      implicit repositories =>
+        val (_, telegramUserId) = linkedTelegramUserId()
+        val api = fakeTelegramApi()
+        val uploadMessageId = 777L
+
+        newAction(api)
+          .apply("file-abc", telegramUserId, fakeChatId, uploadMessageId = Some(uploadMessageId))
+          .futureValue
+
+        api.sent.map(_.replyToMessageId) must be(List(Some(uploadMessageId)))
+    }
+
     "keep one row and one message when the same photo is sent twice" in withRepositories() { implicit repositories =>
       val (userId, telegramUserId) = linkedTelegramUserId()
       val api = fakeTelegramApi()
       val action = newAction(api)
 
-      action.apply("file-abc", telegramUserId, fakeChatId).futureValue
-      action.apply("file-abc", telegramUserId, fakeChatId).futureValue
+      action.apply("file-abc", telegramUserId, fakeChatId, uploadMessageId = None).futureValue
+      action.apply("file-abc", telegramUserId, fakeChatId, uploadMessageId = None).futureValue
 
       val receipts = repositories.receipts.all(userId).futureValue
       receipts must have size 1
@@ -184,7 +197,7 @@ class TelegramPhotoActionSpec extends RepositorySpec with RepositoryUtils {
       val (userId, telegramUserId) = linkedTelegramUserId()
       val api = fakeTelegramApi()
 
-      newAction(api).apply("file-abc", telegramUserId, fakeChatId).futureValue
+      newAction(api).apply("file-abc", telegramUserId, fakeChatId, uploadMessageId = None).futureValue
 
       repositories.expenses.all(userId, None, None, false).futureValue mustBe empty
     }
@@ -194,7 +207,7 @@ class TelegramPhotoActionSpec extends RepositorySpec with RepositoryUtils {
         val (userId, telegramUserId) = linkedTelegramUserId()
         val api = fakeTelegramApi(failSends = true)
 
-        newAction(api).apply("file-abc", telegramUserId, fakeChatId).futureValue
+        newAction(api).apply("file-abc", telegramUserId, fakeChatId, uploadMessageId = None).futureValue
 
         api.sent must have size 1
         val receipts = repositories.receipts.all(userId).futureValue
@@ -209,7 +222,7 @@ class TelegramPhotoActionSpec extends RepositorySpec with RepositoryUtils {
         // No download is configured, so any download attempt would fail the action.
         val api = new FakeTelegramApi()
 
-        newAction(api).apply("file-abc", telegramUserId, fakeChatId).futureValue
+        newAction(api).apply("file-abc", telegramUserId, fakeChatId, uploadMessageId = None).futureValue
 
         api.sent must be(
           List(
