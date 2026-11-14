@@ -57,7 +57,12 @@ class DocumentTelegramNotifier @Inject() (
   ): Future[Unit] = {
     def sendAndStore(): Future[Unit] =
       for {
-        newId <- telegramApi.sendMessageReturningId(chatId = telegramReceipt.chatId, text = text, button = button)
+        newId <- telegramApi.sendMessageReturningId(
+          chatId = telegramReceipt.chatId,
+          text = text,
+          button = button,
+          replyToMessageId = None
+        )
         _ <- telegramReceiptRepository.updateExpenseMessageId(id = telegramReceipt.telegramReceiptId, messageId = newId)
       } yield ()
 

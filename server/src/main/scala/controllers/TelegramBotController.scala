@@ -44,6 +44,7 @@ class TelegramBotController @Inject() (
     val msg = json \ "message"
     val telegramUserIdOpt = (msg \ "from" \ "id").asOpt[Long]
     val chatIdOpt = (msg \ "chat" \ "id").asOpt[Long]
+    val messageIdOpt = (msg \ "message_id").asOpt[Long]
     val textOpt = (msg \ "text").asOpt[String]
     val largestPhotoOpt = (msg \ "photo").asOpt[Seq[JsValue]].flatMap(_.lastOption)
     val documentOpt = (msg \ "document").asOpt[JsValue]
@@ -64,9 +65,20 @@ class TelegramBotController @Inject() (
             telegramHandleTextAction(text, telegramUserId = telegramUserId, chatId = chatId)
           case (_, Some(photo), _) =>
             val fileId = (photo \ "file_id").as[String]
-            telegramPhotoAction(fileId, telegramUserId, chatId)
+            telegramPhotoAction(
+              fileId,
+              telegramUserId = telegramUserId,
+              chatId = chatId,
+              uploadMessageId = messageIdOpt
+            )
           case (_, _, Some(fileId)) =>
-            telegramPhotoAction(fileId, telegramUserId = telegramUserId, chatId = chatId, documentFilenameOpt)
+            telegramPhotoAction(
+              fileId,
+              telegramUserId = telegramUserId,
+              chatId = chatId,
+              uploadMessageId = messageIdOpt,
+              originalFilename = documentFilenameOpt
+            )
           case _ =>
             logger.info(s"Telegram webhook: unhandled message type, ignoring")
             Future.unit

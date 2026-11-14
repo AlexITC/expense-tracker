@@ -31,14 +31,15 @@ class FakeTelegramApi(
   def edited: Seq[Edited] = editedQueue.asScala.toList
 
   override def sendMessage(chatId: Long, text: String): Future[Unit] =
-    sendMessageReturningId(chatId = chatId, text = text, button = None).map(_ => ())
+    sendMessageReturningId(chatId = chatId, text = text, button = None, replyToMessageId = None).map(_ => ())
 
   override def sendMessageReturningId(
       chatId: Long,
       text: String,
-      button: Option[TelegramApi.WebAppButton]
+      button: Option[TelegramApi.WebAppButton],
+      replyToMessageId: Option[Long]
   ): Future[Long] = {
-    sentQueue.add(Sent(chatId = chatId, text = text, button = button))
+    sentQueue.add(Sent(chatId = chatId, text = text, button = button, replyToMessageId = replyToMessageId))
     if (failSends) Future.failed(new RuntimeException("FakeTelegramApi: send failed"))
     else Future.successful(nextMessageId.incrementAndGet())
   }
@@ -65,6 +66,11 @@ object FakeTelegramApi {
   def rateLimitedError: TelegramApiException =
     TelegramApiException("Too Many Requests: retry after 1", 429, None, None)
 
-  final case class Sent(chatId: Long, text: String, button: Option[TelegramApi.WebAppButton])
+  final case class Sent(
+      chatId: Long,
+      text: String,
+      button: Option[TelegramApi.WebAppButton],
+      replyToMessageId: Option[Long] = None
+  )
   final case class Edited(chatId: Long, messageId: Long, text: String, button: Option[TelegramApi.WebAppButton])
 }

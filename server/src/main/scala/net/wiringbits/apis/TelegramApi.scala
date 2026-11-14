@@ -37,9 +37,22 @@ class TelegramApi @Inject() (telegramConfig: TelegramConfig, lifecycle: Applicat
   def sendMessage(chatId: Long, text: String): Future[Unit] =
     request(SendMessage(ChatId(chatId), text)).map(_ => ())
 
-  def sendMessageReturningId(chatId: Long, text: String, button: Option[TelegramApi.WebAppButton]): Future[Long] =
-    request(SendMessage(ChatId(chatId), text, replyMarkup = button.map(webAppMarkup)))
-      .map(_.messageId.toLong)
+  // allowSendingWithoutReply lets the message still be sent if the user deleted the upload it anchors to.
+  def sendMessageReturningId(
+      chatId: Long,
+      text: String,
+      button: Option[TelegramApi.WebAppButton],
+      replyToMessageId: Option[Long]
+  ): Future[Long] =
+    request(
+      SendMessage(
+        ChatId(chatId),
+        text,
+        replyToMessageId = replyToMessageId.map(_.toInt),
+        allowSendingWithoutReply = Some(true),
+        replyMarkup = button.map(webAppMarkup)
+      )
+    ).map(_.messageId.toLong)
 
   // bot4s omits a None replyMarkup from the JSON, so an empty keyboard is sent to make Telegram drop any existing
   // button. Re-sending identical content is treated as success because the message already shows what we want.
