@@ -1,5 +1,6 @@
 package net.wiringbits.components.pages.bankstatementreview
 import net.wiringbits.components.pages.{AutocompleteLabels, CategoryResolver}
+import net.wiringbits.components.pages.importrules.ImportRuleList
 
 import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
 import com.olvind.mui.muiMaterial.components as mui
@@ -39,6 +40,50 @@ object BankRowRuleForm {
       onCancel: () => Unit
   )
 
+  /** Parses and validates the free-text inputs with the same checks as the server, before any merchant/category is
+    * resolved or created. Ignore rules carry no description, so the field is dropped for them.
+    */
+  def checkInputs(
+      kind: ImportRuleActionKind,
+      pattern: String,
+      amountText: String,
+      description: String
+  ): Either[String, ImportRuleList.RuleInputs] = {
+    val descriptionOpt =
+      if (kind == ImportRuleActionKind.Ignore) None
+      else Option(description.trim).filter(_.nonEmpty)
+    for {
+      amount <- ImportRuleList.parseAmount(amountText)
+      _ <- ImportRuleMatcher.validateFields(pattern.trim, amount, descriptionOpt)
+    } yield ImportRuleList.RuleInputs(amount, descriptionOpt)
+  }
+
+  /** Builds the create request once the merchant/category ids are known. For set-merchant, `categoryId` is the optional
+    * override of the merchant's default category; for set-category it is the required target.
+    */
+  def buildRequest(
+      kind: ImportRuleActionKind,
+      pattern: String,
+      amountText: String,
+      merchantId: Option[UUID],
+      categoryId: Option[UUID],
+      description: String
+  ): Either[String, CreateImportRule.Request] =
+    for {
+      inputs <- checkInputs(kind, pattern = pattern, amountText = amountText, description = description)
+      action <- kind match {
+        case ImportRuleActionKind.SetMerchant =>
+          merchantId
+            .map(mid => ImportRuleAction.SetMerchant(mid, categoryId = categoryId, description = inputs.description))
+            .toRight("Merchant is required")
+        case ImportRuleActionKind.SetCategory =>
+          categoryId
+            .map(cid => ImportRuleAction.SetCategory(cid, description = inputs.description))
+            .toRight("Category is required")
+        case ImportRuleActionKind.Ignore => Right(ImportRuleAction.Ignore)
+      }
+    } yield CreateImportRule.Request(action, pattern.trim, inputs.amount)
+
   private def renderTextField(label: String)(params: AutocompleteRenderInputParams): ReactElement =
     (mui.TextField.outlined
       .withProps(MuiCompat.textFieldProps(params, label, size = Some("small")))
@@ -49,6 +94,9 @@ object BankRowRuleForm {
 
     val (action, setAction) = Hooks.useState(ImportRuleActionKind.SetMerchant: ImportRuleActionKind)
     val (pattern, setPattern) = Hooks.useState(props.row.description)
+    val (amountText, setAmountText) = Hooks.useState(props.row.amount.bigDecimal.toPlainString)
+    val (description, setDescription) =
+      Hooks.useState(props.row.description.trim.take(ImportRuleMatcher.MaxDescriptionLength))
     val (merchantInput, setMerchantInput) = Hooks.useState("")
     val (merchantIdOpt, setMerchantIdOpt) = Hooks.useState[Option[UUID]](None)
     val (categoryInput, setCategoryInput) = Hooks.useState("")
@@ -61,125 +109,104 @@ object BankRowRuleForm {
         .resolveOrCreateCategory(props.ctx.api.client, props.categories, categoryIdOpt, catName)
         .map(_._1)
 
+    def saveRule(
+        merchantId: Option[UUID],
+        categoryId: Option[UUID]
+    ): Future[ImportRuleMatcher.Rule] =
+      buildRequest(
+        action,
+        pattern = pattern,
+        amountText = amountText,
+        merchantId = merchantId,
+        categoryId = categoryId,
+        description = description
+      ) match {
+        case Left(err) => Future.failed(new IllegalArgumentException(err))
+        case Right(req) =>
+          props.ctx.api.client
+            .createImportRule(req)
+            .map(resp => ImportRuleMatcher.Rule(resp.id, req.action, req.pattern, req.amount))
+      }
+
     def handleSave(): Unit = {
-      val trimmedPattern = pattern.trim
-      if (trimmedPattern.isEmpty) {
-        setError("Pattern is required")
-      } else {
-        action match {
-          case ImportRuleActionKind.Ignore =>
-            setSaving(true)
-            props.ctx.api.client
-              .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, trimmedPattern, amount = None))
-              .onComplete {
-                case Success(resp) =>
-                  props.onSuccess(
-                    ImportRuleMatcher.Rule(resp.id, ImportRuleAction.Ignore, trimmedPattern, amount = None),
-                    None
-                  )
-                case Failure(ex) =>
-                  setError(ex.getMessage)
-                  setSaving(false)
+      checkInputs(action, pattern = pattern, amountText = amountText, description = description) match {
+        case Left(err) => setError(err)
+        case Right(_) =>
+          action match {
+            case ImportRuleActionKind.Ignore =>
+              setSaving(true)
+              saveRule(merchantId = None, categoryId = None).onComplete {
+                case Success(rule) => props.onSuccess(rule, None)
+                case Failure(ex) => setError(ex.getMessage); setSaving(false)
               }
 
-          case ImportRuleActionKind.SetMerchant =>
-            val merchantName = merchantInput.trim
-            if (merchantName.isEmpty) {
-              setError("Merchant is required")
-            } else {
-              setSaving(true)
-              val catName = categoryInput.trim
-              val fCategoryIdOpt: Future[Option[UUID]] =
-                if (categoryIdOpt.isEmpty && catName.isEmpty) Future.successful(None)
-                else resolveCategoryId(catName).map(Some(_))
-              val fMerchantAndNew: Future[(UUID, Option[GetMerchants.Response.Merchant])] =
-                fCategoryIdOpt.flatMap { resolvedCatId =>
-                  merchantIdOpt match {
-                    case Some(id) => Future.successful((id, None))
-                    case None =>
-                      props.merchants.find(_.name.equalsIgnoreCase(merchantName)) match {
-                        case Some(existing) => Future.successful((existing.id, None))
+            case ImportRuleActionKind.SetMerchant =>
+              val merchantName = merchantInput.trim
+              if (merchantName.isEmpty) {
+                setError("Merchant is required")
+              } else {
+                setSaving(true)
+                val catName = categoryInput.trim
+                val fCategoryIdOpt: Future[Option[UUID]] =
+                  if (categoryIdOpt.isEmpty && catName.isEmpty) Future.successful(None)
+                  else resolveCategoryId(catName).map(Some(_))
+                fCategoryIdOpt
+                  .flatMap { resolvedCatId =>
+                    val fMerchantAndNew: Future[(UUID, Option[GetMerchants.Response.Merchant])] =
+                      merchantIdOpt match {
+                        case Some(id) => Future.successful((id, None))
                         case None =>
-                          props.ctx.api.client
-                            .createMerchant(
-                              CreateMerchant
-                                .Request(name = merchantName, notes = None, categoryId = resolvedCatId, taxId = None)
-                            )
-                            .map { resp =>
-                              val newM = GetMerchants.Response.Merchant(
-                                id = resp.id,
-                                name = resp.name,
-                                notes = None,
-                                categoryId = resolvedCatId,
-                                taxId = None,
-                                reviewed = false,
-                                createdAt = Instant.now()
-                              )
-                              (resp.id, Some(newM))
-                            }
+                          props.merchants.find(_.name.equalsIgnoreCase(merchantName)) match {
+                            case Some(existing) => Future.successful((existing.id, None))
+                            case None =>
+                              props.ctx.api.client
+                                .createMerchant(
+                                  CreateMerchant
+                                    .Request(
+                                      name = merchantName,
+                                      notes = None,
+                                      categoryId = resolvedCatId,
+                                      taxId = None
+                                    )
+                                )
+                                .map { resp =>
+                                  val newM = GetMerchants.Response.Merchant(
+                                    id = resp.id,
+                                    name = resp.name,
+                                    notes = None,
+                                    categoryId = resolvedCatId,
+                                    taxId = None,
+                                    reviewed = false,
+                                    createdAt = Instant.now()
+                                  )
+                                  (resp.id, Some(newM))
+                                }
+                          }
                       }
+                    fMerchantAndNew.flatMap { case (mid, newMerchantOpt) =>
+                      saveRule(merchantId = Some(mid), categoryId = resolvedCatId).map(rule => (rule, newMerchantOpt))
+                    }
                   }
-                }
-              fMerchantAndNew
-                .flatMap { case (mid, newMerchantOpt) =>
-                  props.ctx.api.client
-                    .createImportRule(
-                      CreateImportRule.Request(
-                        ImportRuleAction.SetMerchant(mid, categoryId = None, description = None),
-                        trimmedPattern,
-                        amount = None
-                      )
-                    )
-                    .map(resp =>
-                      (
-                        ImportRuleMatcher.Rule(
-                          resp.id,
-                          ImportRuleAction.SetMerchant(mid, categoryId = None, description = None),
-                          trimmedPattern,
-                          amount = None
-                        ),
-                        newMerchantOpt
-                      )
-                    )
-                }
-                .onComplete {
-                  case Success((rule, newMerchantOpt)) => props.onSuccess(rule, newMerchantOpt)
-                  case Failure(ex) => setError(ex.getMessage); setSaving(false)
-                }
-            }
+                  .onComplete {
+                    case Success((rule, newMerchantOpt)) => props.onSuccess(rule, newMerchantOpt)
+                    case Failure(ex) => setError(ex.getMessage); setSaving(false)
+                  }
+              }
 
-          case ImportRuleActionKind.SetCategory =>
-            val catName = categoryInput.trim
-            if (catName.isEmpty) {
-              setError("Category is required")
-            } else {
-              setSaving(true)
-              resolveCategoryId(catName)
-                .flatMap { cid =>
-                  props.ctx.api.client
-                    .createImportRule(
-                      CreateImportRule.Request(
-                        ImportRuleAction.SetCategory(cid, description = None),
-                        trimmedPattern,
-                        amount = None
-                      )
-                    )
-                    .map(resp =>
-                      ImportRuleMatcher
-                        .Rule(
-                          resp.id,
-                          ImportRuleAction.SetCategory(cid, description = None),
-                          trimmedPattern,
-                          amount = None
-                        )
-                    )
-                }
-                .onComplete {
-                  case Success(rule) => props.onSuccess(rule, None)
-                  case Failure(ex) => setError(ex.getMessage); setSaving(false)
-                }
-            }
-        }
+            case ImportRuleActionKind.SetCategory =>
+              val catName = categoryInput.trim
+              if (catName.isEmpty) {
+                setError("Category is required")
+              } else {
+                setSaving(true)
+                resolveCategoryId(catName)
+                  .flatMap(cid => saveRule(merchantId = None, categoryId = Some(cid)))
+                  .onComplete {
+                    case Success(rule) => props.onSuccess(rule, None)
+                    case Failure(ex) => setError(ex.getMessage); setSaving(false)
+                  }
+              }
+          }
       }
     }
 
@@ -229,6 +256,17 @@ object BankRowRuleForm {
         mui.MenuItem.normal()(label).value(a.entryName).withKey(a.entryName).build
       }
 
+    def descriptionField: ReactElement =
+      mui.TextField
+        .outlined()
+        .label("Description")
+        .size("small")
+        .value(description)
+        .disabled(saving)
+        .helperText("Used as the notes of the created record; leave blank to use the row description")
+        .onChange(e => setDescription(e.target.asInstanceOf[dom.HTMLInputElement].value))
+        .withKey("d")
+
     form(onSubmit := { e =>
       e.preventDefault()
       handleSave()
@@ -256,14 +294,23 @@ object BankRowRuleForm {
           .value(pattern)
           .disabled(saving)
           .onChange(e => setPattern(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+        mui.TextField
+          .outlined()
+          .label("Amount")
+          .size("small")
+          .value(amountText)
+          .disabled(saving)
+          .helperText("Rows must have exactly this signed amount; leave blank to match any amount")
+          .onChange(e => setAmountText(e.target.asInstanceOf[dom.HTMLInputElement].value)),
         action match {
           case ImportRuleActionKind.SetMerchant =>
             Fragment(
               (mui.Autocomplete.withProps(acProps).withKey("m"): ReactElement),
-              (mui.Autocomplete.withProps(catAcProps).withKey("c"): ReactElement)
+              (mui.Autocomplete.withProps(catAcProps).withKey("c"): ReactElement),
+              descriptionField
             )
           case ImportRuleActionKind.SetCategory =>
-            (mui.Autocomplete.withProps(catAcProps).withKey("c"): ReactElement)
+            Fragment((mui.Autocomplete.withProps(catAcProps).withKey("c"): ReactElement), descriptionField)
           case ImportRuleActionKind.Ignore => Fragment()
         },
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
