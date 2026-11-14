@@ -28,8 +28,8 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
     expenseCategoryId = None
   )
 
-  private val groceries = GetCategories.Response.Category(UUID.randomUUID(), "Groceries", Instant.now())
-  private val dining = GetCategories.Response.Category(UUID.randomUUID(), "Dining", Instant.now())
+  private val groceries = GetCategories.Response.Category(UUID.randomUUID(), "Groceries", Instant.now(), None)
+  private val dining = GetCategories.Response.Category(UUID.randomUUID(), "Dining", Instant.now(), None)
   private val categories = List(groceries, dining)
 
   private def merchant(name: String, categoryId: Option[UUID]): GetMerchants.Response.Merchant =

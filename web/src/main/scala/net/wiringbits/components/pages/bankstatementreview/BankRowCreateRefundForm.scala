@@ -6,6 +6,7 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{CreateRefundFromRow, GetBankStatement}
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
+import net.wiringbits.common.models.CategoryName
 import net.wiringbits.api.models.merchants.{CreateMerchant, GetMerchants}
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -113,7 +114,9 @@ object BankRowCreateRefundForm {
                   case Some(id) => Future.successful(Some(id))
                   case None =>
                     props.ctx.api.client
-                      .createCategory(CreateCategory.Request(name = categoryName))
+                      .createCategory(
+                        CreateCategory.Request(name = CategoryName.trusted(categoryName), description = None)
+                      )
                       .map(r => Some(r.id))
                 }
             }

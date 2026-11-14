@@ -28,7 +28,7 @@ class BankRowCreateRefundFormSpec extends AnyWordSpec {
     expenseCategoryId = None
   )
 
-  private val groceries = GetCategories.Response.Category(UUID.randomUUID(), "Groceries", Instant.now())
+  private val groceries = GetCategories.Response.Category(UUID.randomUUID(), "Groceries", Instant.now(), None)
   private val categories = List(groceries)
 
   private def merchant(name: String, categoryId: Option[UUID]): GetMerchants.Response.Merchant =
@@ -105,7 +105,7 @@ class BankRowCreateRefundFormSpec extends AnyWordSpec {
     }
 
     "use a SetMerchant rule's override category over the merchant's default category" in {
-      val other = GetCategories.Response.Category(UUID.randomUUID(), "Other", Instant.now())
+      val other = GetCategories.Response.Category(UUID.randomUUID(), "Other", Instant.now(), None)
       val oxxo = merchant("Oxxo", Some(groceries.id))
       BankRowCreateRefundForm.initialSelection(
         row,

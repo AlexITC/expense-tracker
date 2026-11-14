@@ -1,4 +1,5 @@
 package controllers
+import net.wiringbits.common.models.CategoryName
 
 import anorm.*
 import com.dimafeng.testcontainers.PostgreSQLContainer
@@ -370,7 +371,8 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
             makeRow(unlinkedRowId, sid, BigDecimal("-20.00")).copy(index = 1)
           )
       )
-      val category = client.createCategory(CreateCategory.Request("Groceries")).futureValue
+      val category =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Groceries"), description = None)).futureValue
       val merchant = client.createMerchant(CreateMerchant.Request("Supermarket", None, None)).futureValue
       val req = CreateExpenseFromRow.Request(
         BigDecimal("50.00"),

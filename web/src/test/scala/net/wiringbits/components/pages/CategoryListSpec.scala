@@ -45,7 +45,8 @@ class CategoryListSpec extends AnyWordSpec with ReactTestDom {
         createdAt = Instant.EPOCH,
         description = Some("Food and household items")
       ),
-      GetCategories.Response.Category(id = UUID.randomUUID(), name = "Travel", createdAt = Instant.EPOCH)
+      GetCategories.Response
+        .Category(id = UUID.randomUUID(), name = "Travel", createdAt = Instant.EPOCH, description = None)
     )
   )
 

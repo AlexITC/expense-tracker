@@ -1,28 +1,23 @@
 package net.wiringbits.api.models.categories
 
+import net.wiringbits.api.models.wrappedStringSchema
+import net.wiringbits.common.models.{CategoryDescription, CategoryName}
 import play.api.libs.json.{Format, Json}
-import sttp.tapir.{optionModifyFunctor, ModifyEach, Schema, Validator}
+import sttp.tapir.Schema
 
 import java.util.UUID
 
 object CreateCategory {
-  val MaxNameTransportLength: Int = 100
-  val MaxDescriptionTransportLength: Int = 2000
-
-  case class Request(name: String, description: Option[String] = None)
+  // name and description are validated primitives: their length limits and messages live in CategoryName /
+  // CategoryDescription and are enforced at decode by their Format, so this model carries no separate caps.
+  case class Request(name: CategoryName, description: Option[CategoryDescription])
   case class Response(id: UUID, name: String)
 
   implicit val requestFormat: Format[Request] = Json.format[Request]
   implicit val responseFormat: Format[Response] = Json.format[Response]
 
   implicit val requestSchema: Schema[Request] =
-    Schema
-      .derived[Request]
-      .name(Schema.SName("CreateCategoryRequest"))
-      // Transport caps that only bound the payload size; the exact limits and their messages are enforced by the
-      // server's ValidateCategoryFields, so inputs between those limits and these caps still get those messages.
-      .modify(_.name)(_.validate(Validator.maxLength[String](MaxNameTransportLength)))
-      .modify(_.description.each)(_.validate(Validator.maxLength[String](MaxDescriptionTransportLength)))
+    Schema.derived[Request].name(Schema.SName("CreateCategoryRequest"))
   implicit val responseSchema: Schema[Response] =
     Schema.derived[Response].name(Schema.SName("CreateCategoryResponse"))
 }

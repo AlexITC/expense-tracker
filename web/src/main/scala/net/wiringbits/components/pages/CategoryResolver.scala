@@ -2,6 +2,7 @@ package net.wiringbits.components.pages
 
 import net.wiringbits.api.ApiClient
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
+import net.wiringbits.common.models.CategoryName
 
 import java.time.Instant
 import java.util.UUID
@@ -25,9 +26,15 @@ object CategoryResolver {
           case Some(existing) => Future.successful((existing.id, None))
           case None =>
             client
-              .createCategory(CreateCategory.Request(name = trimmed))
+              .createCategory(CreateCategory.Request(name = CategoryName.trusted(trimmed), description = None))
               .map(r =>
-                (r.id, Some(GetCategories.Response.Category(id = r.id, name = r.name, createdAt = Instant.now())))
+                (
+                  r.id,
+                  Some(
+                    GetCategories.Response
+                      .Category(id = r.id, name = r.name, createdAt = Instant.now(), description = None)
+                  )
+                )
               )
         }
     }

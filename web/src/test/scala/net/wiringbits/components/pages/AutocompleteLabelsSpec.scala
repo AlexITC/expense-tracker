@@ -24,7 +24,8 @@ class AutocompleteLabelsSpec extends AnyWordSpec {
   private val category = GetCategories.Response.Category(
     id = UUID.randomUUID(),
     name = "Food",
-    createdAt = Instant.now()
+    createdAt = Instant.now(),
+    description = None
   )
 
   "merchantOptionLabel" should {

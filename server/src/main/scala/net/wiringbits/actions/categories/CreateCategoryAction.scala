@@ -2,7 +2,7 @@ package net.wiringbits.actions.categories
 
 import net.wiringbits.api.models.categories.CreateCategory
 import net.wiringbits.repositories.CategoriesRepository
-import net.wiringbits.validations.{ValidateCategoryDescriptionKept, ValidateCategoryFields}
+import net.wiringbits.validations.ValidateCategoryDescriptionKept
 
 import java.util.UUID
 import javax.inject.Inject
@@ -16,9 +16,10 @@ class CreateCategoryAction @Inject() (categoriesRepository: CategoriesRepository
   // submitted description that differs from the stored one fails instead of being dropped; descriptions of existing
   // categories are changed through UpdateCategoryAction.
   def apply(userId: UUID, request: CreateCategory.Request): Future[CreateCategory.Response] = {
+    // A present-but-empty description means "no description"; the primitive already enforces the length limit.
+    val description = request.description.filter(_.string.nonEmpty)
     for {
-      description <- ValidateCategoryFields(name = request.name, description = request.description)
-      category <- categoriesRepository.getOrCreate(userId, request.name, description = description.map(_.string))
+      category <- categoriesRepository.getOrCreate(userId, request.name.string, description = description.map(_.string))
       _ <- ValidateCategoryDescriptionKept(category, description)
     } yield CreateCategory.Response(id = category.id, name = category.name)
   }

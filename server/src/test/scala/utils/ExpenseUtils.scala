@@ -1,4 +1,5 @@
 package utils
+import net.wiringbits.common.models.CategoryName
 
 import net.wiringbits.api.ApiClient
 import net.wiringbits.api.models.bankstatements.CreateExpenseFromRow
@@ -12,7 +13,7 @@ trait ExpenseUtils {
   /** A single split covering the whole amount under a test category, since expense splits must add up to the amount. */
   def fullSplit(amount: BigDecimal)(using ec: ExecutionContext, client: ApiClient): Future[List[CreateExpense.Split]] =
     client
-      .createCategory(CreateCategory.Request("Test Category"))
+      .createCategory(CreateCategory.Request(CategoryName.trusted("Test Category"), description = None))
       .map(category => List(CreateExpense.Split(category.id, amount)))
 
   def fullRowSplit(

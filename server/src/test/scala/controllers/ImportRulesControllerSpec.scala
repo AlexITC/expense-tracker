@@ -1,4 +1,5 @@
 package controllers
+import net.wiringbits.common.models.CategoryName
 
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
@@ -207,7 +208,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
     "round-trip the override category and description" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val merchant = client.createMerchant(CreateMerchant.Request("Coffee shop", None, None, None)).futureValue
-      val category = client.createCategory(CreateCategory.Request("Dining")).futureValue
+      val category =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Dining"), description = None)).futureValue
       val action =
         ImportRuleAction.SetMerchant(merchant.id, categoryId = Some(category.id), description = Some("Coffee"))
 
@@ -221,7 +223,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
     "fail when the override category belongs to another user" in withApiClient { implicit client =>
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
-      val foreignCategory = client2.createCategory(CreateCategory.Request("Dining")).futureValue
+      val foreignCategory =
+        client2.createCategory(CreateCategory.Request(CategoryName.trusted("Dining"), description = None)).futureValue
 
       createVerifyLoginUser(tokenGenerator).futureValue
       val merchant = client.createMerchant(CreateMerchant.Request("Coffee shop", None, None, None)).futureValue
@@ -236,7 +239,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
   "POST/PUT /import-rules (description length)" should {
     "reject a description longer than the limit on create" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val category = client.createCategory(CreateCategory.Request("Dining")).futureValue
+      val category =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Dining"), description = None)).futureValue
       val action = ImportRuleAction.SetCategory(
         category.id,
         description = Some("x" * (ImportRuleMatcher.MaxDescriptionLength + 1))
@@ -249,7 +253,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "accept a description at the limit" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val category = client.createCategory(CreateCategory.Request("Dining")).futureValue
+      val category =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Dining"), description = None)).futureValue
       val action =
         ImportRuleAction.SetCategory(category.id, description = Some("x" * ImportRuleMatcher.MaxDescriptionLength))
 
@@ -275,7 +280,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
     }
     "reject a blank description on create" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val category = client.createCategory(CreateCategory.Request("Dining")).futureValue
+      val category =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Dining"), description = None)).futureValue
       val action = ImportRuleAction.SetCategory(category.id, description = Some("  "))
 
       val error = client.createImportRule(CreateImportRule.Request(action, "CAFE", amount = None)).expectError
@@ -284,7 +290,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "reject a blank description on update" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val category = client.createCategory(CreateCategory.Request("Dining")).futureValue
+      val category =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Dining"), description = None)).futureValue
       val plain = ImportRuleAction.SetCategory(category.id, description = None)
       val created = client.createImportRule(CreateImportRule.Request(plain, "CAFE", amount = None)).futureValue
 
@@ -420,7 +427,9 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
   "POST /import-rules (set_category)" should {
     "create a set_category rule listed with its category name" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val category = client.createCategory(CreateCategory.Request("Restaurants")).futureValue
+      val category = client
+        .createCategory(CreateCategory.Request(CategoryName.trusted("Restaurants"), description = None))
+        .futureValue
 
       val response =
         client
@@ -452,7 +461,9 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "fail when the category belongs to another user" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val category = client.createCategory(CreateCategory.Request("Restaurants")).futureValue
+      val category = client
+        .createCategory(CreateCategory.Request(CategoryName.trusted("Restaurants"), description = None))
+        .futureValue
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
@@ -468,7 +479,9 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "fail when a rule with the same pattern and category already exists" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val category = client.createCategory(CreateCategory.Request("Restaurants")).futureValue
+      val category = client
+        .createCategory(CreateCategory.Request(CategoryName.trusted("Restaurants"), description = None))
+        .futureValue
       client
         .createImportRule(
           CreateImportRule
@@ -684,8 +697,11 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
   "PUT /import-rules/:id (set_category)" should {
     "update a set_category rule's pattern and category" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val c1 = client.createCategory(CreateCategory.Request("Restaurants")).futureValue
-      val c2 = client.createCategory(CreateCategory.Request("Coffee")).futureValue
+      val c1 = client
+        .createCategory(CreateCategory.Request(CategoryName.trusted("Restaurants"), description = None))
+        .futureValue
+      val c2 =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Coffee"), description = None)).futureValue
       val created =
         client
           .createImportRule(
@@ -710,7 +726,9 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "clear the category when switching a set_category rule to ignore" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val category = client.createCategory(CreateCategory.Request("Restaurants")).futureValue
+      val category = client
+        .createCategory(CreateCategory.Request(CategoryName.trusted("Restaurants"), description = None))
+        .futureValue
       val created =
         client
           .createImportRule(
@@ -751,7 +769,9 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "allow updating a set_category rule to its own values" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val category = client.createCategory(CreateCategory.Request("Restaurants")).futureValue
+      val category = client
+        .createCategory(CreateCategory.Request(CategoryName.trusted("Restaurants"), description = None))
+        .futureValue
       val created =
         client
           .createImportRule(
@@ -771,7 +791,9 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "fail when updating to a pattern+category combo already used by another rule" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val category = client.createCategory(CreateCategory.Request("Restaurants")).futureValue
+      val category = client
+        .createCategory(CreateCategory.Request(CategoryName.trusted("Restaurants"), description = None))
+        .futureValue
       client
         .createImportRule(
           CreateImportRule
@@ -822,7 +844,9 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "delete a set_category rule" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val category = client.createCategory(CreateCategory.Request("Restaurants")).futureValue
+      val category = client
+        .createCategory(CreateCategory.Request(CategoryName.trusted("Restaurants"), description = None))
+        .futureValue
       val created =
         client
           .createImportRule(

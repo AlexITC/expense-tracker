@@ -122,7 +122,7 @@ class ReceiptsLogicSpec extends AnyWordSpec {
   }
 
   "fromReceipt" should {
-    val food = GetCategories.Response.Category(UUID.randomUUID(), "Food", Instant.EPOCH)
+    val food = GetCategories.Response.Category(UUID.randomUUID(), "Food", Instant.EPOCH, None)
     val categories = List(food)
     val acme = GetMerchants.Response.Merchant(
       UUID.randomUUID(),

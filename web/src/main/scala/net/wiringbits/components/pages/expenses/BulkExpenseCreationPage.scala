@@ -6,6 +6,7 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{CreateExpenseFromRow, GetAllRows}
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
+import net.wiringbits.common.models.CategoryName
 import net.wiringbits.api.models.merchants.{CreateMerchant, GetMerchants}
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.core.SafeHooks
@@ -157,7 +158,9 @@ object BulkExpenseCreationContent {
             categories.find(_.name.equalsIgnoreCase(catName)) match {
               case Some(c) => Future.successful(Some(c.id))
               case None =>
-                props.ctx.api.client.createCategory(CreateCategory.Request(name = catName)).map(r => Some(r.id))
+                props.ctx.api.client
+                  .createCategory(CreateCategory.Request(name = CategoryName.trusted(catName), description = None))
+                  .map(r => Some(r.id))
             }
         }
     }

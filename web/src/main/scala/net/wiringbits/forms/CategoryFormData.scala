@@ -21,10 +21,10 @@ case class CategoryFormData(
     val formData = this
     for {
       name <- formData.name.valueOpt
-      description <- CategoryDescription.parseOptional(formData.description.value.map(_.input)).toOption
     } yield CreateCategory.Request(
-      name = name.string,
-      description = description.map(_.string)
+      name = name,
+      // A blank description means "no description"; an invalid one blocks submit via the form's validity gate.
+      description = formData.description.valueOpt.filter(_.string.nonEmpty)
     )
   }
 

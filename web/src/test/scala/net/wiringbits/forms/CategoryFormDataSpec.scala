@@ -45,16 +45,25 @@ class CategoryFormDataSpec extends AnyWordSpec {
 
   "submitRequest" should {
     "return a request without description when only the name is set" in {
-      nameOnlyForm.submitRequest must be(Some(CreateCategory.Request(name = "Groceries", description = None)))
+      nameOnlyForm.submitRequest must be(
+        Some(CreateCategory.Request(name = CategoryName.trusted("Groceries"), description = None))
+      )
     }
 
     "return a request without description when the description is blank" in {
-      withDescription("   ").submitRequest must be(Some(CreateCategory.Request(name = "Groceries", description = None)))
+      withDescription("   ").submitRequest must be(
+        Some(CreateCategory.Request(name = CategoryName.trusted("Groceries"), description = None))
+      )
     }
 
     "return a request with the trimmed description when it is valid" in {
       withDescription("  Food and household items  ").submitRequest must be(
-        Some(CreateCategory.Request(name = "Groceries", description = Some("Food and household items")))
+        Some(
+          CreateCategory.Request(
+            name = CategoryName.trusted("Groceries"),
+            description = Some(CategoryDescription.trusted("Food and household items"))
+          )
+        )
       )
     }
 
@@ -70,7 +79,14 @@ class CategoryFormDataSpec extends AnyWordSpec {
   "updateRequest" should {
     "mirror submitRequest" in {
       val form = withDescription("Food")
-      form.updateRequest must be(Some(UpdateCategory.Request(name = "Groceries", description = Some("Food"))))
+      form.updateRequest must be(
+        Some(
+          UpdateCategory.Request(
+            name = CategoryName.trusted("Groceries"),
+            description = Some(CategoryDescription.trusted("Food"))
+          )
+        )
+      )
     }
 
     "send None for a cleared description" in {
@@ -81,7 +97,9 @@ class CategoryFormDataSpec extends AnyWordSpec {
         description = Some(CategoryDescription.trusted("Food"))
       )
       val cleared = form.copy(description = form.description.updated(CategoryDescription.validate("")))
-      cleared.updateRequest must be(Some(UpdateCategory.Request(name = "Groceries", description = None)))
+      cleared.updateRequest must be(
+        Some(UpdateCategory.Request(name = CategoryName.trusted("Groceries"), description = None))
+      )
     }
   }
 }
