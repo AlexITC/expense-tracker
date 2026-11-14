@@ -91,6 +91,7 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
         SttpBackendStub.asynchronousFuture
       ) {
     val calls: ListBuffer[String] = ListBuffer.empty
+    val expenseNotes: ListBuffer[Option[String]] = ListBuffer.empty
 
     override def ignoreRow(bankStatementId: UUID, rowId: UUID): Future[IgnoreRow.Response] = {
       calls += s"ignore:$rowId"
@@ -113,6 +114,7 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
         request: CreateExpenseFromRow.Request
     ): Future[CreateExpenseFromRow.Response] = {
       calls += s"create:$rowId:${request.receiptId}"
+      expenseNotes += request.notes
       Future.successful(CreateExpenseFromRow.Response(createdExpenseId))
     }
 
@@ -233,7 +235,12 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
       val run = new Recorder[BulkRun](BulkRun.Idle)
       val selected = new Recorder[Set[UUID]](Set(toCreate.id, toIgnore.id))
       val events = ListBuffer.empty[String]
-      val resolved = ResolvedImport(merchantId = Some(merchantId), categoryId = categoryId, categoryFromAi = false)
+      val resolved = ResolvedImport(
+        merchantId = Some(merchantId),
+        categoryId = categoryId,
+        categoryFromAi = false,
+        notes = Some("CREATE")
+      )
 
       BankStatementBulkRuns.handleBulkImport(
         client = client,
@@ -284,7 +291,7 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
         rowInfoById = Map(
           credit.id -> info(
             RowRuleVerdict.SetMerchant(merchantId, categoryId = None, description = None),
-            refund = Some(RefundPrefill(Some(merchantId), Some(categoryId)))
+            refund = Some(RefundPrefill(Some(merchantId), Some(categoryId), notes = Some("REFUND")))
           )
         ),
         expenseMatchById = Map.empty,
@@ -312,7 +319,7 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
       val run = new Recorder[BulkRun](BulkRun.Idle)
       val selected = new Recorder[Set[UUID]](Set(bad.id, ok.id))
       val toasts = ListBuffer.empty[String]
-      val prefill = Some(RefundPrefill(None, Some(UUID.randomUUID())))
+      val prefill = Some(RefundPrefill(None, Some(UUID.randomUUID()), notes = None))
 
       BankStatementBulkRuns.handleBulkImport(
         client = client,
@@ -348,7 +355,7 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
       val linkReceipt = UUID.randomUUID()
       val client = new StubClient()
       val linkedReceipts = ListBuffer.empty[UUID]
-      val resolved = ResolvedImport(merchantId = None, categoryId = categoryId, categoryFromAi = false)
+      val resolved = ResolvedImport(merchantId = None, categoryId = categoryId, categoryFromAi = false, notes = None)
 
       BankStatementBulkRuns.handleBulkImport(
         client = client,
@@ -372,6 +379,42 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
 
       client.calls.toList mustBe List(s"create:${toCreate.id}:Some($createReceipt)", s"link:${toLink.id}:${exp.id}")
       linkedReceipts.toList mustBe List(createReceipt)
+    }
+
+    "send the resolved notes, not the row description, on created expenses and refunds" in {
+      val debit = sampleRow("BANK TEXT DEBIT")
+      val credit = sampleRow("BANK TEXT CREDIT").copy(amount = BigDecimal("30.00"))
+      val client = new StubClient()
+      val resolved = ResolvedImport(
+        merchantId = None,
+        categoryId = UUID.randomUUID(),
+        categoryFromAi = false,
+        notes = Some("Rule expense notes")
+      )
+      val prefill = RefundPrefill(None, Some(UUID.randomUUID()), notes = Some("Rule refund notes"))
+
+      BankStatementBulkRuns.handleBulkImport(
+        client = client,
+        stmtId = stmtId,
+        ids = List(debit.id, credit.id),
+        statementRows = List(debit, credit),
+        rowInfoById = Map(
+          debit.id -> info(RowRuleVerdict.NoRule, Some(resolved)),
+          credit.id -> info(RowRuleVerdict.NoRule, refund = Some(prefill))
+        ),
+        expenseMatchById = Map.empty,
+        receiptMatchById = Map.empty,
+        expenseList = Nil,
+        updateRows = new Recorder(List(debit, credit)).update,
+        setBulkImport = new Recorder[BulkRun](BulkRun.Idle).callback,
+        setSelectedRowIds = new Recorder[Set[UUID]](Set.empty).callback,
+        showToast = _ => (),
+        onReceiptLinked = _ => (),
+        onFinished = () => ()
+      )
+
+      client.expenseNotes.toList mustBe List(Some("Rule expense notes"))
+      client.calls.toList.last mustBe s"refund:${credit.id}:30.00:None:${prefill.categoryId}:Some(Rule refund notes)"
     }
   }
 }

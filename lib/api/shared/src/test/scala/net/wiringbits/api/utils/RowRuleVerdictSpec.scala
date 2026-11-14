@@ -189,4 +189,46 @@ class RowRuleVerdictSpec extends AnyWordSpec with Matchers {
       RowRuleVerdict.ruleCategoryId(Nil, "MERCADONA STORE", anyAmount) must be(None)
     }
   }
+
+  "overrideCategoryId" should {
+    "return a SetMerchant verdict's override category" in {
+      val cid = UUID.randomUUID()
+      RowRuleVerdict.overrideCategoryId(
+        RowRuleVerdict.SetMerchant(UUID.randomUUID(), categoryId = Some(cid), description = None)
+      ) must be(Some(cid))
+    }
+
+    "be None for a SetMerchant verdict without an override" in {
+      RowRuleVerdict.overrideCategoryId(
+        RowRuleVerdict.SetMerchant(UUID.randomUUID(), categoryId = None, description = None)
+      ) must be(None)
+    }
+
+    "be None for a SetCategory verdict" in {
+      RowRuleVerdict.overrideCategoryId(RowRuleVerdict.SetCategory(UUID.randomUUID(), description = None)) must be(
+        None
+      )
+    }
+  }
+
+  "notes" should {
+    "be the SetMerchant rule description when set" in {
+      val v = RowRuleVerdict.SetMerchant(UUID.randomUUID(), categoryId = None, description = Some("Groceries"))
+      RowRuleVerdict.notes(v, "MERCADONA STORE") must be("Groceries")
+    }
+
+    "be the SetCategory rule description when set" in {
+      val v = RowRuleVerdict.SetCategory(UUID.randomUUID(), description = Some("Lunch"))
+      RowRuleVerdict.notes(v, "CAFETERIA CENTRAL") must be("Lunch")
+    }
+
+    "be the row description when the rule has no description" in {
+      val v = RowRuleVerdict.SetMerchant(UUID.randomUUID(), categoryId = None, description = None)
+      RowRuleVerdict.notes(v, "MERCADONA STORE") must be("MERCADONA STORE")
+    }
+
+    "be the row description when no rule matched" in {
+      RowRuleVerdict.notes(RowRuleVerdict.NoRule, "MERCADONA STORE") must be("MERCADONA STORE")
+    }
+  }
 }

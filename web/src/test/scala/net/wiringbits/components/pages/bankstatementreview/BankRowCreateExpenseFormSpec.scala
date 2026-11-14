@@ -3,7 +3,7 @@ package net.wiringbits.components.pages.bankstatementreview
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, GetBankStatement}
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction}
-import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -170,6 +170,30 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
 
     "return nothing when there is no rule match and no suggestion" in {
       BankRowCreateExpenseForm.initialSelection(unmatchedRow, Nil, merchants, categories, None) mustBe (None, None)
+    }
+
+    "use a SetMerchant rule's override category over the merchant's default category" in {
+      val overrideRule = oxxoRule.copy(action = ImportRuleAction.SetMerchant(oxxo.id, Some(dining.id), None))
+      BankRowCreateExpenseForm.initialSelection(row, List(overrideRule), merchants, categories, None) mustBe
+        (Some(oxxo), Some(dining.id))
+    }
+
+    "drop a SetMerchant rule's override category that is not among the user's categories" in {
+      val overrideRule = oxxoRule.copy(action = ImportRuleAction.SetMerchant(oxxo.id, Some(UUID.randomUUID()), None))
+      BankRowCreateExpenseForm.initialSelection(row, List(overrideRule), merchants, categories, None) mustBe
+        (Some(oxxo), None)
+    }
+  }
+
+  "initialNotes" should {
+    "be the rule description when the winning rule has one" in {
+      val verdict = RowRuleVerdict.SetMerchant(oxxo.id, categoryId = None, description = Some("Snacks"))
+      BankRowCreateExpenseForm.initialNotes(row, verdict) mustBe "Snacks"
+    }
+
+    "be the row description when the winning rule has no description" in {
+      val verdict = BankRowCreateExpenseForm.rowVerdict(row, List(oxxoRule), merchants)
+      BankRowCreateExpenseForm.initialNotes(row, verdict) mustBe row.description
     }
   }
 

@@ -139,6 +139,35 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       val result = ReconciliationMatcher.qualifyingCreateRequests(List(row), List(matchingRule), List(merchant))
       result must be(empty)
     }
+
+    "use the rule's override category over the merchant's default category" in {
+      val overrideCategory = UUID.randomUUID()
+      val rule = matchingRule.copy(action =
+        ImportRuleAction.SetMerchant(merchantId, categoryId = Some(overrideCategory), description = None)
+      )
+      val row = makeRow()
+      val result = ReconciliationMatcher.qualifyingCreateRequests(List(row), List(rule), List(merchant))
+      result.map(_._2.splits) must be(List(List(CreateExpenseFromRow.Split(overrideCategory, row.amount.abs))))
+    }
+
+    "build a request from the rule's override category when the merchant has no default category" in {
+      val overrideCategory = UUID.randomUUID()
+      val rule = matchingRule.copy(action =
+        ImportRuleAction.SetMerchant(merchantId, categoryId = Some(overrideCategory), description = None)
+      )
+      val row = makeRow()
+      val result =
+        ReconciliationMatcher.qualifyingCreateRequests(List(row), List(rule), List(merchant.copy(categoryId = None)))
+      result.map(_._2.splits) must be(List(List(CreateExpenseFromRow.Split(overrideCategory, row.amount.abs))))
+    }
+
+    "use the rule description as the notes" in {
+      val rule = matchingRule.copy(action =
+        ImportRuleAction.SetMerchant(merchantId, categoryId = None, description = Some("Online order"))
+      )
+      val result = ReconciliationMatcher.qualifyingCreateRequests(List(makeRow()), List(rule), List(merchant))
+      result.map(_._2.notes) must be(List(Some("Online order")))
+    }
   }
 
   "reconcile" should {

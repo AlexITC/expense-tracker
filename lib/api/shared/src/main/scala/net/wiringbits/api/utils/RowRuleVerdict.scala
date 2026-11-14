@@ -43,6 +43,31 @@ object RowRuleVerdict {
       case _ => None
     }
 
+  /** The category a SetMerchant verdict uses instead of the merchant's default category, if any. */
+  def overrideCategoryId(verdict: Verdict): Option[UUID] =
+    verdict match {
+      case s: SetMerchant => s.categoryId
+      case _ => None
+    }
+
+  /** The category a SetMerchant verdict gives the record: the rule's override category, else `merchantDefault` (the
+    * merchant's current default category).
+    */
+  def categoryFor(verdict: Verdict, merchantDefault: Option[UUID]): Option[UUID] =
+    overrideCategoryId(verdict).orElse(merchantDefault)
+
+  /** The description the winning SetMerchant/SetCategory rule gives the created record, if any. */
+  def description(verdict: Verdict): Option[String] =
+    verdict match {
+      case s: SetMerchant => s.description
+      case s: SetCategory => s.description
+      case NoRule | Ignore => None
+    }
+
+  /** The notes for the expense/refund created from a row: the rule description, else the row description. */
+  def notes(verdict: Verdict, rowDescription: String): String =
+    description(verdict).getOrElse(rowDescription)
+
   /** The merchant a winning SetMerchant rule assigns to the row, if any. */
   def ruleMerchantId(rules: List[ImportRuleMatcher.Rule], description: String, amount: BigDecimal): Option[UUID] =
     merchantId(verdict(rules, description, amount))

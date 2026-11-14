@@ -135,7 +135,7 @@ object BankStatementBulkRuns {
                     date = row.date,
                     time = None,
                     merchantId = res.merchantId,
-                    notes = Some(row.description).filter(_.nonEmpty),
+                    notes = res.notes,
                     splits = List(CreateExpenseFromRow.Split(res.categoryId, row.amount.abs)),
                     receiptId = receiptId
                   )
@@ -161,7 +161,7 @@ object BankStatementBulkRuns {
                     merchantId = prefill.merchantId,
                     categoryId = prefill.categoryId,
                     expenseId = None,
-                    notes = Some(row.description).filter(_.nonEmpty)
+                    notes = prefill.notes
                   )
                   client.createRefundFromRow(bankStatementId = stmtId, rowId = rowId, req).onComplete {
                     case Success(resp) =>

@@ -7,7 +7,7 @@ import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{CreateRefundFromRow, GetBankStatement}
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
 import net.wiringbits.api.models.merchants.{CreateMerchant, GetMerchants}
-import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
+import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 import org.scalajs.dom
@@ -50,11 +50,7 @@ object BankRowCreateRefundForm {
       merchants: List[GetMerchants.Response.Merchant],
       categories: List[GetCategories.Response.Category]
   ): (Option[GetMerchants.Response.Merchant], Option[UUID]) = {
-    val verdict = RowRuleVerdict.verdict(
-      ImportRuleMatcher.effectiveRules(ruleList, merchants.map(m => m.id -> m.name)),
-      row.description,
-      row.amount
-    )
+    val verdict = BankRowCreateExpenseForm.rowVerdict(row, ruleList, merchants)
     val prefill = BankStatementReviewLogic.resolveRefund(verdict, merchants, row)
     (
       prefill.flatMap(_.merchantId).flatMap(mid => merchants.find(_.id == mid)),
@@ -75,7 +71,13 @@ object BankRowCreateRefundForm {
 
     val (amount, setAmount) = Hooks.useState(props.row.amount.abs.toString)
     val (date, setDate) = Hooks.useState(props.row.date.toString)
-    val (notes, setNotes) = Hooks.useState(props.row.description)
+    val (notes, setNotes) =
+      Hooks.useState(
+        BankRowCreateExpenseForm.initialNotes(
+          props.row,
+          BankRowCreateExpenseForm.rowVerdict(props.row, props.ruleList, props.merchants)
+        )
+      )
 
     val (merchantInput, setMerchantInput) = Hooks.useState(initMerchantName)
     val (merchantIdOpt, setMerchantIdOpt) = Hooks.useState[Option[UUID]](initMerchantIdOpt)

@@ -148,7 +148,9 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         List(merchant(m, Some(c))),
         aiSuggestions = None,
         row
-      ) mustBe Some(BankStatementReviewLogic.ResolvedImport(Some(m), c, categoryFromAi = false))
+      ) mustBe Some(
+        BankStatementReviewLogic.ResolvedImport(Some(m), c, categoryFromAi = false, notes = Some("SUPERMARKET"))
+      )
     }
 
     "fall back to the AI category with no merchant when no rule matches" in {
@@ -159,7 +161,9 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         Nil,
         done(AiSuggestions.RowSuggestion(row.id, Some(c), None)),
         row
-      ) mustBe Some(BankStatementReviewLogic.ResolvedImport(None, c, categoryFromAi = true))
+      ) mustBe Some(
+        BankStatementReviewLogic.ResolvedImport(None, c, categoryFromAi = true, notes = Some("UNKNOWN SHOP"))
+      )
     }
 
     "use the AI-suggested merchant and category when no rule matches" in {
@@ -171,7 +175,9 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         Nil,
         done(AiSuggestions.RowSuggestion(row.id, Some(c), Some(m))),
         row
-      ) mustBe Some(BankStatementReviewLogic.ResolvedImport(Some(m), c, categoryFromAi = true))
+      ) mustBe Some(
+        BankStatementReviewLogic.ResolvedImport(Some(m), c, categoryFromAi = true, notes = Some("UNKNOWN SHOP"))
+      )
     }
 
     "keep the rule merchant but take the category from AI when the merchant has no default category" in {
@@ -183,7 +189,9 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         List(merchant(m, None)),
         done(AiSuggestions.RowSuggestion(row.id, Some(c), None)),
         row
-      ) mustBe Some(BankStatementReviewLogic.ResolvedImport(Some(m), c, categoryFromAi = true))
+      ) mustBe Some(
+        BankStatementReviewLogic.ResolvedImport(Some(m), c, categoryFromAi = true, notes = Some("SUPERMARKET"))
+      )
     }
 
     "resolve to None for an Ignore rule even when AI has a suggestion" in {
@@ -212,7 +220,9 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         Nil,
         done(AiSuggestions.RowSuggestion(row.id, Some(UUID.randomUUID()), Some(UUID.randomUUID()))),
         row
-      ) mustBe Some(BankStatementReviewLogic.ResolvedImport(None, c, categoryFromAi = false))
+      ) mustBe Some(
+        BankStatementReviewLogic.ResolvedImport(None, c, categoryFromAi = false, notes = Some("SUPERMARKET"))
+      )
     }
 
     "prefer a SetMerchant rule over a longer SetCategory rule on the same row" in {
@@ -231,7 +241,14 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         List(merchant(m, Some(merchantCategory))),
         aiSuggestions = None,
         row
-      ) mustBe Some(BankStatementReviewLogic.ResolvedImport(Some(m), merchantCategory, categoryFromAi = false))
+      ) mustBe Some(
+        BankStatementReviewLogic.ResolvedImport(
+          Some(m),
+          merchantCategory,
+          categoryFromAi = false,
+          notes = Some("SUPERMARKET 0042")
+        )
+      )
     }
 
     "ignore AI suggestions that are still Pending" in {
@@ -244,6 +261,121 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
 
     "resolve to None when nothing matches and there is no suggestion" in {
       BankStatementReviewLogic.resolveImport(Nil, Nil, None, sampleRow("UNKNOWN SHOP")) mustBe None
+    }
+
+    "use a SetMerchant rule's override category over the merchant's default category" in {
+      val row = sampleRow("SUPERMARKET")
+      val m = UUID.randomUUID()
+      val overrideCategory = UUID.randomUUID()
+      BankStatementReviewLogic.resolveImport(
+        RowRuleVerdict.SetMerchant(m, categoryId = Some(overrideCategory), description = None),
+        List(merchant(m, Some(UUID.randomUUID()))),
+        aiSuggestions = None,
+        row
+      ) mustBe Some(
+        BankStatementReviewLogic.ResolvedImport(
+          Some(m),
+          overrideCategory,
+          categoryFromAi = false,
+          notes = Some("SUPERMARKET")
+        )
+      )
+    }
+
+    "resolve from a SetMerchant rule's override category when the merchant has no default, not from AI" in {
+      val row = sampleRow("SUPERMARKET")
+      val m = UUID.randomUUID()
+      val overrideCategory = UUID.randomUUID()
+      BankStatementReviewLogic.resolveImport(
+        RowRuleVerdict.SetMerchant(m, categoryId = Some(overrideCategory), description = None),
+        List(merchant(m, None)),
+        done(AiSuggestions.RowSuggestion(row.id, Some(UUID.randomUUID()), None)),
+        row
+      ) mustBe Some(
+        BankStatementReviewLogic.ResolvedImport(
+          Some(m),
+          overrideCategory,
+          categoryFromAi = false,
+          notes = Some("SUPERMARKET")
+        )
+      )
+    }
+
+    "use the rule description as the notes" in {
+      val row = sampleRow("SUPERMARKET")
+      val m = UUID.randomUUID()
+      val c = UUID.randomUUID()
+      BankStatementReviewLogic.resolveImport(
+        RowRuleVerdict.SetMerchant(m, categoryId = None, description = Some("Weekly groceries")),
+        List(merchant(m, Some(c))),
+        aiSuggestions = None,
+        row
+      ) mustBe Some(
+        BankStatementReviewLogic.ResolvedImport(Some(m), c, categoryFromAi = false, notes = Some("Weekly groceries"))
+      )
+    }
+
+    "use a SetCategory rule's description as the notes" in {
+      val c = UUID.randomUUID()
+      BankStatementReviewLogic
+        .resolveImport(
+          RowRuleVerdict.SetCategory(c, description = Some("Lunch")),
+          Nil,
+          aiSuggestions = None,
+          sampleRow("CAFETERIA")
+        )
+        .flatMap(_.notes) mustBe Some("Lunch")
+    }
+  }
+
+  "resolveRefund" should {
+    def merchant(id: UUID, categoryId: Option[UUID]): GetMerchants.Response.Merchant =
+      GetMerchants.Response.Merchant(id, "Merchant", None, categoryId, None, reviewed = true, Instant.EPOCH)
+
+    val credit = sampleRow("SUPERMARKET").copy(amount = BigDecimal("10.00"))
+
+    "use a SetMerchant rule's override category over the merchant's default category" in {
+      val m = UUID.randomUUID()
+      val overrideCategory = UUID.randomUUID()
+      BankStatementReviewLogic.resolveRefund(
+        RowRuleVerdict.SetMerchant(m, categoryId = Some(overrideCategory), description = None),
+        List(merchant(m, Some(UUID.randomUUID()))),
+        credit
+      ) mustBe Some(
+        BankStatementReviewLogic.RefundPrefill(Some(m), Some(overrideCategory), notes = Some("SUPERMARKET"))
+      )
+    }
+
+    "use a SetMerchant rule's override category when the merchant has no default" in {
+      val m = UUID.randomUUID()
+      val overrideCategory = UUID.randomUUID()
+      BankStatementReviewLogic.resolveRefund(
+        RowRuleVerdict.SetMerchant(m, categoryId = Some(overrideCategory), description = None),
+        List(merchant(m, None)),
+        credit
+      ) mustBe Some(
+        BankStatementReviewLogic.RefundPrefill(Some(m), Some(overrideCategory), notes = Some("SUPERMARKET"))
+      )
+    }
+
+    "use the merchant's current default category without an override" in {
+      val m = UUID.randomUUID()
+      val c = UUID.randomUUID()
+      BankStatementReviewLogic.resolveRefund(
+        RowRuleVerdict.SetMerchant(m, categoryId = None, description = None),
+        List(merchant(m, Some(c))),
+        credit
+      ) mustBe Some(BankStatementReviewLogic.RefundPrefill(Some(m), Some(c), notes = Some("SUPERMARKET")))
+    }
+
+    "use the rule description as the notes" in {
+      BankStatementReviewLogic
+        .resolveRefund(
+          RowRuleVerdict.SetCategory(UUID.randomUUID(), description = Some("Returned item")),
+          Nil,
+          credit
+        )
+        .flatMap(_.notes) mustBe Some("Returned item")
     }
   }
 
@@ -534,7 +666,9 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         sampleRow()
       )
       info.verdict mustBe RowRuleVerdict.SetMerchant(m, categoryId = None, description = None)
-      info.resolved mustBe Some(BankStatementReviewLogic.ResolvedImport(Some(m), c, categoryFromAi = false))
+      info.resolved mustBe Some(
+        BankStatementReviewLogic.ResolvedImport(Some(m), c, categoryFromAi = false, notes = Some("SUPERMARKET"))
+      )
       info.isReady mustBe true
       info.merchantName mustBe Some("Walmart")
       info.categoryName mustBe Some("Groceries")
@@ -552,7 +686,14 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         sampleRow("POS SUPERMARKET 0042")
       )
       info.verdict mustBe RowRuleVerdict.SetMerchant(m, categoryId = None, description = None)
-      info.resolved mustBe Some(BankStatementReviewLogic.ResolvedImport(Some(m), c, categoryFromAi = false))
+      info.resolved mustBe Some(
+        BankStatementReviewLogic.ResolvedImport(
+          Some(m),
+          c,
+          categoryFromAi = false,
+          notes = Some("POS SUPERMARKET 0042")
+        )
+      )
       info.isReady mustBe true
       info.merchantName mustBe Some("Supermarket")
       info.categoryName mustBe Some("Groceries")
@@ -579,7 +720,9 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         row
       )
       info.verdict mustBe RowRuleVerdict.SetCategory(c, description = None)
-      info.resolved mustBe Some(BankStatementReviewLogic.ResolvedImport(None, c, categoryFromAi = false))
+      info.resolved mustBe Some(
+        BankStatementReviewLogic.ResolvedImport(None, c, categoryFromAi = false, notes = Some("SUPERMARKET"))
+      )
       info.isReady mustBe true
       info.merchantName mustBe None
       info.categoryName mustBe Some("Groceries")
@@ -659,7 +802,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         None,
         row
       )
-      info.refund mustBe Some(BankStatementReviewLogic.RefundPrefill(Some(m), Some(c)))
+      info.refund mustBe Some(BankStatementReviewLogic.RefundPrefill(Some(m), Some(c), notes = Some("SUPERMARKET")))
       info.resolved mustBe None
       info.isReady mustBe true
       info.merchantName mustBe Some("Walmart")
@@ -677,7 +820,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         None,
         sampleRow().copy(amount = BigDecimal("10.00"))
       )
-      info.refund mustBe Some(BankStatementReviewLogic.RefundPrefill(Some(m), None))
+      info.refund mustBe Some(BankStatementReviewLogic.RefundPrefill(Some(m), None, notes = Some("SUPERMARKET")))
       info.isReady mustBe true
       info.categoryName mustBe None
     }
@@ -706,7 +849,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         None,
         sampleRow().copy(amount = BigDecimal("10.00"))
       )
-      info.refund mustBe Some(BankStatementReviewLogic.RefundPrefill(None, Some(c)))
+      info.refund mustBe Some(BankStatementReviewLogic.RefundPrefill(None, Some(c), notes = Some("SUPERMARKET")))
       info.isReady mustBe true
       info.categoryName mustBe Some("Groceries")
     }
@@ -835,7 +978,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
           linkedCategory = LinkedCategory.Unknown
         )
       )
-    val resolved = ResolvedImport(merchantId = None, categoryId = categoryId, categoryFromAi = false)
+    val resolved = ResolvedImport(merchantId = None, categoryId = categoryId, categoryFromAi = false, notes = None)
 
     "ignore a row with an Ignore verdict" in {
       BankStatementReviewLogic.bulkRowDecision(info(RowRuleVerdict.Ignore, None), None, None, Set.empty) mustBe
@@ -931,7 +1074,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         credit
       )
       BankStatementReviewLogic.bulkRowDecision(Some(creditInfo), None, None, Set.empty) mustBe
-        BulkRowDecision.CreateRefund(BankStatementReviewLogic.RefundPrefill(Some(m), None))
+        BulkRowDecision.CreateRefund(BankStatementReviewLogic.RefundPrefill(Some(m), None, notes = Some("SUPERMARKET")))
     }
 
     "fail with No category when the row resolves to nothing" in {
@@ -978,7 +1121,8 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
   "receiptMatches" should {
     import BankStatementReviewLogic.{LinkedCategory, RefundPrefill, ResolvedImport, RowInfo}
 
-    val resolved = ResolvedImport(merchantId = None, categoryId = UUID.randomUUID(), categoryFromAi = false)
+    val resolved =
+      ResolvedImport(merchantId = None, categoryId = UUID.randomUUID(), categoryFromAi = false, notes = None)
     def info(
         verdict: RowRuleVerdict.Verdict = RowRuleVerdict.NoRule,
         isReady: Boolean = true,
@@ -1066,7 +1210,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       val row = sampleRow()
       BankStatementReviewLogic.receiptMatches(
         List(row),
-        Map(row.id -> info(refund = Some(RefundPrefill(None, None)))),
+        Map(row.id -> info(refund = Some(RefundPrefill(None, None, notes = None)))),
         Map.empty,
         List(receipt())
       ) mustBe Map.empty

@@ -103,5 +103,16 @@ class BankRowCreateRefundFormSpec extends AnyWordSpec {
         categories
       ) mustBe (None, None)
     }
+
+    "use a SetMerchant rule's override category over the merchant's default category" in {
+      val other = GetCategories.Response.Category(UUID.randomUUID(), "Other", Instant.now())
+      val oxxo = merchant("Oxxo", Some(groceries.id))
+      BankRowCreateRefundForm.initialSelection(
+        row,
+        List(rule(ImportRuleAction.SetMerchant(oxxo.id, categoryId = Some(other.id), description = None))),
+        List(oxxo),
+        other :: categories
+      ) mustBe (Some(oxxo), Some(other.id))
+    }
   }
 }

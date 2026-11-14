@@ -45,8 +45,9 @@ object BankRowCreateExpenseForm {
   )
 
   /** Initial (merchant, categoryId) for the form: a SetMerchant rule winner first (explicit rules plus merchant names,
-    * see `ImportRuleMatcher.effectiveRules`), then a SetCategory rule winner's category (no merchant, AI not
-    * consulted), then the AI suggestion. Ids that are not among the user's merchants/categories are dropped.
+    * see `ImportRuleMatcher.effectiveRules`) with its override category, else the merchant's default category, then a
+    * SetCategory rule winner's category (no merchant, AI not consulted), then the AI suggestion. Ids that are not among
+    * the user's merchants/categories are dropped.
     */
   def initialSelection(
       row: GetBankStatement.StatementRowData,
@@ -59,7 +60,8 @@ object BankRowCreateExpenseForm {
     val ruleMerchant = RowRuleVerdict.merchantId(verdict).flatMap(mid => merchants.find(_.id == mid))
 
     (ruleMerchant, verdict) match {
-      case (Some(m), _) => (Some(m), m.categoryId)
+      case (Some(m), _) =>
+        (Some(m), RowRuleVerdict.categoryFor(verdict, m.categoryId).filter(cid => categories.exists(_.id == cid)))
       case (None, RowRuleVerdict.SetCategory(categoryId, _)) =>
         (None, Option.when(categories.exists(_.id == categoryId))(categoryId))
       case (None, _) =>
@@ -94,6 +96,10 @@ object BankRowCreateExpenseForm {
       case RowRuleVerdict.SetCategory(_, _) => ""
       case _ => row.description
     }
+
+  /** The notes the form starts with: the rule description, else the row description. */
+  def initialNotes(row: GetBankStatement.StatementRowData, verdict: RowRuleVerdict.Verdict): String =
+    RowRuleVerdict.notes(verdict, row.description)
 
   /** Whether the merchant/category fields still hold the values a blank form starts with (no rule/AI prefill). */
   def isPristine(
@@ -158,17 +164,15 @@ object BankRowCreateExpenseForm {
     val (initMerchant, initCategoryIdOpt) =
       initialSelection(props.row, props.ruleList, props.merchants, props.categories, props.aiSuggestion)
 
-    val initMerchantName =
-      initMerchant
-        .map(_.name)
-        .getOrElse(initialMerchantInput(props.row, rowVerdict(props.row, props.ruleList, props.merchants)))
+    val initVerdict = rowVerdict(props.row, props.ruleList, props.merchants)
+    val initMerchantName = initMerchant.map(_.name).getOrElse(initialMerchantInput(props.row, initVerdict))
     val initMerchantIdOpt = initMerchant.map(_.id)
     val initCategoryName =
       initCategoryIdOpt.flatMap(cid => props.categories.find(_.id == cid)).map(_.name).getOrElse("")
 
     val (amount, setAmount) = Hooks.useState(props.row.amount.abs.toString)
     val (date, setDate) = Hooks.useState(props.row.date.toString)
-    val (notes, setNotes) = Hooks.useState(props.row.description)
+    val (notes, setNotes) = Hooks.useState(initialNotes(props.row, initVerdict))
 
     val (merchantInput, setMerchantInput) = Hooks.useState(initMerchantName)
     val (merchantIdOpt, setMerchantIdOpt) = Hooks.useState[Option[UUID]](initMerchantIdOpt)
