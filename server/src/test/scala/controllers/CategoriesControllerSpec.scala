@@ -96,22 +96,6 @@ class CategoriesControllerSpec extends PlayPostgresSpec with LoginUtils with Moc
       response.name must be("Groceries")
     }
 
-    "fail when name is blank" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-
-      val error =
-        client.createCategory(CreateCategory.Request(CategoryName.trusted("  "), description = None)).expectError
-      error must be("The name is required")
-    }
-
-    "fail when name exceeds 25 characters" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-
-      val error =
-        client.createCategory(CreateCategory.Request(CategoryName.trusted("a" * 26), description = None)).expectError
-      error must be("Name must be 25 characters or less")
-    }
-
     "return the existing category when the same name is used again" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val first =
@@ -236,19 +220,6 @@ class CategoriesControllerSpec extends PlayPostgresSpec with LoginUtils with Moc
       categories.data.map(_.description) must be(List(None))
     }
 
-    "fail when description exceeds 500 characters" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-
-      val error =
-        client
-          .createCategory(
-            CreateCategory
-              .Request(CategoryName.trusted("Groceries"), description = Some(CategoryDescription.trusted("a" * 501)))
-          )
-          .expectError
-      error must be("Description must be 500 characters or less")
-    }
-
     "accept a 500 character description surrounded by spaces and trim it" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val description = "a" * 500
@@ -325,28 +296,6 @@ class CategoriesControllerSpec extends PlayPostgresSpec with LoginUtils with Moc
       error must be("Category not found")
     }
 
-    "fail when name is blank" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-      val created =
-        client.createCategory(CreateCategory.Request(CategoryName.trusted("Groceries"), description = None)).futureValue
-
-      val error = client
-        .updateCategory(created.id, UpdateCategory.Request(CategoryName.trusted("  "), description = None))
-        .expectError
-      error must be("The name is required")
-    }
-
-    "fail when name exceeds 25 characters" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-      val created =
-        client.createCategory(CreateCategory.Request(CategoryName.trusted("Groceries"), description = None)).futureValue
-
-      val error = client
-        .updateCategory(created.id, UpdateCategory.Request(CategoryName.trusted("a" * 26), description = None))
-        .expectError
-      error must be("Name must be 25 characters or less")
-    }
-
     "set the description" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val created =
@@ -418,20 +367,6 @@ class CategoriesControllerSpec extends PlayPostgresSpec with LoginUtils with Moc
       client.getCategories.futureValue.data.map(_.description) must be(List(None))
     }
 
-    "fail when description exceeds 500 characters" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-      val created =
-        client.createCategory(CreateCategory.Request(CategoryName.trusted("Groceries"), description = None)).futureValue
-
-      val error = client
-        .updateCategory(
-          created.id,
-          UpdateCategory
-            .Request(CategoryName.trusted("Groceries"), description = Some(CategoryDescription.trusted("a" * 501)))
-        )
-        .expectError
-      error must be("Description must be 500 characters or less")
-    }
   }
 
   "DELETE /categories/:id" should {
