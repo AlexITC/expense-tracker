@@ -184,7 +184,7 @@ class ExpensesPageSpec extends AnyWordSpec {
       )
     }
 
-    "leave no duplicate candidates for a merged survivor, including its ambiguous siblings" in {
+    "keep a merged survivor's ambiguous sibling ambiguous as a receipt-on-both candidate" in {
       val survivor = expense(BigDecimal("10")).copy(rowIds = List(UUID.randomUUID()))
       val loser1 = expense(BigDecimal("10")).copy(receiptIds = List(UUID.randomUUID()))
       val loser2 = expense(BigDecimal("10")).copy(receiptIds = List(UUID.randomUUID()))
@@ -193,7 +193,19 @@ class ExpensesPageSpec extends AnyWordSpec {
 
       val merged =
         ExpenseList.applyMergeState(all, Set(loser1.id), Map(survivor.id -> loser1.receiptIds.head), Map.empty)
-      ExpenseDuplicateDetector.detect(merged) must be(Nil)
+      val mergedReceipts = Map(survivor.id -> loser1.receiptIds.head)
+      ExpenseList
+        .markMergedSurvivorsAmbiguous(ExpenseDuplicateDetector.detect(merged), mergedReceipts)
+        .map(c => (c.survivor.id, c.loser.id, c.shape, c.ambiguous)) must be(
+        List(
+          (
+            survivor.id,
+            loser2.id,
+            Shape.ReceiptOnBoth(survivorReceiptId = loser1.receiptIds.head, loserReceiptId = loser2.receiptIds.head),
+            true
+          )
+        )
+      )
     }
 
     "apply the adopted details to the survivor after removing the loser and adding its receipt" in {
@@ -223,7 +235,43 @@ class ExpensesPageSpec extends AnyWordSpec {
       ambiguous = false
     )
 
+  private def receiptOnBothCandidate(): Candidate = {
+    val survivorReceiptId = UUID.randomUUID()
+    val loserReceiptId = UUID.randomUUID()
+    Candidate(
+      survivor = expense(BigDecimal("10")).copy(rowIds = List(UUID.randomUUID()), receiptIds = List(survivorReceiptId)),
+      loser = expense(BigDecimal("10")).copy(receiptIds = List(loserReceiptId)),
+      shape = Shape.ReceiptOnBoth(survivorReceiptId = survivorReceiptId, loserReceiptId = loserReceiptId),
+      tier = Tier.Strong,
+      ambiguous = false
+    )
+  }
+
+  "markMergedSurvivorsAmbiguous" should {
+    "flag a receipt-on-both candidate whose survivor received a merged receipt" in {
+      val c = receiptOnBothCandidate()
+      ExpenseList.markMergedSurvivorsAmbiguous(List(c), Map(c.survivor.id -> UUID.randomUUID())) must be(
+        List(c.copy(ambiguous = true))
+      )
+    }
+
+    "leave a receipt-on-both candidate whose survivor had its own receipt unchanged" in {
+      val c = receiptOnBothCandidate()
+      ExpenseList.markMergedSurvivorsAmbiguous(List(c), Map(UUID.randomUUID() -> UUID.randomUUID())) must be(List(c))
+    }
+
+    "leave other shapes unchanged even when their survivor received a merged receipt" in {
+      val c = candidate(None)
+      ExpenseList.markMergedSurvivorsAmbiguous(List(c), Map(c.survivor.id -> UUID.randomUUID())) must be(List(c))
+    }
+  }
+
   "withMergedReceipt" should {
+    "leave the merged receipts unchanged for a receipt-on-both candidate" in {
+      val existing = Map(UUID.randomUUID() -> UUID.randomUUID())
+      ExpenseList.withMergedReceipt(existing, receiptOnBothCandidate()) must be(existing)
+    }
+
     "record the moved receipt on the survivor for a receipt candidate" in {
       val receiptId = UUID.randomUUID()
       val c = candidate(Some(receiptId))
@@ -244,9 +292,23 @@ class ExpensesPageSpec extends AnyWordSpec {
     "describe a delete for an orphan candidate" in {
       ExpenseList.mergeDialogLabels(candidate(None)) must be(("Delete duplicate?", "Delete"))
     }
+
+    "describe a discard for a receipt-on-both candidate" in {
+      ExpenseList.mergeDialogLabels(receiptOnBothCandidate()) must be(("Discard duplicate receipt?", "Discard"))
+    }
   }
 
   "mergeSummary" should {
+    "say the bank-row expense keeps its receipt and the duplicate and its receipt are deleted" in {
+      val summary = ExpenseList.mergeSummary(receiptOnBothCandidate(), MergeDetailsSource.Row)
+      summary must include("The bank-row expense keeps its receipt and details")
+      summary must include(
+        "The duplicate expense and its receipt (a copy of the same ticket) will be permanently deleted"
+      )
+      summary must include("refunds move to the bank-row expense")
+      summary must include("cannot be undone")
+    }
+
     "say the orphan is deleted and the bank-row expense keeps its details" in {
       val summary = ExpenseList.mergeSummary(candidate(None), MergeDetailsSource.Row)
       summary must include("no receipt")
@@ -258,6 +320,14 @@ class ExpensesPageSpec extends AnyWordSpec {
       val summary = ExpenseList.mergeSummary(candidate(Some(UUID.randomUUID())), MergeDetailsSource.Receipt)
       summary must include("The receipt's details")
       summary must include("The receipt moves to the bank-row expense")
+    }
+  }
+
+  "bulkMergeSummary" should {
+    "say duplicate receipts of expenses that already have one are discarded" in {
+      ExpenseList.bulkMergeSummary(2) must include(
+        "Duplicate receipts of bank-row expenses that already have one are discarded"
+      )
     }
   }
 

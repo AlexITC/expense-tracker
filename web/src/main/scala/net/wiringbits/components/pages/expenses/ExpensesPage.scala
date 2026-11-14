@@ -167,11 +167,26 @@ object ExpenseList {
 
   def dismissKey(c: Candidate): String = s"${c.survivor.id}:${c.loser.id}"
 
-  /** The merged receipts after merging `c`; an orphan candidate moves no receipt, so it leaves them unchanged. */
+  /** The merged receipts after merging `c`. Only a receipt candidate moves a receipt: an orphan has none, and a
+    * receipt-on-both candidate's survivor keeps its own receipt while the loser's is deleted.
+    */
   def withMergedReceipt(merged: Map[UUID, UUID], c: Candidate): Map[UUID, UUID] =
     c.shape match {
       case Shape.Receipt(loserReceiptId) => merged + (c.survivor.id -> loserReceiptId)
-      case Shape.Orphan => merged
+      case Shape.Orphan | Shape.ReceiptOnBoth(_, _) => merged
+    }
+
+  /** Flags receipt-on-both candidates whose survivor got its receipt from a merge in this session as ambiguous. Such a
+    * candidate was usually an ambiguous sibling of the merged pair (e.g. recurring same-amount purchases), and merging
+    * one pair doesn't show the other is a duplicate, so deleting it and its receipt needs review rather than a bulk
+    * merge.
+    */
+  def markMergedSurvivorsAmbiguous(candidates: List[Candidate], merged: Map[UUID, UUID]): List[Candidate] =
+    candidates.map { c =>
+      c.shape match {
+        case Shape.ReceiptOnBoth(_, _) if merged.contains(c.survivor.id) => c.copy(ambiguous = true)
+        case _ => c
+      }
     }
 
   /** The selected keys that still belong to a bulk-eligible candidate; merged, dismissed or now-ambiguous ones drop
@@ -205,13 +220,15 @@ object ExpenseList {
   def bulkMergeSummary(count: Int): String =
     s"$count selected ${if (count == 1) "duplicate" else "duplicates"} will be merged into their bank-row expense. " +
       "Receipts move to the bank-row expense, duplicates without a receipt are deleted, and the bank row's details " +
-      "(merchant, category, notes) are kept. This action cannot be undone."
+      "(merchant, category, notes) are kept. Duplicate receipts of bank-row expenses that already have one are " +
+      "discarded. This action cannot be undone."
 
   /** The confirm dialog's title and confirm button label for merging `c`. */
   def mergeDialogLabels(c: Candidate): (String, String) =
     c.shape match {
       case Shape.Receipt(_) => ("Merge expenses?", "Merge")
       case Shape.Orphan => ("Delete duplicate?", "Delete")
+      case Shape.ReceiptOnBoth(_, _) => ("Discard duplicate receipt?", "Discard")
     }
 
   def mergeSummary(c: Candidate, source: MergeDetailsSource): String =
@@ -219,6 +236,10 @@ object ExpenseList {
       case Shape.Orphan =>
         "The duplicate has no receipt and no bank row, so it will be deleted; any refunds move to the bank-row " +
           "expense, which keeps its details (merchant, category, notes). This action cannot be undone."
+      case Shape.ReceiptOnBoth(_, _) =>
+        "The bank-row expense keeps its receipt and details (merchant, category, notes). The duplicate expense and " +
+          "its receipt (a copy of the same ticket) will be permanently deleted; any refunds move to the bank-row " +
+          "expense. This action cannot be undone."
       case Shape.Receipt(_) =>
         val kept = source match {
           case MergeDetailsSource.Row => "bank row's"
@@ -500,7 +521,7 @@ object ExpenseList {
         adoptedDetails.map { case (s, l) => s"$s:${l.id}" }.toList.sorted.mkString(",")
     val (visibleExpenses, allCandidates) = SafeHooks.useMemo(mergeStateKey) { () =>
       val merged = applyMergeState(sortedExpenses, deletedIds, mergedReceipts, adoptedDetails)
-      (merged, ExpenseDuplicateDetector.detect(merged))
+      (merged, markMergedSurvivorsAmbiguous(ExpenseDuplicateDetector.detect(merged), mergedReceipts))
     }
     val duplicateCandidates: List[Candidate] = allCandidates.filterNot(c => dismissed.contains(dismissKey(c)))
     val selectedKeys: Set[String] = effectiveSelection(selectedDuplicates, duplicateCandidates)
@@ -1125,6 +1146,7 @@ object ExpenseList {
             pendingMerge.fold[ReactElement](Fragment()) { case (c, source) =>
               Fragment(
                 ExpenseDuplicatesPanel.columns(c, props.categories),
+                ExpenseDuplicatesPanel.receiptButtons(c, props.ctx, props.receiptFilenames, setError),
                 mui.DialogContentText(mergeSummary(c, source)).sx(new CSSPropertiesUtils { marginTop = "16px" })
               )
             }

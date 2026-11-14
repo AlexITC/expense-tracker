@@ -139,10 +139,69 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
       ExpenseDuplicateDetector.detect(List(s, l)).map(_.shape) must be(List(Shape.Receipt(receiptId)))
     }
 
-    "exclude a survivor that already has a receipt from receipt pairs" in {
+    "pair a survivor that already has a receipt with a receipt loser as receipt-on-both" in {
       val s = expense(hasRow = true, hasReceipt = true)
       val l = loser()
+      ExpenseDuplicateDetector.detect(List(s, l)) must be(
+        List(
+          Candidate(s, l, Shape.ReceiptOnBoth(s.receiptIds.head, l.receiptIds.head), Tier.Weak, ambiguous = false)
+        )
+      )
+    }
+
+    "mark a receipt-on-both pair with the same merchant as Strong" in {
+      val merchantId = Some(UUID.randomUUID())
+      val s = expense(merchantId = merchantId, hasRow = true, hasReceipt = true)
+      val l = loser(merchantId = merchantId)
+      ExpenseDuplicateDetector.detect(List(s, l)) must be(
+        List(
+          Candidate(s, l, Shape.ReceiptOnBoth(s.receiptIds.head, l.receiptIds.head), Tier.Strong, ambiguous = false)
+        )
+      )
+    }
+
+    "require the exact amount for receipt-on-both pairs" in {
+      val s = expense(amount = BigDecimal("10.00"), hasRow = true, hasReceipt = true)
+      val l = loser(amount = BigDecimal("10.01"))
       ExpenseDuplicateDetector.detect(List(s, l)) must be(Nil)
+    }
+
+    "match receipt-on-both pairs within MaxDateDifferenceDays and exclude them outside it" in {
+      val s = expense(hasRow = true, hasReceipt = true)
+      val inside = loser(date = baseDate.plusDays(window))
+      val before = loser(date = baseDate.minusDays(window + 1))
+      val after = loser(date = baseDate.plusDays(window + 1))
+      ExpenseDuplicateDetector.detect(List(s, inside, before, after)).map(_.loser) must be(List(inside))
+    }
+
+    "flag a loser matching both a receipt-free survivor and a survivor with a receipt as ambiguous" in {
+      val free = survivor()
+      val withReceipt = expense(hasRow = true, hasReceipt = true)
+      val l = loser()
+      ExpenseDuplicateDetector.detect(List(free, withReceipt, l)).toSet must be(
+        Set(
+          Candidate(free, l, Shape.Receipt(l.receiptIds.head), Tier.Weak, ambiguous = true),
+          Candidate(
+            withReceipt,
+            l,
+            Shape.ReceiptOnBoth(withReceipt.receiptIds.head, l.receiptIds.head),
+            Tier.Weak,
+            ambiguous = true
+          )
+        )
+      )
+    }
+
+    "flag a survivor with a receipt matching both an orphan and a receipt loser as ambiguous" in {
+      val s = expense(hasRow = true, hasReceipt = true)
+      val o = orphan()
+      val l = loser()
+      ExpenseDuplicateDetector.detect(List(s, o, l)).toSet must be(
+        Set(
+          Candidate(s, o, Shape.Orphan, Tier.Weak, ambiguous = true),
+          Candidate(s, l, Shape.ReceiptOnBoth(s.receiptIds.head, l.receiptIds.head), Tier.Weak, ambiguous = true)
+        )
+      )
     }
 
     "pair an orphan with the same merchant as Strong, without a receipt id" in {
@@ -277,6 +336,13 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
     "reject an ambiguous candidate" in {
       ExpenseDuplicateDetector.isBulkEligible(strong.copy(ambiguous = true)) must be(false)
     }
+
+    "accept a Strong unambiguous receipt-on-both candidate" in {
+      val merchantId = Some(UUID.randomUUID())
+      val s = expense(merchantId = merchantId, hasRow = true, hasReceipt = true)
+      val l = loser(merchantId = merchantId)
+      ExpenseDuplicateDetector.detect(List(s, l)).map(ExpenseDuplicateDetector.isBulkEligible) must be(List(true))
+    }
   }
 
   "mergeShape" should {
@@ -286,6 +352,12 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
 
     "map an orphan shape to the orphan merge" in {
       ExpenseDuplicateDetector.mergeShape(Shape.Orphan) must be(MergeShape.Orphan)
+    }
+
+    "map a receipt-on-both shape to the receipt-on-both merge" in {
+      ExpenseDuplicateDetector.mergeShape(Shape.ReceiptOnBoth(UUID.randomUUID(), UUID.randomUUID())) must be(
+        MergeShape.ReceiptOnBoth
+      )
     }
   }
 }
