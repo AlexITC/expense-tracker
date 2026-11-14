@@ -215,7 +215,7 @@ class BankStatementReviewRowSpec extends AnyWordSpec with ReactTestDom {
     "show a rule-matched credit's refund category" in {
       val r = row("REFUND").copy(amount = BigDecimal("45.00"))
       val info = readyInfo.copy(
-        verdict = RowRuleVerdict.SetCategory(UUID.randomUUID()),
+        verdict = RowRuleVerdict.SetCategory(UUID.randomUUID(), description = None),
         resolved = None,
         refund = Some(RefundPrefill(None, Some(UUID.randomUUID()))),
         categoryName = Some("Groceries")
@@ -227,7 +227,7 @@ class BankStatementReviewRowSpec extends AnyWordSpec with ReactTestDom {
     "show a dash for a credit whose refund has no category" in {
       val r = row("REFUND").copy(amount = BigDecimal("45.00"))
       val info = readyInfo.copy(
-        verdict = RowRuleVerdict.SetMerchant(UUID.randomUUID()),
+        verdict = RowRuleVerdict.SetMerchant(UUID.randomUUID(), categoryId = None, description = None),
         resolved = None,
         refund = Some(RefundPrefill(Some(UUID.randomUUID()), None)),
         categoryName = None

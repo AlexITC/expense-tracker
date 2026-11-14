@@ -140,7 +140,7 @@ object BankStatementReviewLogic {
   ): Option[ResolvedImport] =
     verdict match {
       case RowRuleVerdict.Ignore => None
-      case RowRuleVerdict.SetCategory(categoryId) =>
+      case RowRuleVerdict.SetCategory(categoryId, _) =>
         Some(ResolvedImport(merchantId = None, categoryId = categoryId, categoryFromAi = false))
       case _ =>
         val ruleMerchantId = RowRuleVerdict.merchantId(verdict)
@@ -171,9 +171,9 @@ object BankStatementReviewLogic {
     if (row.amount <= 0) None
     else
       verdict match {
-        case RowRuleVerdict.SetMerchant(merchantId) =>
+        case RowRuleVerdict.SetMerchant(merchantId, _, _) =>
           merchants.find(_.id == merchantId).map(m => RefundPrefill(merchantId = Some(m.id), categoryId = m.categoryId))
-        case RowRuleVerdict.SetCategory(categoryId) =>
+        case RowRuleVerdict.SetCategory(categoryId, _) =>
           Some(RefundPrefill(merchantId = None, categoryId = Some(categoryId)))
         case RowRuleVerdict.Ignore | RowRuleVerdict.NoRule => None
       }

@@ -119,8 +119,16 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       val pending = row("CORNER SHOP 42")
       val rules = List(
         ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "bank fee"),
-        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant(UUID.randomUUID()), "netflix"),
-        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant(UUID.randomUUID()), "spotify")
+        ImportRuleMatcher.Rule(
+          UUID.randomUUID(),
+          ImportRuleAction.SetMerchant(UUID.randomUUID(), categoryId = None, description = None),
+          "netflix"
+        ),
+        ImportRuleMatcher.Rule(
+          UUID.randomUUID(),
+          ImportRuleAction.SetMerchant(UUID.randomUUID(), categoryId = None, description = None),
+          "spotify"
+        )
       )
       val client = stub("Groceries")
 
@@ -382,7 +390,7 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       val pending = row("CORNER SHOP 42")
       val rule = ImportRuleMatcher.Rule(
         UUID.randomUUID(),
-        ImportRuleAction.SetCategory(UUID.randomUUID()),
+        ImportRuleAction.SetCategory(UUID.randomUUID(), description = None),
         "cafeteria"
       )
 

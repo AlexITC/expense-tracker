@@ -60,7 +60,7 @@ object BankRowCreateExpenseForm {
 
     (ruleMerchant, verdict) match {
       case (Some(m), _) => (Some(m), m.categoryId)
-      case (None, RowRuleVerdict.SetCategory(categoryId)) =>
+      case (None, RowRuleVerdict.SetCategory(categoryId, _)) =>
         (None, Option.when(categories.exists(_.id == categoryId))(categoryId))
       case (None, _) =>
         aiSuggestion match {
@@ -90,7 +90,7 @@ object BankRowCreateExpenseForm {
     */
   def initialMerchantInput(row: GetBankStatement.StatementRowData, verdict: RowRuleVerdict.Verdict): String =
     verdict match {
-      case RowRuleVerdict.SetCategory(_) => ""
+      case RowRuleVerdict.SetCategory(_, _) => ""
       case _ => row.description
     }
 
@@ -341,14 +341,14 @@ object BankRowCreateExpenseForm {
                 case (Some(mid), Some(alias), _, _) =>
                   Some(
                     CreateImportRule.Request(
-                      action = ImportRuleAction.SetMerchant(mid),
+                      action = ImportRuleAction.SetMerchant(mid, categoryId = None, description = None),
                       pattern = alias
                     )
                   )
                 case (None, _, Some(catId), Some(pattern)) =>
                   Some(
                     CreateImportRule.Request(
-                      action = ImportRuleAction.SetCategory(catId),
+                      action = ImportRuleAction.SetCategory(catId, description = None),
                       pattern = pattern
                     )
                   )

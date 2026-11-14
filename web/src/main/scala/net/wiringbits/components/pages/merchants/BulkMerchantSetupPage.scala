@@ -299,7 +299,7 @@ object DescriptionRow {
 
           ruleResp <- props.ctx.api.client.createImportRule(
             CreateImportRule.Request(
-              action = ImportRuleAction.SetMerchant(resolvedMerchantId),
+              action = ImportRuleAction.SetMerchant(resolvedMerchantId, categoryId = None, description = None),
               pattern = props.description
             )
           )
@@ -309,7 +309,7 @@ object DescriptionRow {
               props.ctx.api.client
                 .createImportRule(
                   CreateImportRule.Request(
-                    action = ImportRuleAction.SetMerchant(resolvedMerchantId),
+                    action = ImportRuleAction.SetMerchant(resolvedMerchantId, categoryId = None, description = None),
                     pattern = merchantName
                   )
                 )
@@ -318,7 +318,7 @@ object DescriptionRow {
         } yield {
           val rule = ImportRuleMatcher.Rule(
             id = ruleResp.id,
-            action = ImportRuleAction.SetMerchant(resolvedMerchantId),
+            action = ImportRuleAction.SetMerchant(resolvedMerchantId, categoryId = None, description = None),
             pattern = props.description
           )
           props.onDone(rule, newMerchantOpt, newCategoryOpt)

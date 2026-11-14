@@ -30,7 +30,7 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
 
   private val matchingRule = ImportRuleMatcher.Rule(
     id = UUID.randomUUID(),
-    action = ImportRuleAction.SetMerchant(merchantId),
+    action = ImportRuleAction.SetMerchant(merchantId, categoryId = None, description = None),
     pattern = "Amazon"
   )
 
@@ -420,14 +420,22 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
 
     "reject an expense with a different merchantId under a SetMerchant verdict" in {
       val expense = makeExpense(mId = Some(UUID.randomUUID()))
-      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.SetMerchant(merchantId), List(expense)) must be(
+      ReconciliationMatcher.matchRow(
+        makeRow(),
+        RowRuleVerdict.SetMerchant(merchantId, categoryId = None, description = None),
+        List(expense)
+      ) must be(
         ReconciliationMatcher.CreateNew
       )
     }
 
     "accept an expense with the same merchantId under a SetMerchant verdict" in {
       val expense = makeExpense(mId = Some(merchantId))
-      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.SetMerchant(merchantId), List(expense)) must be(
+      ReconciliationMatcher.matchRow(
+        makeRow(),
+        RowRuleVerdict.SetMerchant(merchantId, categoryId = None, description = None),
+        List(expense)
+      ) must be(
         ReconciliationMatcher.AutoLink(expense.id)
       )
     }
@@ -437,10 +445,14 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       val withoutCategory = makeExpense(splits = List(split(UUID.randomUUID())))
       ReconciliationMatcher.matchRow(
         makeRow(),
-        RowRuleVerdict.SetCategory(categoryId),
+        RowRuleVerdict.SetCategory(categoryId, description = None),
         List(withCategory, withoutCategory)
       ) must be(ReconciliationMatcher.AutoLink(withCategory.id))
-      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.SetCategory(categoryId), List(withoutCategory)) must be(
+      ReconciliationMatcher.matchRow(
+        makeRow(),
+        RowRuleVerdict.SetCategory(categoryId, description = None),
+        List(withoutCategory)
+      ) must be(
         ReconciliationMatcher.CreateNew
       )
     }
@@ -455,7 +467,11 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
     "auto-link a receipt-backed expense even when its merchant disagrees with the verdict" in {
       val otherMerchantId = UUID.randomUUID()
       val expense = makeExpense(mId = Some(merchantId), receiptIds = List(UUID.randomUUID()))
-      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.SetMerchant(otherMerchantId), List(expense)) must be(
+      ReconciliationMatcher.matchRow(
+        makeRow(),
+        RowRuleVerdict.SetMerchant(otherMerchantId, categoryId = None, description = None),
+        List(expense)
+      ) must be(
         ReconciliationMatcher.AutoLink(expense.id)
       )
     }
@@ -464,7 +480,11 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       val otherMerchantId = UUID.randomUUID()
       val expense =
         makeExpense(date = baseDate.minusDays(4), mId = Some(merchantId), receiptIds = List(UUID.randomUUID()))
-      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.SetMerchant(otherMerchantId), List(expense)) must be(
+      ReconciliationMatcher.matchRow(
+        makeRow(),
+        RowRuleVerdict.SetMerchant(otherMerchantId, categoryId = None, description = None),
+        List(expense)
+      ) must be(
         ReconciliationMatcher.CreateNew
       )
     }
@@ -473,7 +493,11 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       val otherMerchantId = UUID.randomUUID()
       val e1 = makeExpense(mId = Some(merchantId), receiptIds = List(UUID.randomUUID()))
       val e2 = makeExpense(mId = Some(merchantId), receiptIds = List(UUID.randomUUID()))
-      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.SetMerchant(otherMerchantId), List(e1, e2)) must be(
+      ReconciliationMatcher.matchRow(
+        makeRow(),
+        RowRuleVerdict.SetMerchant(otherMerchantId, categoryId = None, description = None),
+        List(e1, e2)
+      ) must be(
         ReconciliationMatcher.NeedsReview(List(e1.id, e2.id))
       )
     }
@@ -484,7 +508,7 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
         makeExpense(amount = BigDecimal("100.50"), mId = Some(UUID.randomUUID()), receiptIds = List(UUID.randomUUID()))
       ReconciliationMatcher.matchRow(
         makeRow(),
-        RowRuleVerdict.SetMerchant(merchantId),
+        RowRuleVerdict.SetMerchant(merchantId, categoryId = None, description = None),
         List(nearWithReceipt, exact)
       ) must be(ReconciliationMatcher.AutoLink(exact.id))
     }
@@ -492,7 +516,11 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
     "not match an expense without receipts whose merchant disagrees with the verdict" in {
       val otherMerchantId = UUID.randomUUID()
       val expense = makeExpense(mId = Some(merchantId))
-      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.SetMerchant(otherMerchantId), List(expense)) must be(
+      ReconciliationMatcher.matchRow(
+        makeRow(),
+        RowRuleVerdict.SetMerchant(otherMerchantId, categoryId = None, description = None),
+        List(expense)
+      ) must be(
         ReconciliationMatcher.CreateNew
       )
     }
@@ -500,7 +528,11 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
     "auto-link a near-amount receipt-backed expense whose merchant disagrees with the verdict" in {
       val otherMerchantId = UUID.randomUUID()
       val expense = makeExpense(amount = BigDecimal("100.50"), receiptIds = List(UUID.randomUUID()))
-      ReconciliationMatcher.matchRow(makeRow(), RowRuleVerdict.SetMerchant(otherMerchantId), List(expense)) must be(
+      ReconciliationMatcher.matchRow(
+        makeRow(),
+        RowRuleVerdict.SetMerchant(otherMerchantId, categoryId = None, description = None),
+        List(expense)
+      ) must be(
         ReconciliationMatcher.AutoLink(expense.id)
       )
     }

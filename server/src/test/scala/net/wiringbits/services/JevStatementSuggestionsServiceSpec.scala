@@ -113,7 +113,11 @@ class JevStatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with 
       val pending = row("CORNER SHOP 42")
       val rules = List(
         ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "bank fee"),
-        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant(UUID.randomUUID()), "netflix")
+        ImportRuleMatcher.Rule(
+          UUID.randomUUID(),
+          ImportRuleAction.SetMerchant(UUID.randomUUID(), categoryId = None, description = None),
+          "netflix"
+        )
       )
       val client = stub(groceries)
 

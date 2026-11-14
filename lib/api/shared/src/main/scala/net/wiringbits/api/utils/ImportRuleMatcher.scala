@@ -30,7 +30,7 @@ object ImportRuleMatcher {
       explicit.collect { case r if r.action.kind == ImportRuleActionKind.SetMerchant => normalize(r.pattern) }.toSet
     val virtual = merchants.collect {
       case (merchantId, name) if !explicitPatterns.contains(normalize(name)) =>
-        Rule(merchantId, ImportRuleAction.SetMerchant(merchantId), name)
+        Rule(merchantId, ImportRuleAction.SetMerchant(merchantId, categoryId = None, description = None), name)
     }
     explicit ++ virtual
   }

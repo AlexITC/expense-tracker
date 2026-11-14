@@ -125,7 +125,7 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
       val resp = statement(List(sampleRow("A")))
       val apiRule = GetImportRules.Rule(
         UUID.randomUUID(),
-        ImportRuleAction.SetCategory(UUID.randomUUID()),
+        ImportRuleAction.SetCategory(UUID.randomUUID(), description = None),
         "SUPERMARKET",
         None,
         None,
@@ -258,7 +258,7 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
       store.supportLoaded(emptySupport)
       val rule = ImportRuleMatcher.Rule(
         UUID.randomUUID(),
-        ImportRuleAction.SetCategory(UUID.randomUUID()),
+        ImportRuleAction.SetCategory(UUID.randomUUID(), description = None),
         "SUPERMARKET"
       )
       store.updateSupport(_.withRule(rule))

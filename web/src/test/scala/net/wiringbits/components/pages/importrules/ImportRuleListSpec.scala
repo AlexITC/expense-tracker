@@ -41,7 +41,7 @@ class ImportRuleListSpec extends AnyWordSpec with ReactTestDom {
     GetImportRules.Rule(
       id = UUID.randomUUID(),
       action = merchantName.fold[ImportRuleAction](ImportRuleAction.Ignore)(_ =>
-        ImportRuleAction.SetMerchant(UUID.randomUUID())
+        ImportRuleAction.SetMerchant(UUID.randomUUID(), categoryId = None, description = None)
       ),
       pattern = pattern,
       merchantName = merchantName,
@@ -53,7 +53,7 @@ class ImportRuleListSpec extends AnyWordSpec with ReactTestDom {
 
   private def categoryRule(pattern: String, categoryName: String): GetImportRules.Rule =
     rule(pattern).copy(
-      action = ImportRuleAction.SetCategory(UUID.randomUUID()),
+      action = ImportRuleAction.SetCategory(UUID.randomUUID(), description = None),
       categoryName = Some(categoryName)
     )
 
@@ -103,6 +103,43 @@ class ImportRuleListSpec extends AnyWordSpec with ReactTestDom {
       val r = categoryRule("uber", "Transport")
       ImportRuleMatcher.Rule.fromApi(r) must be(
         ImportRuleMatcher.Rule(r.id, r.action, "uber")
+      )
+    }
+  }
+
+  "editedSetMerchant" should {
+    "keep the override category and description of a set_merchant rule" in {
+      val oldMerchant = UUID.randomUUID()
+      val newMerchant = UUID.randomUUID()
+      val cid = UUID.randomUUID()
+      val current = ImportRuleAction.SetMerchant(oldMerchant, categoryId = Some(cid), description = Some("Coffee"))
+      ImportRuleList.editedSetMerchant(Some(current), newMerchant) must be(
+        ImportRuleAction.SetMerchant(newMerchant, categoryId = Some(cid), description = Some("Coffee"))
+      )
+    }
+
+    "start empty when the rule was another kind" in {
+      val mid = UUID.randomUUID()
+      val current = ImportRuleAction.SetCategory(UUID.randomUUID(), description = Some("Coffee"))
+      ImportRuleList.editedSetMerchant(Some(current), mid) must be(
+        ImportRuleAction.SetMerchant(mid, categoryId = None, description = None)
+      )
+    }
+  }
+
+  "editedSetCategory" should {
+    "keep the description of a set_category rule" in {
+      val cid = UUID.randomUUID()
+      val current = ImportRuleAction.SetCategory(UUID.randomUUID(), description = Some("Lunch"))
+      ImportRuleList.editedSetCategory(Some(current), cid) must be(
+        ImportRuleAction.SetCategory(cid, description = Some("Lunch"))
+      )
+    }
+
+    "start empty when the rule was another kind" in {
+      val cid = UUID.randomUUID()
+      ImportRuleList.editedSetCategory(Some(ImportRuleAction.Ignore), cid) must be(
+        ImportRuleAction.SetCategory(cid, description = None)
       )
     }
   }

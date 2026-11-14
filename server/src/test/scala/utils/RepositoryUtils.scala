@@ -274,13 +274,22 @@ trait RepositoryUtils {
       pattern: String = "test-pattern",
       action: ImportRuleActionKind = ImportRuleActionKind.Ignore,
       merchantId: Option[UUID] = None,
-      categoryId: Option[UUID] = None
+      categoryId: Option[UUID] = None,
+      overrideCategoryId: Option[UUID] = None,
+      description: Option[String] = None
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[UUID] = {
     val fullAction = action match {
       case ImportRuleActionKind.SetMerchant =>
-        ImportRuleAction.SetMerchant(merchantId.getOrElse(throw new IllegalArgumentException("merchantId required")))
+        ImportRuleAction.SetMerchant(
+          merchantId = merchantId.getOrElse(throw new IllegalArgumentException("merchantId required")),
+          categoryId = overrideCategoryId,
+          description = description
+        )
       case ImportRuleActionKind.SetCategory =>
-        ImportRuleAction.SetCategory(categoryId.getOrElse(throw new IllegalArgumentException("categoryId required")))
+        ImportRuleAction.SetCategory(
+          categoryId = categoryId.getOrElse(throw new IllegalArgumentException("categoryId required")),
+          description = description
+        )
       case ImportRuleActionKind.Ignore => ImportRuleAction.Ignore
     }
     repository.importRules.create(userId, fullAction, pattern)

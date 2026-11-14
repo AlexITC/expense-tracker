@@ -92,6 +92,22 @@ object ImportRuleList {
 
   private val pageSize = 20
 
+  /** The SetMerchant action an edit saves. The editor has no override-category or description inputs, so those are
+    * carried over from the rule's current action when it is already a SetMerchant rule, rather than cleared.
+    */
+  def editedSetMerchant(current: Option[ImportRuleAction], merchantId: UUID): ImportRuleAction.SetMerchant =
+    current match {
+      case Some(a: ImportRuleAction.SetMerchant) => a.copy(merchantId = merchantId)
+      case _ => ImportRuleAction.SetMerchant(merchantId, categoryId = None, description = None)
+    }
+
+  /** The SetCategory action an edit saves, carrying over the description of a rule that is already SetCategory. */
+  def editedSetCategory(current: Option[ImportRuleAction], categoryId: UUID): ImportRuleAction.SetCategory =
+    current match {
+      case Some(a: ImportRuleAction.SetCategory) => a.copy(categoryId = categoryId)
+      case _ => ImportRuleAction.SetCategory(categoryId, description = None)
+    }
+
   def filterRules(rules: Seq[GetImportRules.Rule], query: String): Seq[GetImportRules.Rule] = {
     val q = query.trim.toLowerCase
     if (q.isEmpty) rules
@@ -209,7 +225,10 @@ object ImportRuleList {
             resolveOrCreateMerchant(name, newMerchantIdOpt)
               .flatMap { mid =>
                 props.ctx.api.client
-                  .createImportRule(CreateImportRule.Request(ImportRuleAction.SetMerchant(mid), newPattern))
+                  .createImportRule(
+                    CreateImportRule
+                      .Request(ImportRuleAction.SetMerchant(mid, categoryId = None, description = None), newPattern)
+                  )
               }
               .onComplete {
                 case Success(_) =>
@@ -224,7 +243,9 @@ object ImportRuleList {
             resolveOrCreateCategory(name, newCategoryIdOpt)
               .flatMap { cid =>
                 props.ctx.api.client
-                  .createImportRule(CreateImportRule.Request(ImportRuleAction.SetCategory(cid), newPattern))
+                  .createImportRule(
+                    CreateImportRule.Request(ImportRuleAction.SetCategory(cid, description = None), newPattern)
+                  )
               }
               .onComplete {
                 case Success(_) =>
@@ -240,6 +261,8 @@ object ImportRuleList {
           case Success(_) => props.onRefresh()
           case Failure(ex) => setError(ex.getMessage)
         }
+
+    def currentAction(ruleId: UUID): Option[ImportRuleAction] = props.rules.data.find(_.id == ruleId).map(_.action)
 
     def handleUpdate(ruleId: UUID): Unit =
       editAction match {
@@ -262,7 +285,7 @@ object ImportRuleList {
                 props.ctx.api.client
                   .updateImportRule(
                     ruleId,
-                    UpdateImportRule.Request(ImportRuleAction.SetMerchant(mid), editPattern)
+                    UpdateImportRule.Request(editedSetMerchant(currentAction(ruleId), mid), editPattern)
                   )
               }
               .onComplete {
@@ -281,7 +304,7 @@ object ImportRuleList {
                 props.ctx.api.client
                   .updateImportRule(
                     ruleId,
-                    UpdateImportRule.Request(ImportRuleAction.SetCategory(cid), editPattern)
+                    UpdateImportRule.Request(editedSetCategory(currentAction(ruleId), cid), editPattern)
                   )
               }
               .onComplete {
@@ -468,8 +491,8 @@ object ImportRuleList {
         else {
           val actionLabel = r.action match {
             case ImportRuleAction.Ignore => "Ignore"
-            case ImportRuleAction.SetMerchant(_) => s"→ ${r.merchantName.getOrElse("?")}"
-            case ImportRuleAction.SetCategory(_) => s"→ ${r.categoryName.getOrElse("?")}"
+            case ImportRuleAction.SetMerchant(_, _, _) => s"→ ${r.merchantName.getOrElse("?")}"
+            case ImportRuleAction.SetCategory(_, _) => s"→ ${r.categoryName.getOrElse("?")}"
           }
           mui.Box.sx(new CSSPropertiesUtils {
             display = "flex"

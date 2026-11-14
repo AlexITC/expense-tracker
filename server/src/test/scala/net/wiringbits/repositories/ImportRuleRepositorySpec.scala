@@ -63,6 +63,83 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
       repositories.categories.delete(category.id, user.id).futureValue
       repositories.importRules.find(id, user.id).futureValue must be(None)
     }
+
+    "round-trip a set-merchant override category and description" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val merchant = createMerchant(user.id).futureValue
+      val category = createCategory(user.id, name = "Dining").futureValue
+      val id = createImportRule(
+        user.id,
+        pattern = "cafe",
+        action = ImportRuleActionKind.SetMerchant,
+        merchantId = Some(merchant.id),
+        overrideCategoryId = Some(category.id),
+        description = Some("Coffee")
+      ).futureValue
+
+      val expected =
+        ImportRuleAction.SetMerchant(merchant.id, categoryId = Some(category.id), description = Some("Coffee"))
+      val found = repositories.importRules.find(id, user.id).futureValue.value
+      found.action must be(expected)
+      found.categoryName must be(Some("Dining"))
+
+      val listed = repositories.importRules.all(user.id).futureValue.find(_.id == id).value
+      listed.action must be(expected)
+      listed.categoryName must be(Some("Dining"))
+    }
+
+    "round-trip a set-category description" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val category = createCategory(user.id).futureValue
+      val id = createImportRule(
+        user.id,
+        pattern = "walmart",
+        action = ImportRuleActionKind.SetCategory,
+        categoryId = Some(category.id),
+        description = Some("Weekly shop")
+      ).futureValue
+
+      repositories.importRules.find(id, user.id).futureValue.value.action must be(
+        ImportRuleAction.SetCategory(category.id, description = Some("Weekly shop"))
+      )
+    }
+
+    "reject another user's override category and create no rule" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val other = createUser().futureValue
+      val merchant = createMerchant(user.id).futureValue
+      val foreignCategory = createCategory(other.id).futureValue
+
+      val result = createImportRule(
+        user.id,
+        pattern = "cafe",
+        action = ImportRuleActionKind.SetMerchant,
+        merchantId = Some(merchant.id),
+        overrideCategoryId = Some(foreignCategory.id)
+      )
+      result.failed.futureValue.getMessage must be("Category not found")
+      repositories.importRules.all(user.id).futureValue must be(empty)
+    }
+
+    "keep a set-merchant rule and clear its override when the category is deleted" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val merchant = createMerchant(user.id).futureValue
+        val category = createCategory(user.id).futureValue
+        val id = createImportRule(
+          user.id,
+          pattern = "cafe",
+          action = ImportRuleActionKind.SetMerchant,
+          merchantId = Some(merchant.id),
+          overrideCategoryId = Some(category.id),
+          description = Some("Coffee")
+        ).futureValue
+
+        repositories.categories.delete(category.id, user.id).futureValue
+        val found = repositories.importRules.find(id, user.id).futureValue.value
+        found.action must be(ImportRuleAction.SetMerchant(merchant.id, categoryId = None, description = Some("Coffee")))
+        found.categoryName must be(None)
+    }
   }
 
   "all" should {
@@ -109,7 +186,7 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
 
       val rules = repositories.importRules.all(user.id).futureValue
       rules.size must be(1)
-      rules.head.action must be(ImportRuleAction.SetMerchant(merchant.id))
+      rules.head.action must be(ImportRuleAction.SetMerchant(merchant.id, categoryId = None, description = None))
       rules.head.pattern must be("amazon")
       rules.head.autoCreated must be(true)
     }
@@ -175,12 +252,17 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
       val merchant = createMerchant(user.id).futureValue
 
       repositories.importRules
-        .update(id, user.id, ImportRuleAction.SetMerchant(merchant.id), "new-pattern")
+        .update(
+          id,
+          user.id,
+          ImportRuleAction.SetMerchant(merchant.id, categoryId = None, description = None),
+          "new-pattern"
+        )
         .futureValue
 
       val updated = repositories.importRules.find(id, user.id).futureValue
       updated.value.pattern must be("new-pattern")
-      updated.value.action must be(ImportRuleAction.SetMerchant(merchant.id))
+      updated.value.action must be(ImportRuleAction.SetMerchant(merchant.id, categoryId = None, description = None))
     }
 
     "set and clear the category by changing the action" in withRepositories() { implicit repositories =>
@@ -189,16 +271,63 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
       val id = createImportRule(user.id, pattern = "walmart").futureValue
 
       repositories.importRules
-        .update(id, user.id, ImportRuleAction.SetCategory(category.id), "walmart")
+        .update(id, user.id, ImportRuleAction.SetCategory(category.id, description = None), "walmart")
         .futureValue
       val withCategory = repositories.importRules.find(id, user.id).futureValue.value
-      withCategory.action must be(ImportRuleAction.SetCategory(category.id))
+      withCategory.action must be(ImportRuleAction.SetCategory(category.id, description = None))
       withCategory.categoryName must be(Some("Groceries"))
 
       repositories.importRules.update(id, user.id, ImportRuleAction.Ignore, "walmart").futureValue
       val cleared = repositories.importRules.find(id, user.id).futureValue.value
       cleared.action must be(ImportRuleAction.Ignore)
       cleared.categoryName must be(None)
+    }
+
+    "set and clear the override category and description" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val merchant = createMerchant(user.id).futureValue
+      val category = createCategory(user.id, name = "Dining").futureValue
+      val id = createImportRule(
+        user.id,
+        pattern = "cafe",
+        action = ImportRuleActionKind.SetMerchant,
+        merchantId = Some(merchant.id)
+      ).futureValue
+
+      val withExtras =
+        ImportRuleAction.SetMerchant(merchant.id, categoryId = Some(category.id), description = Some("Coffee"))
+      repositories.importRules.update(id, user.id, withExtras, "cafe").futureValue
+      val updated = repositories.importRules.find(id, user.id).futureValue.value
+      updated.action must be(withExtras)
+      updated.categoryName must be(Some("Dining"))
+
+      val plain = ImportRuleAction.SetMerchant(merchant.id, categoryId = None, description = None)
+      repositories.importRules.update(id, user.id, plain, "cafe").futureValue
+      val cleared = repositories.importRules.find(id, user.id).futureValue.value
+      cleared.action must be(plain)
+      cleared.categoryName must be(None)
+    }
+
+    "reject another user's override category" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val other = createUser().futureValue
+      val merchant = createMerchant(user.id).futureValue
+      val foreignCategory = createCategory(other.id).futureValue
+      val id = createImportRule(
+        user.id,
+        pattern = "cafe",
+        action = ImportRuleActionKind.SetMerchant,
+        merchantId = Some(merchant.id)
+      ).futureValue
+
+      val result = repositories.importRules.update(
+        id,
+        user.id,
+        ImportRuleAction.SetMerchant(merchant.id, categoryId = Some(foreignCategory.id), description = None),
+        "cafe"
+      )
+      result.failed.futureValue.getMessage must be("Category not found")
+      repositories.importRules.find(id, user.id).futureValue.value.action.overrideCategoryIdOpt must be(None)
     }
   }
 

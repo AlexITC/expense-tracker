@@ -283,7 +283,7 @@ class BankStatementBulkRunsSpec extends AnyWordSpec {
         statementRows = List(credit),
         rowInfoById = Map(
           credit.id -> info(
-            RowRuleVerdict.SetMerchant(merchantId),
+            RowRuleVerdict.SetMerchant(merchantId, categoryId = None, description = None),
             refund = Some(RefundPrefill(Some(merchantId), Some(categoryId)))
           )
         ),

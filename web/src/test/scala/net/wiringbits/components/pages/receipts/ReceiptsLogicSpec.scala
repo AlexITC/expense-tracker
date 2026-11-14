@@ -133,7 +133,11 @@ class ReceiptsLogicSpec extends AnyWordSpec {
     val other =
       GetMerchants.Response.Merchant(UUID.randomUUID(), "Other", None, None, None, reviewed = true, Instant.EPOCH)
     val merchants = List(acme, other)
-    val ruleToOther = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant(other.id), "ACME")
+    val ruleToOther = ImportRuleMatcher.Rule(
+      UUID.randomUUID(),
+      ImportRuleAction.SetMerchant(other.id, categoryId = None, description = None),
+      "ACME"
+    )
     def receipt(
         amount: Option[BigDecimal] = Some(BigDecimal("12.50")),
         date: Option[LocalDate] = Some(LocalDate.parse("2026-03-04")),
@@ -178,7 +182,11 @@ class ReceiptsLogicSpec extends AnyWordSpec {
 
     "leave the merchant input empty when the rule's merchant is unknown" in {
       val unknown = UUID.randomUUID()
-      val rule = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant(unknown), "ACME")
+      val rule = ImportRuleMatcher.Rule(
+        UUID.randomUUID(),
+        ImportRuleAction.SetMerchant(unknown, categoryId = None, description = None),
+        "ACME"
+      )
       val form = ConfirmForm.fromReceipt(receipt(), merchants, List(rule))
       form.merchantId mustBe unknown.toString
       form.merchantInput mustBe ""

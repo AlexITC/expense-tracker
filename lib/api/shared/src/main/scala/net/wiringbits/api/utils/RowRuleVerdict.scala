@@ -12,8 +12,8 @@ object RowRuleVerdict {
 
   case object NoRule extends Verdict
   case object Ignore extends Verdict
-  final case class SetMerchant(merchantId: UUID) extends Verdict
-  final case class SetCategory(categoryId: UUID) extends Verdict
+  final case class SetMerchant(merchantId: UUID, categoryId: Option[UUID], description: Option[String]) extends Verdict
+  final case class SetCategory(categoryId: UUID, description: Option[String]) extends Verdict
 
   def verdict(rules: List[ImportRuleMatcher.Rule], description: String): Verdict =
     ImportRuleMatcher.findRowWinner(rules, description) match {
@@ -21,22 +21,24 @@ object RowRuleVerdict {
       case Some(w) =>
         w.action match {
           case ImportRuleAction.Ignore => Ignore
-          case ImportRuleAction.SetMerchant(id) => SetMerchant(id)
-          case ImportRuleAction.SetCategory(id) => SetCategory(id)
+          case ImportRuleAction.SetMerchant(merchantId, categoryId, description) =>
+            SetMerchant(merchantId = merchantId, categoryId = categoryId, description = description)
+          case ImportRuleAction.SetCategory(categoryId, description) =>
+            SetCategory(categoryId = categoryId, description = description)
         }
     }
 
   /** The merchant a SetMerchant verdict assigns to the row, if any. */
   def merchantId(verdict: Verdict): Option[UUID] =
     verdict match {
-      case SetMerchant(merchantId) => Some(merchantId)
+      case s: SetMerchant => Some(s.merchantId)
       case _ => None
     }
 
   /** The category a SetCategory verdict assigns to the row, if any. */
   def categoryId(verdict: Verdict): Option[UUID] =
     verdict match {
-      case SetCategory(categoryId) => Some(categoryId)
+      case s: SetCategory => Some(s.categoryId)
       case _ => None
     }
 

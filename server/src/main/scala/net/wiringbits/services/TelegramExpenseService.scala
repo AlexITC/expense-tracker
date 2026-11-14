@@ -53,9 +53,9 @@ class TelegramExpenseService @Inject() (
                     w.action match {
                       case ImportRuleAction.Ignore =>
                         Future.successful(Left(s"Transaction skipped: matches an ignore rule for '$safeName'"))
-                      case ImportRuleAction.SetMerchant(id) =>
+                      case ImportRuleAction.SetMerchant(id, _, _) =>
                         merchantsRepository.find(id = id, userId = userId).map(Right(_))
-                      case ImportRuleAction.SetCategory(_) =>
+                      case ImportRuleAction.SetCategory(_, _) =>
                         Future.successful(Right(Option.empty[Merchant]))
                     }
                   case None => Future.successful(Right(Option.empty[Merchant]))

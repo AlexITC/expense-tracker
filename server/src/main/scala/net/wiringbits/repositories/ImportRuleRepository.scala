@@ -65,7 +65,7 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
   // Absorbs an existing set_merchant rule for the same pattern/merchant (get-or-create, not a reject).
   def createSetMerchantIfAbsent(userId: UUID, merchantId: UUID, pattern: String): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
-      val action = ImportRuleAction.SetMerchant(merchantId)
+      val action = ImportRuleAction.SetMerchant(merchantId, categoryId = None, description = None)
       verifyReferencesOwned(action, userId)
       val now = clock.instant()
       val rule = ImportRule.Create(
@@ -101,9 +101,13 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
   // cross-tenant reference can never be persisted (see architecture / persistence reviewers).
   private def verifyReferencesOwned(action: ImportRuleAction, userId: UUID)(implicit conn: Connection): Unit =
     action match {
-      case ImportRuleAction.SetMerchant(merchantId) =>
+      case ImportRuleAction.SetMerchant(merchantId, overrideCategoryId, _) =>
         if (MerchantDAO.find(id = merchantId, userId = userId).isEmpty) throw new RuntimeException("Merchant not found")
-      case ImportRuleAction.SetCategory(categoryId) =>
+        overrideCategoryId.foreach { categoryId =>
+          if (CategoryDAO.find(id = categoryId, userId = userId).isEmpty)
+            throw new RuntimeException("Category not found")
+        }
+      case ImportRuleAction.SetCategory(categoryId, _) =>
         if (CategoryDAO.find(id = categoryId, userId = userId).isEmpty) throw new RuntimeException("Category not found")
       case ImportRuleAction.Ignore => ()
     }

@@ -1,6 +1,6 @@
 package net.wiringbits.actions.importrules
 
-import net.wiringbits.api.models.merchants.CreateImportRule
+import net.wiringbits.api.models.merchants.{CreateImportRule, ImportRuleAction}
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.repositories.ImportRuleRepository
 
@@ -16,5 +16,9 @@ class CreateImportRuleAction @Inject() (ruleRepository: ImportRuleRepository)(im
         new RuntimeException(s"Rule pattern must be at least ${ImportRuleMatcher.MinPatternLength} characters")
       )
     else
-      ruleRepository.create(userId, request.action, request.pattern).map(CreateImportRule.Response(_))
+      ImportRuleAction.validateDescription(request.action) match {
+        case Left(error) => Future.failed(new RuntimeException(error))
+        case Right(()) =>
+          ruleRepository.create(userId, request.action, request.pattern).map(CreateImportRule.Response(_))
+      }
 }

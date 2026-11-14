@@ -9,11 +9,15 @@ import java.util.UUID
 class RowRuleVerdictSpec extends AnyWordSpec with Matchers {
 
   private def setMerchantRule(pattern: String, merchantId: UUID) =
-    ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant(merchantId), pattern)
+    ImportRuleMatcher.Rule(
+      UUID.randomUUID(),
+      ImportRuleAction.SetMerchant(merchantId, categoryId = None, description = None),
+      pattern
+    )
   private def ignoreRule(pattern: String) =
     ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, pattern)
   private def setCategoryRule(pattern: String, categoryId: UUID) =
-    ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory(categoryId), pattern)
+    ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory(categoryId, description = None), pattern)
 
   "verdict" should {
     "be NoRule when there are no rules" in {
@@ -31,7 +35,7 @@ class RowRuleVerdictSpec extends AnyWordSpec with Matchers {
     "be SetMerchant with the merchant id when a set_merchant rule matches" in {
       val mid = UUID.randomUUID()
       RowRuleVerdict.verdict(List(setMerchantRule("mercadona", mid)), "MERCADONA STORE") must be(
-        RowRuleVerdict.SetMerchant(mid)
+        RowRuleVerdict.SetMerchant(mid, categoryId = None, description = None)
       )
     }
 
@@ -43,20 +47,47 @@ class RowRuleVerdictSpec extends AnyWordSpec with Matchers {
     "be SetCategory with the category id when only a set_category rule matches" in {
       val cid = UUID.randomUUID()
       RowRuleVerdict.verdict(List(setCategoryRule("cafeteria", cid)), "CAFETERIA CENTRAL") must be(
-        RowRuleVerdict.SetCategory(cid)
+        RowRuleVerdict.SetCategory(cid, description = None)
+      )
+    }
+
+    "carry the set_merchant rule's override category and description" in {
+      val mid = UUID.randomUUID()
+      val cid = UUID.randomUUID()
+      val rule = ImportRuleMatcher.Rule(
+        UUID.randomUUID(),
+        ImportRuleAction.SetMerchant(mid, categoryId = Some(cid), description = Some("Groceries")),
+        "mercadona"
+      )
+      RowRuleVerdict.verdict(List(rule), "MERCADONA STORE") must be(
+        RowRuleVerdict.SetMerchant(mid, categoryId = Some(cid), description = Some("Groceries"))
+      )
+    }
+
+    "carry the set_category rule's description" in {
+      val cid = UUID.randomUUID()
+      val rule = ImportRuleMatcher.Rule(
+        UUID.randomUUID(),
+        ImportRuleAction.SetCategory(cid, description = Some("Lunch")),
+        "cafeteria"
+      )
+      RowRuleVerdict.verdict(List(rule), "CAFETERIA CENTRAL") must be(
+        RowRuleVerdict.SetCategory(cid, description = Some("Lunch"))
       )
     }
 
     "prefer SetMerchant over a longer set_category pattern" in {
       val mid = UUID.randomUUID()
       val rules = List(setCategoryRule("CAFETERIA", UUID.randomUUID()), setMerchantRule("CAFE", mid))
-      RowRuleVerdict.verdict(rules, "CAFETERIA CENTRAL") must be(RowRuleVerdict.SetMerchant(mid))
+      RowRuleVerdict.verdict(rules, "CAFETERIA CENTRAL") must be(
+        RowRuleVerdict.SetMerchant(mid, categoryId = None, description = None)
+      )
     }
 
     "use the longer pattern between two set_category rules" in {
       val cid = UUID.randomUUID()
       val rules = List(setCategoryRule("cafe", UUID.randomUUID()), setCategoryRule("cafeteria", cid))
-      RowRuleVerdict.verdict(rules, "CAFETERIA CENTRAL") must be(RowRuleVerdict.SetCategory(cid))
+      RowRuleVerdict.verdict(rules, "CAFETERIA CENTRAL") must be(RowRuleVerdict.SetCategory(cid, description = None))
     }
 
     "prefer Ignore over SetMerchant and SetCategory" in {

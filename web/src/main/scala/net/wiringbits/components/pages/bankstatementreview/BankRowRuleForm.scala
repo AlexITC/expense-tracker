@@ -121,11 +121,18 @@ object BankRowRuleForm {
                 .flatMap { case (mid, newMerchantOpt) =>
                   props.ctx.api.client
                     .createImportRule(
-                      CreateImportRule.Request(ImportRuleAction.SetMerchant(mid), trimmedPattern)
+                      CreateImportRule.Request(
+                        ImportRuleAction.SetMerchant(mid, categoryId = None, description = None),
+                        trimmedPattern
+                      )
                     )
                     .map(resp =>
                       (
-                        ImportRuleMatcher.Rule(resp.id, ImportRuleAction.SetMerchant(mid), trimmedPattern),
+                        ImportRuleMatcher.Rule(
+                          resp.id,
+                          ImportRuleAction.SetMerchant(mid, categoryId = None, description = None),
+                          trimmedPattern
+                        ),
                         newMerchantOpt
                       )
                     )
@@ -146,9 +153,12 @@ object BankRowRuleForm {
                 .flatMap { cid =>
                   props.ctx.api.client
                     .createImportRule(
-                      CreateImportRule.Request(ImportRuleAction.SetCategory(cid), trimmedPattern)
+                      CreateImportRule.Request(ImportRuleAction.SetCategory(cid, description = None), trimmedPattern)
                     )
-                    .map(resp => ImportRuleMatcher.Rule(resp.id, ImportRuleAction.SetCategory(cid), trimmedPattern))
+                    .map(resp =>
+                      ImportRuleMatcher
+                        .Rule(resp.id, ImportRuleAction.SetCategory(cid, description = None), trimmedPattern)
+                    )
                 }
                 .onComplete {
                   case Success(rule) => props.onSuccess(rule, None)
