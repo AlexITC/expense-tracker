@@ -45,6 +45,14 @@ class ConfigModule extends AbstractModule {
 
   @Provides
   @Singleton
+  def subscriptionsConfig(global: Configuration): SubscriptionsConfig = {
+    val config = SubscriptionsConfig(global.get[Configuration]("subscriptions"))
+    logger.info(s"Config loaded: $config")
+    config
+  }
+
+  @Provides
+  @Singleton
   def userTokensConfig(global: Configuration): UserTokensConfig = {
     val config = UserTokensConfig(global.get[Configuration]("userTokens"))
     logger.info(s"Config loaded: $config")

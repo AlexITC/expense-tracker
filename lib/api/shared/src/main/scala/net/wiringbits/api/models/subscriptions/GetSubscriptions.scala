@@ -23,11 +23,13 @@ object GetSubscriptions {
         startDate: LocalDate,
         createdAt: Instant
     )
-
-    implicit val subscriptionFormat: Format[Subscription] = Json.format[Subscription]
-    implicit val subscriptionSchema: Schema[Subscription] =
-      Schema.derived[Subscription].name(Schema.SName("GetSubscriptionsSubscription"))
   }
+
+  // Declared here rather than in `object Response`: the derived Schema's helpers are compiled onto this outer
+  // object, so a nested declaration creates a static-init cycle when `Response` is touched first.
+  implicit val subscriptionFormat: Format[Response.Subscription] = Json.format[Response.Subscription]
+  implicit val subscriptionSchema: Schema[Response.Subscription] =
+    Schema.derived[Response.Subscription].name(Schema.SName("GetSubscriptionsSubscription"))
 
   implicit val format: Format[Response] = Json.format[Response]
   implicit val schema: Schema[Response] = Schema.derived[Response].name(Schema.SName("GetSubscriptionsResponse"))
