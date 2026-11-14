@@ -14,7 +14,7 @@ class CreateCategoryAction @Inject() (categoriesRepository: CategoriesRepository
   def apply(userId: UUID, request: CreateCategory.Request): Future[CreateCategory.Response] = {
     for {
       _ <- validateFormat(request)
-      category <- categoriesRepository.getOrCreate(userId, request.name)
+      category <- categoriesRepository.getOrCreate(userId, request.name, description = None)
     } yield CreateCategory.Response(id = category.id, name = category.name)
   }
 

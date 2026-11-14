@@ -41,6 +41,22 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
       createCategory(userA.id, name = "Groceries").futureValue
       createCategory(userB.id, name = "Groceries").futureValue
     }
+
+    "store the description so find and all read it back" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val created = createCategory(user.id, name = "Groceries", description = Some("Supermarket runs")).futureValue
+
+      repositories.categories.find(created.id, user.id).futureValue.value.description must be(Some("Supermarket runs"))
+      repositories.categories.all(user.id).futureValue.map(_.description) must be(List(Some("Supermarket runs")))
+    }
+
+    "read back None when created without a description" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val created = createCategory(user.id, name = "Groceries").futureValue
+
+      repositories.categories.find(created.id, user.id).futureValue.value.description must be(None)
+      repositories.categories.all(user.id).futureValue.map(_.description) must be(List(None))
+    }
   }
 
   "all" should {
@@ -80,7 +96,7 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
   "getOrCreate" should {
     "create the category when absent" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
-      val category = repositories.categories.getOrCreate(user.id, "Groceries").futureValue
+      val category = repositories.categories.getOrCreate(user.id, "Groceries", description = None).futureValue
 
       category.name must be("Groceries")
       repositories.categories.all(user.id).futureValue.map(_.id) must be(List(category.id))
@@ -90,7 +106,7 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
       val user = createUser().futureValue
       val existing = createCategory(user.id, name = "Groceries").futureValue
 
-      val category = repositories.categories.getOrCreate(user.id, "GROCERIES").futureValue
+      val category = repositories.categories.getOrCreate(user.id, "GROCERIES", description = None).futureValue
       category.id must be(existing.id)
       category.name must be("Groceries")
       repositories.categories.all(user.id).futureValue.size must be(1)
@@ -98,8 +114,8 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
 
     "return the same id on sequential calls" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
-      val first = repositories.categories.getOrCreate(user.id, "Groceries").futureValue
-      val second = repositories.categories.getOrCreate(user.id, "Groceries").futureValue
+      val first = repositories.categories.getOrCreate(user.id, "Groceries", description = None).futureValue
+      val second = repositories.categories.getOrCreate(user.id, "Groceries", description = None).futureValue
 
       second.id must be(first.id)
       repositories.categories.all(user.id).futureValue.size must be(1)
@@ -108,7 +124,9 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
     "converge on one row under concurrent calls" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val results =
-        Future.sequence((1 to 8).map(_ => repositories.categories.getOrCreate(user.id, "Groceries"))).futureValue
+        Future
+          .sequence((1 to 8).map(_ => repositories.categories.getOrCreate(user.id, "Groceries", description = None)))
+          .futureValue
 
       results.map(_.id).distinct.size must be(1)
       repositories.categories.all(user.id).futureValue.size must be(1)
@@ -117,12 +135,24 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
     "create separate rows for different users" in withRepositories() { implicit repositories =>
       val userA = createUser().futureValue
       val userB = createUser().futureValue
-      val a = repositories.categories.getOrCreate(userA.id, "Groceries").futureValue
-      val b = repositories.categories.getOrCreate(userB.id, "Groceries").futureValue
+      val a = repositories.categories.getOrCreate(userA.id, "Groceries", description = None).futureValue
+      val b = repositories.categories.getOrCreate(userB.id, "Groceries", description = None).futureValue
 
       a.id must not be b.id
       repositories.categories.all(userA.id).futureValue.map(_.id) must be(List(a.id))
       repositories.categories.all(userB.id).futureValue.map(_.id) must be(List(b.id))
+    }
+
+    "leave the stored description unchanged when the name already exists" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val existing = createCategory(user.id, name = "Groceries", description = Some("Original")).futureValue
+
+        val category =
+          repositories.categories.getOrCreate(user.id, "Groceries", description = Some("Replacement")).futureValue
+        category.id must be(existing.id)
+        category.description must be(Some("Original"))
+        repositories.categories.find(existing.id, user.id).futureValue.value.description must be(Some("Original"))
     }
   }
 
@@ -130,9 +160,25 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
     "rename a category" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val created = createCategory(user.id, name = "Groceries").futureValue
-      repositories.categories.update(created.id, user.id, "Food").futureValue
+      repositories.categories.update(created.id, user.id, "Food", description = None).futureValue
       val updated = repositories.categories.find(created.id, user.id).futureValue
       updated.value.name must be("Food")
+    }
+
+    "set, change and clear the description" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val created = createCategory(user.id, name = "Groceries").futureValue
+      def stored = repositories.categories.find(created.id, user.id).futureValue.value
+
+      repositories.categories.update(created.id, user.id, "Groceries", description = Some("Weekly shop")).futureValue
+      stored.description must be(Some("Weekly shop"))
+
+      repositories.categories.update(created.id, user.id, "Groceries", description = Some("Any food")).futureValue
+      stored.description must be(Some("Any food"))
+
+      repositories.categories.update(created.id, user.id, "Groceries", description = None).futureValue
+      stored.description must be(None)
+      stored.name must be("Groceries")
     }
 
     "fail when renaming to a name already used by the same user (case-insensitive)" in withRepositories() {
@@ -142,7 +188,7 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
         val other = createCategory(user.id, name = "Groceries").futureValue
 
         val ex = intercept[RuntimeException] {
-          repositories.categories.update(other.id, user.id, "food").futureValue
+          repositories.categories.update(other.id, user.id, "food", description = None).futureValue
         }
         ex.getCause.getMessage must include("A category with that name already exists")
     }
@@ -153,7 +199,7 @@ class CategoriesRepositorySpec extends RepositorySpec with RepositoryUtils {
       val created = createCategory(userA.id).futureValue
 
       val ex = intercept[RuntimeException] {
-        repositories.categories.update(created.id, userB.id, "NewName").futureValue
+        repositories.categories.update(created.id, userB.id, "NewName", description = Some("Other")).futureValue
       }
       ex.getMessage must include("Category not found")
     }

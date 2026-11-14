@@ -154,7 +154,7 @@ package object daos {
   }
 
   val categoryParser: RowParser[Category] = {
-    Macro.parser[Category]("id", "user_id", "name", "created_at", "updated_at")
+    Macro.parser[Category]("id", "user_id", "name", "description", "created_at", "updated_at")
   }
 
   val merchantParser: RowParser[Merchant] = {

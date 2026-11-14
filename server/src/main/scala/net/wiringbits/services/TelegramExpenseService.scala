@@ -89,7 +89,7 @@ class TelegramExpenseService @Inject() (
                               .successful(Left(s"Maximum number of merchants (${merchantsConfig.maxPerUser}) reached"))
                           else
                             for {
-                              catId <- categoriesRepository.getOrCreate(userId, catName).map(_.id)
+                              catId <- categoriesRepository.getOrCreate(userId, catName, description = None).map(_.id)
                               now = clock.instant()
                               merchantId = UuidCreator.getTimeOrderedEpoch()
                               _ <- merchantsRepository.create(
@@ -124,7 +124,8 @@ class TelegramExpenseService @Inject() (
                     case catOpt =>
                       for {
                         catIdOpt <- catOpt match {
-                          case Some(catName) => categoriesRepository.getOrCreate(userId, catName).map(c => Some(c.id))
+                          case Some(catName) =>
+                            categoriesRepository.getOrCreate(userId, catName, description = None).map(c => Some(c.id))
                           case None => Future.successful(merchant.categoryId)
                         }
                         outcome <- catIdOpt match {

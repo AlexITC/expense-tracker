@@ -113,7 +113,7 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
   private def resolveCategory(userId: UUID, category: Option[String]): Future[Option[UUID]] =
     category match {
       case None => Future.successful(None)
-      case Some(name) => categoriesRepository.getOrCreate(userId, name).map(c => Some(c.id))
+      case Some(name) => categoriesRepository.getOrCreate(userId, name, description = None).map(c => Some(c.id))
     }
 
   private def createExpense(

@@ -12,7 +12,15 @@ class UpdateCategoryAction @Inject() (categoriesRepository: CategoriesRepository
   def apply(categoryId: UUID, userId: UUID, request: UpdateCategory.Request): Future[UpdateCategory.Response] = {
     for {
       _ <- validate(request)
-      _ <- categoriesRepository.update(id = categoryId, userId = userId, request.name)
+      // The request carries no description yet, so keep the stored one instead of clearing it. A missing row still
+      // fails in the UPDATE below with "Category not found".
+      existing <- categoriesRepository.find(id = categoryId, userId = userId)
+      _ <- categoriesRepository.update(
+        id = categoryId,
+        userId = userId,
+        request.name,
+        description = existing.flatMap(_.description)
+      )
     } yield UpdateCategory.Response()
   }
 

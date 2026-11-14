@@ -66,7 +66,7 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       updatedAt = now
     )
 
-  private def category(name: String) = Category(UUID.randomUUID(), userId, name, now, now)
+  private def category(name: String) = Category(UUID.randomUUID(), userId, name, None, now, now)
 
   private def merchant(name: String, categoryId: Option[UUID]) =
     Merchant(UUID.randomUUID(), userId, name, None, categoryId, None, reviewed = true, now, now)
