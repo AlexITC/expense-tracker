@@ -23,7 +23,7 @@ class CreateSavingsGoalAction @Inject() (savingsRepository: SavingsRepository)(i
       create = SavingsGoal.Create(
         id = id,
         userId = userId,
-        name = request.name,
+        name = request.name.string,
         targetAmount = request.targetAmount,
         createdAt = now,
         updatedAt = now
@@ -33,9 +33,7 @@ class CreateSavingsGoalAction @Inject() (savingsRepository: SavingsRepository)(i
   }
 
   private def validate(userId: UUID, request: CreateSavingsGoal.Request): Future[Unit] = {
-    if (request.name.isBlank) Future.failed(new RuntimeException("The name is required"))
-    else if (request.name.length > 100) Future.failed(new RuntimeException("Name must be 100 characters or less"))
-    else if (request.targetAmount.exists(_ <= 0))
+    if (request.targetAmount.exists(_ <= 0))
       Future.failed(new RuntimeException("Target amount must be greater than zero"))
     else Future.unit
   }

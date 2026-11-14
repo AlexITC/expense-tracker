@@ -12,7 +12,7 @@ import net.wiringbits.api.models.savings.{
 }
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
-import net.wiringbits.common.models.Captcha
+import net.wiringbits.common.models.{Captcha, SavingsGoalName}
 import net.wiringbits.util.TokenGenerator
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.*
@@ -49,7 +49,9 @@ class SavingsControllerSpec extends PlayPostgresSpec with LoginUtils with Expens
       createVerifyLoginUser(tokenGenerator).futureValue
 
       val created =
-        client.createSavingsGoal(CreateSavingsGoal.Request("Vacation", Some(BigDecimal("5000")))).futureValue
+        client
+          .createSavingsGoal(CreateSavingsGoal.Request(SavingsGoalName.trusted("Vacation"), Some(BigDecimal("5000"))))
+          .futureValue
       created.id must not be null
 
       val listed = client.getSavingsGoals.futureValue
@@ -59,7 +61,9 @@ class SavingsControllerSpec extends PlayPostgresSpec with LoginUtils with Expens
       listed.data.head.balance must be(BigDecimal(0))
       listed.data.head.progress must be(Some(BigDecimal(0)))
 
-      client.updateSavingsGoal(created.id, UpdateSavingsGoal.Request("Holiday Fund", None)).futureValue
+      client
+        .updateSavingsGoal(created.id, UpdateSavingsGoal.Request(SavingsGoalName.trusted("Holiday Fund"), None))
+        .futureValue
 
       val afterUpdate = client.getSavingsGoals.futureValue
       afterUpdate.data.head.name must be("Holiday Fund")
@@ -73,32 +77,29 @@ class SavingsControllerSpec extends PlayPostgresSpec with LoginUtils with Expens
     "reject duplicate goal names (case-insensitive) for the same user" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
 
-      client.createSavingsGoal(CreateSavingsGoal.Request("Vacation", None)).futureValue
-      val error = client.createSavingsGoal(CreateSavingsGoal.Request("vacation", None)).expectError
+      client.createSavingsGoal(CreateSavingsGoal.Request(SavingsGoalName.trusted("Vacation"), None)).futureValue
+      val error =
+        client.createSavingsGoal(CreateSavingsGoal.Request(SavingsGoalName.trusted("vacation"), None)).expectError
       error must be("A savings goal with that name already exists")
     }
 
     "allow the same goal name for two different users" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      client.createSavingsGoal(CreateSavingsGoal.Request("Vacation", None)).futureValue
+      client.createSavingsGoal(CreateSavingsGoal.Request(SavingsGoalName.trusted("Vacation"), None)).futureValue
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
-      val created2 = client2.createSavingsGoal(CreateSavingsGoal.Request("Vacation", None)).futureValue
+      val created2 =
+        client2.createSavingsGoal(CreateSavingsGoal.Request(SavingsGoalName.trusted("Vacation"), None)).futureValue
       created2.id must not be null
-    }
-
-    "fail when name is blank" in withApiClient { implicit client =>
-      createVerifyLoginUser(tokenGenerator).futureValue
-
-      val error = client.createSavingsGoal(CreateSavingsGoal.Request("  ", None)).expectError
-      error must be("The name is required")
     }
 
     "fail when target amount is zero or negative" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
 
-      val error = client.createSavingsGoal(CreateSavingsGoal.Request("Goal", Some(BigDecimal(0)))).expectError
+      val error = client
+        .createSavingsGoal(CreateSavingsGoal.Request(SavingsGoalName.trusted("Goal"), Some(BigDecimal(0))))
+        .expectError
       error must include("greater than zero")
     }
   }
@@ -108,7 +109,11 @@ class SavingsControllerSpec extends PlayPostgresSpec with LoginUtils with Expens
       createVerifyLoginUser(tokenGenerator).futureValue
 
       val goal =
-        client.createSavingsGoal(CreateSavingsGoal.Request("Emergency Fund", Some(BigDecimal("1000")))).futureValue
+        client
+          .createSavingsGoal(
+            CreateSavingsGoal.Request(SavingsGoalName.trusted("Emergency Fund"), Some(BigDecimal("1000")))
+          )
+          .futureValue
 
       val alloc1 = client
         .createSavingsAllocation(goal.id, CreateSavingsAllocation.Request(BigDecimal("500"), sampleDate, None, None))
@@ -148,7 +153,7 @@ class SavingsControllerSpec extends PlayPostgresSpec with LoginUtils with Expens
     "support negative allocations (withdrawals)" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
 
-      val goal = client.createSavingsGoal(CreateSavingsGoal.Request("Fund", None)).futureValue
+      val goal = client.createSavingsGoal(CreateSavingsGoal.Request(SavingsGoalName.trusted("Fund"), None)).futureValue
       client
         .createSavingsAllocation(goal.id, CreateSavingsAllocation.Request(BigDecimal("400"), sampleDate, None, None))
         .futureValue
@@ -166,7 +171,7 @@ class SavingsControllerSpec extends PlayPostgresSpec with LoginUtils with Expens
     "fail when amount is zero" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
 
-      val goal = client.createSavingsGoal(CreateSavingsGoal.Request("Fund", None)).futureValue
+      val goal = client.createSavingsGoal(CreateSavingsGoal.Request(SavingsGoalName.trusted("Fund"), None)).futureValue
       val error = client
         .createSavingsAllocation(goal.id, CreateSavingsAllocation.Request(BigDecimal(0), sampleDate, None, None))
         .expectError
@@ -175,7 +180,7 @@ class SavingsControllerSpec extends PlayPostgresSpec with LoginUtils with Expens
 
     "fail when goal does not belong to user" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val goal = client.createSavingsGoal(CreateSavingsGoal.Request("Fund", None)).futureValue
+      val goal = client.createSavingsGoal(CreateSavingsGoal.Request(SavingsGoalName.trusted("Fund"), None)).futureValue
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
@@ -190,7 +195,8 @@ class SavingsControllerSpec extends PlayPostgresSpec with LoginUtils with Expens
     "delete all allocations when a goal is deleted" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
 
-      val goal = client.createSavingsGoal(CreateSavingsGoal.Request("Temp Goal", None)).futureValue
+      val goal =
+        client.createSavingsGoal(CreateSavingsGoal.Request(SavingsGoalName.trusted("Temp Goal"), None)).futureValue
       client
         .createSavingsAllocation(goal.id, CreateSavingsAllocation.Request(BigDecimal("100"), sampleDate, None, None))
         .futureValue
@@ -266,7 +272,7 @@ class SavingsControllerSpec extends PlayPostgresSpec with LoginUtils with Expens
   "User isolation" should {
     "not return another user's savings goals" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      client.createSavingsGoal(CreateSavingsGoal.Request("My Goal", None)).futureValue
+      client.createSavingsGoal(CreateSavingsGoal.Request(SavingsGoalName.trusted("My Goal"), None)).futureValue
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
