@@ -181,6 +181,18 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       List("none", "null").foreach(word => prompt.toLowerCase(Locale.ROOT) must not include word)
     }
 
+    "list a category's description under its name, and no description line for a category without one" in {
+      val food = category("Food").copy(description = Some("Supermarket food shopping"))
+      val client = stub("Food")
+
+      resolve(client, List(row("CORNER SHOP")), Nil, List(food, transport), examples = List(food.id -> "MERCADO"))
+
+      val prompt = client.categoryPrompts.head
+      prompt must include("- Food\n    description: Supermarket food shopping\n    example: MERCADO")
+      prompt must include("- Transport\n")
+      prompt must not include "- Transport\n    description:"
+    }
+
     "map the returned category name to its id ignoring case and accents" in {
       val shop = row("CORNER SHOP")
       resolve(stub("Gróceries"), List(shop), Nil, categories).rows must be(

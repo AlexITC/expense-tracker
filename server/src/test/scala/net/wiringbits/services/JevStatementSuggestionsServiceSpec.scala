@@ -186,6 +186,23 @@ class JevStatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with 
       )
     }
 
+    "include a category's description in its criteria, before the examples" in {
+      val food = category("Food").copy(description = Some("Supermarket food shopping"))
+      val shop = row("CORNER SHOP")
+      val client = stub(food)
+
+      resolve(client, List(shop), Nil, List(food, transport), examples = List(food.id -> "MERCADO"))
+
+      client.categoryCalls.map(_.criteria) must be(
+        List(
+          Map(
+            food.id.toString -> "Food: Supermarket food shopping. Examples: MERCADO",
+            transport.id.toString -> "Transport"
+          )
+        )
+      )
+    }
+
     "fail when JEV chooses a key that is not an offered category" in {
       val client = new StubJevClient((_, _, _) => Future.successful(UUID.randomUUID().toString))
 
