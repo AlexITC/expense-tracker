@@ -1,5 +1,5 @@
 ---
-description: Test policy — no PII fixtures, fakes/real over mocks, no external calls, no redundant action tests, no controller re-tests of validated-primitive field validation, readable JSON, method-only descriptions
+description: Test policy — no PII fixtures, fakes/real over mocks, no external calls, action/controller test split (behaviour in action integration tests, controllers cover auth + encoding), no controller re-tests of validated-primitive field validation, readable JSON, method-only descriptions
 files: src/test/scala
 ---
 
@@ -10,10 +10,20 @@ Review changes under test sources. Flag:
 - A mock used outside an integration/controller test, or outside testing an
   external client's own parsing. Elsewhere use a fake implementation or the real
   one (Postgres via docker). Mocking an external response's JSON to check our
-  client parses it is fine.
+  client parses it is fine. Mocking the feature's own action inside its controller
+  test, to confirm the controller decodes, authorizes, and delegates, is expected
+  under the action/controller split below and must not be flagged.
 - A test that calls a real external service.
-- Action-level tests for behaviour a controller test already exercises through
-  that same action — don't duplicate; the controller test covers it.
+- A test that violates the action/controller split for a NEW backend feature. New
+  features put behaviour in the action's own integration test (real Postgres via
+  `PostgresSpec`), and the controller test covers only auth/permission and
+  request/response encoding, mocking the action to confirm it is invoked with the
+  decoded request. So do NOT flag an action integration test as duplicating a
+  controller test, and do NOT ask a controller test to re-assert behaviour the
+  action test owns. Flag instead a NEW feature's controller test that re-exercises
+  the action's behaviour against a real DB, or an action whose behaviour has no
+  integration test. Existing controllers that test behaviour through the real
+  action are grandfathered and need not be rewritten.
 - A controller/integration test that sends a malformed value for a request field
   whose type is a validated primitive (a `WrappedString` such as `Name`, `Email`,
   `CategoryName`, `CategoryDescription`) and asserts a specific validation message
