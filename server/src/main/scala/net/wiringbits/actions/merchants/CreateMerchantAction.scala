@@ -23,6 +23,7 @@ class CreateMerchantAction @Inject() (
       now = clock.instant()
       create = request
         .into[Merchant.Create]
+        .withFieldComputed(_.name, _.name.string)
         .withFieldConst(_.id, UuidCreator.getTimeOrderedEpoch())
         .withFieldConst(_.userId, userId)
         .withFieldConst(_.reviewed, true)
@@ -34,9 +35,7 @@ class CreateMerchantAction @Inject() (
   }
 
   private def validate(userId: UUID, request: CreateMerchant.Request): Future[Unit] = {
-    if (request.name.isBlank) Future.failed(new RuntimeException("The name is required"))
-    else if (request.name.length > 100) Future.failed(new RuntimeException("Name must be 100 characters or less"))
-    else if (request.notes.exists(_.length > 255))
+    if (request.notes.exists(_.length > 255))
       Future.failed(new RuntimeException("Notes must be 255 characters or less"))
     else if (request.taxId.exists(_.isBlank))
       Future.failed(new RuntimeException("Tax ID cannot be blank"))

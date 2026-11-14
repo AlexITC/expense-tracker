@@ -1,4 +1,5 @@
 package controllers
+import net.wiringbits.common.models.MerchantName
 
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
@@ -48,7 +49,7 @@ class MerchantReviewControllerSpec extends PlayPostgresSpec with LoginUtils with
   "GET /merchants reviewed field" should {
     "return reviewed=true for manually-created merchants" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
 
       val ms = client.getMerchants.futureValue.data
       ms.must(have).size(1)
@@ -68,7 +69,7 @@ class MerchantReviewControllerSpec extends PlayPostgresSpec with LoginUtils with
 
     "not return reviewed merchants" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
 
       val response = client.getPendingMerchants.futureValue
       response.data.must(be(empty))
@@ -97,7 +98,8 @@ class MerchantReviewControllerSpec extends PlayPostgresSpec with LoginUtils with
 
     "fail for an already-reviewed merchant" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val m = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val m =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
 
       val ex = client.reviewMerchant(m.id, ReviewMerchant.Request(None, None)).failed.futureValue
       ex.getMessage.must(include("already reviewed"))
@@ -109,7 +111,8 @@ class MerchantReviewControllerSpec extends PlayPostgresSpec with LoginUtils with
   "POST /merchants/:id/duplicate" should {
     "fail when the pending merchant does not exist" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val real = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val real =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
 
       val ex = client
         .markMerchantAsDuplicate(UUID.randomUUID(), MarkMerchantAsDuplicate.Request(real.id))
@@ -120,7 +123,8 @@ class MerchantReviewControllerSpec extends PlayPostgresSpec with LoginUtils with
 
     "fail when the real merchant does not exist" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val real = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val real =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
 
       val ex = client
         .markMerchantAsDuplicate(real.id, MarkMerchantAsDuplicate.Request(UUID.randomUUID()))
@@ -131,8 +135,10 @@ class MerchantReviewControllerSpec extends PlayPostgresSpec with LoginUtils with
 
     "fail when trying to mark a reviewed merchant as duplicate" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val m1 = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
-      val m2 = client.createMerchant(CreateMerchant.Request("Walmart", None, None, None)).futureValue
+      val m1 =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
+      val m2 =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Walmart"), None, None, None)).futureValue
 
       val ex = client
         .markMerchantAsDuplicate(m1.id, MarkMerchantAsDuplicate.Request(m2.id))
@@ -143,7 +149,8 @@ class MerchantReviewControllerSpec extends PlayPostgresSpec with LoginUtils with
 
     "fail when trying to mark a merchant as duplicate of itself" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val m = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val m =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
 
       val ex = client
         .markMerchantAsDuplicate(m.id, MarkMerchantAsDuplicate.Request(m.id))
@@ -154,7 +161,8 @@ class MerchantReviewControllerSpec extends PlayPostgresSpec with LoginUtils with
 
     "succeed and remove the pending merchant" in withApiClient { implicit client =>
       val loginResp = createVerifyLoginUser(tokenGenerator).futureValue
-      val real = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val real =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
 
       val merchantsRepo = app.injector.instanceOf[MerchantsRepository]
       val pendingId = merchantsRepo.createPendingIfAbsent(loginResp.id, "AMZN").futureValue
@@ -172,9 +180,12 @@ class MerchantReviewControllerSpec extends PlayPostgresSpec with LoginUtils with
   "PUT /merchants/:id" should {
     "preserve reviewed=true after update" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val m = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val m =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
 
-      client.updateMerchant(m.id, UpdateMerchant.Request("Amazon Updated", None, None, None)).futureValue
+      client
+        .updateMerchant(m.id, UpdateMerchant.Request(MerchantName.trusted("Amazon Updated"), None, None, None))
+        .futureValue
 
       val ms = client.getMerchants.futureValue.data
       ms.find(_.id == m.id).map(_.reviewed).must(be(Some(true)))

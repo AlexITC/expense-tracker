@@ -5,6 +5,7 @@ import net.wiringbits.components.pages.importrules.ImportRuleList
 import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
+import net.wiringbits.common.models.MerchantName
 import net.wiringbits.api.models.bankstatements.GetBankStatement
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{
@@ -159,15 +160,20 @@ object BankRowRuleForm {
                           props.merchants.find(_.name.equalsIgnoreCase(merchantName)) match {
                             case Some(existing) => Future.successful((existing.id, None))
                             case None =>
-                              props.ctx.api.client
-                                .createMerchant(
-                                  CreateMerchant
-                                    .Request(
-                                      name = merchantName,
-                                      notes = None,
-                                      categoryId = resolvedCatId,
-                                      taxId = None
-                                    )
+                              MerchantName
+                                .parse(merchantName)
+                                .fold(
+                                  error => Future.failed[CreateMerchant.Response](new RuntimeException(error)),
+                                  validName =>
+                                    props.ctx.api.client
+                                      .createMerchant(
+                                        CreateMerchant.Request(
+                                          name = validName,
+                                          notes = None,
+                                          categoryId = resolvedCatId,
+                                          taxId = None
+                                        )
+                                      )
                                 )
                                 .map { resp =>
                                   val newM = GetMerchants.Response.Merchant(

@@ -1,4 +1,5 @@
 package controllers
+import net.wiringbits.common.models.MerchantName
 
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
@@ -214,7 +215,8 @@ class SavingsControllerSpec extends PlayPostgresSpec with LoginUtils with Expens
     "return the median expense amount for a merchant" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
 
-      val merchant = client.createMerchant(CreateMerchant.Request("Supermarket", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Supermarket"), None, None, None)).futureValue
       val merchantId = merchant.id
 
       client
@@ -262,7 +264,8 @@ class SavingsControllerSpec extends PlayPostgresSpec with LoginUtils with Expens
     "return None when merchant has no expenses" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
 
-      val merchant = client.createMerchant(CreateMerchant.Request("New Shop", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("New Shop"), None, None, None)).futureValue
 
       val estimate = client.getSavingsEstimate(merchant.id).futureValue
       estimate.typicalAmount must be(None)

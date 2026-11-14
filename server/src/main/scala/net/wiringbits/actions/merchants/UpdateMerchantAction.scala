@@ -16,7 +16,7 @@ class UpdateMerchantAction @Inject() (merchantsRepository: MerchantsRepository)(
         .update(
           id = merchantId,
           userId = userId,
-          request.name,
+          request.name.string,
           notes = request.notes,
           request.categoryId,
           taxId = request.taxId
@@ -25,9 +25,7 @@ class UpdateMerchantAction @Inject() (merchantsRepository: MerchantsRepository)(
   }
 
   private def validate(request: UpdateMerchant.Request): Future[Unit] = {
-    if (request.name.isBlank) Future.failed(new RuntimeException("The name is required"))
-    else if (request.name.length > 100) Future.failed(new RuntimeException("Name must be 100 characters or less"))
-    else if (request.notes.exists(_.length > 255))
+    if (request.notes.exists(_.length > 255))
       Future.failed(new RuntimeException("Notes must be 255 characters or less"))
     else if (request.taxId.exists(_.isBlank))
       Future.failed(new RuntimeException("Tax ID cannot be blank"))

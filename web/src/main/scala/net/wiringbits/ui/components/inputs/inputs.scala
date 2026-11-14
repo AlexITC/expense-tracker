@@ -4,6 +4,7 @@ import net.wiringbits.common.models.{
   CategoryDescription,
   CategoryName,
   Email,
+  MerchantName,
   Name,
   Password,
   SavingsGoalName,
@@ -19,4 +20,5 @@ package object inputs {
   object CategoryDescriptionInput extends ValidatedTextInput[CategoryDescription]
   object SavingsGoalNameInput extends ValidatedTextInput[SavingsGoalName]
   object SubscriptionNameInput extends ValidatedTextInput[SubscriptionName]
+  object MerchantNameInput extends ValidatedTextInput[MerchantName]
 }
