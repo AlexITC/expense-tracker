@@ -15,6 +15,7 @@ import net.wiringbits.api.models.merchants.{
   ImportRuleActionKind
 }
 import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.ui.forms.SubmitHooks
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 import org.scalajs.dom
@@ -101,8 +102,7 @@ object BankRowRuleForm {
     val (merchantIdOpt, setMerchantIdOpt) = Hooks.useState[Option[UUID]](None)
     val (categoryInput, setCategoryInput) = Hooks.useState("")
     val (categoryIdOpt, setCategoryIdOpt) = Hooks.useState[Option[UUID]](None)
-    val (saving, setSaving) = Hooks.useState(false)
-    val (error, setError) = Hooks.useState("")
+    val submit = SubmitHooks.useSubmit()
 
     def resolveCategoryId(catName: String): Future[UUID] =
       CategoryResolver
@@ -130,22 +130,22 @@ object BankRowRuleForm {
 
     def handleSave(): Unit = {
       checkInputs(action, pattern = pattern, amountText = amountText, description = description) match {
-        case Left(err) => setError(err)
+        case Left(err) => submit.fail(err)
         case Right(_) =>
           action match {
             case ImportRuleActionKind.Ignore =>
-              setSaving(true)
+              submit.begin()
               saveRule(merchantId = None, categoryId = None).onComplete {
                 case Success(rule) => props.onSuccess(rule, None)
-                case Failure(ex) => setError(ex.getMessage); setSaving(false)
+                case Failure(ex) => submit.fail(ex.getMessage)
               }
 
             case ImportRuleActionKind.SetMerchant =>
               val merchantName = merchantInput.trim
               if (merchantName.isEmpty) {
-                setError("Merchant is required")
+                submit.fail("Merchant is required")
               } else {
-                setSaving(true)
+                submit.begin()
                 val catName = categoryInput.trim
                 val fCategoryIdOpt: Future[Option[UUID]] =
                   if (categoryIdOpt.isEmpty && catName.isEmpty) Future.successful(None)
@@ -189,21 +189,21 @@ object BankRowRuleForm {
                   }
                   .onComplete {
                     case Success((rule, newMerchantOpt)) => props.onSuccess(rule, newMerchantOpt)
-                    case Failure(ex) => setError(ex.getMessage); setSaving(false)
+                    case Failure(ex) => submit.fail(ex.getMessage)
                   }
               }
 
             case ImportRuleActionKind.SetCategory =>
               val catName = categoryInput.trim
               if (catName.isEmpty) {
-                setError("Category is required")
+                submit.fail("Category is required")
               } else {
-                setSaving(true)
+                submit.begin()
                 resolveCategoryId(catName)
                   .flatMap(cid => saveRule(merchantId = None, categoryId = Some(cid)))
                   .onComplete {
                     case Success(rule) => props.onSuccess(rule, None)
-                    case Failure(ex) => setError(ex.getMessage); setSaving(false)
+                    case Failure(ex) => submit.fail(ex.getMessage)
                   }
               }
           }
@@ -224,7 +224,7 @@ object BankRowRuleForm {
         setMerchantInput(text)
         if (rsn != "reset") setMerchantIdOpt(None)
       },
-      disabled = saving,
+      disabled = submit.isSubmitting,
       fullWidth = false
     )
 
@@ -242,7 +242,7 @@ object BankRowRuleForm {
         setCategoryInput(text)
         if (rsn != "reset") setCategoryIdOpt(None)
       },
-      disabled = saving,
+      disabled = submit.isSubmitting,
       fullWidth = false
     )
 
@@ -262,7 +262,7 @@ object BankRowRuleForm {
         .label("Description")
         .size("small")
         .value(description)
-        .disabled(saving)
+        .disabled(submit.isSubmitting)
         .helperText("Used as the notes of the created record; leave blank to use the row description")
         .onChange(e => setDescription(e.target.asInstanceOf[dom.HTMLInputElement].value))
         .withKey("d")
@@ -273,16 +273,18 @@ object BankRowRuleForm {
     })(
       mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "12px" })(
         mui.Typography("Create import rule").sx(new CSSPropertiesUtils { fontWeight = "700"; fontSize = "14px" }),
-        if (error.nonEmpty)
-          mui.Typography(error).sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
-        else Fragment(),
+        submit.error match {
+          case Some(msg) =>
+            mui.Typography(msg).sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
+          case None => Fragment()
+        },
         mui.TextField
           .outlined()
           .select(true)
           .label("Action")
           .size("small")
           .value(action.entryName)
-          .disabled(saving)
+          .disabled(submit.isSubmitting)
           .onChange(e =>
             setAction(ImportRuleActionKind.fromEntryName(e.target.asInstanceOf[dom.HTMLInputElement].value))
           )
@@ -292,14 +294,14 @@ object BankRowRuleForm {
           .label("Pattern")
           .size("small")
           .value(pattern)
-          .disabled(saving)
+          .disabled(submit.isSubmitting)
           .onChange(e => setPattern(e.target.asInstanceOf[dom.HTMLInputElement].value)),
         mui.TextField
           .outlined()
           .label("Amount")
           .size("small")
           .value(amountText)
-          .disabled(saving)
+          .disabled(submit.isSubmitting)
           .helperText("Rows must have exactly this signed amount; leave blank to match any amount")
           .onChange(e => setAmountText(e.target.asInstanceOf[dom.HTMLInputElement].value)),
         action match {
@@ -315,17 +317,17 @@ object BankRowRuleForm {
         },
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
           (mui.Button
-            .normal()(if (saving) "Saving…" else "Save rule")
+            .normal()(if (submit.isSubmitting) "Saving…" else "Save rule")
             .size("small")
             .variant("contained")
-            .disabled(saving)
+            .disabled(submit.isSubmitting)
             .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
             .`type`("submit")
             .build: ReactElement),
           mui.Button
             .normal()("Cancel")
             .size("small")
-            .disabled(saving)
+            .disabled(submit.isSubmitting)
             .onClick(_ => props.onCancel())
         )
       )

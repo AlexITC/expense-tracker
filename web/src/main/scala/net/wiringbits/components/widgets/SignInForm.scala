@@ -11,7 +11,7 @@ import net.wiringbits.ui.components.inputs.{EmailInput, PasswordInput}
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.ErrorLabel
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.{CircularLoader, Container}
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.useHistory
-import net.wiringbits.webapp.utils.slinkyUtils.forms.StatefulFormData
+import net.wiringbits.ui.forms.ExpStatefulFormData
 import org.scalajs.dom
 import org.scalajs.macrotaskexecutor.MacrotaskExecutor.Implicits.*
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
@@ -31,7 +31,7 @@ object SignInForm {
     val texts = I18nHooks.useMessages(props.ctx.$lang)
     val history = useHistory()
     val (formData, setFormData) = Hooks.useState(
-      StatefulFormData(
+      ExpStatefulFormData(
         SignInFormData.initial(
           emailLabel = texts.email,
           passwordLabel = texts.password
