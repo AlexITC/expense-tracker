@@ -109,19 +109,25 @@ object BankStatementReviewLogic {
   def canRegenerateSuggestions(ai: Option[AiSuggestions], pollAttemptsExhausted: Boolean): Boolean =
     pollAttemptsExhausted || !ai.exists(_.status == AiSuggestionsStatus.Pending)
 
-  /** A row's resolved import target: the merchant to link (if any), the category the expense will get, and whether that
-    * category came from an AI suggestion (true) rather than a matched rule (false): a SetMerchant rule's merchant
-    * default category, or a SetCategory rule's category.
+  /** A row's resolved import target: the merchant to link (if any), the category the expense will get, whether that
+    * category came from an AI suggestion (true) rather than a matched rule (false): a SetMerchant rule's override
+    * category or merchant default category, or a SetCategory rule's category; and the expense notes (the rule
+    * description, else the row description; None when blank).
     */
-  final case class ResolvedImport(merchantId: Option[UUID], categoryId: UUID, categoryFromAi: Boolean)
+  final case class ResolvedImport(
+      merchantId: Option[UUID],
+      categoryId: UUID,
+      categoryFromAi: Boolean,
+      notes: Option[String]
+  )
 
   /** Resolve what importing a row would create. `ruleList` must already be the effective rules
     * (`ImportRuleMatcher.effectiveRules`), so a merchant-name match counts as a SetMerchant rule. Merchant: a
-    * SetMerchant rule's merchant, else the AI-suggested merchant. Category: that rule-merchant's default category, else
-    * the AI-suggested category. A SetCategory rule resolves to its category with no merchant, and AI is not consulted
-    * for such rows. An Ignore rule takes precedence over any suggestion, so such rows resolve to None (they are
-    * ignored, not imported). None also means "nothing to import yet" — no rule and no usable suggestion. AI suggestions
-    * are only consulted once Done.
+    * SetMerchant rule's merchant, else the AI-suggested merchant. Category: the rule's override category, else that
+    * rule-merchant's default category (the merchant must be loaded), else the AI-suggested category. A SetCategory rule
+    * resolves to its category with no merchant, and AI is not consulted for such rows. An Ignore rule takes precedence
+    * over any suggestion, so such rows resolve to None (they are ignored, not imported). None also means "nothing to
+    * import yet" — no rule and no usable suggestion. AI suggestions are only consulted once Done.
     */
   def resolveImport(
       ruleList: List[ImportRuleMatcher.Rule],
@@ -129,7 +135,7 @@ object BankStatementReviewLogic {
       aiSuggestions: Option[AiSuggestions],
       row: GetBankStatement.StatementRowData
   ): Option[ResolvedImport] =
-    resolveImport(RowRuleVerdict.verdict(ruleList, row.description), merchants, aiSuggestions, row)
+    resolveImport(RowRuleVerdict.verdict(ruleList, row.description, row.amount), merchants, aiSuggestions, row)
 
   /** Same as above, for a verdict the caller already computed for this row. */
   def resolveImport(
@@ -137,27 +143,40 @@ object BankStatementReviewLogic {
       merchants: List[GetMerchants.Response.Merchant],
       aiSuggestions: Option[AiSuggestions],
       row: GetBankStatement.StatementRowData
-  ): Option[ResolvedImport] =
+  ): Option[ResolvedImport] = {
+    val notes = rowNotes(verdict, row)
     verdict match {
       case RowRuleVerdict.Ignore => None
-      case RowRuleVerdict.SetCategory(categoryId) =>
-        Some(ResolvedImport(merchantId = None, categoryId = categoryId, categoryFromAi = false))
+      case RowRuleVerdict.SetCategory(categoryId, _) =>
+        Some(ResolvedImport(merchantId = None, categoryId = categoryId, categoryFromAi = false, notes = notes))
       case _ =>
         val ruleMerchantId = RowRuleVerdict.merchantId(verdict)
-        val ruleCategoryId = ruleMerchantId.flatMap(mid => merchants.find(_.id == mid).flatMap(_.categoryId))
+        val ruleCategoryId = ruleMerchantId
+          .flatMap(mid => merchants.find(_.id == mid))
+          .flatMap(m => RowRuleVerdict.categoryFor(verdict, m.categoryId))
         val ai = aiSuggestions
           .filter(_.status == AiSuggestionsStatus.Done)
           .flatMap(_.rows.find(_.rowId == row.id))
         val merchantId = ruleMerchantId.orElse(ai.flatMap(_.merchantId))
         ruleCategoryId
-          .map(c => ResolvedImport(merchantId, c, categoryFromAi = false))
-          .orElse(ai.flatMap(_.categoryId).map(c => ResolvedImport(merchantId, c, categoryFromAi = true)))
+          .map(c => ResolvedImport(merchantId, c, categoryFromAi = false, notes = notes))
+          .orElse(
+            ai.flatMap(_.categoryId).map(c => ResolvedImport(merchantId, c, categoryFromAi = true, notes = notes))
+          )
     }
+  }
 
-  /** What a rule-matched credit row prefills on its refund: the rule's merchant and that merchant's default category,
-    * or a SetCategory rule's category with no merchant.
+  /** The notes for the expense/refund created from a row: the rule description, else the row description; None when
+    * blank.
     */
-  final case class RefundPrefill(merchantId: Option[UUID], categoryId: Option[UUID])
+  def rowNotes(verdict: RowRuleVerdict.Verdict, row: GetBankStatement.StatementRowData): Option[String] =
+    Some(RowRuleVerdict.notes(verdict, row.description)).filter(_.nonEmpty)
+
+  /** What a rule-matched credit row prefills on its refund: the rule's merchant and its override category, else that
+    * merchant's default category; or a SetCategory rule's category with no merchant. `notes` is the rule description,
+    * else the row description (None when blank).
+    */
+  final case class RefundPrefill(merchantId: Option[UUID], categoryId: Option[UUID], notes: Option[String])
 
   /** Resolve the refund a credit row would create from its rule verdict alone; AI suggestions are not consulted. None
     * for debits, Ignore verdicts, rows no rule matches and SetMerchant rules whose merchant is not loaded (the form
@@ -171,10 +190,18 @@ object BankStatementReviewLogic {
     if (row.amount <= 0) None
     else
       verdict match {
-        case RowRuleVerdict.SetMerchant(merchantId) =>
-          merchants.find(_.id == merchantId).map(m => RefundPrefill(merchantId = Some(m.id), categoryId = m.categoryId))
-        case RowRuleVerdict.SetCategory(categoryId) =>
-          Some(RefundPrefill(merchantId = None, categoryId = Some(categoryId)))
+        case RowRuleVerdict.SetMerchant(merchantId, _, _) =>
+          merchants
+            .find(_.id == merchantId)
+            .map(m =>
+              RefundPrefill(
+                merchantId = Some(m.id),
+                categoryId = RowRuleVerdict.categoryFor(verdict, m.categoryId),
+                notes = rowNotes(verdict, row)
+              )
+            )
+        case RowRuleVerdict.SetCategory(categoryId, _) =>
+          Some(RefundPrefill(merchantId = None, categoryId = Some(categoryId), notes = rowNotes(verdict, row)))
         case RowRuleVerdict.Ignore | RowRuleVerdict.NoRule => None
       }
 
@@ -204,7 +231,7 @@ object BankStatementReviewLogic {
       aiSuggestions: Option[AiSuggestions],
       row: GetBankStatement.StatementRowData
   ): RowInfo = {
-    val verdict = RowRuleVerdict.verdict(ruleList, row.description)
+    val verdict = RowRuleVerdict.verdict(ruleList, row.description, row.amount)
     val resolved = if (row.amount < 0) resolveImport(verdict, merchants, aiSuggestions, row) else None
     val refund = resolveRefund(verdict, merchants, row)
     val prefillMerchantId = RowRuleVerdict.merchantId(verdict)

@@ -7,7 +7,8 @@ import sttp.tapir.generic.auto.*
 object UpdateImportRule {
   case class Request(
       action: ImportRuleAction,
-      pattern: String
+      pattern: String,
+      amount: Option[BigDecimal]
   )
   case class Response()
 

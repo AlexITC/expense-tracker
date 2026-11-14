@@ -13,6 +13,7 @@ object GetImportRules {
       id: UUID,
       action: ImportRuleAction,
       pattern: String,
+      amount: Option[BigDecimal],
       merchantName: Option[String],
       categoryName: Option[String],
       autoCreated: Boolean,

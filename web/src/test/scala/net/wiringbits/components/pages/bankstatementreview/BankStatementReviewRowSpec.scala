@@ -44,7 +44,7 @@ class BankStatementReviewRowSpec extends AnyWordSpec with ReactTestDom {
 
   private val readyInfo = RowInfo(
     verdict = RowRuleVerdict.NoRule,
-    resolved = Some(ResolvedImport(None, UUID.randomUUID(), categoryFromAi = true)),
+    resolved = Some(ResolvedImport(None, UUID.randomUUID(), categoryFromAi = true, notes = None)),
     refund = None,
     prefillMerchantId = None,
     isReady = true,
@@ -215,9 +215,9 @@ class BankStatementReviewRowSpec extends AnyWordSpec with ReactTestDom {
     "show a rule-matched credit's refund category" in {
       val r = row("REFUND").copy(amount = BigDecimal("45.00"))
       val info = readyInfo.copy(
-        verdict = RowRuleVerdict.SetCategory(UUID.randomUUID()),
+        verdict = RowRuleVerdict.SetCategory(UUID.randomUUID(), description = None),
         resolved = None,
-        refund = Some(RefundPrefill(None, Some(UUID.randomUUID()))),
+        refund = Some(RefundPrefill(None, Some(UUID.randomUUID()), notes = None)),
         categoryName = Some("Groceries")
       )
       render(List(r -> info), (_, _) => ())
@@ -227,9 +227,9 @@ class BankStatementReviewRowSpec extends AnyWordSpec with ReactTestDom {
     "show a dash for a credit whose refund has no category" in {
       val r = row("REFUND").copy(amount = BigDecimal("45.00"))
       val info = readyInfo.copy(
-        verdict = RowRuleVerdict.SetMerchant(UUID.randomUUID()),
+        verdict = RowRuleVerdict.SetMerchant(UUID.randomUUID(), categoryId = None, description = None),
         resolved = None,
-        refund = Some(RefundPrefill(Some(UUID.randomUUID()), None)),
+        refund = Some(RefundPrefill(Some(UUID.randomUUID()), None, notes = None)),
         categoryName = None
       )
       render(List(r -> info), (_, _) => ())

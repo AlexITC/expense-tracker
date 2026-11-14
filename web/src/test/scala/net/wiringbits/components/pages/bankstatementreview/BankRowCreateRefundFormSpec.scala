@@ -35,14 +35,14 @@ class BankRowCreateRefundFormSpec extends AnyWordSpec {
     GetMerchants.Response.Merchant(UUID.randomUUID(), name, None, categoryId, None, reviewed = true, Instant.EPOCH)
 
   private def rule(action: ImportRuleAction): ImportRuleMatcher.Rule =
-    ImportRuleMatcher.Rule(UUID.randomUUID(), action, "OXXO")
+    ImportRuleMatcher.Rule(UUID.randomUUID(), action, "OXXO", amount = None)
 
   "initialSelection" should {
     "prefill a SetMerchant rule's merchant and its default category" in {
       val oxxo = merchant("Oxxo", Some(groceries.id))
       BankRowCreateRefundForm.initialSelection(
         row,
-        List(rule(ImportRuleAction.SetMerchant(oxxo.id))),
+        List(rule(ImportRuleAction.SetMerchant(oxxo.id, categoryId = None, description = None))),
         List(oxxo),
         categories
       ) mustBe (Some(oxxo), Some(groceries.id))
@@ -52,7 +52,7 @@ class BankRowCreateRefundFormSpec extends AnyWordSpec {
       val oxxo = merchant("Oxxo", None)
       BankRowCreateRefundForm.initialSelection(
         row,
-        List(rule(ImportRuleAction.SetMerchant(oxxo.id))),
+        List(rule(ImportRuleAction.SetMerchant(oxxo.id, categoryId = None, description = None))),
         List(oxxo),
         categories
       ) mustBe (Some(oxxo), None)
@@ -61,7 +61,7 @@ class BankRowCreateRefundFormSpec extends AnyWordSpec {
     "prefill a SetCategory rule's category with no merchant" in {
       BankRowCreateRefundForm.initialSelection(
         row,
-        List(rule(ImportRuleAction.SetCategory(groceries.id))),
+        List(rule(ImportRuleAction.SetCategory(groceries.id, description = None))),
         Nil,
         categories
       ) mustBe (None, Some(groceries.id))
@@ -89,7 +89,7 @@ class BankRowCreateRefundFormSpec extends AnyWordSpec {
     "prefill nothing when a SetMerchant rule's merchant is not among the user's merchants" in {
       BankRowCreateRefundForm.initialSelection(
         row,
-        List(rule(ImportRuleAction.SetMerchant(UUID.randomUUID()))),
+        List(rule(ImportRuleAction.SetMerchant(UUID.randomUUID(), categoryId = None, description = None))),
         Nil,
         categories
       ) mustBe (None, None)
@@ -98,10 +98,21 @@ class BankRowCreateRefundFormSpec extends AnyWordSpec {
     "drop a SetCategory rule's category that is not among the user's categories" in {
       BankRowCreateRefundForm.initialSelection(
         row,
-        List(rule(ImportRuleAction.SetCategory(UUID.randomUUID()))),
+        List(rule(ImportRuleAction.SetCategory(UUID.randomUUID(), description = None))),
         Nil,
         categories
       ) mustBe (None, None)
+    }
+
+    "use a SetMerchant rule's override category over the merchant's default category" in {
+      val other = GetCategories.Response.Category(UUID.randomUUID(), "Other", Instant.now())
+      val oxxo = merchant("Oxxo", Some(groceries.id))
+      BankRowCreateRefundForm.initialSelection(
+        row,
+        List(rule(ImportRuleAction.SetMerchant(oxxo.id, categoryId = Some(other.id), description = None))),
+        List(oxxo),
+        other :: categories
+      ) mustBe (Some(oxxo), Some(other.id))
     }
   }
 }

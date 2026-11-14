@@ -272,18 +272,28 @@ trait RepositoryUtils {
   def createImportRule(
       userId: UUID,
       pattern: String = "test-pattern",
+      amount: Option[BigDecimal] = None,
       action: ImportRuleActionKind = ImportRuleActionKind.Ignore,
       merchantId: Option[UUID] = None,
-      categoryId: Option[UUID] = None
+      categoryId: Option[UUID] = None,
+      overrideCategoryId: Option[UUID] = None,
+      description: Option[String] = None
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[UUID] = {
     val fullAction = action match {
       case ImportRuleActionKind.SetMerchant =>
-        ImportRuleAction.SetMerchant(merchantId.getOrElse(throw new IllegalArgumentException("merchantId required")))
+        ImportRuleAction.SetMerchant(
+          merchantId = merchantId.getOrElse(throw new IllegalArgumentException("merchantId required")),
+          categoryId = overrideCategoryId,
+          description = description
+        )
       case ImportRuleActionKind.SetCategory =>
-        ImportRuleAction.SetCategory(categoryId.getOrElse(throw new IllegalArgumentException("categoryId required")))
+        ImportRuleAction.SetCategory(
+          categoryId = categoryId.getOrElse(throw new IllegalArgumentException("categoryId required")),
+          description = description
+        )
       case ImportRuleActionKind.Ignore => ImportRuleAction.Ignore
     }
-    repository.importRules.create(userId, fullAction, pattern)
+    repository.importRules.create(userId, fullAction, pattern, amount)
   }
 
   /** Insert a bank statement (+ optional rows) directly via the DAOs. Lives here, not on the repository, because only

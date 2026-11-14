@@ -1,5 +1,6 @@
 package net.wiringbits.components.pages.receipts
 
+import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.ImportRuleMatcher
@@ -66,34 +67,70 @@ object ReceiptsLogic {
 
   object ConfirmForm {
 
-    /** A fresh form prefilled from the receipt; the merchant comes from a tax-id match, else the winning rule. */
+    /** A fresh form prefilled from the receipt; the merchant comes from a tax-id match, else the winning rule. A rule's
+      * override category prefills a split for the full amount and its description prefills the notes.
+      */
     def fromReceipt(
         r: GetReceipts.Response.Receipt,
         merchants: List[GetMerchants.Response.Merchant],
+        categories: List[GetCategories.Response.Category],
         rules: List[ImportRuleMatcher.Rule]
     ): ConfirmForm = {
-      val merchant: Option[(UUID, String)] =
-        r.taxId.flatMap(tid => merchants.find(_.taxId.contains(tid))) match {
-          case Some(m) => Some(m.id -> m.name)
-          case None =>
-            r.merchantName
-              .flatMap(name => ImportRuleMatcher.findReceiptWinner(rules, name))
-              .flatMap(_.action.merchantIdOpt)
-              .map(id => id -> merchants.find(_.id == id).map(_.name).getOrElse(""))
-        }
+      val resolved = resolveMerchant(r, merchants, rules)
+      val amount = r.amount.map(_.toString).getOrElse("")
+      val splits = resolved
+        .flatMap(_.categoryId)
+        .flatMap(cid => categories.find(_.id == cid))
+        .map(c => (c.id.toString, c.name, amount))
+        .toList
       ConfirmForm(
-        amount = r.amount.map(_.toString).getOrElse(""),
+        amount = amount,
         date = r.date.map(_.toString).getOrElse(""),
         time = "",
-        merchantId = merchant.map(_._1.toString).getOrElse(""),
-        merchantInput = merchant.map(_._2).getOrElse(""),
-        notes = "",
-        splits = Nil,
+        merchantId = resolved.map(_.merchantId.toString).getOrElse(""),
+        merchantInput = resolved.flatMap(m => merchants.find(_.id == m.merchantId)).map(_.name).getOrElse(""),
+        notes = resolved.flatMap(_.description).getOrElse(""),
+        splits = splits,
         parsedMerchantName = r.merchantName,
         rowId = None
       )
     }
   }
+
+  /** The merchant a receipt resolves to, plus the winning rule's override category and description (both None for a
+    * tax-id match, which applies no rule effects).
+    */
+  final case class ResolvedMerchant(merchantId: UUID, categoryId: Option[UUID], description: Option[String])
+
+  /** The merchant matching the receipt's tax id, else the winning set-merchant rule for its parsed merchant name. */
+  def resolveMerchant(
+      r: GetReceipts.Response.Receipt,
+      merchants: List[GetMerchants.Response.Merchant],
+      rules: List[ImportRuleMatcher.Rule]
+  ): Option[ResolvedMerchant] =
+    r.taxId.flatMap(tid => merchants.find(_.taxId.contains(tid))) match {
+      case Some(m) => Some(ResolvedMerchant(m.id, categoryId = None, description = None))
+      case None =>
+        r.merchantName
+          .flatMap(name => ImportRuleMatcher.findReceiptWinner(rules, name, r.amount))
+          .flatMap { rule =>
+            rule.action.merchantIdOpt.map(mid =>
+              ResolvedMerchant(
+                mid,
+                categoryId = rule.action.overrideCategoryIdOpt,
+                description = rule.action.descriptionOpt
+              )
+            )
+          }
+    }
+
+  /** The category a batch-confirmed receipt gets: the rule's override category, else the merchant's default. */
+  def batchCategoryId(resolved: ResolvedMerchant, merchants: List[GetMerchants.Response.Merchant]): Option[UUID] =
+    resolved.categoryId.orElse(merchants.find(_.id == resolved.merchantId).flatMap(_.categoryId))
+
+  /** The notes a batch-confirmed receipt's expense gets: the winning rule's description, if any. */
+  def batchNotes(resolved: Option[ResolvedMerchant]): Option[String] =
+    resolved.flatMap(_.description)
 
   /** What the receipts page is doing with the selected receipt. */
   enum ReceiptMode {

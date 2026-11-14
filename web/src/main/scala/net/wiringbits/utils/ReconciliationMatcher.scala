@@ -5,6 +5,7 @@ import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
+import net.wiringbits.components.pages.bankstatementreview.BankStatementReviewLogic
 
 import java.time.LocalDate
 import java.util.UUID
@@ -36,15 +37,18 @@ object ReconciliationMatcher {
   ): List[(GetBankStatement.StatementRowData, CreateExpenseFromRow.Request)] = {
     val effective = ImportRuleMatcher.effectiveRules(rules, merchants.map(m => m.id -> m.name))
     rows.flatMap { row =>
-      val merchantId = RowRuleVerdict.ruleMerchantId(effective, row.description)
-      val catIdOpt = merchantId.flatMap(mid => merchants.find(_.id == mid).flatMap(_.categoryId))
+      val verdict = RowRuleVerdict.verdict(effective, row.description, row.amount)
+      val merchantId = RowRuleVerdict.merchantId(verdict)
+      val catIdOpt = merchantId
+        .flatMap(mid => merchants.find(_.id == mid))
+        .flatMap(m => RowRuleVerdict.categoryFor(verdict, m.categoryId))
       catIdOpt.map { catId =>
         val req = CreateExpenseFromRow.Request(
           amount = row.amount.abs,
           date = row.date,
           time = None,
           merchantId = merchantId,
-          notes = Some(row.description).filter(_.nonEmpty),
+          notes = BankStatementReviewLogic.rowNotes(verdict, row),
           splits = List(CreateExpenseFromRow.Split(catId, row.amount.abs)),
           receiptId = None
         )
@@ -80,7 +84,7 @@ object ReconciliationMatcher {
         val action =
           if (receiptBacked.nonEmpty) actionFor(receiptBacked)
           else
-            RowRuleVerdict.ruleMerchantId(effective, row.description) match {
+            RowRuleVerdict.ruleMerchantId(effective, row.description, row.amount) match {
               case Some(ruleMerchantId) =>
                 val candidates = available.filter { expense =>
                   val amountMatch = row.amount.abs == expense.amount.abs

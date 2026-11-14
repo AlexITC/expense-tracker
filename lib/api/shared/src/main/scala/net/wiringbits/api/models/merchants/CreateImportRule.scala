@@ -9,7 +9,8 @@ import java.util.UUID
 object CreateImportRule {
   case class Request(
       action: ImportRuleAction,
-      pattern: String
+      pattern: String,
+      amount: Option[BigDecimal]
   )
   case class Response(id: UUID)
 

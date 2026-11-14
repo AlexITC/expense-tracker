@@ -180,7 +180,8 @@ object StatementSuggestionsService {
   ): RowSelection = {
     val effective = ImportRuleMatcher.effectiveRules(rules, merchants.map(m => m.id -> m.name))
     val debits = rows.filter(_.amount < 0)
-    val toResolve = debits.filter(r => RowRuleVerdict.verdict(effective, r.description) == RowRuleVerdict.NoRule)
+    val toResolve =
+      debits.filter(r => RowRuleVerdict.verdict(effective, r.description, r.amount) == RowRuleVerdict.NoRule)
     RowSelection(toResolve, creditsSkipped = rows.size - debits.size, ruleSkipped = debits.size - toResolve.size)
   }
 

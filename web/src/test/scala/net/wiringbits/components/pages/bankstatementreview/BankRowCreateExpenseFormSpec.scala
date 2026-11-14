@@ -3,7 +3,7 @@ package net.wiringbits.components.pages.bankstatementreview
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, GetBankStatement}
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction}
-import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -47,7 +47,12 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
   private val merchants = List(oxxo, cafe)
 
   private val oxxoRule =
-    ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant(oxxo.id), "OXXO")
+    ImportRuleMatcher.Rule(
+      UUID.randomUUID(),
+      ImportRuleAction.SetMerchant(oxxo.id, categoryId = None, description = None),
+      "OXXO",
+      amount = None
+    )
 
   // A description that matches no merchant name, so only the AI suggestion can prefill the form.
   private val unmatchedRow = row.copy(description = "POS 4411 UNKNOWN")
@@ -70,14 +75,19 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
 
     "prefill the merchant with no category for a SetMerchant rule whose merchant has no default category" in {
       val bare = merchant("Bare", None)
-      val bareRule = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant(bare.id), "OXXO")
+      val bareRule = ImportRuleMatcher.Rule(
+        UUID.randomUUID(),
+        ImportRuleAction.SetMerchant(bare.id, categoryId = None, description = None),
+        "OXXO",
+        amount = None
+      )
       val ai = suggestion(Some(cafe.id), Some(dining.id))
       BankRowCreateExpenseForm.initialSelection(row, List(bareRule), bare :: merchants, categories, Some(ai)) mustBe
         (Some(bare), None)
     }
 
     "fall through to the AI suggestion when the winning rule is an Ignore rule" in {
-      val ignoreRule = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "OXXO")
+      val ignoreRule = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "OXXO", amount = None)
       val ai = suggestion(Some(cafe.id), Some(dining.id))
       BankRowCreateExpenseForm.initialSelection(row, List(ignoreRule), merchants, categories, Some(ai)) mustBe
         (Some(cafe), Some(dining.id))
@@ -85,7 +95,12 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
 
     "fall through to the AI suggestion when the rule's merchant is unknown" in {
       val staleRule =
-        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant(UUID.randomUUID()), "OXXO")
+        ImportRuleMatcher.Rule(
+          UUID.randomUUID(),
+          ImportRuleAction.SetMerchant(UUID.randomUUID(), categoryId = None, description = None),
+          "OXXO",
+          amount = None
+        )
       val ai = suggestion(Some(cafe.id), Some(dining.id))
       BankRowCreateExpenseForm.initialSelection(row, List(staleRule), merchants, categories, Some(ai)) mustBe
         (Some(cafe), Some(dining.id))
@@ -93,7 +108,12 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
 
     "use a SetCategory rule's category with no merchant, ignoring the AI suggestion" in {
       val setCategory =
-        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory(groceries.id), "POS 4411")
+        ImportRuleMatcher.Rule(
+          UUID.randomUUID(),
+          ImportRuleAction.SetCategory(groceries.id, description = None),
+          "POS 4411",
+          amount = None
+        )
       val ai = suggestion(Some(cafe.id), Some(dining.id))
       BankRowCreateExpenseForm.initialSelection(unmatchedRow, List(setCategory), merchants, categories, Some(ai)) mustBe
         (None, Some(groceries.id))
@@ -103,8 +123,9 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
       val staleRule =
         ImportRuleMatcher.Rule(
           UUID.randomUUID(),
-          ImportRuleAction.SetCategory(UUID.randomUUID()),
-          "POS 4411"
+          ImportRuleAction.SetCategory(UUID.randomUUID(), description = None),
+          "POS 4411",
+          amount = None
         )
       val ai = suggestion(Some(cafe.id), Some(dining.id))
       BankRowCreateExpenseForm.initialSelection(unmatchedRow, List(staleRule), merchants, categories, Some(ai)) mustBe
@@ -113,7 +134,12 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
 
     "prefer a merchant-name match over a SetCategory rule" in {
       val setCategory =
-        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory(dining.id), "OXXO STORE")
+        ImportRuleMatcher.Rule(
+          UUID.randomUUID(),
+          ImportRuleAction.SetCategory(dining.id, description = None),
+          "OXXO STORE",
+          amount = None
+        )
       BankRowCreateExpenseForm.initialSelection(row, List(setCategory), merchants, categories, None) mustBe
         (Some(oxxo), Some(groceries.id))
     }
@@ -145,12 +171,41 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
     "return nothing when there is no rule match and no suggestion" in {
       BankRowCreateExpenseForm.initialSelection(unmatchedRow, Nil, merchants, categories, None) mustBe (None, None)
     }
+
+    "use a SetMerchant rule's override category over the merchant's default category" in {
+      val overrideRule = oxxoRule.copy(action = ImportRuleAction.SetMerchant(oxxo.id, Some(dining.id), None))
+      BankRowCreateExpenseForm.initialSelection(row, List(overrideRule), merchants, categories, None) mustBe
+        (Some(oxxo), Some(dining.id))
+    }
+
+    "drop a SetMerchant rule's override category that is not among the user's categories" in {
+      val overrideRule = oxxoRule.copy(action = ImportRuleAction.SetMerchant(oxxo.id, Some(UUID.randomUUID()), None))
+      BankRowCreateExpenseForm.initialSelection(row, List(overrideRule), merchants, categories, None) mustBe
+        (Some(oxxo), None)
+    }
+  }
+
+  "initialNotes" should {
+    "be the rule description when the winning rule has one" in {
+      val verdict = RowRuleVerdict.SetMerchant(oxxo.id, categoryId = None, description = Some("Snacks"))
+      BankRowCreateExpenseForm.initialNotes(row, verdict) mustBe "Snacks"
+    }
+
+    "be the row description when the winning rule has no description" in {
+      val verdict = BankRowCreateExpenseForm.rowVerdict(row, List(oxxoRule), merchants)
+      BankRowCreateExpenseForm.initialNotes(row, verdict) mustBe row.description
+    }
   }
 
   "initialMerchantInput" should {
     "start blank for a row a SetCategory rule handles" in {
       val setCategory =
-        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory(groceries.id), "POS 4411")
+        ImportRuleMatcher.Rule(
+          UUID.randomUUID(),
+          ImportRuleAction.SetCategory(groceries.id, description = None),
+          "POS 4411",
+          amount = None
+        )
       BankRowCreateExpenseForm.initialMerchantInput(
         unmatchedRow,
         BankRowCreateExpenseForm.rowVerdict(unmatchedRow, List(setCategory), merchants)
@@ -190,13 +245,18 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
   "ruleHint" should {
     "return CoveredByRule when an explicit rule matches, even if the name also matches" in {
       val aliasRule =
-        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetMerchant(oxxo.id), "OXXO STORE")
+        ImportRuleMatcher.Rule(
+          UUID.randomUUID(),
+          ImportRuleAction.SetMerchant(oxxo.id, categoryId = None, description = None),
+          "OXXO STORE",
+          amount = None
+        )
       BankRowCreateExpenseForm.ruleHint(row, List(aliasRule), "Oxxo") mustBe
         BankRowCreateExpenseForm.RuleHint.CoveredByRule("OXXO STORE")
     }
 
     "return CoveredByRule when an explicit Ignore rule matches" in {
-      val ignoreRule = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "OXXO STORE")
+      val ignoreRule = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "OXXO STORE", amount = None)
       BankRowCreateExpenseForm.ruleHint(row, List(ignoreRule), "Oxxo") mustBe
         BankRowCreateExpenseForm.RuleHint.CoveredByRule("OXXO STORE")
     }

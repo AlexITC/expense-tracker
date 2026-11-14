@@ -120,7 +120,7 @@ class BulkMerchantSetupPageSpec extends AnyWordSpec with ReactTestDom {
     }
 
     "exclude descriptions matched by an ignore rule" in {
-      val ignore = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "unknown shop")
+      val ignore = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "unknown shop", amount = None)
       val result = BulkMerchantSetupPage.findUnmatchedGroups(sampleRows :+ otherRow, List(ignore), Nil)
       result.map(_._1) mustBe List("CARNICERIA EL RISCU (GIJON)")
     }

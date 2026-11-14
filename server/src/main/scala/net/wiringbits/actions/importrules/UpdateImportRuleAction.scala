@@ -11,12 +11,11 @@ import scala.concurrent.{ExecutionContext, Future}
 class UpdateImportRuleAction @Inject() (ruleRepository: ImportRuleRepository)(implicit ec: ExecutionContext) {
 
   def apply(ruleId: UUID, userId: UUID, request: UpdateImportRule.Request): Future[UpdateImportRule.Response] =
-    if (ImportRuleMatcher.normalize(request.pattern).length < ImportRuleMatcher.MinPatternLength)
-      Future.failed(
-        new RuntimeException(s"Rule pattern must be at least ${ImportRuleMatcher.MinPatternLength} characters")
-      )
-    else
-      ruleRepository
-        .update(id = ruleId, userId = userId, request.action, request.pattern)
-        .map(_ => UpdateImportRule.Response())
+    ImportRuleMatcher.validate(request.pattern, request.amount, request.action) match {
+      case Left(error) => Future.failed(new RuntimeException(error))
+      case Right(()) =>
+        ruleRepository
+          .update(id = ruleId, userId = userId, request.action, request.pattern, request.amount)
+          .map(_ => UpdateImportRule.Response())
+    }
 }

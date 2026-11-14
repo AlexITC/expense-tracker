@@ -45,8 +45,9 @@ object BankRowCreateExpenseForm {
   )
 
   /** Initial (merchant, categoryId) for the form: a SetMerchant rule winner first (explicit rules plus merchant names,
-    * see `ImportRuleMatcher.effectiveRules`), then a SetCategory rule winner's category (no merchant, AI not
-    * consulted), then the AI suggestion. Ids that are not among the user's merchants/categories are dropped.
+    * see `ImportRuleMatcher.effectiveRules`) with its override category, else the merchant's default category, then a
+    * SetCategory rule winner's category (no merchant, AI not consulted), then the AI suggestion. Ids that are not among
+    * the user's merchants/categories are dropped.
     */
   def initialSelection(
       row: GetBankStatement.StatementRowData,
@@ -59,8 +60,9 @@ object BankRowCreateExpenseForm {
     val ruleMerchant = RowRuleVerdict.merchantId(verdict).flatMap(mid => merchants.find(_.id == mid))
 
     (ruleMerchant, verdict) match {
-      case (Some(m), _) => (Some(m), m.categoryId)
-      case (None, RowRuleVerdict.SetCategory(categoryId)) =>
+      case (Some(m), _) =>
+        (Some(m), RowRuleVerdict.categoryFor(verdict, m.categoryId).filter(cid => categories.exists(_.id == cid)))
+      case (None, RowRuleVerdict.SetCategory(categoryId, _)) =>
         (None, Option.when(categories.exists(_.id == categoryId))(categoryId))
       case (None, _) =>
         aiSuggestion match {
@@ -82,7 +84,8 @@ object BankRowCreateExpenseForm {
   ): RowRuleVerdict.Verdict =
     RowRuleVerdict.verdict(
       ImportRuleMatcher.effectiveRules(ruleList, merchants.map(m => m.id -> m.name)),
-      row.description
+      row.description,
+      row.amount
     )
 
   /** The merchant text the form starts with when no merchant is prefilled: the row description, except for a row a
@@ -90,9 +93,13 @@ object BankRowCreateExpenseForm {
     */
   def initialMerchantInput(row: GetBankStatement.StatementRowData, verdict: RowRuleVerdict.Verdict): String =
     verdict match {
-      case RowRuleVerdict.SetCategory(_) => ""
+      case RowRuleVerdict.SetCategory(_, _) => ""
       case _ => row.description
     }
+
+  /** The notes the form starts with: the rule description, else the row description. */
+  def initialNotes(row: GetBankStatement.StatementRowData, verdict: RowRuleVerdict.Verdict): String =
+    RowRuleVerdict.notes(verdict, row.description)
 
   /** Whether the merchant/category fields still hold the values a blank form starts with (no rule/AI prefill). */
   def isPristine(
@@ -118,11 +125,11 @@ object BankRowCreateExpenseForm {
       explicitRules: List[ImportRuleMatcher.Rule],
       merchantName: String
   ): RuleHint =
-    ImportRuleMatcher.findRowWinner(explicitRules, row.description) match {
+    ImportRuleMatcher.findRowWinner(explicitRules, row.description, row.amount) match {
       case Some(rule) => RuleHint.CoveredByRule(rule.pattern)
       case None =>
         val nameRules = ImportRuleMatcher.effectiveRules(Nil, List(new UUID(0L, 0L) -> merchantName))
-        if (ImportRuleMatcher.findMatches(nameRules, row.description).nonEmpty) RuleHint.MatchesByName
+        if (ImportRuleMatcher.findMatches(nameRules, row.description, Some(row.amount)).nonEmpty) RuleHint.MatchesByName
         else RuleHint.NeedsAlias
     }
 
@@ -157,17 +164,15 @@ object BankRowCreateExpenseForm {
     val (initMerchant, initCategoryIdOpt) =
       initialSelection(props.row, props.ruleList, props.merchants, props.categories, props.aiSuggestion)
 
-    val initMerchantName =
-      initMerchant
-        .map(_.name)
-        .getOrElse(initialMerchantInput(props.row, rowVerdict(props.row, props.ruleList, props.merchants)))
+    val initVerdict = rowVerdict(props.row, props.ruleList, props.merchants)
+    val initMerchantName = initMerchant.map(_.name).getOrElse(initialMerchantInput(props.row, initVerdict))
     val initMerchantIdOpt = initMerchant.map(_.id)
     val initCategoryName =
       initCategoryIdOpt.flatMap(cid => props.categories.find(_.id == cid)).map(_.name).getOrElse("")
 
     val (amount, setAmount) = Hooks.useState(props.row.amount.abs.toString)
     val (date, setDate) = Hooks.useState(props.row.date.toString)
-    val (notes, setNotes) = Hooks.useState(props.row.description)
+    val (notes, setNotes) = Hooks.useState(initialNotes(props.row, initVerdict))
 
     val (merchantInput, setMerchantInput) = Hooks.useState(initMerchantName)
     val (merchantIdOpt, setMerchantIdOpt) = Hooks.useState[Option[UUID]](initMerchantIdOpt)
@@ -341,15 +346,17 @@ object BankRowCreateExpenseForm {
                 case (Some(mid), Some(alias), _, _) =>
                   Some(
                     CreateImportRule.Request(
-                      action = ImportRuleAction.SetMerchant(mid),
-                      pattern = alias
+                      action = ImportRuleAction.SetMerchant(mid, categoryId = None, description = None),
+                      pattern = alias,
+                      amount = None
                     )
                   )
                 case (None, _, Some(catId), Some(pattern)) =>
                   Some(
                     CreateImportRule.Request(
-                      action = ImportRuleAction.SetCategory(catId),
-                      pattern = pattern
+                      action = ImportRuleAction.SetCategory(catId, description = None),
+                      pattern = pattern,
+                      amount = None
                     )
                   )
                 case _ => None
@@ -365,7 +372,8 @@ object BankRowCreateExpenseForm {
                             ImportRuleMatcher.Rule(
                               r.id,
                               ruleRequest.action,
-                              ruleRequest.pattern
+                              ruleRequest.pattern,
+                              ruleRequest.amount
                             )
                           ),
                           None
