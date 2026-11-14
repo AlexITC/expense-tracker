@@ -105,14 +105,14 @@ object ChartsData {
     (0 until n).map(i => from.plusMonths(i.toLong))
   }
 
-  private def debitsInRange(
+  private def expensesInRange(
       expenses: GetExpenses.Response,
       from: YearMonth,
       to: YearMonth
   ): List[GetExpenses.Response.Expense] =
     expenses.data.filter { e =>
       val ym = YearMonth.of(e.date.getYear, e.date.getMonth)
-      e.amount < 0 && !ym.isBefore(from) && !ym.isAfter(to)
+      !ym.isBefore(from) && !ym.isAfter(to)
     }
 
   private def refundsInRange(
@@ -132,7 +132,7 @@ object ChartsData {
       to: YearMonth = YearMonth.now()
   ): MonthlyChart = {
     val months = monthsInRange(from = from, to = to)
-    val debits = debitsInRange(expenses, from = from, to = to)
+    val debits = expensesInRange(expenses, from = from, to = to)
     val refs = refundsInRange(refunds, from = from, to = to)
     val totals = months.map { ym =>
       val expTotal = debits
@@ -153,7 +153,7 @@ object ChartsData {
       from: YearMonth = YearMonth.now().minusMonths(5),
       to: YearMonth = YearMonth.now()
   ): MerchantChart = {
-    val debits = debitsInRange(expenses, from = from, to = to)
+    val debits = expensesInRange(expenses, from = from, to = to)
     val refs = refundsInRange(refunds, from = from, to = to)
     val refByMerchant = refs
       .groupMapReduce(r => r.merchantName.getOrElse("Unknown"))(_.amount)(_ + _)
@@ -181,7 +181,7 @@ object ChartsData {
       maxCats: Int = 7
   ): StackedMonthlyChart = {
     val months = monthsInRange(from = from, to = to)
-    val debits = debitsInRange(expenses, from = from, to = to)
+    val debits = expensesInRange(expenses, from = from, to = to)
     val refs = refundsInRange(refunds, from = from, to = to)
     val catMap = categories.data.map(c => c.id -> c.name).toMap
 
@@ -243,7 +243,7 @@ object ChartsData {
     val refByCategory = refs
       .groupMapReduce(r => r.categoryName.getOrElse("Uncategorised"))(_.amount)(_ + _)
 
-    val all = debitsInRange(expenses, from = from, to = to)
+    val all = expensesInRange(expenses, from = from, to = to)
       .flatMap { e =>
         if (e.splits.isEmpty)
           List(("Uncategorised", e.amount.abs))

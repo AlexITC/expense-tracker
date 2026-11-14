@@ -1,5 +1,6 @@
 package net.wiringbits.components.pages
 
+import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.models.refunds.GetRefunds
 import org.scalatest.matchers.must.Matchers.*
@@ -45,17 +46,17 @@ class ChartsPageSpec extends AnyWordSpec {
       result.labels.last mustBe now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM"))
     }
 
-    "sum absolute values of debits in each month" in {
+    "sum every expense in each month regardless of stored sign" in {
       val thisMonth = LocalDate.now().withDayOfMonth(1)
       val response = GetExpenses.Response(
         data = List(
-          expense(BigDecimal("-10.00"), thisMonth),
-          expense(BigDecimal("-20.00"), thisMonth),
-          expense(BigDecimal("50.00"), thisMonth) // credit — excluded
+          expense(BigDecimal("10.00"), thisMonth),
+          expense(BigDecimal("20.00"), thisMonth),
+          expense(BigDecimal("50.00"), thisMonth)
         )
       )
       val result = ChartsData.monthly(response, noRefunds)
-      result.values.last mustBe 30.0
+      result.values.last mustBe 80.0
     }
 
     "produce zeros for months with no expenses" in {
@@ -66,11 +67,8 @@ class ChartsPageSpec extends AnyWordSpec {
   }
 
   "topMerchants" should {
-    "return empty lists when there are no debits" in {
-      val response = GetExpenses.Response(
-        data = List(expense(BigDecimal("100.00"), LocalDate.now()))
-      )
-      val result = ChartsData.topMerchants(response, noRefunds)
+    "return empty lists when there are no expenses" in {
+      val result = ChartsData.topMerchants(GetExpenses.Response(data = Nil), noRefunds)
       result.labels mustBe Seq.empty
       result.values mustBe Seq.empty
     }
@@ -79,9 +77,9 @@ class ChartsPageSpec extends AnyWordSpec {
       val d = LocalDate.now().minusMonths(1)
       val response = GetExpenses.Response(
         data = List(
-          expense(BigDecimal("-5.00"), d, Some("Cheap")),
-          expense(BigDecimal("-50.00"), d, Some("Expensive")),
-          expense(BigDecimal("-20.00"), d, Some("Mid"))
+          expense(BigDecimal("5.00"), d, Some("Cheap")),
+          expense(BigDecimal("50.00"), d, Some("Expensive")),
+          expense(BigDecimal("20.00"), d, Some("Mid"))
         )
       )
       val result = ChartsData.topMerchants(response, noRefunds)
@@ -92,7 +90,7 @@ class ChartsPageSpec extends AnyWordSpec {
     "label expenses without a merchant as Unknown" in {
       val d = LocalDate.now().minusMonths(1)
       val response = GetExpenses.Response(
-        data = List(expense(BigDecimal("-15.00"), d, None))
+        data = List(expense(BigDecimal("15.00"), d, None))
       )
       val result = ChartsData.topMerchants(response, noRefunds)
       result.labels mustBe Seq("Unknown")
@@ -100,9 +98,21 @@ class ChartsPageSpec extends AnyWordSpec {
 
     "cap results at n (default 10)" in {
       val d = LocalDate.now().minusMonths(1)
-      val expenses = (1 to 15).toList.map(i => expense(BigDecimal(s"-${i}.00"), d, Some(s"Merchant$i")))
+      val expenses = (1 to 15).toList.map(i => expense(BigDecimal(s"${i}.00"), d, Some(s"Merchant$i")))
       val result = ChartsData.topMerchants(GetExpenses.Response(data = expenses), noRefunds)
       result.labels.length mustBe 10
+    }
+  }
+
+  "categoryBreakdown" should {
+    "return a non-empty slice for positive-amount expenses in range" in {
+      val d = LocalDate.now().minusMonths(1)
+      val response = GetExpenses.Response(
+        data = List(expense(BigDecimal("30.00"), d), expense(BigDecimal("10.00"), d))
+      )
+      val result = ChartsData.categoryBreakdown(response, noRefunds, GetCategories.Response(data = Nil))
+      result.map(_.label) mustBe Seq("Uncategorised")
+      result.map(_.value) mustBe Seq(40.0)
     }
   }
 }
