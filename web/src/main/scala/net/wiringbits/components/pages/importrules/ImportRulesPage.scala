@@ -122,7 +122,7 @@ object ImportRuleList {
       RuleForm(
         kind = r.action.kind,
         pattern = r.pattern,
-        amount = r.amount.fold("")(_.bigDecimal.toPlainString),
+        amount = r.amount.fold("")(_.abs.bigDecimal.toPlainString),
         merchantInput = r.merchantName.getOrElse(""),
         merchantId = r.action.merchantIdOpt,
         categoryInput = if (r.action.categoryIdOpt.isDefined) categoryName else "",
@@ -141,7 +141,7 @@ object ImportRuleList {
   def parseAmount(text: String): Either[String, Option[BigDecimal]] = {
     val trimmed = text.trim
     if (trimmed.isEmpty) Right(None)
-    else Try(BigDecimal(trimmed)).toOption.map(Some(_)).toRight("Amount must be a number, e.g. -12.50")
+    else Try(BigDecimal(trimmed)).toOption.map(Some(_)).toRight("Amount must be a number, e.g. 12.50")
   }
 
   /** Runs the same checks as the server so errors show before any merchant/category is created. Ignore rules carry no
@@ -170,7 +170,7 @@ object ImportRuleList {
     case ImportRuleAction.SetCategory(_, _) => s"→ ${r.categoryName.getOrElse("?")}"
   }
 
-  def amountLabel(amount: BigDecimal): String = amount.bigDecimal.toPlainString
+  def amountLabel(amount: BigDecimal): String = amount.abs.bigDecimal.toPlainString
 
   private val cardStyle = new CSSPropertiesUtils {
     border = "1px solid var(--lc-border)"
@@ -195,19 +195,26 @@ object ImportRuleList {
       }
   }
 
+  // Free-solo autocompletes are not full width, so without a minimum they collapse to the typed text; this keeps them
+  // readable and aligned with the other inputs.
+  private val autocompleteFieldStyle = new CSSPropertiesUtils { minWidth = "200px" }
+
   private def renderMerchantTextField(params: AutocompleteRenderInputParams): ReactElement =
     (mui.TextField.outlined
       .withProps(MuiCompat.textFieldProps(params, "Merchant", size = Some("small")))
+      .sx(autocompleteFieldStyle)
       .withKey("tf"): ReactElement)
 
   private def renderCategoryTextField(params: AutocompleteRenderInputParams): ReactElement =
     (mui.TextField.outlined
       .withProps(MuiCompat.textFieldProps(params, "Category", size = Some("small")))
+      .sx(autocompleteFieldStyle)
       .withKey("tf"): ReactElement)
 
   private def renderOverrideCategoryTextField(params: AutocompleteRenderInputParams): ReactElement =
     (mui.TextField.outlined
       .withProps(MuiCompat.textFieldProps(params, "Category (optional)", size = Some("small")))
+      .sx(autocompleteFieldStyle)
       .withKey("tf"): ReactElement)
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
@@ -407,8 +414,19 @@ object ImportRuleList {
       (mui.Autocomplete.withProps(acProps).withKey(key): ReactElement)
     }
 
-    /** The action-specific and optional fields shared by the create and edit forms. */
-    def ruleFields(current: RuleForm, update: (RuleForm => RuleForm) => Unit): Seq[ReactElement] = {
+    def amountField(current: RuleForm, update: (RuleForm => RuleForm) => Unit): ReactElement =
+      mui.TextField
+        .outlined()
+        .label("Amount (optional, e.g. 12.50)")
+        .value(current.amount)
+        .size("small")
+        .onChange(e => { val v = e.target.asInstanceOf[dom.HTMLInputElement].value; update(_.copy(amount = v)) })
+        .withKey("amount")
+
+    /** What the rule sets once it matches: the merchant/category target and the optional description. Empty for an
+      * Ignore rule, which only matches.
+      */
+    def setFields(current: RuleForm, update: (RuleForm => RuleForm) => Unit): Seq[ReactElement] = {
       val targetFields: Seq[ReactElement] = current.kind match {
         case ImportRuleActionKind.SetMerchant =>
           Seq(
@@ -437,14 +455,6 @@ object ImportRuleList {
           )
         case ImportRuleActionKind.Ignore => Seq.empty
       }
-      val amountField: ReactElement =
-        mui.TextField
-          .outlined()
-          .label("Amount (signed, e.g. -12.50)")
-          .value(current.amount)
-          .size("small")
-          .onChange(e => { val v = e.target.asInstanceOf[dom.HTMLInputElement].value; update(_.copy(amount = v)) })
-          .withKey("amount")
       val descriptionField: Seq[ReactElement] =
         if (current.kind == ImportRuleActionKind.Ignore) Seq.empty
         else
@@ -459,7 +469,40 @@ object ImportRuleList {
               })
               .withKey("description")
           )
-      targetFields ++ (amountField +: descriptionField)
+      targetFields ++ descriptionField
+    }
+
+    def fieldGroup(label: String, key: String, fields: Seq[ReactElement]): ReactElement =
+      (mui.Box
+        .sx(new CSSPropertiesUtils {
+          display = "flex"; flexDirection = "column"; gap = "6px"
+          border = "1px solid var(--lc-border)"; borderRadius = "8px"; padding = "10px 12px"
+        })(
+          mui
+            .Typography(label)
+            .sx(new CSSPropertiesUtils {
+              fontSize = "11px"; fontWeight = "600"; letterSpacing = "0.06em"
+              textTransform = "uppercase"; color = "var(--lc-text-2)"
+            }),
+          mui.Box.sx(new CSSPropertiesUtils {
+            display = "flex"; flexWrap = "wrap"; alignItems = "center"; gap = "12px"
+          })(Fragment(fields*))
+        )
+        .withKey(key): ReactElement)
+
+    /** The pattern and amount are match criteria; the merchant/category/description are what the rule sets. Grouping
+      * and labelling them makes it clear which fields decide a match and which change the row.
+      */
+    def ruleFormBody(
+        current: RuleForm,
+        update: (RuleForm => RuleForm) => Unit,
+        patternField: ReactElement
+    ): Seq[ReactElement] = {
+      val matchGroup =
+        fieldGroup(label = "Matches on", key = "match-group", fields = Seq(patternField, amountField(current, update)))
+      val sets = setFields(current, update)
+      if (sets.isEmpty) Seq(matchGroup)
+      else Seq(matchGroup, fieldGroup(label = "Sets", key = "set-group", fields = sets))
     }
 
     val createForm = form(onSubmit := { e =>
@@ -478,15 +521,21 @@ object ImportRuleList {
         gap = "12px"
       })(
         actionSelector(newForm.kind, k => setNewForm(_.copy(kind = k))),
-        mui.TextField
-          .outlined()
-          .label("Pattern (substring)")
-          .value(newForm.pattern)
-          .size("small")
-          .onChange(e => {
-            val v = e.target.asInstanceOf[dom.HTMLInputElement].value; setNewForm(_.copy(pattern = v))
-          }),
-        Fragment(ruleFields(newForm, f => setNewForm(f))*),
+        Fragment(
+          ruleFormBody(
+            newForm,
+            f => setNewForm(f),
+            mui.TextField
+              .outlined()
+              .label("Pattern (substring)")
+              .value(newForm.pattern)
+              .size("small")
+              .onChange(e => {
+                val v = e.target.asInstanceOf[dom.HTMLInputElement].value; setNewForm(_.copy(pattern = v))
+              })
+              .withKey("pattern")
+          )*
+        ),
         mui.Button
           .normal()("Add rule")
           .variant("contained")
@@ -535,17 +584,23 @@ object ImportRuleList {
             padding = "4px 0"
           })(
             actionSelector(editForm.kind, k => setEditForm(_.copy(kind = k))),
-            mui.TextField
-              .outlined()
-              .autoFocus(true)
-              .label("Pattern")
-              .value(editForm.pattern)
-              .size("small")
-              .onChange(e => {
-                val v = e.target.asInstanceOf[dom.HTMLInputElement].value; setEditForm(_.copy(pattern = v))
-              })
-              .onKeyDown(e => if (e.key == "Enter") handleUpdate(r.id)),
-            Fragment(ruleFields(editForm, f => setEditForm(f))*),
+            Fragment(
+              ruleFormBody(
+                editForm,
+                f => setEditForm(f),
+                mui.TextField
+                  .outlined()
+                  .autoFocus(true)
+                  .label("Pattern")
+                  .value(editForm.pattern)
+                  .size("small")
+                  .onChange(e => {
+                    val v = e.target.asInstanceOf[dom.HTMLInputElement].value; setEditForm(_.copy(pattern = v))
+                  })
+                  .onKeyDown(e => if (e.key == "Enter") handleUpdate(r.id))
+                  .withKey("pattern")
+              )*
+            ),
             mui.Button
               .normal()("Save")
               .size("small")

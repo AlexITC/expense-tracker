@@ -95,7 +95,7 @@ object BankRowRuleForm {
 
     val (action, setAction) = Hooks.useState(ImportRuleActionKind.SetMerchant: ImportRuleActionKind)
     val (pattern, setPattern) = Hooks.useState(props.row.description)
-    val (amountText, setAmountText) = Hooks.useState(props.row.amount.bigDecimal.toPlainString)
+    val (amountText, setAmountText) = Hooks.useState(props.row.amount.abs.bigDecimal.toPlainString)
     val (description, setDescription) =
       Hooks.useState(props.row.description.trim.take(ImportRuleMatcher.MaxDescriptionLength))
     val (merchantInput, setMerchantInput) = Hooks.useState("")
@@ -302,7 +302,7 @@ object BankRowRuleForm {
           .size("small")
           .value(amountText)
           .disabled(submit.isSubmitting)
-          .helperText("Rows must have exactly this signed amount; leave blank to match any amount")
+          .helperText("Rows with this amount (either sign) match; leave blank to match any amount")
           .onChange(e => setAmountText(e.target.asInstanceOf[dom.HTMLInputElement].value)),
         action match {
           case ImportRuleActionKind.SetMerchant =>

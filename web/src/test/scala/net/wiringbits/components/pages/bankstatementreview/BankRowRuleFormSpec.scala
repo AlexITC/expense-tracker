@@ -14,7 +14,7 @@ class BankRowRuleFormSpec extends AnyWordSpec {
   private def build(
       kind: ImportRuleActionKind = ImportRuleActionKind.SetMerchant,
       pattern: String = "STORE 123",
-      amountText: String = "-12.50",
+      amountText: String = "12.50",
       merchantId: Option[UUID] = Some(merchantId),
       categoryId: Option[UUID] = None,
       description: String = ""
@@ -29,8 +29,12 @@ class BankRowRuleFormSpec extends AnyWordSpec {
     )
 
   "buildRequest" should {
-    "parse the prefilled signed row amount" in {
-      build().map(_.amount) mustBe Right(Some(BigDecimal("-12.50")))
+    "parse the prefilled row amount" in {
+      build().map(_.amount) mustBe Right(Some(BigDecimal("12.50")))
+    }
+
+    "reject a negative amount" in {
+      build(amountText = "-12.50") mustBe Left("Rule amount must be a positive value")
     }
 
     "treat a blank amount as a pattern-only rule" in {
@@ -69,7 +73,7 @@ class BankRowRuleFormSpec extends AnyWordSpec {
     }
 
     "reject an unparseable amount" in {
-      build(amountText = "abc") mustBe Left("Amount must be a number, e.g. -12.50")
+      build(amountText = "abc") mustBe Left("Amount must be a number, e.g. 12.50")
     }
 
     "require a merchant for set-merchant" in {

@@ -356,10 +356,10 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       createVerifyLoginUser(tokenGenerator).futureValue
 
       val created = client
-        .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "FEE", amount = Some(BigDecimal("-1.50"))))
+        .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "FEE", amount = Some(BigDecimal("1.50"))))
         .futureValue
       client.getImportRules.futureValue.data.find(_.id == created.id).flatMap(_.amount) must be(
-        Some(BigDecimal("-1.50"))
+        Some(BigDecimal("1.50"))
       )
 
       client
@@ -372,7 +372,7 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       createVerifyLoginUser(tokenGenerator).futureValue
       client.createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "FEE", amount = None)).futureValue
       client
-        .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "FEE", amount = Some(BigDecimal("-1"))))
+        .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "FEE", amount = Some(BigDecimal("1"))))
         .futureValue
 
       client.getImportRules.futureValue.data.size must be(2)
@@ -401,7 +401,7 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
       val error = client
         .createImportRule(
-          CreateImportRule.Request(ImportRuleAction.Ignore, "FEE", amount = Some(BigDecimal("-10000000000")))
+          CreateImportRule.Request(ImportRuleAction.Ignore, "FEE", amount = Some(BigDecimal("10000000000")))
         )
         .expectError
       error must be("Rule amount must have at most 10 integer digits")
@@ -410,7 +410,7 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
     "reject an invalid amount on update" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val created = client
-        .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "FEE", amount = Some(BigDecimal("-1"))))
+        .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "FEE", amount = Some(BigDecimal("1"))))
         .futureValue
 
       val error = client
@@ -420,7 +420,7 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
         )
         .expectError
       error must be("Rule amount must not be zero")
-      client.getImportRules.futureValue.data.find(_.id == created.id).flatMap(_.amount) must be(Some(BigDecimal("-1")))
+      client.getImportRules.futureValue.data.find(_.id == created.id).flatMap(_.amount) must be(Some(BigDecimal("1")))
     }
   }
 

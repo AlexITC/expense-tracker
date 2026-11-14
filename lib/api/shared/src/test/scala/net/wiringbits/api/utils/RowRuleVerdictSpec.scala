@@ -111,14 +111,16 @@ class RowRuleVerdictSpec extends AnyWordSpec with Matchers {
       RowRuleVerdict.verdict(rules, "CAFETERIA CENTRAL", anyAmount) must be(RowRuleVerdict.Ignore)
     }
 
-    "apply a rule with an amount only to rows with that exact signed amount" in {
+    "apply a rule with an amount to rows matching that amount in magnitude, either sign" in {
       val cid = UUID.randomUUID()
-      val rules = List(setCategoryRule("cafeteria", cid, amount = Some(BigDecimal("-3.20"))))
+      val rules = List(setCategoryRule("cafeteria", cid, amount = Some(BigDecimal("3.20"))))
       RowRuleVerdict.verdict(rules, "CAFETERIA CENTRAL", BigDecimal("-3.2")) must be(
         RowRuleVerdict.SetCategory(cid, description = None)
       )
+      RowRuleVerdict.verdict(rules, "CAFETERIA CENTRAL", BigDecimal("3.20")) must be(
+        RowRuleVerdict.SetCategory(cid, description = None)
+      )
       RowRuleVerdict.verdict(rules, "CAFETERIA CENTRAL", BigDecimal("-4.00")) must be(RowRuleVerdict.NoRule)
-      RowRuleVerdict.verdict(rules, "CAFETERIA CENTRAL", BigDecimal("3.20")) must be(RowRuleVerdict.NoRule)
     }
 
     "prefer a set_category rule with an amount over a longer pattern-only set_category rule" in {

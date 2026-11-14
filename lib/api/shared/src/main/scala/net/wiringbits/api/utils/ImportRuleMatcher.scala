@@ -52,6 +52,7 @@ object ImportRuleMatcher {
 
   private def validateAmount(amount: Option[BigDecimal]): Either[String, Unit] =
     amount match {
+      case Some(a) if a.signum < 0 => Left("Rule amount must be a positive value")
       case Some(a) if a.signum == 0 => Left("Rule amount must not be zero")
       case Some(a) if a.scale > MaxAmountScale =>
         Left(s"Rule amount must have at most $MaxAmountScale decimal places")
@@ -96,13 +97,14 @@ object ImportRuleMatcher {
   def matches(rule: Rule, text: String): Boolean =
     normalize(text).contains(normalize(rule.pattern))
 
-  /** A rule with an amount matches only when the pattern matches and `amount` equals it exactly (sign included). A rule
-    * without an amount ignores `amount`.
+  /** A rule with an amount matches only when the pattern matches and `amount` equals it in magnitude. Sign is ignored,
+    * so a rule amount matches both a charge and an equal-magnitude refund, and a rule stored with a negative amount
+    * matches by its magnitude. A rule without an amount ignores `amount`.
     */
   def findMatches(rules: List[Rule], text: String, amount: Option[BigDecimal]): List[Rule] =
     rules.filter { r =>
       normalize(r.pattern).length >= MinPatternLength && matches(r, text) &&
-      r.amount.forall(ruleAmount => amount.exists(_.compare(ruleAmount) == 0))
+      r.amount.forall(ruleAmount => amount.exists(_.abs.compare(ruleAmount.abs) == 0))
     }
 
   // More criteria win (pattern + amount beats pattern only), then the longest normalized pattern.
@@ -127,15 +129,15 @@ object ImportRuleMatcher {
   // For receipts: only set_merchant rules apply. set_category is intentionally row-only — a receipt is a
   // merchant-centric document whose category follows its resolved merchant, so a description-pattern category
   // rule has no role here. Revisit if receipts ever need standalone categorization.
-  // `amount` is the receipt total, which is positive, while rule amounts follow the bank-row sign (a charge is
-  // negative), so it is compared as a charge: negated. The parser reports an unread total as 0, so 0 counts as
-  // unknown. An unknown total (None or 0) never matches a rule with an amount.
+  // `amount` is the receipt total, compared against the rule amount by magnitude (findMatches ignores sign). The
+  // parser reports an unread total as 0, so 0 counts as unknown; an unknown total (None or 0) never matches a rule
+  // with an amount.
   def findReceiptWinner(rules: List[Rule], merchantName: String, amount: Option[BigDecimal]): Option[Rule] =
     findWinner(
       findMatches(
         rules.filter(_.action.kind == ImportRuleActionKind.SetMerchant),
         merchantName,
-        amount.filter(_.signum != 0).map(-_)
+        amount.filter(_.signum != 0)
       )
     )
 }
