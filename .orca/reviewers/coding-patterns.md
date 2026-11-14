@@ -47,13 +47,14 @@ site to be reconsidered when the field is added. A default that biases to the
 empty/`false`/`None` value is the worst case, since an omission then fails
 silently and in the less-safe direction.
 
-Not: a default in the HTTP request/response wire layer, where defaulting a new
-parameter is the documented way to keep older callers working
-(`docs/design-decisions.md`); a default on test code (a fixture or helper under
-`src/test`), where terse construction is the point and no production behavior
-rides on it; a genuinely optional ergonomic knob whose default is unambiguously
-safe and drives no logic; or a two-phase lifecycle field filled in later by a
-known producer.
+This includes a request/response model in `lib/api/shared`: a new wire field is
+added without a default so every caller and Chimney transform is forced to
+account for it, rather than silently taking the default.
+
+Not: a default on test code (a fixture or helper under `src/test`), where terse
+construction is the point and no production behavior rides on it; a genuinely
+optional ergonomic knob whose default is unambiguously safe and drives no logic;
+or a two-phase lifecycle field filled in later by a known producer.
 
 ## No read-compat shims for regenerable persisted data
 A model serialized into a stored JSON column (e.g. `bank_statement_draft.payload`)
