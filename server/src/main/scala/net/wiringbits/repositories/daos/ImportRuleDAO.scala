@@ -16,6 +16,7 @@ object ImportRuleDAO {
       get[UUID]("user_id") ~
       str("action") ~
       str("pattern") ~
+      get[Option[BigDecimal]]("amount") ~
       get[Option[UUID]]("merchant_id") ~
       get[Option[String]]("merchant_name") ~
       get[Option[UUID]]("category_id") ~
@@ -25,7 +26,7 @@ object ImportRuleDAO {
       bool("auto_created") ~
       get[Instant]("created_at") ~
       get[Instant]("updated_at")).map {
-      case id ~ userId ~ action ~ pattern ~ merchantId ~ merchantName ~ categoryId ~ categoryName ~ overrideCategoryId ~ description ~ autoCreated ~ createdAt ~ updatedAt =>
+      case id ~ userId ~ action ~ pattern ~ amount ~ merchantId ~ merchantName ~ categoryId ~ categoryName ~ overrideCategoryId ~ description ~ autoCreated ~ createdAt ~ updatedAt =>
         ImportRule(
           id = id,
           userId = userId,
@@ -37,6 +38,7 @@ object ImportRuleDAO {
             description = description
           ),
           pattern = pattern,
+          amount = amount,
           merchantName = merchantName,
           categoryName = categoryName,
           autoCreated = autoCreated,
@@ -47,13 +49,14 @@ object ImportRuleDAO {
 
   def create(rule: ImportRule.Create)(implicit conn: Connection): Unit = {
     val _ = SQL"""
-      INSERT INTO merchant_rule (id, user_id, action, pattern, merchant_id, category_id, override_category_id, description,
+      INSERT INTO merchant_rule (id, user_id, action, pattern, amount, merchant_id, category_id, override_category_id, description,
         auto_created, created_at, updated_at)
       VALUES (
         ${rule.id.toString}::UUID,
         ${rule.userId.toString}::UUID,
         ${rule.action.entryName},
         ${rule.pattern},
+        ${rule.amount},
         ${rule.action.merchantIdOpt.map(_.toString)}::UUID,
         ${rule.action.categoryIdOpt.map(_.toString)}::UUID,
         ${rule.action.overrideCategoryIdOpt.map(_.toString)}::UUID,
@@ -67,13 +70,14 @@ object ImportRuleDAO {
 
   def createSetMerchantIfAbsent(rule: ImportRule.Create)(implicit conn: Connection): Unit = {
     val _ = SQL"""
-      INSERT INTO merchant_rule (id, user_id, action, pattern, merchant_id, category_id, override_category_id, description,
+      INSERT INTO merchant_rule (id, user_id, action, pattern, amount, merchant_id, category_id, override_category_id, description,
         auto_created, created_at, updated_at)
       VALUES (
         ${rule.id.toString}::UUID,
         ${rule.userId.toString}::UUID,
         ${rule.action.entryName},
         ${rule.pattern},
+        ${rule.amount},
         ${rule.action.merchantIdOpt.map(_.toString)}::UUID,
         ${rule.action.categoryIdOpt.map(_.toString)}::UUID,
         ${rule.action.overrideCategoryIdOpt.map(_.toString)}::UUID,
@@ -82,13 +86,13 @@ object ImportRuleDAO {
         ${rule.createdAt},
         ${rule.updatedAt}
       )
-      ON CONFLICT (user_id, pattern, merchant_id) WHERE action = 'set_merchant' DO NOTHING
+      ON CONFLICT (user_id, pattern, merchant_id, amount) WHERE action = 'set_merchant' DO NOTHING
       """.executeUpdate()
   }
 
   def all(userId: UUID)(implicit conn: Connection): List[ImportRule] =
     SQL"""
-      SELECT r.id, r.user_id, r.action, r.pattern, r.merchant_id,
+      SELECT r.id, r.user_id, r.action, r.pattern, r.amount, r.merchant_id,
              m.name AS merchant_name, r.category_id, COALESCE(c.name, oc.name) AS category_name,
              r.override_category_id, r.description, r.auto_created, r.created_at, r.updated_at
       FROM merchant_rule r
@@ -101,7 +105,7 @@ object ImportRuleDAO {
 
   def find(id: UUID, userId: UUID)(implicit conn: Connection): Option[ImportRule] =
     SQL"""
-      SELECT r.id, r.user_id, r.action, r.pattern, r.merchant_id,
+      SELECT r.id, r.user_id, r.action, r.pattern, r.amount, r.merchant_id,
              m.name AS merchant_name, r.category_id, COALESCE(c.name, oc.name) AS category_name,
              r.override_category_id, r.description, r.auto_created, r.created_at, r.updated_at
       FROM merchant_rule r
@@ -117,12 +121,14 @@ object ImportRuleDAO {
       userId: UUID,
       action: ImportRuleAction,
       pattern: String,
+      amount: Option[BigDecimal],
       updatedAt: Instant
   )(implicit conn: Connection): Unit = {
     val updated = SQL"""
       UPDATE merchant_rule
       SET action = ${action.entryName},
           pattern = $pattern,
+          amount = $amount,
           merchant_id = ${action.merchantIdOpt.map(_.toString)}::UUID,
           category_id = ${action.categoryIdOpt.map(_.toString)}::UUID,
           override_category_id = ${action.overrideCategoryIdOpt.map(_.toString)}::UUID,

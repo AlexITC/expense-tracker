@@ -31,7 +31,8 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
   private val matchingRule = ImportRuleMatcher.Rule(
     id = UUID.randomUUID(),
     action = ImportRuleAction.SetMerchant(merchantId, categoryId = None, description = None),
-    pattern = "Amazon"
+    pattern = "Amazon",
+    amount = None
   )
 
   private def makeRow(
@@ -247,7 +248,8 @@ class ReconciliationMatcherSpec extends AnyWordSpec {
       val ignoreRule = ImportRuleMatcher.Rule(
         id = UUID.randomUUID(),
         action = ImportRuleAction.Ignore,
-        pattern = "Amazon"
+        pattern = "Amazon",
+        amount = None
       )
       val row = makeRow()
       val expense = makeExpense()

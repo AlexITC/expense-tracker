@@ -52,7 +52,8 @@ object BankRowCreateRefundForm {
   ): (Option[GetMerchants.Response.Merchant], Option[UUID]) = {
     val verdict = RowRuleVerdict.verdict(
       ImportRuleMatcher.effectiveRules(ruleList, merchants.map(m => m.id -> m.name)),
-      row.description
+      row.description,
+      row.amount
     )
     val prefill = BankStatementReviewLogic.resolveRefund(verdict, merchants, row)
     (

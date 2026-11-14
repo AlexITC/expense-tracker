@@ -188,7 +188,8 @@ object MerchantList {
                 .createImportRule(
                   CreateImportRule.Request(
                     ImportRuleAction.SetMerchant(resp.id, categoryId = None, description = None),
-                    newRulePattern.trim
+                    newRulePattern.trim,
+                    amount = None
                   )
                 )
                 .onComplete {

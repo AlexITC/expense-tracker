@@ -136,7 +136,8 @@ class ReceiptsLogicSpec extends AnyWordSpec {
     val ruleToOther = ImportRuleMatcher.Rule(
       UUID.randomUUID(),
       ImportRuleAction.SetMerchant(other.id, categoryId = None, description = None),
-      "ACME"
+      "ACME",
+      amount = None
     )
     def receipt(
         amount: Option[BigDecimal] = Some(BigDecimal("12.50")),
@@ -185,11 +186,21 @@ class ReceiptsLogicSpec extends AnyWordSpec {
       val rule = ImportRuleMatcher.Rule(
         UUID.randomUUID(),
         ImportRuleAction.SetMerchant(unknown, categoryId = None, description = None),
-        "ACME"
+        "ACME",
+        amount = None
       )
       val form = ConfirmForm.fromReceipt(receipt(), merchants, List(rule))
       form.merchantId mustBe unknown.toString
       form.merchantInput mustBe ""
+    }
+
+    "apply a rule with an amount only when the receipt total matches it as a charge" in {
+      val ruleWithAmount = ruleToOther.copy(amount = Some(BigDecimal("-12.50")))
+      ConfirmForm.fromReceipt(receipt(), merchants, List(ruleWithAmount)).merchantId mustBe other.id.toString
+      ConfirmForm
+        .fromReceipt(receipt(amount = Some(BigDecimal("13.00"))), merchants, List(ruleWithAmount))
+        .merchantId mustBe ""
+      ConfirmForm.fromReceipt(receipt(amount = None), merchants, List(ruleWithAmount)).merchantId mustBe ""
     }
   }
 }

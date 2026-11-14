@@ -36,7 +36,7 @@ object ReconciliationMatcher {
   ): List[(GetBankStatement.StatementRowData, CreateExpenseFromRow.Request)] = {
     val effective = ImportRuleMatcher.effectiveRules(rules, merchants.map(m => m.id -> m.name))
     rows.flatMap { row =>
-      val merchantId = RowRuleVerdict.ruleMerchantId(effective, row.description)
+      val merchantId = RowRuleVerdict.ruleMerchantId(effective, row.description, row.amount)
       val catIdOpt = merchantId.flatMap(mid => merchants.find(_.id == mid).flatMap(_.categoryId))
       catIdOpt.map { catId =>
         val req = CreateExpenseFromRow.Request(
@@ -80,7 +80,7 @@ object ReconciliationMatcher {
         val action =
           if (receiptBacked.nonEmpty) actionFor(receiptBacked)
           else
-            RowRuleVerdict.ruleMerchantId(effective, row.description) match {
+            RowRuleVerdict.ruleMerchantId(effective, row.description, row.amount) match {
               case Some(ruleMerchantId) =>
                 val candidates = available.filter { expense =>
                   val amountMatch = row.amount.abs == expense.amount.abs

@@ -129,7 +129,7 @@ object BankStatementReviewLogic {
       aiSuggestions: Option[AiSuggestions],
       row: GetBankStatement.StatementRowData
   ): Option[ResolvedImport] =
-    resolveImport(RowRuleVerdict.verdict(ruleList, row.description), merchants, aiSuggestions, row)
+    resolveImport(RowRuleVerdict.verdict(ruleList, row.description, row.amount), merchants, aiSuggestions, row)
 
   /** Same as above, for a verdict the caller already computed for this row. */
   def resolveImport(
@@ -204,7 +204,7 @@ object BankStatementReviewLogic {
       aiSuggestions: Option[AiSuggestions],
       row: GetBankStatement.StatementRowData
   ): RowInfo = {
-    val verdict = RowRuleVerdict.verdict(ruleList, row.description)
+    val verdict = RowRuleVerdict.verdict(ruleList, row.description, row.amount)
     val resolved = if (row.amount < 0) resolveImport(verdict, merchants, aiSuggestions, row) else None
     val refund = resolveRefund(verdict, merchants, row)
     val prefillMerchantId = RowRuleVerdict.merchantId(verdict)

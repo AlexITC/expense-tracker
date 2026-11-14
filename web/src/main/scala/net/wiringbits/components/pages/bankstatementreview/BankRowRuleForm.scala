@@ -70,10 +70,13 @@ object BankRowRuleForm {
           case ImportRuleActionKind.Ignore =>
             setSaving(true)
             props.ctx.api.client
-              .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, trimmedPattern))
+              .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, trimmedPattern, amount = None))
               .onComplete {
                 case Success(resp) =>
-                  props.onSuccess(ImportRuleMatcher.Rule(resp.id, ImportRuleAction.Ignore, trimmedPattern), None)
+                  props.onSuccess(
+                    ImportRuleMatcher.Rule(resp.id, ImportRuleAction.Ignore, trimmedPattern, amount = None),
+                    None
+                  )
                 case Failure(ex) =>
                   setError(ex.getMessage)
                   setSaving(false)
@@ -123,7 +126,8 @@ object BankRowRuleForm {
                     .createImportRule(
                       CreateImportRule.Request(
                         ImportRuleAction.SetMerchant(mid, categoryId = None, description = None),
-                        trimmedPattern
+                        trimmedPattern,
+                        amount = None
                       )
                     )
                     .map(resp =>
@@ -131,7 +135,8 @@ object BankRowRuleForm {
                         ImportRuleMatcher.Rule(
                           resp.id,
                           ImportRuleAction.SetMerchant(mid, categoryId = None, description = None),
-                          trimmedPattern
+                          trimmedPattern,
+                          amount = None
                         ),
                         newMerchantOpt
                       )
@@ -153,11 +158,20 @@ object BankRowRuleForm {
                 .flatMap { cid =>
                   props.ctx.api.client
                     .createImportRule(
-                      CreateImportRule.Request(ImportRuleAction.SetCategory(cid, description = None), trimmedPattern)
+                      CreateImportRule.Request(
+                        ImportRuleAction.SetCategory(cid, description = None),
+                        trimmedPattern,
+                        amount = None
+                      )
                     )
                     .map(resp =>
                       ImportRuleMatcher
-                        .Rule(resp.id, ImportRuleAction.SetCategory(cid, description = None), trimmedPattern)
+                        .Rule(
+                          resp.id,
+                          ImportRuleAction.SetCategory(cid, description = None),
+                          trimmedPattern,
+                          amount = None
+                        )
                     )
                 }
                 .onComplete {

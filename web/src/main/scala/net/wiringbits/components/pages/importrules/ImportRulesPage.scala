@@ -101,6 +101,10 @@ object ImportRuleList {
       case _ => ImportRuleAction.SetMerchant(merchantId, categoryId = None, description = None)
     }
 
+  /** The amount an edit saves: the editor has no amount input, so the rule's stored amount is kept, not cleared. */
+  def currentAmount(rules: Seq[GetImportRules.Rule], ruleId: UUID): Option[BigDecimal] =
+    rules.find(_.id == ruleId).flatMap(_.amount)
+
   /** The SetCategory action an edit saves, carrying over the description of a rule that is already SetCategory. */
   def editedSetCategory(current: Option[ImportRuleAction], categoryId: UUID): ImportRuleAction.SetCategory =
     current match {
@@ -211,7 +215,7 @@ object ImportRuleList {
       newAction match {
         case ImportRuleActionKind.Ignore =>
           props.ctx.api.client
-            .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, newPattern))
+            .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, newPattern, amount = None))
             .onComplete {
               case Success(_) =>
                 setNewPattern(""); setNewMerchantInput(""); setNewMerchantIdOpt(None); setError(""); props.onRefresh()
@@ -227,7 +231,11 @@ object ImportRuleList {
                 props.ctx.api.client
                   .createImportRule(
                     CreateImportRule
-                      .Request(ImportRuleAction.SetMerchant(mid, categoryId = None, description = None), newPattern)
+                      .Request(
+                        ImportRuleAction.SetMerchant(mid, categoryId = None, description = None),
+                        newPattern,
+                        amount = None
+                      )
                   )
               }
               .onComplete {
@@ -244,7 +252,11 @@ object ImportRuleList {
               .flatMap { cid =>
                 props.ctx.api.client
                   .createImportRule(
-                    CreateImportRule.Request(ImportRuleAction.SetCategory(cid, description = None), newPattern)
+                    CreateImportRule.Request(
+                      ImportRuleAction.SetCategory(cid, description = None),
+                      newPattern,
+                      amount = None
+                    )
                   )
               }
               .onComplete {
@@ -268,7 +280,10 @@ object ImportRuleList {
       editAction match {
         case ImportRuleActionKind.Ignore =>
           props.ctx.api.client
-            .updateImportRule(ruleId, UpdateImportRule.Request(ImportRuleAction.Ignore, editPattern))
+            .updateImportRule(
+              ruleId,
+              UpdateImportRule.Request(ImportRuleAction.Ignore, editPattern, currentAmount(props.rules.data, ruleId))
+            )
             .onComplete {
               case Success(_) =>
                 setEditingId(None); setEditPattern(""); setEditMerchantInput(""); setEditMerchantIdOpt(None)
@@ -285,7 +300,11 @@ object ImportRuleList {
                 props.ctx.api.client
                   .updateImportRule(
                     ruleId,
-                    UpdateImportRule.Request(editedSetMerchant(currentAction(ruleId), mid), editPattern)
+                    UpdateImportRule.Request(
+                      editedSetMerchant(currentAction(ruleId), mid),
+                      editPattern,
+                      currentAmount(props.rules.data, ruleId)
+                    )
                   )
               }
               .onComplete {
@@ -304,7 +323,11 @@ object ImportRuleList {
                 props.ctx.api.client
                   .updateImportRule(
                     ruleId,
-                    UpdateImportRule.Request(editedSetCategory(currentAction(ruleId), cid), editPattern)
+                    UpdateImportRule.Request(
+                      editedSetCategory(currentAction(ruleId), cid),
+                      editPattern,
+                      currentAmount(props.rules.data, ruleId)
+                    )
                   )
               }
               .onComplete {

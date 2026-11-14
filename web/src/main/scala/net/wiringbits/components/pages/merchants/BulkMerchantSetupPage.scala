@@ -49,7 +49,7 @@ object BulkMerchantSetupPage {
     val effective = ImportRuleMatcher.effectiveRules(rules, merchants.map(m => m.id -> m.name))
     rows
       .filter(r => r.amount < 0 && r.expenseId.isEmpty && r.ignoredAt.isEmpty)
-      .filterNot(r => ImportRuleMatcher.findRowWinner(effective, r.description).isDefined)
+      .filterNot(r => ImportRuleMatcher.findRowWinner(effective, r.description, r.amount).isDefined)
       .groupBy(_.description)
       .view
       .mapValues(_.sortBy(_.date))
@@ -300,7 +300,8 @@ object DescriptionRow {
           ruleResp <- props.ctx.api.client.createImportRule(
             CreateImportRule.Request(
               action = ImportRuleAction.SetMerchant(resolvedMerchantId, categoryId = None, description = None),
-              pattern = props.description
+              pattern = props.description,
+              amount = None
             )
           )
 
@@ -310,7 +311,8 @@ object DescriptionRow {
                 .createImportRule(
                   CreateImportRule.Request(
                     action = ImportRuleAction.SetMerchant(resolvedMerchantId, categoryId = None, description = None),
-                    pattern = merchantName
+                    pattern = merchantName,
+                    amount = None
                   )
                 )
                 .recover { case _ => ruleResp }
@@ -319,7 +321,8 @@ object DescriptionRow {
           val rule = ImportRuleMatcher.Rule(
             id = ruleResp.id,
             action = ImportRuleAction.SetMerchant(resolvedMerchantId, categoryId = None, description = None),
-            pattern = props.description
+            pattern = props.description,
+            amount = None
           )
           props.onDone(rule, newMerchantOpt, newCategoryOpt)
         }
@@ -337,7 +340,8 @@ object DescriptionRow {
         .createImportRule(
           CreateImportRule.Request(
             action = ImportRuleAction.Ignore,
-            pattern = props.description
+            pattern = props.description,
+            amount = None
           )
         )
         .onComplete {
@@ -345,7 +349,8 @@ object DescriptionRow {
             val rule = ImportRuleMatcher.Rule(
               id = resp.id,
               action = ImportRuleAction.Ignore,
-              pattern = props.description
+              pattern = props.description,
+              amount = None
             )
             setSave(SaveState.Idle)
             props.onDone(rule, None, None)

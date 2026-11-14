@@ -50,7 +50,8 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
     ImportRuleMatcher.Rule(
       UUID.randomUUID(),
       ImportRuleAction.SetMerchant(oxxo.id, categoryId = None, description = None),
-      "OXXO"
+      "OXXO",
+      amount = None
     )
 
   // A description that matches no merchant name, so only the AI suggestion can prefill the form.
@@ -77,7 +78,8 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
       val bareRule = ImportRuleMatcher.Rule(
         UUID.randomUUID(),
         ImportRuleAction.SetMerchant(bare.id, categoryId = None, description = None),
-        "OXXO"
+        "OXXO",
+        amount = None
       )
       val ai = suggestion(Some(cafe.id), Some(dining.id))
       BankRowCreateExpenseForm.initialSelection(row, List(bareRule), bare :: merchants, categories, Some(ai)) mustBe
@@ -85,7 +87,7 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
     }
 
     "fall through to the AI suggestion when the winning rule is an Ignore rule" in {
-      val ignoreRule = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "OXXO")
+      val ignoreRule = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "OXXO", amount = None)
       val ai = suggestion(Some(cafe.id), Some(dining.id))
       BankRowCreateExpenseForm.initialSelection(row, List(ignoreRule), merchants, categories, Some(ai)) mustBe
         (Some(cafe), Some(dining.id))
@@ -96,7 +98,8 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
         ImportRuleMatcher.Rule(
           UUID.randomUUID(),
           ImportRuleAction.SetMerchant(UUID.randomUUID(), categoryId = None, description = None),
-          "OXXO"
+          "OXXO",
+          amount = None
         )
       val ai = suggestion(Some(cafe.id), Some(dining.id))
       BankRowCreateExpenseForm.initialSelection(row, List(staleRule), merchants, categories, Some(ai)) mustBe
@@ -108,7 +111,8 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
         ImportRuleMatcher.Rule(
           UUID.randomUUID(),
           ImportRuleAction.SetCategory(groceries.id, description = None),
-          "POS 4411"
+          "POS 4411",
+          amount = None
         )
       val ai = suggestion(Some(cafe.id), Some(dining.id))
       BankRowCreateExpenseForm.initialSelection(unmatchedRow, List(setCategory), merchants, categories, Some(ai)) mustBe
@@ -120,7 +124,8 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
         ImportRuleMatcher.Rule(
           UUID.randomUUID(),
           ImportRuleAction.SetCategory(UUID.randomUUID(), description = None),
-          "POS 4411"
+          "POS 4411",
+          amount = None
         )
       val ai = suggestion(Some(cafe.id), Some(dining.id))
       BankRowCreateExpenseForm.initialSelection(unmatchedRow, List(staleRule), merchants, categories, Some(ai)) mustBe
@@ -132,7 +137,8 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
         ImportRuleMatcher.Rule(
           UUID.randomUUID(),
           ImportRuleAction.SetCategory(dining.id, description = None),
-          "OXXO STORE"
+          "OXXO STORE",
+          amount = None
         )
       BankRowCreateExpenseForm.initialSelection(row, List(setCategory), merchants, categories, None) mustBe
         (Some(oxxo), Some(groceries.id))
@@ -173,7 +179,8 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
         ImportRuleMatcher.Rule(
           UUID.randomUUID(),
           ImportRuleAction.SetCategory(groceries.id, description = None),
-          "POS 4411"
+          "POS 4411",
+          amount = None
         )
       BankRowCreateExpenseForm.initialMerchantInput(
         unmatchedRow,
@@ -217,14 +224,15 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
         ImportRuleMatcher.Rule(
           UUID.randomUUID(),
           ImportRuleAction.SetMerchant(oxxo.id, categoryId = None, description = None),
-          "OXXO STORE"
+          "OXXO STORE",
+          amount = None
         )
       BankRowCreateExpenseForm.ruleHint(row, List(aliasRule), "Oxxo") mustBe
         BankRowCreateExpenseForm.RuleHint.CoveredByRule("OXXO STORE")
     }
 
     "return CoveredByRule when an explicit Ignore rule matches" in {
-      val ignoreRule = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "OXXO STORE")
+      val ignoreRule = ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "OXXO STORE", amount = None)
       BankRowCreateExpenseForm.ruleHint(row, List(ignoreRule), "Oxxo") mustBe
         BankRowCreateExpenseForm.RuleHint.CoveredByRule("OXXO STORE")
     }

@@ -10,6 +10,7 @@ case class ImportRule(
     userId: UUID,
     action: ImportRuleAction,
     pattern: String,
+    amount: Option[BigDecimal],
     merchantName: Option[String],
     categoryName: Option[String],
     autoCreated: Boolean,
@@ -23,6 +24,7 @@ object ImportRule {
       userId: UUID,
       action: ImportRuleAction,
       pattern: String,
+      amount: Option[BigDecimal],
       autoCreated: Boolean,
       createdAt: Instant,
       updatedAt: Instant

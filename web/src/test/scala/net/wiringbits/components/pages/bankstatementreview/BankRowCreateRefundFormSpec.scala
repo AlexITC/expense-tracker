@@ -35,7 +35,7 @@ class BankRowCreateRefundFormSpec extends AnyWordSpec {
     GetMerchants.Response.Merchant(UUID.randomUUID(), name, None, categoryId, None, reviewed = true, Instant.EPOCH)
 
   private def rule(action: ImportRuleAction): ImportRuleMatcher.Rule =
-    ImportRuleMatcher.Rule(UUID.randomUUID(), action, "OXXO")
+    ImportRuleMatcher.Rule(UUID.randomUUID(), action, "OXXO", amount = None)
 
   "initialSelection" should {
     "prefill a SetMerchant rule's merchant and its default category" in {

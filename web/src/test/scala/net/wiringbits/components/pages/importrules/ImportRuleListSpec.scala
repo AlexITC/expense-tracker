@@ -44,6 +44,7 @@ class ImportRuleListSpec extends AnyWordSpec with ReactTestDom {
         ImportRuleAction.SetMerchant(UUID.randomUUID(), categoryId = None, description = None)
       ),
       pattern = pattern,
+      amount = None,
       merchantName = merchantName,
       categoryName = None,
       autoCreated = autoCreated,
@@ -102,8 +103,17 @@ class ImportRuleListSpec extends AnyWordSpec with ReactTestDom {
     "copy id, action, pattern, merchant and category" in {
       val r = categoryRule("uber", "Transport")
       ImportRuleMatcher.Rule.fromApi(r) must be(
-        ImportRuleMatcher.Rule(r.id, r.action, "uber")
+        ImportRuleMatcher.Rule(r.id, r.action, "uber", amount = None)
       )
+    }
+  }
+
+  "currentAmount" should {
+    "return the stored amount of the edited rule, so an edit keeps it" in {
+      val withAmount = rule("AMZN").copy(amount = Some(BigDecimal("-9.99")))
+      val plain = rule("FEE")
+      ImportRuleList.currentAmount(List(plain, withAmount), withAmount.id) must be(Some(BigDecimal("-9.99")))
+      ImportRuleList.currentAmount(List(plain, withAmount), plain.id) must be(None)
     }
   }
 

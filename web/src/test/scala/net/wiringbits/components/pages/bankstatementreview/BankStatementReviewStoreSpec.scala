@@ -129,6 +129,7 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
         "SUPERMARKET",
         None,
         None,
+        None,
         autoCreated = false,
         Instant.EPOCH,
         Instant.EPOCH
@@ -259,7 +260,8 @@ class BankStatementReviewStoreSpec extends AnyWordSpec {
       val rule = ImportRuleMatcher.Rule(
         UUID.randomUUID(),
         ImportRuleAction.SetCategory(UUID.randomUUID(), description = None),
-        "SUPERMARKET"
+        "SUPERMARKET",
+        amount = None
       )
       store.updateSupport(_.withRule(rule))
       store.$support() mustBe Loadable.Loaded(emptySupport.withRule(rule))

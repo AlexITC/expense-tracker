@@ -48,7 +48,8 @@ class TelegramExpenseService @Inject() (
                   rules.map(_.transformInto[ImportRuleMatcher.Rule]),
                   merchants.map(m => m.id -> m.name)
                 )
-                ImportRuleMatcher.findRowWinner(matchRules, normalizedName) match {
+                // The message amount is a positive expense total; rule amounts follow the bank-row sign (charge < 0).
+                ImportRuleMatcher.findRowWinner(matchRules, normalizedName, -msg.amount) match {
                   case Some(w) =>
                     w.action match {
                       case ImportRuleAction.Ignore =>

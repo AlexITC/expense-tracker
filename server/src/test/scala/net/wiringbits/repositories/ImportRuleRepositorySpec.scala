@@ -142,6 +142,71 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
   }
 
+  "create with an amount" should {
+    "persist the amount" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val id = createImportRule(user.id, pattern = "groceries", amount = Some(BigDecimal("-12.50"))).futureValue
+
+      repositories.importRules.find(id, user.id).futureValue.value.amount must be(Some(BigDecimal("-12.50")))
+      repositories.importRules.all(user.id).futureValue.find(_.id == id).value.amount must be(
+        Some(BigDecimal("-12.50"))
+      )
+    }
+
+    "allow the same pattern with different amounts and without an amount" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val merchant = createMerchant(user.id).futureValue
+        def setMerchant(amount: Option[BigDecimal]) =
+          createImportRule(
+            user.id,
+            pattern = "amazon",
+            amount = amount,
+            action = ImportRuleActionKind.SetMerchant,
+            merchantId = Some(merchant.id)
+          ).futureValue
+
+        setMerchant(None)
+        setMerchant(Some(BigDecimal("-10.00")))
+        setMerchant(Some(BigDecimal("-20.00")))
+
+        repositories.importRules.all(user.id).futureValue.flatMap(_.amount).toSet must be(
+          Set(BigDecimal("-10.00"), BigDecimal("-20.00"))
+        )
+    }
+
+    "reject a duplicate pattern and amount" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val category = createCategory(user.id).futureValue
+      def setCategory(amount: Option[BigDecimal]) = createImportRule(
+        user.id,
+        pattern = "cafe",
+        amount = amount,
+        action = ImportRuleActionKind.SetCategory,
+        categoryId = Some(category.id)
+      )
+
+      setCategory(Some(BigDecimal("-3.20"))).futureValue
+      setCategory(Some(BigDecimal("-3.2"))).failed.futureValue.getMessage must be(
+        "A rule with that pattern, amount and category already exists"
+      )
+      setCategory(None).futureValue
+      setCategory(None).failed.futureValue.getMessage must be(
+        "A rule with that pattern, amount and category already exists"
+      )
+    }
+
+    "reject a duplicate ignore rule without an amount" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      createImportRule(user.id, pattern = "fee").futureValue
+      createImportRule(user.id, pattern = "fee", amount = Some(BigDecimal("-1"))).futureValue
+
+      createImportRule(user.id, pattern = "fee").failed.futureValue.getMessage must be(
+        "An ignore rule with that pattern and amount already exists"
+      )
+    }
+  }
+
   "all" should {
     "return only the requesting user's rules" in withRepositories() { implicit repositories =>
       val userA = createUser().futureValue
@@ -227,6 +292,25 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
       repositories.importRules.all(userA.id).futureValue must be(empty)
     }
 
+    "add the amount-less rule next to a rule with an amount, once" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val merchant = createMerchant(user.id).futureValue
+      createImportRule(
+        user.id,
+        pattern = "amazon",
+        amount = Some(BigDecimal("-9.99")),
+        action = ImportRuleActionKind.SetMerchant,
+        merchantId = Some(merchant.id)
+      ).futureValue
+
+      repositories.importRules.createSetMerchantIfAbsent(user.id, merchant.id, "amazon").futureValue
+      repositories.importRules.createSetMerchantIfAbsent(user.id, merchant.id, "amazon").futureValue
+
+      repositories.importRules.all(user.id).futureValue.map(_.amount).toSet must be(
+        Set(None, Some(BigDecimal("-9.99")))
+      )
+    }
+
     "leave an existing manual rule untouched" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val merchant = createMerchant(user.id).futureValue
@@ -256,7 +340,8 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
           id,
           user.id,
           ImportRuleAction.SetMerchant(merchant.id, categoryId = None, description = None),
-          "new-pattern"
+          "new-pattern",
+          amount = None
         )
         .futureValue
 
@@ -265,19 +350,32 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
       updated.value.action must be(ImportRuleAction.SetMerchant(merchant.id, categoryId = None, description = None))
     }
 
+    "set and clear the amount" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val id = createImportRule(user.id, pattern = "fee").futureValue
+
+      repositories.importRules
+        .update(id, user.id, ImportRuleAction.Ignore, "fee", Some(BigDecimal("-1.50")))
+        .futureValue
+      repositories.importRules.find(id, user.id).futureValue.value.amount must be(Some(BigDecimal("-1.50")))
+
+      repositories.importRules.update(id, user.id, ImportRuleAction.Ignore, "fee", amount = None).futureValue
+      repositories.importRules.find(id, user.id).futureValue.value.amount must be(None)
+    }
+
     "set and clear the category by changing the action" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val category = createCategory(user.id, name = "Groceries").futureValue
       val id = createImportRule(user.id, pattern = "walmart").futureValue
 
       repositories.importRules
-        .update(id, user.id, ImportRuleAction.SetCategory(category.id, description = None), "walmart")
+        .update(id, user.id, ImportRuleAction.SetCategory(category.id, description = None), "walmart", amount = None)
         .futureValue
       val withCategory = repositories.importRules.find(id, user.id).futureValue.value
       withCategory.action must be(ImportRuleAction.SetCategory(category.id, description = None))
       withCategory.categoryName must be(Some("Groceries"))
 
-      repositories.importRules.update(id, user.id, ImportRuleAction.Ignore, "walmart").futureValue
+      repositories.importRules.update(id, user.id, ImportRuleAction.Ignore, "walmart", amount = None).futureValue
       val cleared = repositories.importRules.find(id, user.id).futureValue.value
       cleared.action must be(ImportRuleAction.Ignore)
       cleared.categoryName must be(None)
@@ -296,13 +394,13 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
 
       val withExtras =
         ImportRuleAction.SetMerchant(merchant.id, categoryId = Some(category.id), description = Some("Coffee"))
-      repositories.importRules.update(id, user.id, withExtras, "cafe").futureValue
+      repositories.importRules.update(id, user.id, withExtras, "cafe", amount = None).futureValue
       val updated = repositories.importRules.find(id, user.id).futureValue.value
       updated.action must be(withExtras)
       updated.categoryName must be(Some("Dining"))
 
       val plain = ImportRuleAction.SetMerchant(merchant.id, categoryId = None, description = None)
-      repositories.importRules.update(id, user.id, plain, "cafe").futureValue
+      repositories.importRules.update(id, user.id, plain, "cafe", amount = None).futureValue
       val cleared = repositories.importRules.find(id, user.id).futureValue.value
       cleared.action must be(plain)
       cleared.categoryName must be(None)
@@ -324,7 +422,8 @@ class ImportRuleRepositorySpec extends RepositorySpec with RepositoryUtils {
         id,
         user.id,
         ImportRuleAction.SetMerchant(merchant.id, categoryId = Some(foreignCategory.id), description = None),
-        "cafe"
+        "cafe",
+        amount = None
       )
       result.failed.futureValue.getMessage must be("Category not found")
       repositories.importRules.find(id, user.id).futureValue.value.action.overrideCategoryIdOpt must be(None)

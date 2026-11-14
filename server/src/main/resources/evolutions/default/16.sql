@@ -12,3 +12,21 @@ CREATE INDEX merchant_rule_override_category_id_index ON merchant_rule USING BTR
 -- Set-merchant and set-category rules can carry a description for the created record (NULL means none).
 ALTER TABLE merchant_rule
   ADD COLUMN description TEXT NULL;
+
+-- A rule can also require an exact signed row amount (a charge is negative). NULL means any amount.
+ALTER TABLE merchant_rule
+  ADD COLUMN amount NUMERIC(12,2) NULL;
+
+-- The unique indexes include the amount so a pattern+amount rule can coexist with the pattern-only rule.
+-- NULLS NOT DISTINCT keeps two pattern-only (NULL amount) rules a conflict, as before.
+DROP INDEX merchant_rule_ignore_unique;
+CREATE UNIQUE INDEX merchant_rule_ignore_unique ON merchant_rule (user_id, pattern, amount) NULLS NOT DISTINCT
+  WHERE action = 'ignore';
+
+DROP INDEX merchant_rule_set_merchant_unique;
+CREATE UNIQUE INDEX merchant_rule_set_merchant_unique ON merchant_rule (user_id, pattern, merchant_id, amount) NULLS NOT DISTINCT
+  WHERE action = 'set_merchant';
+
+DROP INDEX merchant_rule_set_category_unique;
+CREATE UNIQUE INDEX merchant_rule_set_category_unique ON merchant_rule (user_id, pattern, category_id, amount) NULLS NOT DISTINCT
+  WHERE action = 'set_category';

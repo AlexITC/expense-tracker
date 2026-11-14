@@ -18,6 +18,7 @@ class GetImportRulesAction @Inject() (
           id = r.id,
           action = r.action,
           pattern = r.pattern,
+          amount = r.amount,
           merchantName = r.merchantName,
           categoryName = r.categoryName,
           autoCreated = r.autoCreated,

@@ -16,9 +16,13 @@ class CreateImportRuleAction @Inject() (ruleRepository: ImportRuleRepository)(im
         new RuntimeException(s"Rule pattern must be at least ${ImportRuleMatcher.MinPatternLength} characters")
       )
     else
-      ImportRuleAction.validateDescription(request.action) match {
+      ImportRuleAction
+        .validateDescription(request.action)
+        .flatMap(_ => ImportRuleMatcher.validateAmount(request.amount)) match {
         case Left(error) => Future.failed(new RuntimeException(error))
         case Right(()) =>
-          ruleRepository.create(userId, request.action, request.pattern).map(CreateImportRule.Response(_))
+          ruleRepository
+            .create(userId, request.action, request.pattern, request.amount)
+            .map(CreateImportRule.Response(_))
       }
 }

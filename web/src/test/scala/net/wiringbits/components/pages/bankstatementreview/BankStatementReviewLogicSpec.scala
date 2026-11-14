@@ -133,7 +133,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         case ImportRuleActionKind.SetCategory => ImportRuleAction.SetCategory(UUID.randomUUID(), description = None)
         case ImportRuleActionKind.Ignore => ImportRuleAction.Ignore
       }
-      ImportRuleMatcher.Rule(UUID.randomUUID(), a, pattern)
+      ImportRuleMatcher.Rule(UUID.randomUUID(), a, pattern, amount = None)
     }
 
     def done(rows: AiSuggestions.RowSuggestion*): Option[AiSuggestions] =
@@ -201,7 +201,12 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       val row = sampleRow("SUPERMARKET")
       val c = UUID.randomUUID()
       val setCategory =
-        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory(c, description = None), "SUPERMARKET")
+        ImportRuleMatcher.Rule(
+          UUID.randomUUID(),
+          ImportRuleAction.SetCategory(c, description = None),
+          "SUPERMARKET",
+          amount = None
+        )
       BankStatementReviewLogic.resolveImport(
         List(setCategory),
         Nil,
@@ -218,7 +223,8 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         ImportRuleMatcher.Rule(
           UUID.randomUUID(),
           ImportRuleAction.SetCategory(UUID.randomUUID(), description = None),
-          "SUPERMARKET 0042"
+          "SUPERMARKET 0042",
+          amount = None
         )
       BankStatementReviewLogic.resolveImport(
         List(rule(ImportRuleActionKind.SetMerchant, "SUPERMARKET", Some(m)), setCategory),
@@ -500,7 +506,14 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
         case ImportRuleActionKind.SetCategory => ImportRuleAction.SetCategory(UUID.randomUUID(), description = None)
         case ImportRuleActionKind.Ignore => ImportRuleAction.Ignore
       }
-      ImportRuleMatcher.Rule(UUID.randomUUID(), a, pattern)
+      ImportRuleMatcher.Rule(UUID.randomUUID(), a, pattern, amount = None)
+    }
+
+    "apply a rule with an amount only to a row with that exact amount" in {
+      val withAmount = rule(ImportRuleActionKind.Ignore, "SUPERMARKET", None).copy(amount = Some(BigDecimal("-120.00")))
+      rowInfo(List(withAmount), Nil, Nil, None, sampleRow()).verdict mustBe RowRuleVerdict.Ignore
+      rowInfo(List(withAmount), Nil, Nil, None, sampleRow().copy(amount = BigDecimal("-121.00"))).verdict mustBe
+        RowRuleVerdict.NoRule
     }
 
     "mark an unprocessed negative row with an Ignore rule as ready, with nothing to import" in {
@@ -557,7 +570,8 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       )
       val info = rowInfo(
         List(
-          ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory(c, description = None), "SUPERMARKET")
+          ImportRuleMatcher
+            .Rule(UUID.randomUUID(), ImportRuleAction.SetCategory(c, description = None), "SUPERMARKET", amount = None)
         ),
         Nil,
         List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
@@ -684,7 +698,8 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       val c = UUID.randomUUID()
       val info = rowInfo(
         List(
-          ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.SetCategory(c, description = None), "SUPERMARKET")
+          ImportRuleMatcher
+            .Rule(UUID.randomUUID(), ImportRuleAction.SetCategory(c, description = None), "SUPERMARKET", amount = None)
         ),
         Nil,
         List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
@@ -889,7 +904,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
     "ignore an ignore-matched credit row" in {
       val credit = sampleRow().copy(amount = BigDecimal("10.00"))
       val creditInfo = BankStatementReviewLogic.rowInfo(
-        List(ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "SUPERMARKET")),
+        List(ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "SUPERMARKET", amount = None)),
         Nil,
         Nil,
         None,
@@ -906,7 +921,8 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
           ImportRuleMatcher.Rule(
             UUID.randomUUID(),
             ImportRuleAction.SetMerchant(m, categoryId = None, description = None),
-            "SUPERMARKET"
+            "SUPERMARKET",
+            amount = None
           )
         ),
         List(GetMerchants.Response.Merchant(m, "Walmart", None, None, None, reviewed = true, Instant.EPOCH)),
@@ -1428,7 +1444,8 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       ImportRuleMatcher.Rule(
         UUID.randomUUID(),
         ImportRuleAction.SetCategory(UUID.randomUUID(), description = None),
-        pattern
+        pattern,
+        amount = None
       )
     def expense() = GetExpenses.Response.Expense(
       id = UUID.randomUUID(),

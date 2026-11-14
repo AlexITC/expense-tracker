@@ -1,5 +1,6 @@
 package net.wiringbits.actions.documents
 
+import net.wiringbits.api.models.merchants.ImportRuleActionKind
 import net.wiringbits.apis.{JevChoice, JevClient, JevRateLimitedException, TelegramApi, TextractApiType}
 import net.wiringbits.config.{JevConfig, WebAppConfig}
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
@@ -263,6 +264,51 @@ class ParseReceiptActionSpec extends RepositorySpec with RepositoryUtils {
       jev.calls.get() mustBe 0
       storedClassification(doc) mustBe empty
       verifyParsed(doc, telegramApi, text = "Receipt ready.")
+    }
+  }
+
+  "apply (import rules with an amount)" should {
+    // The voucher's vendor is EXAMPLE BANK and its total 12.34; rule amounts are charges, so negative.
+    def parseWithRuleAmount(ruleAmount: Option[BigDecimal], textract: JsValue = voucherTextractJson)(using
+        repositories: RepositoryComponents
+    ): (UUID, Option[UUID]) = {
+      val doc = createTelegramReceipt(textract)
+      val merchant = createMerchant(doc.userId).futureValue
+      createImportRule(
+        doc.userId,
+        pattern = "example bank",
+        amount = ruleAmount,
+        action = ImportRuleActionKind.SetMerchant,
+        merchantId = Some(merchant.id)
+      ).futureValue
+      val telegramApi = new FakeTelegramApi()(using executionContext)
+
+      newAction(realClassifier(stubJev("purchase_ticket")), telegramApi)(doc.documentId).futureValue
+
+      (merchant.id, repositories.receipts.find(doc.receiptId, doc.userId).futureValue.value.merchantId)
+    }
+
+    "set the merchant when the receipt total equals the rule amount" in withRepositories() { implicit repositories =>
+      val (merchantId, assigned) = parseWithRuleAmount(Some(BigDecimal("-12.34")))
+      assigned must be(Some(merchantId))
+    }
+
+    "not use the rule's merchant when the receipt total differs" in withRepositories() { implicit repositories =>
+      val (merchantId, assigned) = parseWithRuleAmount(Some(BigDecimal("-12.35")))
+      // No rule matched, so the receipt gets a pending merchant named after the vendor instead.
+      assigned must not be empty
+      assigned must not be Some(merchantId)
+    }
+
+    "treat a parsed total of 0 as unknown: amount rules do not apply, amount-less rules do" in withRepositories() {
+      implicit repositories =>
+        val zeroTotal = Json.parse(Json.stringify(voucherTextractJson).replace("12.34", "0.00"))
+        // The API rejects a zero rule amount, so any amount rule shows the 0 total never matches.
+        val (amountRuleMerchant, assigned) = parseWithRuleAmount(Some(BigDecimal("-12.34")), zeroTotal)
+        assigned must not be Some(amountRuleMerchant)
+
+        val (plainRuleMerchant, assignedByPlain) = parseWithRuleAmount(None, zeroTotal)
+        assignedByPlain must be(Some(plainRuleMerchant))
     }
   }
 }

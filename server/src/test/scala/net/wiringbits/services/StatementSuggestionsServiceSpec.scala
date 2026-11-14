@@ -118,16 +118,18 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       val credit = row("SALARY ACME", BigDecimal(1000))
       val pending = row("CORNER SHOP 42")
       val rules = List(
-        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "bank fee"),
+        ImportRuleMatcher.Rule(UUID.randomUUID(), ImportRuleAction.Ignore, "bank fee", amount = None),
         ImportRuleMatcher.Rule(
           UUID.randomUUID(),
           ImportRuleAction.SetMerchant(UUID.randomUUID(), categoryId = None, description = None),
-          "netflix"
+          "netflix",
+          amount = None
         ),
         ImportRuleMatcher.Rule(
           UUID.randomUUID(),
           ImportRuleAction.SetMerchant(UUID.randomUUID(), categoryId = None, description = None),
-          "spotify"
+          "spotify",
+          amount = None
         )
       )
       val client = stub("Groceries")
@@ -391,7 +393,8 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       val rule = ImportRuleMatcher.Rule(
         UUID.randomUUID(),
         ImportRuleAction.SetCategory(UUID.randomUUID(), description = None),
-        "cafeteria"
+        "cafeteria",
+        amount = None
       )
 
       StatementSuggestionsService.selectRowsToResolve(
@@ -399,6 +402,23 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
         List(rule),
         Nil
       ) must be(StatementSuggestionsService.RowSelection(List(pending), creditsSkipped = 0, ruleSkipped = 1))
+    }
+
+    "skip by rule only the debit row with the rule's exact amount" in {
+      val matching = row("CAFETERIA CENTRAL", BigDecimal("-3.20"))
+      val other = row("CAFETERIA CENTRAL", BigDecimal("-4.00"))
+      val rule = ImportRuleMatcher.Rule(
+        UUID.randomUUID(),
+        ImportRuleAction.SetCategory(UUID.randomUUID(), description = None),
+        "cafeteria",
+        amount = Some(BigDecimal("-3.20"))
+      )
+
+      StatementSuggestionsService.selectRowsToResolve(
+        List(matching, other),
+        List(rule),
+        Nil
+      ) must be(StatementSuggestionsService.RowSelection(List(other), creditsSkipped = 0, ruleSkipped = 1))
     }
   }
 

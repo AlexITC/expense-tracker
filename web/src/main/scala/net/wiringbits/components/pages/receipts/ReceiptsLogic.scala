@@ -77,7 +77,7 @@ object ReceiptsLogic {
           case Some(m) => Some(m.id -> m.name)
           case None =>
             r.merchantName
-              .flatMap(name => ImportRuleMatcher.findReceiptWinner(rules, name))
+              .flatMap(name => ImportRuleMatcher.findReceiptWinner(rules, name, r.amount))
               .flatMap(_.action.merchantIdOpt)
               .map(id => id -> merchants.find(_.id == id).map(_.name).getOrElse(""))
         }

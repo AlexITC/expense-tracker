@@ -82,7 +82,8 @@ object BankRowCreateExpenseForm {
   ): RowRuleVerdict.Verdict =
     RowRuleVerdict.verdict(
       ImportRuleMatcher.effectiveRules(ruleList, merchants.map(m => m.id -> m.name)),
-      row.description
+      row.description,
+      row.amount
     )
 
   /** The merchant text the form starts with when no merchant is prefilled: the row description, except for a row a
@@ -118,11 +119,11 @@ object BankRowCreateExpenseForm {
       explicitRules: List[ImportRuleMatcher.Rule],
       merchantName: String
   ): RuleHint =
-    ImportRuleMatcher.findRowWinner(explicitRules, row.description) match {
+    ImportRuleMatcher.findRowWinner(explicitRules, row.description, row.amount) match {
       case Some(rule) => RuleHint.CoveredByRule(rule.pattern)
       case None =>
         val nameRules = ImportRuleMatcher.effectiveRules(Nil, List(new UUID(0L, 0L) -> merchantName))
-        if (ImportRuleMatcher.findMatches(nameRules, row.description).nonEmpty) RuleHint.MatchesByName
+        if (ImportRuleMatcher.findMatches(nameRules, row.description, Some(row.amount)).nonEmpty) RuleHint.MatchesByName
         else RuleHint.NeedsAlias
     }
 
@@ -342,14 +343,16 @@ object BankRowCreateExpenseForm {
                   Some(
                     CreateImportRule.Request(
                       action = ImportRuleAction.SetMerchant(mid, categoryId = None, description = None),
-                      pattern = alias
+                      pattern = alias,
+                      amount = None
                     )
                   )
                 case (None, _, Some(catId), Some(pattern)) =>
                   Some(
                     CreateImportRule.Request(
                       action = ImportRuleAction.SetCategory(catId, description = None),
-                      pattern = pattern
+                      pattern = pattern,
+                      amount = None
                     )
                   )
                 case _ => None
@@ -365,7 +368,8 @@ object BankRowCreateExpenseForm {
                             ImportRuleMatcher.Rule(
                               r.id,
                               ruleRequest.action,
-                              ruleRequest.pattern
+                              ruleRequest.pattern,
+                              ruleRequest.amount
                             )
                           ),
                           None

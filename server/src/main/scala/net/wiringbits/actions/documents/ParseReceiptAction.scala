@@ -90,7 +90,8 @@ class ParseReceiptAction @Inject() (
                             rules.map(_.transformInto[ImportRuleMatcher.Rule]),
                             merchants.map(m => m.id -> m.name)
                           ),
-                          name
+                          name,
+                          parsed.amount
                         )
                         matchingRule match {
                           case Some(rule) =>

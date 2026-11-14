@@ -16,11 +16,13 @@ class UpdateImportRuleAction @Inject() (ruleRepository: ImportRuleRepository)(im
         new RuntimeException(s"Rule pattern must be at least ${ImportRuleMatcher.MinPatternLength} characters")
       )
     else
-      ImportRuleAction.validateDescription(request.action) match {
+      ImportRuleAction
+        .validateDescription(request.action)
+        .flatMap(_ => ImportRuleMatcher.validateAmount(request.amount)) match {
         case Left(error) => Future.failed(new RuntimeException(error))
         case Right(()) =>
           ruleRepository
-            .update(id = ruleId, userId = userId, request.action, request.pattern)
+            .update(id = ruleId, userId = userId, request.action, request.pattern, request.amount)
             .map(_ => UpdateImportRule.Response())
       }
 }

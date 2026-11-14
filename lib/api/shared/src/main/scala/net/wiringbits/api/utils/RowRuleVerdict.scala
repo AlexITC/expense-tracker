@@ -15,8 +15,9 @@ object RowRuleVerdict {
   final case class SetMerchant(merchantId: UUID, categoryId: Option[UUID], description: Option[String]) extends Verdict
   final case class SetCategory(categoryId: UUID, description: Option[String]) extends Verdict
 
-  def verdict(rules: List[ImportRuleMatcher.Rule], description: String): Verdict =
-    ImportRuleMatcher.findRowWinner(rules, description) match {
+  /** `amount` is the signed row amount (a charge is negative). */
+  def verdict(rules: List[ImportRuleMatcher.Rule], description: String, amount: BigDecimal): Verdict =
+    ImportRuleMatcher.findRowWinner(rules, description, amount) match {
       case None => NoRule
       case Some(w) =>
         w.action match {
@@ -43,10 +44,10 @@ object RowRuleVerdict {
     }
 
   /** The merchant a winning SetMerchant rule assigns to the row, if any. */
-  def ruleMerchantId(rules: List[ImportRuleMatcher.Rule], description: String): Option[UUID] =
-    merchantId(verdict(rules, description))
+  def ruleMerchantId(rules: List[ImportRuleMatcher.Rule], description: String, amount: BigDecimal): Option[UUID] =
+    merchantId(verdict(rules, description, amount))
 
   /** The category a winning SetCategory rule assigns to the row, if any. */
-  def ruleCategoryId(rules: List[ImportRuleMatcher.Rule], description: String): Option[UUID] =
-    categoryId(verdict(rules, description))
+  def ruleCategoryId(rules: List[ImportRuleMatcher.Rule], description: String, amount: BigDecimal): Option[UUID] =
+    categoryId(verdict(rules, description, amount))
 }

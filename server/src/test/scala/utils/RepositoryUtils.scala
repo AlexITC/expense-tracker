@@ -272,6 +272,7 @@ trait RepositoryUtils {
   def createImportRule(
       userId: UUID,
       pattern: String = "test-pattern",
+      amount: Option[BigDecimal] = None,
       action: ImportRuleActionKind = ImportRuleActionKind.Ignore,
       merchantId: Option[UUID] = None,
       categoryId: Option[UUID] = None,
@@ -292,7 +293,7 @@ trait RepositoryUtils {
         )
       case ImportRuleActionKind.Ignore => ImportRuleAction.Ignore
     }
-    repository.importRules.create(userId, fullAction, pattern)
+    repository.importRules.create(userId, fullAction, pattern, amount)
   }
 
   /** Insert a bank statement (+ optional rows) directly via the DAOs. Lives here, not on the repository, because only

@@ -468,7 +468,7 @@ object ReceiptList {
             case None =>
               r.merchantName.foreach { name =>
                 val resolvedId =
-                  ImportRuleMatcher.findReceiptWinner(effectiveRuleList, name).flatMap(_.action.merchantIdOpt)
+                  ImportRuleMatcher.findReceiptWinner(effectiveRuleList, name, r.amount).flatMap(_.action.merchantIdOpt)
                 setResolvedMerchantIds(cur => cur.updated(r.id, resolvedId))
               }
           }

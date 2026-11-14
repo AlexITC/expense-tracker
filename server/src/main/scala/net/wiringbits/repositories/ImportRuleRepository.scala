@@ -20,15 +20,16 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
 ) {
 
   private val conflictMappings: Seq[(String, String)] = Seq(
-    "merchant_rule_ignore_unique" -> "An ignore rule with that pattern already exists",
-    "merchant_rule_set_merchant_unique" -> "A rule with that pattern and merchant already exists",
-    "merchant_rule_set_category_unique" -> "A rule with that pattern and category already exists"
+    "merchant_rule_ignore_unique" -> "An ignore rule with that pattern and amount already exists",
+    "merchant_rule_set_merchant_unique" -> "A rule with that pattern, amount and merchant already exists",
+    "merchant_rule_set_category_unique" -> "A rule with that pattern, amount and category already exists"
   )
 
   def create(
       userId: UUID,
       action: ImportRuleAction,
       pattern: String,
+      amount: Option[BigDecimal],
       autoCreated: Boolean = false
   ): Future[UUID] = Future {
     ConstraintViolations.translating(conflictMappings*) {
@@ -40,6 +41,7 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
           userId = userId,
           action = action,
           pattern = pattern,
+          amount = amount,
           autoCreated = autoCreated,
           createdAt = now,
           updatedAt = now
@@ -73,6 +75,7 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
         userId = userId,
         action = action,
         pattern = pattern,
+        amount = None,
         autoCreated = true,
         createdAt = now,
         updatedAt = now
@@ -85,14 +88,15 @@ class ImportRuleRepository @Inject() (database: Database)(implicit
       id: UUID,
       userId: UUID,
       action: ImportRuleAction,
-      pattern: String
+      pattern: String,
+      amount: Option[BigDecimal]
   ): Future[Unit] =
     Future {
       ConstraintViolations.translating(conflictMappings*) {
         database.withTransaction { implicit conn =>
           if (ImportRuleDAO.find(id = id, userId = userId).isEmpty) throw new RuntimeException("Import rule not found")
           verifyReferencesOwned(action, userId)
-          ImportRuleDAO.update(id = id, userId = userId, action, pattern, clock.instant())
+          ImportRuleDAO.update(id = id, userId = userId, action, pattern, amount, clock.instant())
         }
       }
     }
