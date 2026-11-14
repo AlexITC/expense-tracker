@@ -102,9 +102,9 @@ object CategoryList {
           case Failure(ex) => setError(ex.getMessage)
         }
 
-    def handleRename(categoryId: UUID): Unit =
+    def handleRename(cat: GetCategories.Response.Category): Unit =
       props.ctx.api.client
-        .updateCategory(categoryId, UpdateCategory.Request(renameValue))
+        .updateCategory(cat.id, UpdateCategory.Request(name = renameValue, description = cat.description))
         .onComplete {
           case Success(_) =>
             setRenamingId(None)
@@ -158,13 +158,13 @@ object CategoryList {
                 .size("small")
                 .value(renameValue)
                 .onChange(e => setRenameValue(e.target.asInstanceOf[dom.HTMLInputElement].value))
-                .onKeyDown(e => if (e.key == "Enter") handleRename(cat.id)),
+                .onKeyDown(e => if (e.key == "Enter") handleRename(cat)),
               mui.Button
                 .normal()("Save")
                 .size("small")
                 .variant("contained")
                 .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
-                .onClick(_ => handleRename(cat.id)),
+                .onClick(_ => handleRename(cat)),
               mui.Button
                 .normal()("Cancel")
                 .size("small")

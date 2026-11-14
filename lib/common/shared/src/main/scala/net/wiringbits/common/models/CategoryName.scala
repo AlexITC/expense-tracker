@@ -17,4 +17,6 @@ object CategoryName extends WrappedString.Companion[CategoryName] {
   }
 
   override def trusted(string: String): CategoryName = new CategoryName(string)
+
+  def parse(string: String): Either[String, CategoryName] = ValidationResults.toEither(validate(string))
 }

@@ -31,4 +31,14 @@ class CategoryNameSpec extends AnyWordSpec {
       }
     }
   }
+
+  "parse" should {
+    "return the name when valid" in {
+      CategoryName.parse("Food").map(_.string) must be(Right("Food"))
+    }
+
+    "return the validation error when invalid" in {
+      CategoryName.parse("  ") must be(Left("The name is required"))
+    }
+  }
 }

@@ -22,10 +22,6 @@ object CategoryDescription extends WrappedString.Companion[CategoryDescription] 
   def parseOptional(raw: Option[String]): Either[String, Option[CategoryDescription]] =
     raw.filterNot(_.isBlank) match {
       case None => Right(None)
-      case Some(value) =>
-        validate(value) match {
-          case ValidationResult.Valid(_, description) => Right(Some(description))
-          case ValidationResult.Invalid(_, error) => Left(error)
-        }
+      case Some(value) => ValidationResults.toEither(validate(value)).map(Some(_))
     }
 }

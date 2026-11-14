@@ -4,7 +4,7 @@ import play.api.libs.json.{Format, Json}
 import sttp.tapir.Schema
 
 object UpdateCategory {
-  case class Request(name: String)
+  case class Request(name: String, description: Option[String])
   case class Response()
 
   implicit val requestFormat: Format[Request] = Json.format[Request]

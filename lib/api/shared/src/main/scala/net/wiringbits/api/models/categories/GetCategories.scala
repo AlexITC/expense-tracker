@@ -12,7 +12,7 @@ object GetCategories {
   case class Response(data: List[Response.Category])
 
   object Response {
-    case class Category(id: UUID, name: String, createdAt: Instant)
+    case class Category(id: UUID, name: String, createdAt: Instant, description: Option[String] = None)
     implicit val categoryFormat: Format[Category] = Json.format[Category]
     implicit val categorySchema: Schema[Category] =
       Schema.derived[Category].name(Schema.SName("GetCategoriesResponseCategory"))

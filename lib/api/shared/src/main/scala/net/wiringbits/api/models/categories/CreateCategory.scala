@@ -6,7 +6,7 @@ import sttp.tapir.Schema
 import java.util.UUID
 
 object CreateCategory {
-  case class Request(name: String)
+  case class Request(name: String, description: Option[String] = None)
   case class Response(id: UUID, name: String)
 
   implicit val requestFormat: Format[Request] = Json.format[Request]
