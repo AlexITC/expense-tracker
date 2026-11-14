@@ -21,11 +21,13 @@ case class CategoryFormData(
     val formData = this
     for {
       name <- formData.name.valueOpt
-    } yield CreateCategory.Request(
-      name = name,
-      // A blank description means "no description"; an invalid one blocks submit via the form's validity gate.
-      description = formData.description.valueOpt.filter(_.string.nonEmpty)
-    )
+      // Untouched or blank means "no description"; an invalid (over-limit) one blocks the request.
+      description <- formData.description.value match {
+        case None => Some(None)
+        case Some(ValidationResult.Valid(_, value)) => Some(Option.when(value.string.nonEmpty)(value))
+        case Some(_) => None
+      }
+    } yield CreateCategory.Request(name = name, description = description)
   }
 
   def updateRequest: Option[UpdateCategory.Request] =
