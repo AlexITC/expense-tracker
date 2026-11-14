@@ -7,19 +7,12 @@ import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.core.SafeHooks
 import net.wiringbits.api.models.categories.GetCategories
-import net.wiringbits.api.models.expenses.{
-  CreateExpense,
-  GetExpenses,
-  MergeDetailsSource,
-  MergeExpenses,
-  MergeShape,
-  UpdateExpense
-}
+import net.wiringbits.api.models.expenses.{CreateExpense, GetExpenses, MergeDetailsSource, MergeExpenses, UpdateExpense}
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.models.User
 import net.wiringbits.utils.ExpenseDuplicateDetector
-import net.wiringbits.utils.ExpenseDuplicateDetector.Candidate
+import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Shape}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.Container
@@ -176,7 +169,10 @@ object ExpenseList {
 
   /** The merged receipts after merging `c`; an orphan candidate moves no receipt, so it leaves them unchanged. */
   def withMergedReceipt(merged: Map[UUID, UUID], c: Candidate): Map[UUID, UUID] =
-    c.receiptId.fold(merged)(receiptId => merged + (c.survivor.id -> receiptId))
+    c.shape match {
+      case Shape.Receipt(loserReceiptId) => merged + (c.survivor.id -> loserReceiptId)
+      case Shape.Orphan => merged
+    }
 
   /** The selected keys that still belong to a bulk-eligible candidate; merged, dismissed or now-ambiguous ones drop
     * out.
@@ -213,19 +209,23 @@ object ExpenseList {
 
   /** The confirm dialog's title and confirm button label for merging `c`. */
   def mergeDialogLabels(c: Candidate): (String, String) =
-    if (c.receiptId.isEmpty) ("Delete duplicate?", "Delete") else ("Merge expenses?", "Merge")
+    c.shape match {
+      case Shape.Receipt(_) => ("Merge expenses?", "Merge")
+      case Shape.Orphan => ("Delete duplicate?", "Delete")
+    }
 
   def mergeSummary(c: Candidate, source: MergeDetailsSource): String =
-    if (c.receiptId.isEmpty)
-      "The duplicate has no receipt and no bank row, so it will be deleted; any refunds move to the bank-row " +
-        "expense, which keeps its details (merchant, category, notes). This action cannot be undone."
-    else {
-      val kept = source match {
-        case MergeDetailsSource.Row => "bank row's"
-        case MergeDetailsSource.Receipt => "receipt's"
-      }
-      s"The $kept details (merchant, category, notes) will be kept. " +
-        "The receipt moves to the bank-row expense and the receipt-only expense is deleted. This action cannot be undone."
+    c.shape match {
+      case Shape.Orphan =>
+        "The duplicate has no receipt and no bank row, so it will be deleted; any refunds move to the bank-row " +
+          "expense, which keeps its details (merchant, category, notes). This action cannot be undone."
+      case Shape.Receipt(_) =>
+        val kept = source match {
+          case MergeDetailsSource.Row => "bank row's"
+          case MergeDetailsSource.Receipt => "receipt's"
+        }
+        s"The $kept details (merchant, category, notes) will be kept. " +
+          "The receipt moves to the bank-row expense and the receipt-only expense is deleted. This action cannot be undone."
     }
 
   def toUpdateSplits(splits: List[(String, String)]): List[UpdateExpense.Split] =
@@ -347,7 +347,7 @@ object ExpenseList {
           MergeExpenses.Request(
             loserId = c.loser.id,
             keepDetailsFrom = source,
-            shape = if (c.receiptId.isDefined) MergeShape.Receipt else MergeShape.Orphan
+            shape = ExpenseDuplicateDetector.mergeShape(c.shape)
           )
         )
         .map { _ =>

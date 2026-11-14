@@ -7,7 +7,7 @@ import net.wiringbits.api.models.expenses.{GetExpenses, MergeDetailsSource}
 import net.wiringbits.common.models.Email
 import net.wiringbits.core.{I18nLang, ReactTestDom}
 import net.wiringbits.models.AuthState
-import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Tier}
+import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Shape, Tier}
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.BrowserRouter
 import net.wiringbits.{API, AppContext}
 import org.scalajs.dom
@@ -52,7 +52,7 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with ReactTestDom {
     Candidate(
       survivor = expense(),
       loser = expense(),
-      receiptId = Some(UUID.randomUUID()),
+      shape = Shape.Receipt(UUID.randomUUID()),
       tier = Tier.Strong,
       ambiguous = false
     )
@@ -134,7 +134,7 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with ReactTestDom {
     }
 
     "offer only Delete duplicate and Dismiss for an orphan candidate, sending the row source" in {
-      val orphanCandidate = candidate.copy(receiptId = None)
+      val orphanCandidate = candidate.copy(shape = Shape.Orphan)
       val merges = ListBuffer.empty[(Candidate, MergeDetailsSource)]
       render((c, source) => merges += (c -> source), candidate = orphanCandidate)
       buttonLabels must be(List("Merge selected (0)", "Delete duplicate", "Dismiss"))
@@ -221,7 +221,7 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with ReactTestDom {
 
     "title the loser column for an orphan candidate" in {
       val orphanCandidate = candidate.copy(
-        receiptId = None,
+        shape = Shape.Orphan,
         loser = candidate.loser.copy(notes = Some("hand entered"))
       )
       render(onMerge = (_, _) => (), candidate = orphanCandidate)

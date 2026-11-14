@@ -1,7 +1,7 @@
 package net.wiringbits.utils
 
-import net.wiringbits.api.models.expenses.GetExpenses
-import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Tier}
+import net.wiringbits.api.models.expenses.{GetExpenses, MergeShape}
+import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Shape, Tier}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -58,7 +58,7 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
       val s = survivor(merchantId = merchantId)
       val l = loser(merchantId = merchantId)
       ExpenseDuplicateDetector.detect(List(s, l)) must be(
-        List(Candidate(s, l, l.receiptIds.headOption, Tier.Strong, ambiguous = false))
+        List(Candidate(s, l, Shape.Receipt(l.receiptIds.head), Tier.Strong, ambiguous = false))
       )
     }
 
@@ -66,7 +66,7 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
       val s = survivor(merchantId = Some(UUID.randomUUID()))
       val l = loser(merchantId = Some(UUID.randomUUID()))
       ExpenseDuplicateDetector.detect(List(s, l)) must be(
-        List(Candidate(s, l, l.receiptIds.headOption, Tier.Weak, ambiguous = false))
+        List(Candidate(s, l, Shape.Receipt(l.receiptIds.head), Tier.Weak, ambiguous = false))
       )
     }
 
@@ -74,7 +74,7 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
       val s = survivor(merchantId = Some(UUID.randomUUID()))
       val l = loser()
       ExpenseDuplicateDetector.detect(List(s, l)) must be(
-        List(Candidate(s, l, l.receiptIds.headOption, Tier.Weak, ambiguous = false))
+        List(Candidate(s, l, Shape.Receipt(l.receiptIds.head), Tier.Weak, ambiguous = false))
       )
     }
 
@@ -82,7 +82,7 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
       val s = survivor()
       val l = loser()
       ExpenseDuplicateDetector.detect(List(s, l)) must be(
-        List(Candidate(s, l, l.receiptIds.headOption, Tier.Weak, ambiguous = false))
+        List(Candidate(s, l, Shape.Receipt(l.receiptIds.head), Tier.Weak, ambiguous = false))
       )
     }
 
@@ -127,7 +127,7 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
     "assign the survivor to the expense with a row regardless of input order" in {
       val s = survivor()
       val l = loser()
-      val expected = List(Candidate(s, l, l.receiptIds.headOption, Tier.Weak, ambiguous = false))
+      val expected = List(Candidate(s, l, Shape.Receipt(l.receiptIds.head), Tier.Weak, ambiguous = false))
       ExpenseDuplicateDetector.detect(List(s, l)) must be(expected)
       ExpenseDuplicateDetector.detect(List(l, s)) must be(expected)
     }
@@ -136,7 +136,7 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
       val s = survivor()
       val receiptId = UUID.randomUUID()
       val l = loser().copy(receiptIds = List(receiptId, UUID.randomUUID()))
-      ExpenseDuplicateDetector.detect(List(s, l)).map(_.receiptId) must be(List(Some(receiptId)))
+      ExpenseDuplicateDetector.detect(List(s, l)).map(_.shape) must be(List(Shape.Receipt(receiptId)))
     }
 
     "exclude a survivor that already has a receipt from receipt pairs" in {
@@ -149,13 +149,17 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
       val merchantId = Some(UUID.randomUUID())
       val s = survivor(merchantId = merchantId)
       val o = orphan(merchantId = merchantId)
-      ExpenseDuplicateDetector.detect(List(s, o)) must be(List(Candidate(s, o, None, Tier.Strong, ambiguous = false)))
+      ExpenseDuplicateDetector.detect(List(s, o)) must be(
+        List(Candidate(s, o, Shape.Orphan, Tier.Strong, ambiguous = false))
+      )
     }
 
     "pair an orphan with a different merchant as Weak" in {
       val s = survivor(merchantId = Some(UUID.randomUUID()))
       val o = orphan(merchantId = Some(UUID.randomUUID()))
-      ExpenseDuplicateDetector.detect(List(s, o)) must be(List(Candidate(s, o, None, Tier.Weak, ambiguous = false)))
+      ExpenseDuplicateDetector.detect(List(s, o)) must be(
+        List(Candidate(s, o, Shape.Orphan, Tier.Weak, ambiguous = false))
+      )
     }
 
     "require the exact amount for orphans" in {
@@ -175,7 +179,9 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
     "pair an orphan with a survivor that already has a receipt" in {
       val s = expense(hasRow = true, hasReceipt = true)
       val o = orphan()
-      ExpenseDuplicateDetector.detect(List(s, o)) must be(List(Candidate(s, o, None, Tier.Weak, ambiguous = false)))
+      ExpenseDuplicateDetector.detect(List(s, o)) must be(
+        List(Candidate(s, o, Shape.Orphan, Tier.Weak, ambiguous = false))
+      )
     }
 
     "not pair two expenses without a row" in {
@@ -190,8 +196,8 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
       val l = loser()
       ExpenseDuplicateDetector.detect(List(s, o, l)).toSet must be(
         Set(
-          Candidate(s, l, l.receiptIds.headOption, Tier.Weak, ambiguous = true),
-          Candidate(s, o, None, Tier.Weak, ambiguous = true)
+          Candidate(s, l, Shape.Receipt(l.receiptIds.head), Tier.Weak, ambiguous = true),
+          Candidate(s, o, Shape.Orphan, Tier.Weak, ambiguous = true)
         )
       )
     }
@@ -216,8 +222,8 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
 
       ExpenseDuplicateDetector.detect(List(s, strong, weak)).toSet must be(
         Set(
-          Candidate(s, strong, strong.receiptIds.headOption, Tier.Strong, ambiguous = true),
-          Candidate(s, weak, weak.receiptIds.headOption, Tier.Weak, ambiguous = true)
+          Candidate(s, strong, Shape.Receipt(strong.receiptIds.head), Tier.Strong, ambiguous = true),
+          Candidate(s, weak, Shape.Receipt(weak.receiptIds.head), Tier.Weak, ambiguous = true)
         )
       )
     }
@@ -229,8 +235,8 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
 
       ExpenseDuplicateDetector.detect(List(s1, s2, l)) must be(
         List(
-          Candidate(s2, l, l.receiptIds.headOption, Tier.Weak, ambiguous = true),
-          Candidate(s1, l, l.receiptIds.headOption, Tier.Weak, ambiguous = true)
+          Candidate(s2, l, Shape.Receipt(l.receiptIds.head), Tier.Weak, ambiguous = true),
+          Candidate(s1, l, Shape.Receipt(l.receiptIds.head), Tier.Weak, ambiguous = true)
         )
       )
     }
@@ -258,7 +264,7 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
   }
 
   "isBulkEligible" should {
-    val strong = Candidate(survivor(), orphan(), None, Tier.Strong, ambiguous = false)
+    val strong = Candidate(survivor(), orphan(), Shape.Orphan, Tier.Strong, ambiguous = false)
 
     "accept a Strong unambiguous candidate" in {
       ExpenseDuplicateDetector.isBulkEligible(strong) must be(true)
@@ -270,6 +276,16 @@ class ExpenseDuplicateDetectorSpec extends AnyWordSpec {
 
     "reject an ambiguous candidate" in {
       ExpenseDuplicateDetector.isBulkEligible(strong.copy(ambiguous = true)) must be(false)
+    }
+  }
+
+  "mergeShape" should {
+    "map a receipt shape to the receipt merge" in {
+      ExpenseDuplicateDetector.mergeShape(Shape.Receipt(UUID.randomUUID())) must be(MergeShape.Receipt)
+    }
+
+    "map an orphan shape to the orphan merge" in {
+      ExpenseDuplicateDetector.mergeShape(Shape.Orphan) must be(MergeShape.Orphan)
     }
   }
 }

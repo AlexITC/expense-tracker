@@ -4,7 +4,7 @@ import net.wiringbits.api.models.expenses.{GetExpenses, MergeDetailsSource, Upda
 import net.wiringbits.common.ExpenseSplits
 import net.wiringbits.api.models.expenses.GetExpenses.Response.Split
 import net.wiringbits.utils.ExpenseDuplicateDetector
-import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Tier}
+import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Shape, Tier}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -218,7 +218,7 @@ class ExpensesPageSpec extends AnyWordSpec {
     Candidate(
       survivor = expense(BigDecimal("10")).copy(rowIds = List(UUID.randomUUID())),
       loser = expense(BigDecimal("10")).copy(receiptIds = receiptId.toList),
-      receiptId = receiptId,
+      shape = receiptId.fold(Shape.Orphan)(Shape.Receipt(_)),
       tier = Tier.Strong,
       ambiguous = false
     )
@@ -324,7 +324,7 @@ class ExpensesPageSpec extends AnyWordSpec {
 
   "effectiveSelection" should {
     def candidate(tier: Tier = Tier.Strong, ambiguous: Boolean = false): Candidate =
-      Candidate(expense(BigDecimal("1")), expense(BigDecimal("1")), None, tier, ambiguous)
+      Candidate(expense(BigDecimal("1")), expense(BigDecimal("1")), Shape.Orphan, tier, ambiguous)
 
     "keep only selected keys of current bulk-eligible candidates" in {
       val eligible = candidate()
@@ -341,7 +341,7 @@ class ExpensesPageSpec extends AnyWordSpec {
 
   "toggleAllSelection" should {
     def candidate(tier: Tier): Candidate =
-      Candidate(expense(BigDecimal("1")), expense(BigDecimal("1")), None, tier, ambiguous = false)
+      Candidate(expense(BigDecimal("1")), expense(BigDecimal("1")), Shape.Orphan, tier, ambiguous = false)
 
     "select every bulk-eligible candidate when checked" in {
       val strong = candidate(Tier.Strong)
@@ -359,7 +359,7 @@ class ExpensesPageSpec extends AnyWordSpec {
     given ExecutionContext = ExecutionContext.parasitic
 
     def candidate(): Candidate =
-      Candidate(expense(BigDecimal("1")), expense(BigDecimal("1")), None, Tier.Strong, ambiguous = false)
+      Candidate(expense(BigDecimal("1")), expense(BigDecimal("1")), Shape.Orphan, Tier.Strong, ambiguous = false)
 
     "attempt every candidate in order, continuing past failures" in {
       val (a, b, c) = (candidate(), candidate(), candidate())

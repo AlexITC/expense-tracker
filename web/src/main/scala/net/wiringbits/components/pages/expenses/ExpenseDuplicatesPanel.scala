@@ -4,7 +4,7 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.expenses.{GetExpenses, MergeDetailsSource}
-import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Tier}
+import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Shape, Tier}
 import net.wiringbits.utils.{ExpenseDuplicateDetector, ReceiptFileViewer}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import slinky.core.facade.{Fragment, ReactElement}
@@ -107,7 +107,10 @@ object ExpenseDuplicatesPanel {
 
   /** The bank-row and receipt (or orphan duplicate) sides of a candidate, side by side. */
   def columns(c: Candidate, categories: GetCategories.Response): ReactElement = {
-    val loserTitle = if (c.receiptId.isDefined) "Receipt" else "Duplicate (no receipt)"
+    val loserTitle = c.shape match {
+      case Shape.Receipt(_) => "Receipt"
+      case Shape.Orphan => "Duplicate (no receipt)"
+    }
     mui.Box.sx(columnsStyling)(column("Bank row", c.survivor, categories), column(loserTitle, c.loser, categories))
   }
 
@@ -123,9 +126,9 @@ object ExpenseDuplicatesPanel {
           .disabled(props.bulkMerging)
           .onClick(_ => props.onMerge(c, source))
 
-      val actions: List[ReactElement] = c.receiptId match {
-        case None => List(mergeButton("Delete duplicate", MergeDetailsSource.Row))
-        case Some(receiptId) =>
+      val actions: List[ReactElement] = c.shape match {
+        case Shape.Orphan => List(mergeButton("Delete duplicate", MergeDetailsSource.Row))
+        case Shape.Receipt(receiptId) =>
           List(
             props.receiptFilenames.get(receiptId).fold[ReactElement](Fragment()) { filename =>
               mui.Button
