@@ -21,7 +21,7 @@ object ImportRuleDAO {
       get[Option[String]]("merchant_name") ~
       get[Option[UUID]]("category_id") ~
       get[Option[String]]("category_name") ~
-      get[Option[UUID]]("override_category_id") ~
+      get[Option[UUID]]("merchant_override_category_id") ~
       get[Option[String]]("description") ~
       bool("auto_created") ~
       get[Instant]("created_at") ~
@@ -49,7 +49,7 @@ object ImportRuleDAO {
 
   def create(rule: ImportRule.Create)(implicit conn: Connection): Unit = {
     val _ = SQL"""
-      INSERT INTO merchant_rule (id, user_id, action, pattern, amount, merchant_id, category_id, override_category_id, description,
+      INSERT INTO merchant_rule (id, user_id, action, pattern, amount, merchant_id, category_id, merchant_override_category_id, description,
         auto_created, created_at, updated_at)
       VALUES (
         ${rule.id.toString}::UUID,
@@ -70,7 +70,7 @@ object ImportRuleDAO {
 
   def createSetMerchantIfAbsent(rule: ImportRule.Create)(implicit conn: Connection): Unit = {
     val _ = SQL"""
-      INSERT INTO merchant_rule (id, user_id, action, pattern, amount, merchant_id, category_id, override_category_id, description,
+      INSERT INTO merchant_rule (id, user_id, action, pattern, amount, merchant_id, category_id, merchant_override_category_id, description,
         auto_created, created_at, updated_at)
       VALUES (
         ${rule.id.toString}::UUID,
@@ -94,11 +94,11 @@ object ImportRuleDAO {
     SQL"""
       SELECT r.id, r.user_id, r.action, r.pattern, r.amount, r.merchant_id,
              m.name AS merchant_name, r.category_id, COALESCE(c.name, oc.name) AS category_name,
-             r.override_category_id, r.description, r.auto_created, r.created_at, r.updated_at
+             r.merchant_override_category_id, r.description, r.auto_created, r.created_at, r.updated_at
       FROM merchant_rule r
       LEFT JOIN merchant m ON r.merchant_id = m.id
       LEFT JOIN category c ON r.category_id = c.id
-      LEFT JOIN category oc ON r.override_category_id = oc.id
+      LEFT JOIN category oc ON r.merchant_override_category_id = oc.id
       WHERE r.user_id = ${userId.toString}::UUID
       ORDER BY r.created_at DESC, r.id
       """.as(ruleParser.*)
@@ -107,11 +107,11 @@ object ImportRuleDAO {
     SQL"""
       SELECT r.id, r.user_id, r.action, r.pattern, r.amount, r.merchant_id,
              m.name AS merchant_name, r.category_id, COALESCE(c.name, oc.name) AS category_name,
-             r.override_category_id, r.description, r.auto_created, r.created_at, r.updated_at
+             r.merchant_override_category_id, r.description, r.auto_created, r.created_at, r.updated_at
       FROM merchant_rule r
       LEFT JOIN merchant m ON r.merchant_id = m.id
       LEFT JOIN category c ON r.category_id = c.id
-      LEFT JOIN category oc ON r.override_category_id = oc.id
+      LEFT JOIN category oc ON r.merchant_override_category_id = oc.id
       WHERE r.id = ${id.toString}::UUID
         AND r.user_id = ${userId.toString}::UUID
       """.as(ruleParser.singleOpt)
@@ -131,7 +131,7 @@ object ImportRuleDAO {
           amount = $amount,
           merchant_id = ${action.merchantIdOpt.map(_.toString)}::UUID,
           category_id = ${action.categoryIdOpt.map(_.toString)}::UUID,
-          override_category_id = ${action.overrideCategoryIdOpt.map(_.toString)}::UUID,
+          merchant_override_category_id = ${action.overrideCategoryIdOpt.map(_.toString)}::UUID,
           description = ${action.descriptionOpt},
           auto_created = FALSE,
           updated_at = $updatedAt

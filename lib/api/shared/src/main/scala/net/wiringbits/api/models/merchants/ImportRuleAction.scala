@@ -40,7 +40,9 @@ enum ImportRuleAction {
     case _ => None
   }
 
-  /** The category a set-merchant rule uses instead of the merchant's default (the `override_category_id` column). */
+  /** The category a set-merchant rule uses instead of the merchant's default (the `merchant_override_category_id`
+    * column).
+    */
   def overrideCategoryIdOpt: Option[UUID] = this match {
     case s: SetMerchant => s.categoryId
     case _ => None
