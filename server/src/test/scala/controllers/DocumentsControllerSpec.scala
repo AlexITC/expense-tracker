@@ -1,4 +1,5 @@
 package controllers
+import net.wiringbits.common.models.CategoryName
 
 import net.wiringbits.common.ExpenseSplits
 import com.dimafeng.testcontainers.PostgreSQLContainer
@@ -222,7 +223,8 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Expe
   "POST /receipts/:id/confirm splits" should {
     "reject partial splits (sum < amount)" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(CreateCategory.Request("Groceries")).futureValue
+      val cat =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Groceries"), description = None)).futureValue
       val receiptId = setupParsedReceipt()
 
       val req = ConfirmReceipt.Request(
@@ -239,7 +241,8 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Expe
 
     "create expense with splits summing exactly to amount" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(CreateCategory.Request("Groceries")).futureValue
+      val cat =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Groceries"), description = None)).futureValue
       val receiptId = setupParsedReceipt()
 
       val req = ConfirmReceipt.Request(
@@ -259,7 +262,8 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Expe
 
     "reject duplicate category in splits" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(CreateCategory.Request("Groceries")).futureValue
+      val cat =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Groceries"), description = None)).futureValue
       val receiptId = setupParsedReceipt()
 
       val req = ConfirmReceipt.Request(
@@ -279,7 +283,8 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Expe
 
     "reject split with amount <= 0" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(CreateCategory.Request("Groceries")).futureValue
+      val cat =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Groceries"), description = None)).futureValue
       val receiptId = setupParsedReceipt()
 
       val req = ConfirmReceipt.Request(
@@ -300,7 +305,8 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Expe
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
-      val otherCat = client2.createCategory(CreateCategory.Request("Other")).futureValue
+      val otherCat =
+        client2.createCategory(CreateCategory.Request(CategoryName.trusted("Other"), description = None)).futureValue
 
       val req = ConfirmReceipt.Request(
         Some(BigDecimal("50.00")),
@@ -524,7 +530,8 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Expe
 
     "link-existing: does not alter a matched expense's splits" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(CreateCategory.Request("Groceries")).futureValue
+      val cat =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Groceries"), description = None)).futureValue
       val receiptId = setupParsedReceipt()
 
       val expenseId = client

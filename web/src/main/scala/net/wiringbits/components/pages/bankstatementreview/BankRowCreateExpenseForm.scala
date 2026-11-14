@@ -478,6 +478,10 @@ object BankRowCreateExpenseForm {
           .onChange(e => setNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
         (mui.Autocomplete.withProps(merchantAcProps).withKey("merchant"): ReactElement),
         (mui.Autocomplete.withProps(categoryAcProps).withKey("category"): ReactElement),
+        AutocompleteLabels
+          .categoryDescription(props.categories, categoryIdOpt)
+          .map(d => mui.Typography(d).sx(hintStyling): ReactElement)
+          .getOrElse(Fragment()),
         if (merchantName.isEmpty) Fragment()
         else
           hint match {

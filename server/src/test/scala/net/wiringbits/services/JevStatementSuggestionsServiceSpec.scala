@@ -63,7 +63,7 @@ class JevStatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with 
       updatedAt = now
     )
 
-  private def category(name: String) = Category(UUID.randomUUID(), userId, name, now, now)
+  private def category(name: String) = Category(UUID.randomUUID(), userId, name, None, now, now)
 
   private def merchant(name: String, categoryId: Option[UUID]) =
     Merchant(UUID.randomUUID(), userId, name, None, categoryId, None, reviewed = true, now, now)
@@ -184,6 +184,41 @@ class JevStatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with 
       client.categoryCalls.map(_.criteria) must be(
         List(Map(plain.id.toString -> "Super", accented.id.toString -> "Súper. Examples: MERCADO"))
       )
+    }
+
+    "include a category's description in its criteria, before the examples" in {
+      val food = category("Food").copy(description = Some("Supermarket food shopping"))
+      val shop = row("CORNER SHOP")
+      val client = stub(food)
+
+      resolve(client, List(shop), Nil, List(food, transport), examples = List(food.id -> "MERCADO"))
+
+      client.categoryCalls.map(_.criteria) must be(
+        List(
+          Map(
+            food.id.toString -> "Food: Supermarket food shopping. Examples: MERCADO",
+            transport.id.toString -> "Transport"
+          )
+        )
+      )
+    }
+
+    "use the bare category name for a whitespace-only description" in {
+      val food = category("Food").copy(description = Some("   "))
+      val client = stub(food)
+
+      resolve(client, List(row("CORNER SHOP")), Nil, List(food, transport))
+
+      client.categoryCalls.map(_.criteria(food.id.toString)) must be(List("Food"))
+    }
+
+    "collapse a multi-line description onto one line in the criteria" in {
+      val food = category("Food").copy(description = Some("line1\nline2"))
+      val client = stub(food)
+
+      resolve(client, List(row("CORNER SHOP")), Nil, List(food, transport))
+
+      client.categoryCalls.map(_.criteria(food.id.toString)) must be(List("Food: line1 line2"))
     }
 
     "fail when JEV chooses a key that is not an offered category" in {

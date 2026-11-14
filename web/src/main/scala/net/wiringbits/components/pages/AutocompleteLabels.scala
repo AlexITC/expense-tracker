@@ -3,6 +3,7 @@ package net.wiringbits.components.pages
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.GetMerchants
 
+import java.util.UUID
 import scala.scalajs.js
 
 /** getOptionLabel helpers shared by the merchant/category autocompletes across pages. */
@@ -24,4 +25,14 @@ object AutocompleteLabels {
       case c: GetCategories.Response.Category => c.name
       case _ => ""
     }
+
+  /** The selected category's description, when it has a non-blank one. */
+  private[pages] def categoryDescription(
+      categories: List[GetCategories.Response.Category],
+      selectedId: Option[UUID]
+  ): Option[String] =
+    selectedId
+      .flatMap(id => categories.find(_.id == id))
+      .flatMap(_.description)
+      .filter(_.trim.nonEmpty)
 }

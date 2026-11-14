@@ -1,4 +1,6 @@
 package controllers
+import net.wiringbits.common.models.CategoryDescription
+import net.wiringbits.common.models.CategoryName
 
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.github.f4b6a3.uuid.UuidCreator
@@ -175,7 +177,7 @@ class McpControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUti
 
     "return the authenticated user's categories via list_categories" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      client.createCategory(CreateCategory.Request("Restaurants")).futureValue
+      client.createCategory(CreateCategory.Request(CategoryName.trusted("Restaurants"), description = None)).futureValue
       val token = client.createMcpToken.futureValue.token.value
 
       val params = Json.obj("name" -> "list_categories")
@@ -184,6 +186,44 @@ class McpControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUti
       val text = ((contentAsJson(response) \ "result" \ "content").as[List[JsValue]].head \ "text").as[String]
       val names = (Json.parse(text) \ "data").as[List[JsValue]].map(c => (c \ "name").as[String])
       names must be(List("Restaurants"))
+    }
+
+    "include category descriptions via list_categories, scoped to the authenticated user" in withApiClient {
+      implicit clientA =>
+        createVerifyLoginUser(tokenGenerator).futureValue
+        clientA
+          .createCategory(
+            CreateCategory.Request(
+              name = CategoryName.trusted("Groceries"),
+              description = Some(CategoryDescription.trusted("Food for home"))
+            )
+          )
+          .futureValue
+        clientA
+          .createCategory(CreateCategory.Request(name = CategoryName.trusted("Transport"), description = None))
+          .futureValue
+        val tokenA = clientA.createMcpToken.futureValue.token.value
+
+        withApiClient { implicit clientB =>
+          createVerifyLoginUser(tokenGenerator).futureValue
+          clientB
+            .createCategory(
+              CreateCategory.Request(
+                name = CategoryName.trusted("Other user"),
+                description = Some(CategoryDescription.trusted("Not mine"))
+              )
+            )
+            .futureValue
+
+          val params = Json.obj("name" -> "list_categories")
+          val response = POST("/mcp", rpc("tools/call", params = params), bearer(tokenA))
+          status(response) must be(OK)
+          val text = ((contentAsJson(response) \ "result" \ "content").as[List[JsValue]].head \ "text").as[String]
+          val categories = (Json.parse(text) \ "data").as[List[JsValue]]
+          categories.map(c => (c \ "name").as[String]) must be(List("Groceries", "Transport"))
+          (categories.head \ "description").as[String] must be("Food for home")
+          (categories(1) \ "description").asOpt[String] must be(None)
+        }
     }
 
     "return a JSON-RPC error for an unknown tool" in withApiClient { implicit client =>

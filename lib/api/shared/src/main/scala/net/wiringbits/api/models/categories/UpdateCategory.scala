@@ -1,10 +1,13 @@
 package net.wiringbits.api.models.categories
 
+import net.wiringbits.api.models.wrappedStringSchema
+import net.wiringbits.common.models.{CategoryDescription, CategoryName}
 import play.api.libs.json.{Format, Json}
 import sttp.tapir.Schema
 
 object UpdateCategory {
-  case class Request(name: String)
+  // See CreateCategory: name and description are validated primitives, enforced at decode by their Format.
+  case class Request(name: CategoryName, description: Option[CategoryDescription])
   case class Response()
 
   implicit val requestFormat: Format[Request] = Json.format[Request]

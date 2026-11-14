@@ -38,8 +38,9 @@ class CategoriesRepository @Inject() (database: Database)(implicit
     }
   }
 
-  // The conflict is absorbed: a concurrent or case-variant insert resolves to the stored row.
-  def getOrCreate(userId: UUID, name: String): Future[Category] = Future {
+  // The conflict is absorbed: a concurrent or case-variant insert resolves to the stored row, whose description
+  // is left unchanged.
+  def getOrCreate(userId: UUID, name: String, description: Option[String]): Future[Category] = Future {
     database.withTransaction { implicit conn =>
       val now = clock.instant()
       val request =
@@ -47,6 +48,7 @@ class CategoriesRepository @Inject() (database: Database)(implicit
           id = UuidCreator.getTimeOrderedEpoch(),
           userId = userId,
           name = name,
+          description = description,
           createdAt = now,
           updatedAt = now
         )
@@ -58,11 +60,17 @@ class CategoriesRepository @Inject() (database: Database)(implicit
     }
   }
 
-  def update(id: UUID, userId: UUID, name: String): Future[Unit] =
+  def update(id: UUID, userId: UUID, name: String, description: Option[String]): Future[Unit] =
     Future {
       ConstraintViolations.translating("category_user_id_name_unique" -> "A category with that name already exists") {
         database.withTransaction { implicit conn =>
-          CategoryDAO.update(id = id, userId = userId, name, clock.instant())
+          CategoryDAO.update(
+            id = id,
+            userId = userId,
+            name = name,
+            description = description,
+            updatedAt = clock.instant()
+          )
         }
       }
     }

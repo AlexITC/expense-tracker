@@ -462,8 +462,8 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
     val groceries = UUID.randomUUID()
     val dining = UUID.randomUUID()
     val categories = List(
-      GetCategories.Response.Category(groceries, "Groceries", Instant.EPOCH),
-      GetCategories.Response.Category(dining, "Dining", Instant.EPOCH)
+      GetCategories.Response.Category(groceries, "Groceries", Instant.EPOCH, None),
+      GetCategories.Response.Category(dining, "Dining", Instant.EPOCH, None)
     )
     val merchantId = UUID.randomUUID()
     val merchants =
@@ -661,7 +661,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       val info = rowInfo(
         List(rule(ImportRuleActionKind.SetMerchant, "SUPERMARKET", Some(m))),
         List(merchant(m, "Walmart", Some(c))),
-        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
+        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH, None)),
         None,
         sampleRow()
       )
@@ -681,7 +681,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       val info = rowInfo(
         ImportRuleMatcher.effectiveRules(Nil, merchants.map(mm => mm.id -> mm.name)),
         merchants,
-        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
+        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH, None)),
         None,
         sampleRow("POS SUPERMARKET 0042")
       )
@@ -715,7 +715,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
             .Rule(UUID.randomUUID(), ImportRuleAction.SetCategory(c, description = None), "SUPERMARKET", amount = None)
         ),
         Nil,
-        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
+        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH, None)),
         ai,
         row
       )
@@ -734,7 +734,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       val ai = Some(
         AiSuggestions(AiSuggestionsStatus.Done, "m", List(AiSuggestions.RowSuggestion(row.id, Some(c), None)))
       )
-      val info = rowInfo(Nil, Nil, List(GetCategories.Response.Category(c, "Dining", Instant.EPOCH)), ai, row)
+      val info = rowInfo(Nil, Nil, List(GetCategories.Response.Category(c, "Dining", Instant.EPOCH, None)), ai, row)
       info.resolved.map(_.categoryFromAi) mustBe Some(true)
       info.merchantName mustBe None
       info.categoryName mustBe Some("Dining")
@@ -748,7 +748,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       val info = rowInfo(
         Nil,
         List(merchant(m, "Walmart", None)),
-        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
+        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH, None)),
         None,
         row
       )
@@ -798,7 +798,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       val info = rowInfo(
         List(rule(ImportRuleActionKind.SetMerchant, "SUPERMARKET", Some(m))),
         List(merchant(m, "Walmart", Some(c))),
-        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
+        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH, None)),
         None,
         row
       )
@@ -845,7 +845,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
             .Rule(UUID.randomUUID(), ImportRuleAction.SetCategory(c, description = None), "SUPERMARKET", amount = None)
         ),
         Nil,
-        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH)),
+        List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH, None)),
         None,
         sampleRow().copy(amount = BigDecimal("10.00"))
       )
@@ -900,7 +900,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
   "linkedCategoryDisplay" should {
     import BankStatementReviewLogic.{LinkedCategory, linkedCategoryDisplay}
     val c = UUID.randomUUID()
-    val categories = List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH))
+    val categories = List(GetCategories.Response.Category(c, "Groceries", Instant.EPOCH, None))
     val linked = sampleRow().copy(expenseId = Some(UUID.randomUUID()))
 
     "resolve a single category to its name" in {
@@ -1613,7 +1613,7 @@ class BankStatementReviewLogicSpec extends AnyWordSpec {
       ignoredAt = None,
       createdAt = Instant.EPOCH
     )
-    val category = GetCategories.Response.Category(UUID.randomUUID(), "Food", Instant.EPOCH)
+    val category = GetCategories.Response.Category(UUID.randomUUID(), "Food", Instant.EPOCH, None)
     val keptReceipt = receipt()
     val droppedReceipt = receipt()
     val base = ReviewSupport(

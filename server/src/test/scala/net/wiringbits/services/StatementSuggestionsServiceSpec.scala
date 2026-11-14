@@ -66,7 +66,7 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       updatedAt = now
     )
 
-  private def category(name: String) = Category(UUID.randomUUID(), userId, name, now, now)
+  private def category(name: String) = Category(UUID.randomUUID(), userId, name, None, now, now)
 
   private def merchant(name: String, categoryId: Option[UUID]) =
     Merchant(UUID.randomUUID(), userId, name, None, categoryId, None, reviewed = true, now, now)
@@ -179,6 +179,40 @@ class StatementSuggestionsServiceSpec extends AnyWordSpec with Matchers with Sca
       prompt must include("CITY BUS")
       List(groceries.id, transport.id, bus.id).foreach(id => prompt must not include id.toString)
       List("none", "null").foreach(word => prompt.toLowerCase(Locale.ROOT) must not include word)
+    }
+
+    "list a category's description under its name, and no description line for a category without one" in {
+      val food = category("Food").copy(description = Some("Supermarket food shopping"))
+      val client = stub("Food")
+
+      resolve(client, List(row("CORNER SHOP")), Nil, List(food, transport), examples = List(food.id -> "MERCADO"))
+
+      val prompt = client.categoryPrompts.head
+      prompt must include("- Food\n    description: Supermarket food shopping\n    example: MERCADO")
+      prompt must include("- Transport\n")
+      prompt must not include "- Transport\n    description:"
+    }
+
+    "omit the description line for a whitespace-only description" in {
+      val food = category("Food").copy(description = Some("   "))
+      val client = stub("Food")
+
+      resolve(client, List(row("CORNER SHOP")), Nil, List(food, transport))
+
+      val prompt = client.categoryPrompts.head
+      prompt must include("- Food\n")
+      prompt must not include "description: "
+    }
+
+    "collapse a multi-line description onto a single description line" in {
+      val food = category("Food").copy(description = Some("line1\n- line2"))
+      val client = stub("Food")
+
+      resolve(client, List(row("CORNER SHOP")), Nil, List(food, transport))
+
+      val prompt = client.categoryPrompts.head
+      prompt must include("- Food\n    description: line1 - line2\n")
+      prompt must not include "\n- line2"
     }
 
     "map the returned category name to its id ignoring case and accents" in {

@@ -48,11 +48,8 @@ class BulkMerchantSetupPageSpec extends AnyWordSpec with ReactTestDom {
   )
 
   private val sampleCategories = List(
-    GetCategories.Response.Category(
-      id = UUID.randomUUID(),
-      name = "Food",
-      createdAt = Instant.now()
-    )
+    GetCategories.Response
+      .Category(id = UUID.randomUUID(), name = "Food", createdAt = Instant.now(), description = None)
   )
 
   private val sampleRows = List(

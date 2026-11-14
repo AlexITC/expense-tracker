@@ -5,6 +5,7 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
+import net.wiringbits.common.models.CategoryName
 import net.wiringbits.api.models.environmentconfig.GetEnvironmentConfig
 import net.wiringbits.api.models.merchants.{
   CreateImportRule,
@@ -155,11 +156,11 @@ object MerchantList {
       if (newCatName.trim.isEmpty) setCatModalError("Name required")
       else
         props.ctx.api.client
-          .createCategory(CreateCategory.Request(newCatName.trim))
+          .createCategory(CreateCategory.Request(name = CategoryName.trusted(newCatName.trim), description = None))
           .onComplete {
             case Success(resp) =>
               setLocalCategories(cur =>
-                cur :+ GetCategories.Response.Category(resp.id, resp.name, java.time.Instant.now())
+                cur :+ GetCategories.Response.Category(resp.id, resp.name, java.time.Instant.now(), None)
               )
               if (createCatFor == "create") setNewCategoryId(resp.id.toString)
               else setEditCategoryId(resp.id.toString)

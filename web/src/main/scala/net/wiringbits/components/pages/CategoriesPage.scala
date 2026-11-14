@@ -1,18 +1,21 @@
 package net.wiringbits.components.pages
 
-import com.olvind.mui.csstype.mod.Property.FlexDirection
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
-import net.wiringbits.api.models.categories.{CreateCategory, GetCategories, UpdateCategory}
+import net.wiringbits.api.models.categories.GetCategories
+import net.wiringbits.common.models.{CategoryDescription, CategoryName}
+import net.wiringbits.forms.CategoryFormData
 import net.wiringbits.models.User
+import net.wiringbits.ui.components.inputs.{CategoryDescriptionInput, CategoryNameInput}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
-import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
+import net.wiringbits.webapp.utils.slinkyUtils.components.core.{AsyncComponent, ErrorLabel}
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.Container
 import net.wiringbits.webapp.utils.slinkyUtils.core.GenericHooks
+import net.wiringbits.webapp.utils.slinkyUtils.forms.StatefulFormData
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
-import slinky.core.{FunctionalComponent, KeyAddingStage}
+import slinky.core.{FunctionalComponent, KeyAddingStage, SyntheticEvent}
 import slinky.web.html.{form, onSubmit}
 
 import java.util.UUID
@@ -55,12 +58,23 @@ object CategoryList {
     padding = "10px 16px"
   }
 
+  private val NameLabel = "Category name"
+  private val DescriptionLabel = "Description (optional)"
+
+  private def emptyForm: CategoryFormData =
+    CategoryFormData.initial(
+      nameLabel = NameLabel,
+      descriptionLabel = DescriptionLabel,
+      name = None,
+      description = None
+    )
+
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
-    val (newName, setNewName) = Hooks.useState("")
+    val (createFormData, setCreateFormData) = Hooks.useState(StatefulFormData(emptyForm))
+    val (editingId, setEditingId) = Hooks.useState[Option[UUID]](None)
+    val (editFormData, setEditFormData) = Hooks.useState(StatefulFormData(emptyForm))
     val (error, setError) = Hooks.useState("")
-    val (renamingId, setRenamingId) = Hooks.useState[Option[UUID]](None)
-    val (renameValue, setRenameValue) = Hooks.useState("")
     val (searchText, setSearchText) = Hooks.useState("")
     val (page, setPage) = Hooks.useState(0)
     val pageSize = 20
@@ -82,95 +96,167 @@ object CategoryList {
         )
       }
 
-    def handleCreate(): Unit =
-      props.ctx.api.client
-        .createCategory(CreateCategory.Request(newName))
-        .onComplete {
-          case Success(_) =>
-            setNewName("")
-            setError("")
-            props.onRefresh()
-          case Failure(ex) =>
-            setError(ex.getMessage)
-        }
+    def onCreateDataChanged(f: CategoryFormData => CategoryFormData): Unit = {
+      setCreateFormData { current =>
+        current.filling.copy(data = f(current.data))
+      }
+    }
+
+    def onEditDataChanged(f: CategoryFormData => CategoryFormData): Unit = {
+      setEditFormData { current =>
+        current.filling.copy(data = f(current.data))
+      }
+    }
+
+    def handleCreate(e: SyntheticEvent[?, dom.Event]): Unit = {
+      e.preventDefault()
+
+      if (createFormData.isSubmitButtonEnabled) {
+        setCreateFormData(_.submit)
+        for {
+          request <- createFormData.data.submitRequest
+            .orElse {
+              setCreateFormData(_.submissionFailed("Complete the data"))
+              None
+            }
+        } yield props.ctx.api.client
+          .createCategory(request)
+          .onComplete {
+            case Success(_) =>
+              setCreateFormData(_ => StatefulFormData(emptyForm))
+              props.onRefresh()
+
+            case Failure(ex) =>
+              setCreateFormData(_.submissionFailed(ex.getMessage))
+          }
+      } else {
+        println("Submit fired when it is not available")
+      }
+    }
+
+    def handleEdit(categoryId: UUID)(e: SyntheticEvent[?, dom.Event]): Unit = {
+      e.preventDefault()
+
+      if (editFormData.isSubmitButtonEnabled) {
+        setEditFormData(_.submit)
+        for {
+          request <- editFormData.data.updateRequest
+            .orElse {
+              setEditFormData(_.submissionFailed("Complete the data"))
+              None
+            }
+        } yield props.ctx.api.client
+          .updateCategory(categoryId, request)
+          .onComplete {
+            case Success(_) =>
+              setEditFormData(_.submitted)
+              setEditingId(None)
+              props.onRefresh()
+
+            case Failure(ex) =>
+              setEditFormData(_.submissionFailed(ex.getMessage))
+          }
+      } else {
+        println("Submit fired when it is not available")
+      }
+    }
+
+    def startEditing(cat: GetCategories.Response.Category): Unit = {
+      setEditFormData(_ =>
+        StatefulFormData(
+          CategoryFormData.initial(
+            nameLabel = NameLabel,
+            descriptionLabel = DescriptionLabel,
+            name = Some(CategoryName.trusted(cat.name)),
+            description = cat.description.map(CategoryDescription.trusted)
+          )
+        )
+      )
+      setEditingId(Some(cat.id))
+    }
 
     def handleDelete(categoryId: UUID): Unit =
       props.ctx.api.client
         .deleteCategory(categoryId)
         .onComplete {
-          case Success(_) => props.onRefresh()
+          case Success(_) =>
+            setError("")
+            props.onRefresh()
           case Failure(ex) => setError(ex.getMessage)
         }
 
-    def handleRename(categoryId: UUID): Unit =
-      props.ctx.api.client
-        .updateCategory(categoryId, UpdateCategory.Request(renameValue))
-        .onComplete {
-          case Success(_) =>
-            setRenamingId(None)
-            setRenameValue("")
-            setError("")
-            props.onRefresh()
-          case Failure(ex) =>
-            setError(ex.getMessage)
-        }
+    def validationError(text: Option[String]): ReactElement =
+      text
+        .map(t => Container(margin = Container.EdgeInsets.top(8), child = ErrorLabel(t)): ReactElement)
+        .getOrElse(Fragment())
 
-    val createForm = form(onSubmit := { e =>
-      e.preventDefault()
-      handleCreate()
-    })(
+    val createForm = form(onSubmit := (handleCreate(_)))(
       mui.Box.sx(new CSSPropertiesUtils {
         border = "1px solid var(--lc-brand)"
         borderRadius = "8px"
         padding = "16px"
         backgroundColor = "var(--lc-paper)"
         marginBottom = "16px"
-        display = "flex"
-        alignItems = "center"
-        gap = "12px"
       })(
-        mui.TextField
-          .outlined()
-          .label("New category name")
-          .value(newName)
-          .size("small")
-          .onChange(e => setNewName(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+        CategoryNameInput.component(
+          CategoryNameInput.Props(
+            createFormData.data.name,
+            disabled = createFormData.isInputDisabled,
+            onChange = value => onCreateDataChanged(x => x.copy(name = x.name.updated(value)))
+          )
+        ),
+        CategoryDescriptionInput.component(
+          CategoryDescriptionInput.Props(
+            createFormData.data.description,
+            disabled = createFormData.isInputDisabled,
+            onChange = value => onCreateDataChanged(x => x.copy(description = x.description.updated(value)))
+          )
+        ),
+        validationError(createFormData.firstValidationError),
         mui.Button
           .normal()("Add")
           .variant("contained")
           .`type`("submit")
-          .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)"; borderRadius = "8px" })
+          .disabled(createFormData.isSubmitButtonDisabled)
+          .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)"; borderRadius = "8px"; marginTop = "8px" })
       )
     )
 
-    val categoryItems: Seq[ReactElement] = pagedCats.map { cat =>
-      val isRenaming = renamingId.contains(cat.id)
-
-      val content: ReactElement =
-        if (isRenaming)
-          Container(
-            flexDirection = FlexDirection.row,
-            alignItems = Container.Alignment.center,
-            child = Fragment(
-              mui.TextField
-                .outlined()
-                .autoFocus(true)
-                .size("small")
-                .value(renameValue)
-                .onChange(e => setRenameValue(e.target.asInstanceOf[dom.HTMLInputElement].value))
-                .onKeyDown(e => if (e.key == "Enter") handleRename(cat.id)),
-              mui.Button
-                .normal()("Save")
-                .size("small")
-                .variant("contained")
-                .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
-                .onClick(_ => handleRename(cat.id)),
-              mui.Button
-                .normal()("Cancel")
-                .size("small")
-                .onClick(_ => setRenamingId(None))
-            )
+    def editForm(cat: GetCategories.Response.Category): ReactElement =
+      form(onSubmit := (handleEdit(cat.id)(_)))(
+        CategoryNameInput.component(
+          CategoryNameInput.Props(
+            editFormData.data.name,
+            disabled = editFormData.isInputDisabled,
+            onChange = value => onEditDataChanged(x => x.copy(name = x.name.updated(value)))
           )
+        ),
+        CategoryDescriptionInput.component(
+          CategoryDescriptionInput.Props(
+            editFormData.data.description,
+            disabled = editFormData.isInputDisabled,
+            onChange = value => onEditDataChanged(x => x.copy(description = x.description.updated(value)))
+          )
+        ),
+        validationError(editFormData.firstValidationError),
+        mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px"; marginTop = "8px" })(
+          mui.Button
+            .normal()("Save")
+            .size("small")
+            .variant("contained")
+            .`type`("submit")
+            .disabled(editFormData.isSubmitButtonDisabled)
+            .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
+          mui.Button
+            .normal()("Cancel")
+            .size("small")
+            .onClick(_ => setEditingId(None))
+        )
+      )
+
+    val categoryItems: Seq[ReactElement] = pagedCats.map { cat =>
+      val content: ReactElement =
+        if (editingId.contains(cat.id)) editForm(cat)
         else
           mui.Box.sx(new CSSPropertiesUtils {
             display = "flex"
@@ -178,23 +264,29 @@ object CategoryList {
             justifyContent = "space-between"
             width = "100%"
           })(
-            mui
-              .Typography(cat.name)
-              .sx(new CSSPropertiesUtils {
-                fontSize = "14px"
-                fontWeight = "600"
-                color = "var(--lc-text)"
-                fontFamily = "\"IBM Plex Sans\", sans-serif"
-              }),
+            mui.Box(
+              mui
+                .Typography(cat.name)
+                .sx(new CSSPropertiesUtils {
+                  fontSize = "14px"
+                  fontWeight = "600"
+                  color = "var(--lc-text)"
+                  fontFamily = "\"IBM Plex Sans\", sans-serif"
+                }),
+              cat.description
+                .map(description =>
+                  mui
+                    .Typography(description)
+                    .sx(new CSSPropertiesUtils { fontSize = "13px"; color = "var(--lc-text-2)" }): ReactElement
+                )
+                .getOrElse(Fragment())
+            ),
             mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px" })(
               mui.Button
-                .normal()("Rename")
+                .normal()("Edit")
                 .size("small")
                 .sx(new CSSPropertiesUtils { color = "var(--lc-text-2)" })
-                .onClick { _ =>
-                  setRenamingId(Some(cat.id))
-                  setRenameValue(cat.name)
-                },
+                .onClick(_ => startEditing(cat)),
               mui.Button
                 .normal()("Delete")
                 .size("small")

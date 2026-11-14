@@ -1,4 +1,5 @@
 package controllers
+import net.wiringbits.common.models.CategoryName
 
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
@@ -218,7 +219,8 @@ class MerchantsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
   "merchant default category" should {
     "create a merchant with a default category" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(CreateCategory.Request("Groceries")).futureValue
+      val cat =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Groceries"), description = None)).futureValue
 
       val created = client.createMerchant(CreateMerchant.Request("Amazon", None, Some(cat.id))).futureValue
       val merchants = client.getMerchants.futureValue
@@ -228,7 +230,8 @@ class MerchantsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
     "set and clear a default category via update" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val created = client.createMerchant(CreateMerchant.Request("Amazon", None, None)).futureValue
-      val cat = client.createCategory(CreateCategory.Request("Groceries")).futureValue
+      val cat =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Groceries"), description = None)).futureValue
 
       client.updateMerchant(created.id, UpdateMerchant.Request("Amazon", None, Some(cat.id))).futureValue
       val withCat = client.getMerchants.futureValue
@@ -241,7 +244,8 @@ class MerchantsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
     "fail to create with a category belonging to another user" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(CreateCategory.Request("Groceries")).futureValue
+      val cat =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Groceries"), description = None)).futureValue
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
@@ -251,7 +255,8 @@ class MerchantsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
     "fail to update with a category belonging to another user" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(CreateCategory.Request("Groceries")).futureValue
+      val cat =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Groceries"), description = None)).futureValue
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
@@ -262,7 +267,8 @@ class MerchantsControllerSpec extends PlayPostgresSpec with LoginUtils with Mock
 
     "clear merchant category_id when the category is deleted" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(CreateCategory.Request("Groceries")).futureValue
+      val cat =
+        client.createCategory(CreateCategory.Request(CategoryName.trusted("Groceries"), description = None)).futureValue
       val created = client.createMerchant(CreateMerchant.Request("Amazon", None, Some(cat.id))).futureValue
 
       client.deleteCategory(cat.id).futureValue

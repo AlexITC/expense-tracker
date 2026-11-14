@@ -1,4 +1,5 @@
 package controllers
+import net.wiringbits.common.models.CategoryName
 
 import net.wiringbits.common.ExpenseSplits
 import com.dimafeng.testcontainers.PostgreSQLContainer
@@ -144,7 +145,11 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
 
     "create an expense with splits summing exactly to total" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Food")).futureValue
+      val cat = client
+        .createCategory(
+          net.wiringbits.api.models.categories.CreateCategory.Request(CategoryName.trusted("Food"), description = None)
+        )
+        .futureValue
 
       val splits = List(CreateExpense.Split(cat.id, BigDecimal("50.00")))
       client.createExpense(createRequest(BigDecimal("50.00"), splits = Some(splits))).futureValue
@@ -201,7 +206,11 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
 
     "fail when split amount is zero" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Food")).futureValue
+      val cat = client
+        .createCategory(
+          net.wiringbits.api.models.categories.CreateCategory.Request(CategoryName.trusted("Food"), description = None)
+        )
+        .futureValue
 
       val error = client
         .createExpense(
@@ -213,7 +222,11 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
 
     "fail when duplicate category in splits" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Food")).futureValue
+      val cat = client
+        .createCategory(
+          net.wiringbits.api.models.categories.CreateCategory.Request(CategoryName.trusted("Food"), description = None)
+        )
+        .futureValue
 
       val splits =
         List(CreateExpense.Split(cat.id, BigDecimal("20.00")), CreateExpense.Split(cat.id, BigDecimal("10.00")))
@@ -248,7 +261,11 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
 
       val client2 = buildClient()
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
-      val cat = client2.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Food")).futureValue
+      val cat = client2
+        .createCategory(
+          net.wiringbits.api.models.categories.CreateCategory.Request(CategoryName.trusted("Food"), description = None)
+        )
+        .futureValue
 
       val error = client
         .createExpense(
@@ -281,9 +298,18 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
 
     "replace split set on update" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val cat1 = client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Food")).futureValue
+      val cat1 = client
+        .createCategory(
+          net.wiringbits.api.models.categories.CreateCategory.Request(CategoryName.trusted("Food"), description = None)
+        )
+        .futureValue
       val cat2 =
-        client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Transport")).futureValue
+        client
+          .createCategory(
+            net.wiringbits.api.models.categories.CreateCategory
+              .Request(CategoryName.trusted("Transport"), description = None)
+          )
+          .futureValue
       val created = client
         .createExpense(
           createRequest(BigDecimal("50.00"), splits = Some(List(CreateExpense.Split(cat1.id, BigDecimal("50.00")))))
@@ -363,7 +389,11 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
   "category delete" should {
     "remove related splits but leave expense intact" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val cat = client.createCategory(net.wiringbits.api.models.categories.CreateCategory.Request("Food")).futureValue
+      val cat = client
+        .createCategory(
+          net.wiringbits.api.models.categories.CreateCategory.Request(CategoryName.trusted("Food"), description = None)
+        )
+        .futureValue
       client
         .createExpense(
           createRequest(BigDecimal("50.00"), splits = Some(List(CreateExpense.Split(cat.id, BigDecimal("50.00")))))

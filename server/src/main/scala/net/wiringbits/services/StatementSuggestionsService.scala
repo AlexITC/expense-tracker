@@ -243,11 +243,12 @@ object StatementSuggestionsService {
         case (categoryId, description) if categoryId == c.id =>
           s"    example: ${oneLine(description)}"
       }
-      (s"- ${oneLine(c.name)}" :: exampleLines).mkString("\n")
+      val descriptionLines = promptDescription(c).map(d => s"    description: $d").toList
+      (s"- ${oneLine(c.name)}" :: descriptionLines ::: exampleLines).mkString("\n")
     }
     s"""You categorize a bank statement transaction (an expense) into one of the user's categories.
        |
-       |Categories, each with descriptions of transactions the user previously filed under it:
+       |Categories, each with an optional description of what belongs in it and descriptions of transactions the user previously filed under it:
        |${categoryLines.mkString("\n")}
        |
        |Transaction: ${oneLine(row.description)}
@@ -281,6 +282,9 @@ object StatementSuggestionsService {
       .getOrElse(throw new RuntimeException(s"Model did not return a valid suggestion answer: $raw"))
 
   private[services] def oneLine(s: String): String = s.replaceAll("\\s+", " ").trim
+
+  /** The category's description on one line, or None when it is missing or blank. */
+  private[services] def promptDescription(c: Category): Option[String] = c.description.map(oneLine).filter(_.nonEmpty)
 
   // Models sometimes wrap the JSON in markdown fences or a sentence; keep the outermost object.
   private def extractJsonObject(text: String): String = {

@@ -2,6 +2,7 @@ package net.wiringbits.actions.categories
 
 import net.wiringbits.api.models.categories.CreateCategory
 import net.wiringbits.repositories.CategoriesRepository
+import net.wiringbits.validations.ValidateCategoryDescriptionKept
 
 import java.util.UUID
 import javax.inject.Inject
@@ -11,16 +12,15 @@ class CreateCategoryAction @Inject() (categoriesRepository: CategoriesRepository
     ec: ExecutionContext
 ) {
 
+  // Create is idempotent on name: when the category already exists, the existing row is returned unchanged. A
+  // submitted description that differs from the stored one fails instead of being dropped; descriptions of existing
+  // categories are changed through UpdateCategoryAction.
   def apply(userId: UUID, request: CreateCategory.Request): Future[CreateCategory.Response] = {
+    // A present-but-empty description means "no description"; the primitive already enforces the length limit.
+    val description = request.description.filter(_.string.nonEmpty)
     for {
-      _ <- validateFormat(request)
-      category <- categoriesRepository.getOrCreate(userId, request.name)
+      category <- categoriesRepository.getOrCreate(userId, request.name.string, description = description.map(_.string))
+      _ <- ValidateCategoryDescriptionKept(category, description)
     } yield CreateCategory.Response(id = category.id, name = category.name)
-  }
-
-  private def validateFormat(request: CreateCategory.Request): Future[Unit] = {
-    if (request.name.isBlank) Future.failed(new RuntimeException("The name is required"))
-    else if (request.name.length > 25) Future.failed(new RuntimeException("Name must be 25 characters or less"))
-    else Future.unit
   }
 }

@@ -21,7 +21,13 @@ import scala.concurrent.{ExecutionContext, Future}
 class JevStatementSuggestionsService @Inject() (jevClient: JevClient)(implicit ec: ExecutionContext) {
   import JevStatementSuggestionsService.*
   import JevClient.NoMerchant
-  import StatementSuggestionsService.{finalSuggestion, historyCategories, oneLine, selectRowsToResolve}
+  import StatementSuggestionsService.{
+    finalSuggestion,
+    historyCategories,
+    oneLine,
+    promptDescription,
+    selectRowsToResolve
+  }
 
   private val logger = LoggerFactory.getLogger(this.getClass)
 
@@ -148,9 +154,10 @@ class JevStatementSuggestionsService @Inject() (jevClient: JevClient)(implicit e
           case (categoryId, description) if categoryId == c.id =>
             oneLine(description)
         }
+        val label = promptDescription(c).fold(oneLine(c.name))(d => s"${oneLine(c.name)}: $d")
         val description =
-          if (categoryExamples.isEmpty) oneLine(c.name)
-          else s"${oneLine(c.name)}. Examples: ${categoryExamples.mkString("; ")}"
+          if (categoryExamples.isEmpty) label
+          else s"$label. Examples: ${categoryExamples.mkString("; ")}"
         c.id.toString -> description
       }.toMap
       jevClient

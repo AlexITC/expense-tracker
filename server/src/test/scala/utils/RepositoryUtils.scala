@@ -132,13 +132,15 @@ trait RepositoryUtils {
 
   def createCategory(
       userId: UUID,
-      name: String = "Test Category"
+      name: String = "Test Category",
+      description: Option[String] = None
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[Category.Create] = {
     val now = Instant.now()
     val createRequest = Category.Create(
       id = UUID.randomUUID(),
       userId = userId,
       name = name,
+      description = description,
       createdAt = now,
       updatedAt = now
     )

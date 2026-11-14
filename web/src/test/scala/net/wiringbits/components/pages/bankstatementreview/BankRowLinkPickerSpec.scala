@@ -32,7 +32,12 @@ class BankRowLinkPickerSpec extends AnyWordSpec with ReactTestDom {
   private val stmtId = UUID.randomUUID()
   private val rowId = UUID.randomUUID()
   private val category =
-    GetCategories.Response.Category(id = UUID.randomUUID(), name = "Groceries", createdAt = Instant.EPOCH)
+    GetCategories.Response.Category(
+      id = UUID.randomUUID(),
+      name = "Groceries",
+      createdAt = Instant.EPOCH,
+      description = None
+    )
 
   private def expense(
       merchant: String,

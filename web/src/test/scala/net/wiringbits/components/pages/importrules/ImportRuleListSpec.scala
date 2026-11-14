@@ -73,7 +73,10 @@ class ImportRuleListSpec extends AnyWordSpec with ReactTestDom {
   )
 
   private val sampleCategoriesResponse = GetCategories.Response(
-    data = List(GetCategories.Response.Category(id = UUID.randomUUID(), name = "Coffee", createdAt = Instant.EPOCH))
+    data = List(
+      GetCategories.Response
+        .Category(id = UUID.randomUUID(), name = "Coffee", createdAt = Instant.EPOCH, description = None)
+    )
   )
 
   private val sampleMerchantsResponse = GetMerchants.Response(
