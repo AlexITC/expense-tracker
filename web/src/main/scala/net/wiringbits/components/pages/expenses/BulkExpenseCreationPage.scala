@@ -9,7 +9,8 @@ import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
 import net.wiringbits.api.models.merchants.{CreateMerchant, GetMerchants}
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.core.SafeHooks
-import net.wiringbits.models.{SaveState, User}
+import net.wiringbits.models.User
+import net.wiringbits.ui.forms.SubmitHooks
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.compat.{MuiCompat, RouterCompat}
@@ -113,8 +114,8 @@ object BulkExpenseCreationContent {
     val (categoryInput, setCategoryInput) = Hooks.useState("")
     val (categoryIdOpt, setCategoryIdOpt) = Hooks.useState[Option[UUID]](None)
     val (notes, setNotes) = Hooks.useState("")
-    val (save, setSave) = Hooks.useState[SaveState](SaveState.Idle)
-    val saving = save.isSaving
+    val submit = SubmitHooks.useSubmit()
+    val saving = submit.isSubmitting
 
     // Reset Screen 2 state when navigating to a description (or on mount with a desc in URL)
     SafeHooks.useEffect(descParam.getOrElse(""))(() => {
@@ -129,10 +130,7 @@ object BulkExpenseCreationContent {
             .toSet
         else Set.empty[UUID]
       setSelectedIds(initIds)
-      setSave {
-        case SaveState.Failed(_) => SaveState.Idle
-        case s => s
-      }
+      submit.clearError()
       setNotes("")
       setMerchantInput("")
       setMerchantIdOpt(None)
@@ -182,7 +180,7 @@ object BulkExpenseCreationContent {
     def handleImport(): Unit = {
       val ids = effectiveSelected.toList
       importError(ids, categoryInput).fold {
-        setSave(SaveState.Saving)
+        submit.begin()
         val notesVal = notes.trim
 
         (for {
@@ -214,18 +212,18 @@ object BulkExpenseCreationContent {
             val done = processed.toSet
             setAllRows(cur => cur.map(r => if (done.contains(r.id)) r.copy(expenseId = Some(UUID.randomUUID())) else r))
             setSelectedIds(Set.empty)
-            setSave(SaveState.Idle)
+            submit.reset()
           case Failure(ex) =>
-            setSave(SaveState.Failed(ex.getMessage))
+            submit.fail(ex.getMessage)
         }
-      }(msg => setSave(SaveState.Failed(msg)))
+      }(msg => submit.fail(msg))
     }
 
     def handleIgnore(): Unit = {
       val ids = effectiveSelected.toList
-      if (ids.isEmpty) { setSave(SaveState.Failed("No rows selected")) }
+      if (ids.isEmpty) { submit.fail("No rows selected") }
       else {
-        setSave(SaveState.Saving)
+        submit.begin()
 
         ids
           .foldLeft(Future.successful(List.empty[UUID])) { (accF, rowId) =>
@@ -244,9 +242,9 @@ object BulkExpenseCreationContent {
               val done = ignored.toSet
               setAllRows(cur => cur.map(r => if (done.contains(r.id)) r.copy(ignoredAt = Some(Instant.now())) else r))
               setSelectedIds(Set.empty)
-              setSave(SaveState.Idle)
+              submit.reset()
             case Failure(ex) =>
-              setSave(SaveState.Failed(ex.getMessage))
+              submit.fail(ex.getMessage)
           }
       }
     }
@@ -515,7 +513,7 @@ object BulkExpenseCreationContent {
             mui
               .Typography(s"${effectiveSelected.size} rows selected")
               .sx(new CSSPropertiesUtils { fontWeight = "700"; fontSize = "14px" }),
-            save.errorOpt match {
+            submit.error match {
               case Some(msg) =>
                 mui.Typography(msg).sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
               case None => Fragment()

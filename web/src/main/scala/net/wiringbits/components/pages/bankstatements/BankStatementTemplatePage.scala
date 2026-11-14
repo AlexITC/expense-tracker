@@ -4,7 +4,8 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{BankStatementDraft, ConfirmWarning}
 import net.wiringbits.components.widgets.Loader
-import net.wiringbits.models.{SaveState, User}
+import net.wiringbits.models.User
+import net.wiringbits.ui.forms.SubmitHooks
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.{useHistory, useParams}
@@ -120,10 +121,10 @@ object BankStatementTemplateEditor {
     val bankNames = props.bankNames
 
     val (payloadOpt, setPayloadOpt) = Hooks.useState[Option[BankStatementDraft.Payload]](props.draft.payload)
-    val (saveState, setSaveState) = Hooks.useState[SaveState](SaveState.Idle)
+    val submit = SubmitHooks.useSubmit()
     val (pendingWarnings, setPendingWarnings) = Hooks.useState[List[ConfirmWarning]](Nil)
     val (unverifiedAcked, setUnverifiedAcked) = Hooks.useState(false)
-    val busy = saveState.isSaving
+    val busy = submit.isSubmitting
 
     def setMeta(f: BankStatementDraft.Metadata => BankStatementDraft.Metadata): Unit =
       setPayloadOpt(_.map(p => p.copy(metadata = f(p.metadata))))
@@ -147,15 +148,15 @@ object BankStatementTemplateEditor {
       )
 
     def doSave(): Unit = payloadOpt.foreach { p =>
-      setSaveState(SaveState.Saving)
+      submit.begin()
       client.updateBankStatementDraft(id, BankStatementDraft.Update.Request(p)).onComplete {
-        case Success(data) => data.payload.foreach(pl => setPayloadOpt(Some(pl))); setSaveState(SaveState.Idle)
-        case Failure(ex) => setSaveState(SaveState.Failed(ex.getMessage))
+        case Success(data) => data.payload.foreach(pl => setPayloadOpt(Some(pl))); submit.reset()
+        case Failure(ex) => submit.fail(ex.getMessage)
       }
     }
 
     def doConfirm(): Unit = payloadOpt.foreach { p =>
-      setSaveState(SaveState.Saving)
+      submit.begin()
       val run = for {
         _ <- client.updateBankStatementDraft(id, BankStatementDraft.Update.Request(p))
         confirmed <- client.confirmBankStatementDraft(
@@ -170,14 +171,14 @@ object BankStatementTemplateEditor {
             case Some(stmtId) => history.push(s"/bank-statements/$stmtId")
             case None =>
               setPendingWarnings(resp.warnings)
-              setSaveState(SaveState.Idle)
+              submit.reset()
           }
-        case Failure(ex) => setSaveState(SaveState.Failed(ex.getMessage))
+        case Failure(ex) => submit.fail(ex.getMessage)
       }
     }
 
     def doConfirmAnyway(): Unit = payloadOpt.foreach { p =>
-      setSaveState(SaveState.Saving)
+      submit.begin()
       client
         .confirmBankStatementDraft(
           id,
@@ -190,11 +191,11 @@ object BankStatementTemplateEditor {
               case Some(stmtId) => history.push(s"/bank-statements/$stmtId")
               case None =>
                 setPendingWarnings(Nil)
-                setSaveState(SaveState.Failed("The statement could not be imported"))
+                submit.fail("The statement could not be imported")
             }
           case Failure(ex) =>
             setPendingWarnings(Nil)
-            setSaveState(SaveState.Failed(ex.getMessage))
+            submit.fail(ex.getMessage)
         }
     }
 
@@ -222,10 +223,10 @@ object BankStatementTemplateEditor {
           .build
 
     def doDiscard(): Unit = {
-      setSaveState(SaveState.Saving)
+      submit.begin()
       client.discardBankStatementDraft(id).onComplete {
         case Success(_) => history.push("/bank-statements")
-        case Failure(ex) => setSaveState(SaveState.Failed(ex.getMessage))
+        case Failure(ex) => submit.fail(ex.getMessage)
       }
     }
 
@@ -446,7 +447,7 @@ object BankStatementTemplateEditor {
         case Some(p) => editingView(p)
         case None => notReadyText
       },
-      saveState.errorOpt match {
+      submit.error match {
         case Some(message) => errorText(message)
         case None => Fragment()
       },

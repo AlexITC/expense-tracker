@@ -25,6 +25,14 @@ object SubmitHooks {
     def succeed(): Unit = setState(SubmitState.Submitted)
     def fail(error: String): Unit = setState(SubmitState.Failed(error))
     def reset(): Unit = setState(SubmitState.Filling)
+
+    /** Drops a stale submission error without disturbing an in-flight submission, for when the form changes and the
+      * previous failure no longer applies.
+      */
+    def clearError(): Unit = state match {
+      case SubmitState.Failed(_) => setState(SubmitState.Filling)
+      case _ => ()
+    }
   }
 
   def useSubmit(): Control = {

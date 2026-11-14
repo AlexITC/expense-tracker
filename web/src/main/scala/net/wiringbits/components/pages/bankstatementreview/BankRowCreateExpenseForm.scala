@@ -10,6 +10,7 @@ import net.wiringbits.api.models.merchants.{CreateImportRule, CreateMerchant, Ge
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.core.SafeHooks
+import net.wiringbits.ui.forms.SubmitHooks
 import net.wiringbits.utils.ReceiptFileViewer
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
@@ -186,7 +187,7 @@ object BankRowCreateExpenseForm {
     val (receipts, setReceipts) = Hooks.useState[List[GetReceipts.Response.Receipt]](Nil)
     // Receipts whose merchant offer the user already accepted or declined.
     val (decidedReceiptIds, setDecidedReceiptIds) = Hooks.useState[Set[UUID]](Set.empty)
-    val (error, setError) = Hooks.useState("")
+    val submit = SubmitHooks.useSubmit()
     // Set once the expense exists but its alias rule failed: the form stays open only to show that error.
     val (savedExpenseId, setSavedExpenseId) = Hooks.useState[Option[UUID]](None)
 
@@ -268,11 +269,11 @@ object BankRowCreateExpenseForm {
 
     def handleSubmit(): Unit =
       (Try(BigDecimal(amount)).toOption, Try(LocalDate.parse(date)).toOption) match {
-        case (None, _) => setError("Invalid amount")
-        case (_, None) => setError("Invalid date")
-        case _ if categoryInput.trim.isEmpty => setError("Choose a category")
+        case (None, _) => submit.fail("Invalid amount")
+        case (_, None) => submit.fail("Invalid date")
+        case _ if categoryInput.trim.isEmpty => submit.fail("Choose a category")
         case (Some(amt), Some(dt)) =>
-          setError("")
+          submit.begin()
           val categoryName = categoryInput.trim
 
           val fExpense: Future[(UUID, Option[UUID], Option[UUID])] = for {
@@ -329,7 +330,7 @@ object BankRowCreateExpenseForm {
           } yield (resp.expenseId, resolvedMerchantId, resolvedCategoryId)
 
           fExpense.onComplete {
-            case Failure(ex) => setError(ex.getMessage)
+            case Failure(ex) => submit.fail(ex.getMessage)
             case Success((expenseId, resolvedMerchantId, resolvedCategoryId)) =>
               val aliasOpt =
                 if (hint == RuleHint.NeedsAlias) aliasToCreate(pattern = rulePattern, merchantName = merchantName)
@@ -381,7 +382,7 @@ object BankRowCreateExpenseForm {
                         props.onSuccess(expenseId)
                       case Failure(ex) =>
                         setSavedExpenseId(Some(expenseId))
-                        setError(s"Expense created, but the rule could not be created: ${ex.getMessage}")
+                        submit.fail(s"Expense created, but the rule could not be created: ${ex.getMessage}")
                     }
                 case None => props.onSuccess(expenseId)
               }
@@ -402,7 +403,7 @@ object BankRowCreateExpenseForm {
         setMerchantInput(text)
         if (rsn != "reset") setMerchantIdOpt(None)
       },
-      disabled = false,
+      disabled = submit.isSubmitting,
       fullWidth = true
     )
 
@@ -420,7 +421,7 @@ object BankRowCreateExpenseForm {
         setCategoryInput(text)
         if (rsn != "reset") setCategoryIdOpt(None)
       },
-      disabled = false,
+      disabled = submit.isSubmitting,
       fullWidth = true
     )
 
@@ -445,15 +446,18 @@ object BankRowCreateExpenseForm {
         mui
           .Typography("New expense")
           .sx(new CSSPropertiesUtils { fontWeight = "700"; fontSize = "14px"; userSelect = "none" }),
-        if (error.nonEmpty)
-          mui.Typography(error).sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
-        else Fragment(),
+        submit.error match {
+          case Some(msg) =>
+            mui.Typography(msg).sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
+          case None => Fragment()
+        },
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "12px" })(
           mui.TextField
             .outlined()
             .label("Amount")
             .size("small")
             .value(amount)
+            .disabled(submit.isSubmitting)
             .onChange(e => setAmount(e.target.asInstanceOf[dom.HTMLInputElement].value))
             .sx(new CSSPropertiesUtils { flex = "1" }),
           mui.TextField
@@ -461,6 +465,7 @@ object BankRowCreateExpenseForm {
             .label("Date")
             .size("small")
             .value(date)
+            .disabled(submit.isSubmitting)
             .onChange(e => setDate(e.target.asInstanceOf[dom.HTMLInputElement].value))
             .sx(new CSSPropertiesUtils { flex = "1" })
         ),
@@ -469,6 +474,7 @@ object BankRowCreateExpenseForm {
           .label("Notes")
           .size("small")
           .value(notes)
+          .disabled(submit.isSubmitting)
           .onChange(e => setNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
         (mui.Autocomplete.withProps(merchantAcProps).withKey("merchant"): ReactElement),
         (mui.Autocomplete.withProps(categoryAcProps).withKey("category"): ReactElement),
@@ -532,7 +538,7 @@ object BankRowCreateExpenseForm {
                       .normal()("View")
                       .size("small")
                       .onClick(_ =>
-                        ReceiptFileViewer.openInNewTab(props.ctx.api.client, r.id, r.documentFilename, setError)
+                        ReceiptFileViewer.openInNewTab(props.ctx.api.client, r.id, r.documentFilename, submit.fail)
                       )
                   )
                   .withKey(r.id.toString): ReactElement)
@@ -575,12 +581,13 @@ object BankRowCreateExpenseForm {
           case None =>
             mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
               mui.Button
-                .normal()("Save")
+                .normal()(if (submit.isSubmitting) "Saving…" else "Save")
                 .variant("contained")
                 .size("small")
+                .disabled(submit.isSubmitting)
                 .`type`("submit")
                 .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
-              mui.Button.normal()("Cancel").size("small").onClick(_ => props.onCancel())
+              mui.Button.normal()("Cancel").size("small").disabled(submit.isSubmitting).onClick(_ => props.onCancel())
             )
         }
       )

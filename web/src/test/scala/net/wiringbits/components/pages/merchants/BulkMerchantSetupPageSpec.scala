@@ -158,7 +158,7 @@ class BulkMerchantSetupPageSpec extends AnyWordSpec with ReactTestDom {
       }
     }
 
-    // The validation error is rendered from SaveState.Failed via errorOpt; no API call is made on this path.
+    // The validation error is rendered from the submit lifecycle's error; no API call is made on this path.
     "show 'Merchant name is required' when Assign is clicked with an empty merchant" in {
       renderRow("", Nil, Nil, Nil)
       clickAssign()

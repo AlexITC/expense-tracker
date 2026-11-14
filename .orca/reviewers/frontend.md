@@ -1,5 +1,5 @@
 ---
-description: Frontend — fetch via AsyncComponent; mutually-exclusive UI state as one ADT; state derived from its previous value set via the functional updater; hook dependency lists via SafeHooks (String keys); filters and view selections encoded in the URL; navigate with the router link, not hand-rolled anchors; reuse the MUI component (Autocomplete, Dialog, Menu, Pagination, …) instead of re-implementing it
+description: Frontend — fetch via AsyncComponent; drive async submit/save in-flight and error state through the shared useSubmit lifecycle; mutually-exclusive UI state as one ADT; state derived from its previous value set via the functional updater; hook dependency lists via SafeHooks (String keys); filters and view selections encoded in the URL; navigate with the router link, not hand-rolled anchors; reuse the MUI component (Autocomplete, Dialog, Menu, Pagination, …) instead of re-implementing it
 files: web/src/main/scala
 ---
 
@@ -11,6 +11,28 @@ ad-hoc effects, state, and manual loading/error flags to fetch API data should
 be an `AsyncComponent`, as the existing pages and widgets are.
 
 Not: components that don't fetch from the API; effects unrelated to data loading.
+
+## Drive async submit/save in-flight and error state through useSubmit
+Flag a component that runs an async submit or save — a `createX`/`updateX`/
+`deleteX`/`confirm`/`assign`/`review` call on `ctx.api.client` — and tracks its
+progress with hand-rolled `Hooks.useState`: a `saving`/`loading`/`submitting`/
+`working`/`busy` boolean, an `error` `String`/`Option[String]`, or a local
+save-state enum. Use the shared submission lifecycle
+`net.wiringbits.ui.forms.SubmitHooks.useSubmit` instead. It returns a handle with
+`isSubmitting`, `error`, and `begin()` / `succeed()` / `fail(msg)` / `reset()` /
+`clearError()`: call `begin()` as the request starts, `fail(ex.getMessage)` in the
+failure branch, `reset()` (back to editable) or `succeed()` on success; disable
+inputs and the submit button with `isSubmitting` and render the error from
+`error`. The giveaway is a failure branch that must remember to both set the error
+and clear the in-flight flag (`setError(ex.getMessage); setSaving(false)`) — the
+"forgot to clear → hung spinner" bug the hook makes impossible — or a
+`disabled(saving)` plus error-`Typography` pair wired to those flags.
+
+Not: forms built on the typed-form stack (`FormData`/`FormField`/
+`StatefulFormData`) for validated text inputs, which carries its own lifecycle; a
+richer local ADT that couples the lifecycle with other state it genuinely needs (an
+editor that is also open/closed and holds a draft); a data-fetch loading flag,
+which belongs in `AsyncComponent` (above); a plain non-async boolean toggle.
 
 ## Model mutually-exclusive UI state as one ADT, not parallel flags
 Flag several `Hooks.useState`s that together encode a single state in which at
