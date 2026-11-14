@@ -99,39 +99,46 @@ class TelegramExpenseActionSpec extends RepositorySpec with RepositoryUtils {
       splits.map(_.categoryId) must contain(category.id)
     }
 
-    "apply an import rule amount to the message amount as a charge" in withRepositories() { implicit repositories =>
-      val user = createUser().futureValue
-      createImportRule(
-        user.id,
-        pattern = "amzn",
-        amount = Some(BigDecimal("-30.00")),
-        action = ImportRuleActionKind.Ignore
-      ).futureValue
-      createImportRule(
-        user.id,
-        pattern = "amzn",
-        amount = Some(BigDecimal("12.00")),
-        action = ImportRuleActionKind.Ignore
-      ).futureValue
+    "skip a message whose amount, taken as a charge, matches an ignore rule amount" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        createImportRule(
+          user.id,
+          pattern = "amzn",
+          amount = Some(BigDecimal("-30.00")),
+          action = ImportRuleActionKind.Ignore
+        ).futureValue
 
-      newAction().apply(user.id, ParsedMessage(BigDecimal("30.00"), "AMZN.COM", None, None)).futureValue mustBe
-        a[Left[?, ?]]
-      newAction()
-        .apply(user.id, ParsedMessage(BigDecimal("30.00"), "AMZN.COM", None, None))
-        .futureValue
-        .left
-        .getOrElse("") must include("ignore rule")
-      // +12.00 rule must not match a 12.00 expense (the expense is a charge, -12.00); nothing matches either 31.00.
-      newAction()
-        .apply(user.id, ParsedMessage(BigDecimal("12.00"), "AMZN.COM", None, None))
-        .futureValue
-        .left
-        .getOrElse("") must not include "ignore rule"
-      newAction()
-        .apply(user.id, ParsedMessage(BigDecimal("31.00"), "AMZN.COM", None, None))
-        .futureValue
-        .left
-        .getOrElse("") must not include "ignore rule"
+        val result = newAction().apply(user.id, ParsedMessage(BigDecimal("30.00"), "AMZN.COM", None, None)).futureValue
+
+        result.left.toOption.value must include("ignore rule")
+    }
+
+    "not skip a message whose amount, taken as a charge, differs from every ignore rule amount" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        createImportRule(
+          user.id,
+          pattern = "amzn",
+          amount = Some(BigDecimal("-30.00")),
+          action = ImportRuleActionKind.Ignore
+        ).futureValue
+        // Distinct merchant names below: once a merchant exists by name, rules are no longer consulted.
+        // A positive rule amount is a credit, so it must not match a 12.00 expense (a -12.00 charge).
+        createImportRule(
+          user.id,
+          pattern = "amzn",
+          amount = Some(BigDecimal("12.00")),
+          action = ImportRuleActionKind.Ignore
+        ).futureValue
+
+        val opposite =
+          newAction().apply(user.id, ParsedMessage(BigDecimal("12.00"), "AMZN.COM", Some("Misc"), None)).futureValue
+        val different =
+          newAction().apply(user.id, ParsedMessage(BigDecimal("31.00"), "AMZN MKTP", Some("Misc"), None)).futureValue
+
+        opposite mustBe a[Right[?, ?]]
+        different mustBe a[Right[?, ?]]
     }
 
     // Branch 5: merchant not found, no category → Left
