@@ -1,6 +1,6 @@
 package net.wiringbits.actions.importrules
 
-import net.wiringbits.api.models.merchants.{CreateImportRule, ImportRuleAction}
+import net.wiringbits.api.models.merchants.CreateImportRule
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.repositories.ImportRuleRepository
 
@@ -11,18 +11,11 @@ import scala.concurrent.{ExecutionContext, Future}
 class CreateImportRuleAction @Inject() (ruleRepository: ImportRuleRepository)(implicit ec: ExecutionContext) {
 
   def apply(userId: UUID, request: CreateImportRule.Request): Future[CreateImportRule.Response] =
-    if (ImportRuleMatcher.normalize(request.pattern).length < ImportRuleMatcher.MinPatternLength)
-      Future.failed(
-        new RuntimeException(s"Rule pattern must be at least ${ImportRuleMatcher.MinPatternLength} characters")
-      )
-    else
-      ImportRuleAction
-        .validateDescription(request.action)
-        .flatMap(_ => ImportRuleMatcher.validateAmount(request.amount)) match {
-        case Left(error) => Future.failed(new RuntimeException(error))
-        case Right(()) =>
-          ruleRepository
-            .create(userId, request.action, request.pattern, request.amount)
-            .map(CreateImportRule.Response(_))
-      }
+    ImportRuleMatcher.validate(request.pattern, request.amount, request.action) match {
+      case Left(error) => Future.failed(new RuntimeException(error))
+      case Right(()) =>
+        ruleRepository
+          .create(userId, request.action, request.pattern, request.amount)
+          .map(CreateImportRule.Response(_))
+    }
 }

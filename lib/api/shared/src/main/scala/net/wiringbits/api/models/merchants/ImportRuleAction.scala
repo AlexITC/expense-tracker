@@ -55,15 +55,6 @@ enum ImportRuleAction {
 
 object ImportRuleAction {
 
-  /** A rule description becomes the created expense/refund notes, whose limit is 255 characters. */
-  val MaxDescriptionLength: Int = 255
-
-  /** Fails when the action's description exceeds [[MaxDescriptionLength]]. */
-  def validateDescription(action: ImportRuleAction): Either[String, Unit] =
-    if (action.descriptionOpt.exists(_.length > MaxDescriptionLength))
-      Left(s"Rule description must be $MaxDescriptionLength characters or less")
-    else Right(())
-
   /** Rebuild an action from its stored columns. The write path never persists an inconsistent row, so a missing id for
     * a set_merchant/set_category row is a corrupt row and fails loudly rather than being papered over.
     */

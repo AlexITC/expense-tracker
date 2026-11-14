@@ -4,6 +4,7 @@ import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
 import net.wiringbits.api.models.categories.CreateCategory
 import net.wiringbits.api.models.merchants.{CreateImportRule, CreateMerchant, ImportRuleAction, UpdateImportRule}
+import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
 import net.wiringbits.common.models.Captcha
@@ -238,11 +239,11 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val category = client.createCategory(CreateCategory.Request("Dining")).futureValue
       val action = ImportRuleAction.SetCategory(
         category.id,
-        description = Some("x" * (ImportRuleAction.MaxDescriptionLength + 1))
+        description = Some("x" * (ImportRuleMatcher.MaxDescriptionLength + 1))
       )
 
       val error = client.createImportRule(CreateImportRule.Request(action, "CAFE", amount = None)).expectError
-      error must be(s"Rule description must be ${ImportRuleAction.MaxDescriptionLength} characters or less")
+      error must be(s"Rule description must be ${ImportRuleMatcher.MaxDescriptionLength} characters or less")
       client.getImportRules.futureValue.data must be(empty)
     }
 
@@ -250,7 +251,7 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       createVerifyLoginUser(tokenGenerator).futureValue
       val category = client.createCategory(CreateCategory.Request("Dining")).futureValue
       val action =
-        ImportRuleAction.SetCategory(category.id, description = Some("x" * ImportRuleAction.MaxDescriptionLength))
+        ImportRuleAction.SetCategory(category.id, description = Some("x" * ImportRuleMatcher.MaxDescriptionLength))
 
       val response = client.createImportRule(CreateImportRule.Request(action, "CAFE", amount = None)).futureValue
       client.getImportRules.futureValue.data.find(_.id == response.id).map(_.action) must be(Some(action))
@@ -265,12 +266,57 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
       val tooLong = ImportRuleAction.SetMerchant(
         merchant.id,
         categoryId = None,
-        description = Some("x" * (ImportRuleAction.MaxDescriptionLength + 1))
+        description = Some("x" * (ImportRuleMatcher.MaxDescriptionLength + 1))
       )
       val error =
         client.updateImportRule(created.id, UpdateImportRule.Request(tooLong, "CAFE", amount = None)).expectError
-      error must be(s"Rule description must be ${ImportRuleAction.MaxDescriptionLength} characters or less")
+      error must be(s"Rule description must be ${ImportRuleMatcher.MaxDescriptionLength} characters or less")
       client.getImportRules.futureValue.data.find(_.id == created.id).map(_.action) must be(Some(plain))
+    }
+    "reject a blank description on create" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val category = client.createCategory(CreateCategory.Request("Dining")).futureValue
+      val action = ImportRuleAction.SetCategory(category.id, description = Some("  "))
+
+      val error = client.createImportRule(CreateImportRule.Request(action, "CAFE", amount = None)).expectError
+      error must be("Rule description must not be blank")
+    }
+
+    "reject a blank description on update" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val category = client.createCategory(CreateCategory.Request("Dining")).futureValue
+      val plain = ImportRuleAction.SetCategory(category.id, description = None)
+      val created = client.createImportRule(CreateImportRule.Request(plain, "CAFE", amount = None)).futureValue
+
+      val blank = ImportRuleAction.SetCategory(category.id, description = Some(""))
+      val error =
+        client.updateImportRule(created.id, UpdateImportRule.Request(blank, "CAFE", amount = None)).expectError
+      error must be("Rule description must not be blank")
+    }
+  }
+
+  "POST/PUT /import-rules (pattern length)" should {
+    val tooLong = "x" * (ImportRuleMatcher.MaxPatternLength + 1)
+
+    "reject a pattern longer than the limit on create" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+
+      val error =
+        client.createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, tooLong, amount = None)).expectError
+      error must be(s"Rule pattern must be ${ImportRuleMatcher.MaxPatternLength} characters or less")
+      client.getImportRules.futureValue.data must be(empty)
+    }
+
+    "reject a pattern longer than the limit on update" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val created =
+        client.createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "FEE", amount = None)).futureValue
+
+      val error = client
+        .updateImportRule(created.id, UpdateImportRule.Request(ImportRuleAction.Ignore, tooLong, amount = None))
+        .expectError
+      error must be(s"Rule pattern must be ${ImportRuleMatcher.MaxPatternLength} characters or less")
+      client.getImportRules.futureValue.data.find(_.id == created.id).map(_.pattern) must be(Some("FEE"))
     }
   }
 
@@ -341,6 +387,33 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
         .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "FEE", amount = Some(BigDecimal("1.234"))))
         .expectError
       error must be("Rule amount must have at most 2 decimal places")
+    }
+
+    "reject an amount that does not fit the column" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+
+      val error = client
+        .createImportRule(
+          CreateImportRule.Request(ImportRuleAction.Ignore, "FEE", amount = Some(BigDecimal("-10000000000")))
+        )
+        .expectError
+      error must be("Rule amount must have at most 10 integer digits")
+    }
+
+    "reject an invalid amount on update" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val created = client
+        .createImportRule(CreateImportRule.Request(ImportRuleAction.Ignore, "FEE", amount = Some(BigDecimal("-1"))))
+        .futureValue
+
+      val error = client
+        .updateImportRule(
+          created.id,
+          UpdateImportRule.Request(ImportRuleAction.Ignore, "FEE", amount = Some(BigDecimal("0")))
+        )
+        .expectError
+      error must be("Rule amount must not be zero")
+      client.getImportRules.futureValue.data.find(_.id == created.id).flatMap(_.amount) must be(Some(BigDecimal("-1")))
     }
   }
 

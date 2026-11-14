@@ -19,17 +19,46 @@ object ImportRuleMatcher {
   // Patterns shorter than this (after normalize) never match.
   val MinPatternLength: Int = 3
 
-  // The amount column is NUMERIC(12,2).
+  // Rule forms prefill the pattern with the full bank-row description, so the cap leaves room for long ones.
+  val MaxPatternLength: Int = 255
+
+  /** A rule description becomes the created expense/refund notes, whose limit is 255 characters. */
+  val MaxDescriptionLength: Int = 255
+
+  // The amount column is NUMERIC(12,2): Postgres would silently round anything wider and break the exact match.
   val MaxAmountScale: Int = 2
   val MaxAmountIntegerDigits: Int = 10
 
-  def validateAmount(amount: Option[BigDecimal]): Either[String, Unit] =
+  /** Validates a rule before it is stored; shared so the frontend can check the same constraints. */
+  def validate(pattern: String, amount: Option[BigDecimal], action: ImportRuleAction): Either[String, Unit] =
+    for {
+      _ <- validatePattern(pattern)
+      _ <- validateAmount(amount)
+      _ <- validateDescription(action.descriptionOpt)
+    } yield ()
+
+  private def validatePattern(pattern: String): Either[String, Unit] =
+    if (normalize(pattern).length < MinPatternLength)
+      Left(s"Rule pattern must be at least $MinPatternLength characters")
+    else if (pattern.length > MaxPatternLength)
+      Left(s"Rule pattern must be $MaxPatternLength characters or less")
+    else Right(())
+
+  private def validateAmount(amount: Option[BigDecimal]): Either[String, Unit] =
     amount match {
       case Some(a) if a.signum == 0 => Left("Rule amount must not be zero")
       case Some(a) if a.scale > MaxAmountScale =>
         Left(s"Rule amount must have at most $MaxAmountScale decimal places")
       case Some(a) if a.precision - a.scale > MaxAmountIntegerDigits =>
         Left(s"Rule amount must have at most $MaxAmountIntegerDigits integer digits")
+      case _ => Right(())
+    }
+
+  private def validateDescription(description: Option[String]): Either[String, Unit] =
+    description match {
+      case Some(d) if d.trim.isEmpty => Left("Rule description must not be blank")
+      case Some(d) if d.length > MaxDescriptionLength =>
+        Left(s"Rule description must be $MaxDescriptionLength characters or less")
       case _ => Right(())
     }
 

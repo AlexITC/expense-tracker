@@ -186,23 +186,55 @@ class ImportRuleMatcherSpec extends AnyWordSpec with Matchers {
     }
   }
 
-  "validateAmount" should {
-    "accept no amount and amounts with up to 2 decimals" in {
-      ImportRuleMatcher.validateAmount(None) must be(Right(()))
-      ImportRuleMatcher.validateAmount(Some(BigDecimal("-12.50"))) must be(Right(()))
-      ImportRuleMatcher.validateAmount(Some(BigDecimal("9999999999.99"))) must be(Right(()))
+  "validate" should {
+    def valid(
+        pattern: String = "AMZN",
+        amount: Option[BigDecimal] = None,
+        action: ImportRuleAction = ImportRuleAction.Ignore
+    ) = ImportRuleMatcher.validate(pattern, amount, action)
+    def withDescription(description: String) =
+      ImportRuleAction.SetMerchant(UUID.randomUUID(), categoryId = None, description = Some(description))
+
+    "accept valid rules" in {
+      valid() must be(Right(()))
+      valid(amount = Some(BigDecimal("-12.50"))) must be(Right(()))
+      valid(amount = Some(BigDecimal("9999999999.99"))) must be(Right(()))
+      valid(action = withDescription("x" * ImportRuleMatcher.MaxDescriptionLength)) must be(Right(()))
     }
 
-    "reject zero" in {
-      ImportRuleMatcher.validateAmount(Some(BigDecimal("0.00"))) must be(Left("Rule amount must not be zero"))
+    "reject a short pattern" in {
+      valid(pattern = "a-b") must be(Left("Rule pattern must be at least 3 characters"))
     }
 
-    "reject more than 2 decimals" in {
-      ImportRuleMatcher.validateAmount(Some(BigDecimal("1.234"))).isLeft must be(true)
+    "reject a pattern longer than the limit" in {
+      valid(pattern = "x" * ImportRuleMatcher.MaxPatternLength) must be(Right(()))
+      valid(pattern = "x" * (ImportRuleMatcher.MaxPatternLength + 1)) must be(
+        Left("Rule pattern must be 255 characters or less")
+      )
     }
 
-    "reject amounts that do not fit the column" in {
-      ImportRuleMatcher.validateAmount(Some(BigDecimal("10000000000"))).isLeft must be(true)
+    "reject a zero amount" in {
+      valid(amount = Some(BigDecimal("0.00"))) must be(Left("Rule amount must not be zero"))
+    }
+
+    "reject an amount with more than 2 decimals" in {
+      valid(amount = Some(BigDecimal("1.234"))) must be(Left("Rule amount must have at most 2 decimal places"))
+    }
+
+    "reject an amount that does not fit the column" in {
+      valid(amount = Some(BigDecimal("-10000000000"))) must be(
+        Left("Rule amount must have at most 10 integer digits")
+      )
+    }
+
+    "reject a blank description" in {
+      valid(action = withDescription("   ")) must be(Left("Rule description must not be blank"))
+    }
+
+    "reject a description longer than the limit" in {
+      valid(action = withDescription("x" * (ImportRuleMatcher.MaxDescriptionLength + 1))) must be(
+        Left("Rule description must be 255 characters or less")
+      )
     }
   }
 
