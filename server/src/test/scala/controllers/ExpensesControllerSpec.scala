@@ -6,14 +6,15 @@ import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
 import net.wiringbits.api.ApiClient
 import net.wiringbits.api.models.bankstatements.LinkRowToExpense
-import net.wiringbits.api.models.expenses.{CreateExpense, MergeDetailsSource, MergeExpenses, UpdateExpense}
+import net.wiringbits.api.models.expenses.{CreateExpense, MergeDetailsSource, MergeExpenses, MergeShape, UpdateExpense}
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
 import net.wiringbits.common.models.Captcha
 import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
-import net.wiringbits.repositories.ReceiptRepository
+import net.wiringbits.repositories.{DocumentsRepository, ReceiptRepository}
 import net.wiringbits.repositories.models.{BackgroundJobData, BankStatementRow, Document, Receipt}
+import net.wiringbits.services.BlobStorage
 import net.wiringbits.util.TokenGenerator
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.*
@@ -25,6 +26,7 @@ import utils.{ExpenseUtils, LoginUtils}
 
 import java.time.{Duration, Instant, LocalDate}
 import java.util.UUID
+import scala.collection.concurrent.TrieMap
 import scala.concurrent.Future
 
 class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUtils with MockitoSugar {
@@ -34,6 +36,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
   when(emailApi.sendEmail(any[EmailRequest]())).thenReturn(Future.unit)
   private val captchaApi = mock[ReCaptchaApi]
   when(captchaApi.verify(any[Captcha]())).thenReturn(Future.successful(true))
+  private val blobStorage = new RecordingBlobStorage
 
   override def guiceApplicationBuilder(container: PostgreSQLContainer): GuiceApplicationBuilder =
     super
@@ -41,7 +44,8 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       .overrides(
         inject.bind[EmailApi].to(emailApi),
         inject.bind[ReCaptchaApi].to(captchaApi),
-        inject.bind[TokenGenerator].to(tokenGenerator)
+        inject.bind[TokenGenerator].to(tokenGenerator),
+        inject.bind[BlobStorage].toInstance(blobStorage)
       )
 
   private val sampleDate = LocalDate.of(2024, 1, 15)
@@ -443,7 +447,10 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       val receiptId = createLinkedReceipt(userId, loserId)
 
       client
-        .mergeExpenses(survivorId, MergeExpenses.Request(loserId = loserId, keepDetailsFrom = MergeDetailsSource.Row))
+        .mergeExpenses(
+          survivorId,
+          MergeExpenses.Request(loserId = loserId, keepDetailsFrom = MergeDetailsSource.Row, shape = MergeShape.Receipt)
+        )
         .futureValue
 
       val expenses = client.getExpenses.futureValue.data
@@ -472,7 +479,8 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       client
         .mergeExpenses(
           survivorId,
-          MergeExpenses.Request(loserId = loserId, keepDetailsFrom = MergeDetailsSource.Receipt)
+          MergeExpenses
+            .Request(loserId = loserId, keepDetailsFrom = MergeDetailsSource.Receipt, shape = MergeShape.Receipt)
         )
         .futureValue
 
@@ -495,7 +503,10 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       createLinkedReceipt(userId2, loserId)
 
       val error = client2
-        .mergeExpenses(survivorId, MergeExpenses.Request(loserId = loserId, keepDetailsFrom = MergeDetailsSource.Row))
+        .mergeExpenses(
+          survivorId,
+          MergeExpenses.Request(loserId = loserId, keepDetailsFrom = MergeDetailsSource.Row, shape = MergeShape.Receipt)
+        )
         .expectError
       error must include("Expense not found")
       client2.getExpenses.futureValue.data.map(_.id) must be(List(loserId))
@@ -514,7 +525,10 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       linkToNewRow(userId2, survivorId)(using client2)
 
       val error = client2
-        .mergeExpenses(survivorId, MergeExpenses.Request(loserId = loserId, keepDetailsFrom = MergeDetailsSource.Row))
+        .mergeExpenses(
+          survivorId,
+          MergeExpenses.Request(loserId = loserId, keepDetailsFrom = MergeDetailsSource.Row, shape = MergeShape.Receipt)
+        )
         .expectError
       error must include("Expense not found")
       client.getExpenses.futureValue.data.map(_.id) must be(List(loserId))
@@ -531,7 +545,8 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       val error = client
         .mergeExpenses(
           receiptLinkedId,
-          MergeExpenses.Request(loserId = rowLinkedId, keepDetailsFrom = MergeDetailsSource.Row)
+          MergeExpenses
+            .Request(loserId = rowLinkedId, keepDetailsFrom = MergeDetailsSource.Row, shape = MergeShape.Orphan)
         )
         .expectError
       error must include("The surviving expense must be linked to a bank statement row")
@@ -555,7 +570,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       client
         .mergeExpenses(
           survivorId,
-          MergeExpenses.Request(loserId = orphanId, keepDetailsFrom = MergeDetailsSource.Row)
+          MergeExpenses.Request(loserId = orphanId, keepDetailsFrom = MergeDetailsSource.Row, shape = MergeShape.Orphan)
         )
         .futureValue
 
@@ -578,7 +593,10 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       val receiptId = createLinkedReceipt(userId = userId, expenseId = survivorId)
 
       client
-        .mergeExpenses(survivorId, MergeExpenses.Request(loserId = orphanId, keepDetailsFrom = MergeDetailsSource.Row))
+        .mergeExpenses(
+          survivorId,
+          MergeExpenses.Request(loserId = orphanId, keepDetailsFrom = MergeDetailsSource.Row, shape = MergeShape.Orphan)
+        )
         .futureValue
 
       val expenses = client.getExpenses.futureValue.data
@@ -596,7 +614,8 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       val error = client
         .mergeExpenses(
           survivorId,
-          MergeExpenses.Request(loserId = orphanId, keepDetailsFrom = MergeDetailsSource.Receipt)
+          MergeExpenses
+            .Request(loserId = orphanId, keepDetailsFrom = MergeDetailsSource.Receipt, shape = MergeShape.Orphan)
         )
         .expectError
       error must include("Cannot keep the duplicate's details because it has no receipt")
@@ -614,11 +633,130 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       linkToNewRow(userId = userId2, expenseId = survivorId)(using client2)
 
       val error = client2
-        .mergeExpenses(survivorId, MergeExpenses.Request(loserId = orphanId, keepDetailsFrom = MergeDetailsSource.Row))
+        .mergeExpenses(
+          survivorId,
+          MergeExpenses.Request(loserId = orphanId, keepDetailsFrom = MergeDetailsSource.Row, shape = MergeShape.Orphan)
+        )
         .expectError
       error must include("Expense not found")
       client.getExpenses.futureValue.data.map(_.id) must be(List(orphanId))
       client2.getExpenses.futureValue.data.map(_.id) must be(List(survivorId))
+    }
+
+    "delete the duplicate with its receipt and blob when both expenses have a receipt" in withApiClient {
+      implicit client =>
+        createVerifyLoginUser(tokenGenerator).futureValue
+        val userId = client.currentUser.futureValue.id
+        val survivorId = client.createExpense(createRequest()).futureValue.id
+        val loserId = client.createExpense(createRequest()).futureValue.id
+        val rowId = linkToNewRow(userId = userId, expenseId = survivorId)
+        val survivorKey = s"survivor-${UUID.randomUUID()}"
+        val loserKey = s"loser-${UUID.randomUUID()}"
+        val survivorReceiptId = createLinkedReceipt(userId = userId, expenseId = survivorId, storageKey = survivorKey)
+        val loserReceiptId = createLinkedReceipt(userId = userId, expenseId = loserId, storageKey = loserKey)
+        val loserDocumentId =
+          app.injector
+            .instanceOf[ReceiptRepository]
+            .find(id = loserReceiptId, userId = userId)
+            .futureValue
+            .value
+            .documentId
+
+        client
+          .mergeExpenses(
+            survivorId,
+            MergeExpenses.Request(
+              loserId = loserId,
+              keepDetailsFrom = MergeDetailsSource.Row,
+              shape = MergeShape.ReceiptOnBoth
+            )
+          )
+          .futureValue
+
+        val expenses = client.getExpenses.futureValue.data
+        expenses.map(_.id) must be(List(survivorId))
+        expenses.head.receiptIds must be(List(survivorReceiptId))
+        expenses.head.rowIds must be(List(rowId))
+        app.injector.instanceOf[DocumentsRepository].find(id = loserDocumentId, userId = userId).futureValue must be(
+          None
+        )
+        blobStorage.deletedKeys.contains(loserKey) must be(true)
+        blobStorage.deletedKeys.contains(survivorKey) must be(false)
+    }
+
+    "skip the blob delete when the discarded document has no storage key" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val survivorId = client.createExpense(createRequest()).futureValue.id
+      val loserId = client.createExpense(createRequest()).futureValue.id
+      linkToNewRow(userId = userId, expenseId = survivorId)
+      createLinkedReceipt(userId = userId, expenseId = survivorId, storageKey = s"survivor-${UUID.randomUUID()}")
+      createLinkedReceipt(userId = userId, expenseId = loserId)
+
+      client
+        .mergeExpenses(
+          survivorId,
+          MergeExpenses.Request(
+            loserId = loserId,
+            keepDetailsFrom = MergeDetailsSource.Row,
+            shape = MergeShape.ReceiptOnBoth
+          )
+        )
+        .futureValue
+
+      client.getExpenses.futureValue.data.map(_.id) must be(List(survivorId))
+      blobStorage.deletedKeys.contains("") must be(false)
+    }
+
+    "succeed when deleting the discarded blob fails" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val survivorId = client.createExpense(createRequest()).futureValue.id
+      val loserId = client.createExpense(createRequest()).futureValue.id
+      linkToNewRow(userId = userId, expenseId = survivorId)
+      createLinkedReceipt(userId = userId, expenseId = survivorId, storageKey = s"survivor-${UUID.randomUUID()}")
+      createLinkedReceipt(
+        userId = userId,
+        expenseId = loserId,
+        storageKey = s"${blobStorage.FailingDeletePrefix}${UUID.randomUUID()}"
+      )
+
+      client
+        .mergeExpenses(
+          survivorId,
+          MergeExpenses.Request(
+            loserId = loserId,
+            keepDetailsFrom = MergeDetailsSource.Row,
+            shape = MergeShape.ReceiptOnBoth
+          )
+        )
+        .futureValue
+
+      client.getExpenses.futureValue.data.map(_.id) must be(List(survivorId))
+    }
+
+    "fail when the expenses no longer have the requested shape" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val userId = client.currentUser.futureValue.id
+      val survivorId = client.createExpense(createRequest()).futureValue.id
+      val loserId = client.createExpense(createRequest()).futureValue.id
+      linkToNewRow(userId = userId, expenseId = survivorId)
+      val survivorKey = s"survivor-${UUID.randomUUID()}"
+      val loserKey = s"loser-${UUID.randomUUID()}"
+      createLinkedReceipt(userId = userId, expenseId = survivorId, storageKey = survivorKey)
+      val loserReceiptId = createLinkedReceipt(userId = userId, expenseId = loserId, storageKey = loserKey)
+
+      val error = client
+        .mergeExpenses(
+          survivorId,
+          MergeExpenses.Request(loserId = loserId, keepDetailsFrom = MergeDetailsSource.Row, shape = MergeShape.Receipt)
+        )
+        .expectError
+      error must include("The expenses changed since the duplicate was detected; refresh and try again")
+      val expenses = client.getExpenses.futureValue.data
+      expenses.map(_.id).toSet must be(Set(survivorId, loserId))
+      expenses.find(_.id == loserId).value.receiptIds must be(List(loserReceiptId))
+      blobStorage.deletedKeys.contains(loserKey) must be(false)
     }
   }
 
@@ -658,7 +796,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
   }
 
   /** Creates a receipt directly (no upload / Textract) and links it to the expense. */
-  private def createLinkedReceipt(userId: UUID, expenseId: UUID): UUID = {
+  private def createLinkedReceipt(userId: UUID, expenseId: UUID, storageKey: String = ""): UUID = {
     val repo = app.injector.instanceOf[ReceiptRepository]
     val now = Instant.now()
     val docId = UUID.randomUUID()
@@ -666,7 +804,7 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       id = docId,
       userId = userId,
       sha256 = "sha-" + docId.toString,
-      storageKey = "",
+      storageKey = storageKey,
       kind = DocumentKind.Receipt,
       filename = "receipt.pdf",
       createdAt = now,
@@ -694,6 +832,18 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
     repo.createWithDocument(document, receipt, job).futureValue
     repo.linkToExpense(receipt.id, userId, expenseId).futureValue
     receipt.id
+  }
+
+  /** Records deleted keys so tests can assert which blobs a merge discarded. */
+  private class RecordingBlobStorage extends BlobStorage {
+    val deletedKeys: TrieMap[String, Unit] = TrieMap.empty
+    override def put(storageKey: String, bytes: Array[Byte]): Future[Unit] = Future.unit
+    override def exists(storageKey: String): Future[Boolean] = Future.successful(false)
+    override def get(storageKey: String): Future[Option[Array[Byte]]] = Future.successful(None)
+    val FailingDeletePrefix = "failing-delete-"
+    override def delete(storageKey: String): Future[Unit] =
+      if (storageKey.startsWith(FailingDeletePrefix)) Future.failed(new RuntimeException("Blob delete failed"))
+      else Future.successful(deletedKeys.update(storageKey, ()))
   }
 
   private def buildClient() = {

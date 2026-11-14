@@ -7,7 +7,11 @@ import sttp.tapir.generic.auto.*
 import java.util.UUID
 
 object MergeExpenses {
-  case class Request(loserId: UUID, keepDetailsFrom: MergeDetailsSource)
+
+  /** Merges `loserId` into the expense in the path. `shape` is the duplicate shape the client detected; the server
+    * rejects the merge when the expenses no longer have that shape.
+    */
+  case class Request(loserId: UUID, keepDetailsFrom: MergeDetailsSource, shape: MergeShape)
   case class Response()
 
   implicit val requestFormat: Format[Request] = Json.format[Request]

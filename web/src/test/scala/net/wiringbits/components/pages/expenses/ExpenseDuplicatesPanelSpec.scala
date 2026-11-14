@@ -7,7 +7,7 @@ import net.wiringbits.api.models.expenses.{GetExpenses, MergeDetailsSource}
 import net.wiringbits.common.models.Email
 import net.wiringbits.core.{I18nLang, ReactTestDom}
 import net.wiringbits.models.AuthState
-import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Tier}
+import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Shape, Tier}
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.BrowserRouter
 import net.wiringbits.{API, AppContext}
 import org.scalajs.dom
@@ -21,7 +21,7 @@ import scala.collection.mutable.ListBuffer
 
 class ExpenseDuplicatesPanelSpec extends AnyWordSpec with ReactTestDom {
 
-  // ExpenseDuplicatesPanel only calls ctx.api from View receipt, which is not rendered without receipt filenames.
+  // ExpenseDuplicatesPanel only calls ctx.api when a View receipt button is clicked, which no test does.
   private def testCtx(): AppContext = {
     given Scheduler = Scheduler.trampoline()
     AppContext(
@@ -52,7 +52,7 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with ReactTestDom {
     Candidate(
       survivor = expense(),
       loser = expense(),
-      receiptId = Some(UUID.randomUUID()),
+      shape = Shape.Receipt(UUID.randomUUID()),
       tier = Tier.Strong,
       ambiguous = false
     )
@@ -65,7 +65,8 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with ReactTestDom {
       onToggleSelected: (Candidate, Boolean) => Unit = (_, _) => (),
       onToggleAll: Boolean => Unit = _ => (),
       onBulkMerge: () => Unit = () => (),
-      bulkMerging: Boolean = false
+      bulkMerging: Boolean = false,
+      receiptFilenames: Map[UUID, String] = Map.empty
   ): Unit =
     render(
       BrowserRouter(basename = "")(
@@ -73,7 +74,7 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with ReactTestDom {
           ctx = testCtx(),
           candidates = candidates.getOrElse(List(candidate)),
           categories = GetCategories.Response(data = Nil),
-          receiptFilenames = Map.empty,
+          receiptFilenames = receiptFilenames,
           onMerge = onMerge,
           onDismiss = _ => (),
           onError = _ => (),
@@ -134,12 +135,63 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with ReactTestDom {
     }
 
     "offer only Delete duplicate and Dismiss for an orphan candidate, sending the row source" in {
-      val orphanCandidate = candidate.copy(receiptId = None)
+      val orphanCandidate = candidate.copy(shape = Shape.Orphan)
       val merges = ListBuffer.empty[(Candidate, MergeDetailsSource)]
       render((c, source) => merges += (c -> source), candidate = orphanCandidate)
       buttonLabels must be(List("Merge selected (0)", "Delete duplicate", "Dismiss"))
       clickButton("Delete duplicate")
       merges.toList must be(List(orphanCandidate -> MergeDetailsSource.Row))
+    }
+
+    "offer both receipts and a single discard action for a receipt-on-both candidate, sending the row source" in {
+      val survivorReceiptId = UUID.randomUUID()
+      val loserReceiptId = UUID.randomUUID()
+      val receiptOnBoth = candidate.copy(shape = Shape.ReceiptOnBoth(survivorReceiptId, loserReceiptId))
+      val merges = ListBuffer.empty[(Candidate, MergeDetailsSource)]
+      render(
+        (c, source) => merges += (c -> source),
+        candidate = receiptOnBoth,
+        receiptFilenames = Map(survivorReceiptId -> "bank.pdf", loserReceiptId -> "dup.jpg")
+      )
+      buttonLabels must be(
+        List(
+          "Merge selected (0)",
+          "View bank-row receipt",
+          "View duplicate receipt",
+          "Delete duplicate and its receipt",
+          "Dismiss"
+        )
+      )
+      clickButton("Delete duplicate and its receipt")
+      merges.toList must be(List(receiptOnBoth -> MergeDetailsSource.Row))
+    }
+
+    "hint to check both receipts are the same ticket for a receipt-on-both candidate" in {
+      render(
+        (_, _) => (),
+        candidate = candidate.copy(shape = Shape.ReceiptOnBoth(UUID.randomUUID(), UUID.randomUUID()))
+      )
+      container.textContent must include("check they are the same ticket")
+    }
+
+    "omit the View buttons for a receipt-on-both candidate whose filenames are unknown" in {
+      render(
+        (_, _) => (),
+        candidate = candidate.copy(shape = Shape.ReceiptOnBoth(UUID.randomUUID(), UUID.randomUUID()))
+      )
+      buttonLabels must be(List("Merge selected (0)", "Delete duplicate and its receipt", "Dismiss"))
+    }
+
+    "show View receipt before the merge actions for a receipt candidate with a known filename" in {
+      val receiptId = UUID.randomUUID()
+      render(
+        (_, _) => (),
+        candidate = candidate.copy(shape = Shape.Receipt(receiptId)),
+        receiptFilenames = Map(receiptId -> "r.pdf")
+      )
+      buttonLabels must be(
+        List("Merge selected (0)", "View receipt", "Merge, keep row details", "Merge, keep receipt details", "Dismiss")
+      )
     }
 
     "show a card checkbox only for bulk-eligible candidates" in {
@@ -221,11 +273,22 @@ class ExpenseDuplicatesPanelSpec extends AnyWordSpec with ReactTestDom {
 
     "title the loser column for an orphan candidate" in {
       val orphanCandidate = candidate.copy(
-        receiptId = None,
+        shape = Shape.Orphan,
         loser = candidate.loser.copy(notes = Some("hand entered"))
       )
       render(onMerge = (_, _) => (), candidate = orphanCandidate)
       lastLineOf("Duplicate (no receipt)") must be("hand entered")
+    }
+
+    "title both sides for a receipt-on-both candidate" in {
+      val receiptOnBoth = candidate.copy(
+        shape = Shape.ReceiptOnBoth(UUID.randomUUID(), UUID.randomUUID()),
+        survivor = candidate.survivor.copy(notes = Some("bank note")),
+        loser = candidate.loser.copy(notes = Some("scanned twice"))
+      )
+      render(onMerge = (_, _) => (), candidate = receiptOnBoth)
+      lastLineOf("Bank row (with receipt)") must be("bank note")
+      lastLineOf("Duplicate receipt") must be("scanned twice")
     }
   }
 }
