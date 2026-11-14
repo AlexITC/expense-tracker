@@ -31,10 +31,16 @@ object ImportRuleMatcher {
 
   /** Validates a rule before it is stored; shared so the frontend can check the same constraints. */
   def validate(pattern: String, amount: Option[BigDecimal], action: ImportRuleAction): Either[String, Unit] =
+    validateFields(pattern, amount, action.descriptionOpt)
+
+  /** Same checks as [[validate]], for callers that have not built the action yet (the rule form validates before it
+    * resolves or creates the merchant/category the action points to).
+    */
+  def validateFields(pattern: String, amount: Option[BigDecimal], description: Option[String]): Either[String, Unit] =
     for {
       _ <- validatePattern(pattern)
       _ <- validateAmount(amount)
-      _ <- validateDescription(action.descriptionOpt)
+      _ <- validateDescription(description)
     } yield ()
 
   private def validatePattern(pattern: String): Either[String, Unit] =

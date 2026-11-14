@@ -238,6 +238,14 @@ class ImportRuleMatcherSpec extends AnyWordSpec with Matchers {
     }
   }
 
+  "validateFields" should {
+    "run the same checks as validate before an action exists" in {
+      ImportRuleMatcher.validateFields("AMZN", Some(BigDecimal("-1.50")), Some("Lunch")) must be(Right(()))
+      ImportRuleMatcher.validateFields("ab", None, None) must be(Left("Rule pattern must be at least 3 characters"))
+      ImportRuleMatcher.validateFields("AMZN", None, Some(" ")) must be(Left("Rule description must not be blank"))
+    }
+  }
+
   "ImportRuleMatcher.findReceiptWinner" should {
     "only apply set_merchant rules" in {
       val ignore = ignoreRule(UUID.randomUUID(), "amzn")
