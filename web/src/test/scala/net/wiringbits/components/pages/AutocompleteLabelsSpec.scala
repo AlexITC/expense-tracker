@@ -61,4 +61,26 @@ class AutocompleteLabelsSpec extends AnyWordSpec {
       AutocompleteLabels.categoryOptionLabel(null.asInstanceOf[js.Any]) mustBe ""
     }
   }
+
+  "categoryDescription" should {
+    val described = category.copy(id = UUID.randomUUID(), name = "Rent", description = Some("Monthly housing payments"))
+    val blank = category.copy(id = UUID.randomUUID(), name = "Misc", description = Some("   "))
+    val categories = List(category, described, blank)
+
+    "return the description of the selected category" in {
+      AutocompleteLabels.categoryDescription(categories, Some(described.id)) mustBe Some("Monthly housing payments")
+    }
+    "return None when the selected category has no description" in {
+      AutocompleteLabels.categoryDescription(categories, Some(category.id)) mustBe None
+    }
+    "return None when the selected category's description is blank" in {
+      AutocompleteLabels.categoryDescription(categories, Some(blank.id)) mustBe None
+    }
+    "return None when nothing is selected" in {
+      AutocompleteLabels.categoryDescription(categories, None) mustBe None
+    }
+    "return None for an unknown id" in {
+      AutocompleteLabels.categoryDescription(categories, Some(UUID.randomUUID())) mustBe None
+    }
+  }
 }
