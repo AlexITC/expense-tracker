@@ -109,6 +109,8 @@ object SubscriptionList {
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
     val (createFormData, setCreateFormData) = Hooks.useState(StatefulFormData(emptyForm))
+    // Validation errors stay hidden until the user edits the create form, so a fresh form isn't shown as invalid
+    val (createTouched, setCreateTouched) = Hooks.useState(false)
     val (editingId, setEditingId) = Hooks.useState[Option[UUID]](None)
     val (editFormData, setEditFormData) = Hooks.useState(StatefulFormData(emptyForm))
     val createControl = SubmitHooks.useSubmit()
@@ -120,6 +122,7 @@ object SubscriptionList {
 
     def onCreateDataChanged(f: SubscriptionFormData => SubscriptionFormData): Unit = {
       createControl.clearError()
+      setCreateTouched(true)
       setCreateFormData(cur => cur.filling.copy(data = f(cur.data)))
     }
 
@@ -138,6 +141,7 @@ object SubscriptionList {
             case Success(_) =>
               createControl.reset()
               setCreateFormData(_ => StatefulFormData(emptyForm))
+              setCreateTouched(false)
               props.onRefresh()
             case Failure(ex) => createControl.fail(ex.getMessage)
           }
@@ -374,7 +378,10 @@ object SubscriptionList {
           gap = "12px"
         })(
           Fragment(formFields(createFormData.data, createControl.inputDisabled, onCreateDataChanged)*),
-          errorText("error", createFormData.firstValidationError.orElse(createControl.error)),
+          errorText(
+            "error",
+            createFormData.firstValidationError.filter(_ => createTouched).orElse(createControl.error)
+          ),
           mui.Button
             .normal()("Add subscription")
             .variant("contained")
