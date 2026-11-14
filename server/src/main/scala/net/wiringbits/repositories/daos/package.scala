@@ -4,6 +4,7 @@ import anorm.*
 import anorm.SqlParser.*
 import anorm.postgresql.*
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, ExtractionInfo}
+import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod}
 import net.wiringbits.common.models.{Email, Name}
 import net.wiringbits.models.documents.{DocumentClass, DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobStatus, BackgroundJobType}
@@ -379,4 +380,26 @@ package object daos {
           updatedAt = updatedAt
         )
     }
+
+  implicit val subscriptionCadenceColumn: Column[SubscriptionCadence] =
+    Column.columnToString.map(SubscriptionCadence.fromEntryName)
+
+  implicit val subscriptionPaymentMethodColumn: Column[SubscriptionPaymentMethod] =
+    Column.columnToString.map(SubscriptionPaymentMethod.fromEntryName)
+
+  val subscriptionParser: RowParser[Subscription] =
+    Macro.parser[Subscription](
+      "id",
+      "user_id",
+      "name",
+      "cadence",
+      "interval_days",
+      "amount_min",
+      "amount_max",
+      "payment_method",
+      "category_id",
+      "start_date",
+      "created_at",
+      "updated_at"
+    )
 }
