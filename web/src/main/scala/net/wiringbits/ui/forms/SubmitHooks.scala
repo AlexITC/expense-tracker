@@ -11,7 +11,7 @@ import slinky.core.facade.Hooks
   */
 object SubmitHooks {
 
-  final case class Control(state: SubmitState, private val setState: SubmitState => Unit) {
+  final class Control(val state: SubmitState, setState: SubmitState => Unit) {
     def isSubmitting: Boolean = state.isSubmitting
     def error: Option[String] = state.submissionError
 
@@ -29,6 +29,6 @@ object SubmitHooks {
 
   def useSubmit(): Control = {
     val (state, setState) = Hooks.useState[SubmitState](SubmitState.Filling)
-    Control(state, setState)
+    new Control(state, setState)
   }
 }
