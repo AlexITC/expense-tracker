@@ -1,6 +1,6 @@
 package net.wiringbits.components.pages.subscriptions
 
-import net.wiringbits.api.models.subscriptions.SubscriptionCadence
+import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod}
 
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -77,6 +77,14 @@ object SubscriptionStatusLogic {
           case Some(days) => s"Every $days days"
           case None => "Every N days"
         }
+    }
+
+  def paymentMethodLabel(method: SubscriptionPaymentMethod): String =
+    method match {
+      case SubscriptionPaymentMethod.DirectDebit => "Direct debit"
+      case SubscriptionPaymentMethod.ManualTransfer => "Manual transfer"
+      case SubscriptionPaymentMethod.CardPortal => "Card portal"
+      case SubscriptionPaymentMethod.Cash => "Cash"
     }
 
   // `ChronoUnit.between` can undercount when the start day-of-month is clamped (31 Jan -> 28 Feb counts as 0 months),

@@ -1,6 +1,6 @@
 package net.wiringbits.components.pages.subscriptions
 
-import net.wiringbits.api.models.subscriptions.SubscriptionCadence
+import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -139,6 +139,15 @@ class SubscriptionStatusLogicSpec extends AnyWordSpec {
 
     "include the interval for every-N-days cadences" in {
       SubscriptionStatusLogic.cadenceLabel(SubscriptionCadence.EveryNDays, Some(14)) must be("Every 14 days")
+    }
+  }
+
+  "paymentMethodLabel" should {
+    "give a readable label for every payment method" in {
+      SubscriptionStatusLogic.paymentMethodLabel(SubscriptionPaymentMethod.DirectDebit) must be("Direct debit")
+      SubscriptionStatusLogic.paymentMethodLabel(SubscriptionPaymentMethod.ManualTransfer) must be("Manual transfer")
+      SubscriptionStatusLogic.paymentMethodLabel(SubscriptionPaymentMethod.CardPortal) must be("Card portal")
+      SubscriptionStatusLogic.paymentMethodLabel(SubscriptionPaymentMethod.Cash) must be("Cash")
     }
   }
 }

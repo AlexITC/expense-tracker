@@ -29,6 +29,7 @@ import net.wiringbits.components.pages.expenses.{BulkExpenseCreationPage, Expens
 import net.wiringbits.components.pages.importrules.ImportRulesPage
 import net.wiringbits.components.pages.merchants.{BulkMerchantSetupPage, MerchantReviewPage, MerchantsPage}
 import net.wiringbits.components.pages.receipts.ReceiptsPage
+import net.wiringbits.components.pages.subscriptions.SubscriptionsPage
 import net.wiringbits.components.widgets.{AppBar, AuthenticatedLayout, Footer}
 import net.wiringbits.core.ReactiveHooks
 import net.wiringbits.models.{AuthState, User}
@@ -99,6 +100,7 @@ object AppRouter {
       )
     def reports(user: User) = authRoute("/reports", props.ctx, user)(ReportsPage(props.ctx, user))
     def savings(user: User) = authRoute("/savings", props.ctx, user)(SavingsPage(props.ctx, user))
+    def subscriptions(user: User) = authRoute("/subscriptions", props.ctx, user)(SubscriptionsPage(props.ctx, user))
     def charts(user: User) = authRoute("/charts", props.ctx, user)(ChartsPage(props.ctx, user))
     val signOut = route("/signout", props.ctx) {
       props.ctx.api.client.logout.onComplete {
@@ -150,6 +152,7 @@ object AppRouter {
           bankStatementDraftReview(user),
           bankStatements(user),
           savings(user),
+          subscriptions(user),
           reports(user),
           charts(user),
           about,
