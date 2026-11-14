@@ -1,10 +1,11 @@
 package net.wiringbits.components.pages.receipts
 
+import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.documents.DocumentStatus
 import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction}
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.ImportRuleMatcher
-import net.wiringbits.components.pages.receipts.ReceiptsLogic.{BatchState, ConfirmForm, ReceiptMode}
+import net.wiringbits.components.pages.receipts.ReceiptsLogic.{BatchState, ConfirmForm, ReceiptMode, ResolvedMerchant}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -121,6 +122,8 @@ class ReceiptsLogicSpec extends AnyWordSpec {
   }
 
   "fromReceipt" should {
+    val food = GetCategories.Response.Category(UUID.randomUUID(), "Food", Instant.EPOCH)
+    val categories = List(food)
     val acme = GetMerchants.Response.Merchant(
       UUID.randomUUID(),
       "Acme",
@@ -158,25 +161,26 @@ class ReceiptsLogicSpec extends AnyWordSpec {
     )
 
     "prefill amount, date and parsed merchant name with an otherwise empty form" in {
-      ConfirmForm.fromReceipt(receipt(merchantName = Some("Unknown")), merchants, Nil) mustBe
+      ConfirmForm.fromReceipt(receipt(merchantName = Some("Unknown")), merchants, categories, Nil) mustBe
         ConfirmForm("12.50", "2026-03-04", "", "", "", "", Nil, Some("Unknown"), None)
     }
 
     "leave amount and date empty when the receipt has none" in {
-      val form = ConfirmForm.fromReceipt(receipt(amount = None, date = None, merchantName = None), merchants, Nil)
+      val form =
+        ConfirmForm.fromReceipt(receipt(amount = None, date = None, merchantName = None), merchants, categories, Nil)
       form.amount mustBe ""
       form.date mustBe ""
       form.parsedMerchantName mustBe None
     }
 
     "prefer the merchant matching the tax id over rules" in {
-      val form = ConfirmForm.fromReceipt(receipt(taxId = Some("TAX1")), merchants, List(ruleToOther))
+      val form = ConfirmForm.fromReceipt(receipt(taxId = Some("TAX1")), merchants, categories, List(ruleToOther))
       form.merchantId mustBe acme.id.toString
       form.merchantInput mustBe "Acme"
     }
 
     "fall back to the winning rule for the parsed merchant name" in {
-      val form = ConfirmForm.fromReceipt(receipt(taxId = Some("NOPE")), merchants, List(ruleToOther))
+      val form = ConfirmForm.fromReceipt(receipt(taxId = Some("NOPE")), merchants, categories, List(ruleToOther))
       form.merchantId mustBe other.id.toString
       form.merchantInput mustBe "Other"
     }
@@ -189,18 +193,114 @@ class ReceiptsLogicSpec extends AnyWordSpec {
         "ACME",
         amount = None
       )
-      val form = ConfirmForm.fromReceipt(receipt(), merchants, List(rule))
+      val form = ConfirmForm.fromReceipt(receipt(), merchants, categories, List(rule))
       form.merchantId mustBe unknown.toString
       form.merchantInput mustBe ""
     }
 
     "apply a rule with an amount only when the receipt total matches it as a charge" in {
       val ruleWithAmount = ruleToOther.copy(amount = Some(BigDecimal("-12.50")))
-      ConfirmForm.fromReceipt(receipt(), merchants, List(ruleWithAmount)).merchantId mustBe other.id.toString
       ConfirmForm
-        .fromReceipt(receipt(amount = Some(BigDecimal("13.00"))), merchants, List(ruleWithAmount))
+        .fromReceipt(receipt(), merchants, categories, List(ruleWithAmount))
+        .merchantId mustBe other.id.toString
+      ConfirmForm
+        .fromReceipt(receipt(amount = Some(BigDecimal("13.00"))), merchants, categories, List(ruleWithAmount))
         .merchantId mustBe ""
-      ConfirmForm.fromReceipt(receipt(amount = None), merchants, List(ruleWithAmount)).merchantId mustBe ""
+      ConfirmForm.fromReceipt(receipt(amount = None), merchants, categories, List(ruleWithAmount)).merchantId mustBe ""
+    }
+
+    val overrideRule = ruleToOther.copy(
+      action = ImportRuleAction.SetMerchant(other.id, categoryId = Some(food.id), description = Some("Lunch"))
+    )
+
+    "prefill a split for the full amount with the rule's override category" in {
+      ConfirmForm.fromReceipt(receipt(), merchants, categories, List(overrideRule)).splits mustBe
+        List((food.id.toString, "Food", "12.50"))
+    }
+
+    "prefill the notes with the rule's description" in {
+      ConfirmForm.fromReceipt(receipt(), merchants, categories, List(overrideRule)).notes mustBe "Lunch"
+    }
+
+    "leave splits and notes empty when the rule has no override category or description" in {
+      val form = ConfirmForm.fromReceipt(receipt(), merchants, categories, List(ruleToOther))
+      form.splits mustBe Nil
+      form.notes mustBe ""
+    }
+
+    "apply no rule effects to a tax-id match" in {
+      val form = ConfirmForm.fromReceipt(receipt(taxId = Some("TAX1")), merchants, categories, List(overrideRule))
+      form.merchantId mustBe acme.id.toString
+      form.splits mustBe Nil
+      form.notes mustBe ""
+    }
+
+    "apply an amount rule's effects only when the receipt total matches it as a charge" in {
+      val ruleWithAmount = overrideRule.copy(amount = Some(BigDecimal("-12.50")))
+      val matched = ConfirmForm.fromReceipt(receipt(), merchants, categories, List(ruleWithAmount))
+      matched.splits mustBe List((food.id.toString, "Food", "12.50"))
+      matched.notes mustBe "Lunch"
+      val unmatched =
+        ConfirmForm.fromReceipt(
+          receipt(amount = Some(BigDecimal("13.00"))),
+          merchants,
+          categories,
+          List(ruleWithAmount)
+        )
+      unmatched.splits mustBe Nil
+      unmatched.notes mustBe ""
+    }
+
+    "resolve no merchant for a receipt with neither a tax id nor a merchant name" in {
+      ReceiptsLogic.resolveMerchant(receipt(merchantName = None), merchants, List(overrideRule)) mustBe None
+    }
+
+    "give a batch-confirmed expense the winning rule's description as notes" in {
+      val resolved = ReceiptsLogic.resolveMerchant(receipt(), merchants, List(overrideRule))
+      ReceiptsLogic.batchNotes(resolved) mustBe Some("Lunch")
+    }
+
+    "give a batch-confirmed expense no notes for a tax-id match" in {
+      val resolved = ReceiptsLogic.resolveMerchant(receipt(taxId = Some("TAX1")), merchants, List(overrideRule))
+      ReceiptsLogic.batchNotes(resolved) mustBe None
+    }
+  }
+
+  "batchCategoryId" should {
+    val defaultCategory = UUID.randomUUID()
+    val overrideCategory = UUID.randomUUID()
+    val merchant =
+      GetMerchants.Response.Merchant(
+        UUID.randomUUID(),
+        "M",
+        notes = None,
+        categoryId = Some(defaultCategory),
+        taxId = None,
+        reviewed = true,
+        Instant.EPOCH
+      )
+    val bare = GetMerchants.Response.Merchant(
+      UUID.randomUUID(),
+      "B",
+      notes = None,
+      categoryId = None,
+      taxId = None,
+      reviewed = true,
+      Instant.EPOCH
+    )
+
+    "use the rule's override category over the merchant's default" in {
+      ReceiptsLogic.batchCategoryId(ResolvedMerchant(merchant.id, Some(overrideCategory), None), List(merchant)) mustBe
+        Some(overrideCategory)
+    }
+
+    "fall back to the merchant's default category" in {
+      ReceiptsLogic.batchCategoryId(ResolvedMerchant(merchant.id, None, None), List(merchant)) mustBe
+        Some(defaultCategory)
+    }
+
+    "have none when there is no override and no default category" in {
+      ReceiptsLogic.batchCategoryId(ResolvedMerchant(bare.id, None, None), List(bare)) mustBe None
     }
   }
 }

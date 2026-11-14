@@ -149,7 +149,8 @@ object ReceiptList {
     // batch confirm state
     val (batchConfirmMode, setBatchConfirmMode) = Hooks.useState(false)
     // receiptId → resolved merchantId (None means resolution returned no match)
-    val (resolvedMerchantIds, setResolvedMerchantIds) = Hooks.useState[Map[UUID, Option[UUID]]](Map.empty)
+    val (resolvedMerchantIds, setResolvedMerchantIds) =
+      Hooks.useState[Map[UUID, Option[ReceiptsLogic.ResolvedMerchant]]](Map.empty)
     val (batchConfirmSelectedIds, setBatchConfirmSelectedIds) = Hooks.useState[Set[UUID]](Set.empty)
     val (batchConfirm, setBatchConfirm) = Hooks.useState[BatchState](BatchState.Idle)
 
@@ -444,10 +445,10 @@ object ReceiptList {
               resolvedMerchantIds.get(r.id) match {
                 case None => Left("Resolving…")
                 case Some(None) => Left("Merchant not recognized")
-                case Some(Some(mid)) =>
-                  props.merchants.data.find(_.id == mid).flatMap(_.categoryId) match {
+                case Some(Some(resolved)) =>
+                  ReceiptsLogic.batchCategoryId(resolved, props.merchants.data) match {
                     case None => Left("No default category")
-                    case Some(catId) => Right((mid, catId))
+                    case Some(catId) => Right((resolved.merchantId, catId))
                   }
               }
             }
@@ -458,21 +459,12 @@ object ReceiptList {
       setBatchConfirmMode(true)
       setBatchConfirmSelectedIds(Set.empty)
       // Batch-confirm state is left as is: earlier results stay visible on re-entry, as before.
-      setResolvedMerchantIds(Map.empty[UUID, Option[UUID]])
-      localReceipts
-        .filter(r => r.documentStatus == DocumentStatus.Parsed && r.expenseId.isEmpty)
-        .foreach { r =>
-          val taxIdMatch = r.taxId.flatMap(tid => props.merchants.data.find(_.taxId.contains(tid)))
-          taxIdMatch match {
-            case Some(m) => setResolvedMerchantIds(cur => cur.updated(r.id, Some(m.id)))
-            case None =>
-              r.merchantName.foreach { name =>
-                val resolvedId =
-                  ImportRuleMatcher.findReceiptWinner(effectiveRuleList, name, r.amount).flatMap(_.action.merchantIdOpt)
-                setResolvedMerchantIds(cur => cur.updated(r.id, resolvedId))
-              }
-          }
-        }
+      setResolvedMerchantIds(
+        localReceipts
+          .filter(r => r.documentStatus == DocumentStatus.Parsed && r.expenseId.isEmpty)
+          .map(r => r.id -> ReceiptsLogic.resolveMerchant(r, props.merchants.data, effectiveRuleList))
+          .toMap
+      )
     }
 
     def handleBatchConfirm(ids: List[UUID]): Unit = {
@@ -505,7 +497,7 @@ object ReceiptList {
                           date = r.date,
                           time = None,
                           merchantId = Some(merchantId),
-                          notes = None,
+                          notes = ReceiptsLogic.batchNotes(resolvedMerchantIds.get(r.id).flatten),
                           splits = List(CreateExpense.Split(catId, amount)),
                           parsedMerchantName = r.merchantName
                         )
@@ -726,7 +718,7 @@ object ReceiptList {
                   .onClick { _ =>
                     setBatchConfirmMode(false)
                     setBatchConfirmSelectedIds(Set.empty)
-                    setResolvedMerchantIds(Map.empty[UUID, Option[UUID]])
+                    setResolvedMerchantIds(Map.empty[UUID, Option[ReceiptsLogic.ResolvedMerchant]])
                   },
                 input(
                   `type` := "checkbox",
@@ -1049,7 +1041,7 @@ object ReceiptList {
                       setMode(
                         ReceiptMode.Confirming(
                           r.id,
-                          ConfirmForm.fromReceipt(r, props.merchants.data, effectiveRuleList)
+                          ConfirmForm.fromReceipt(r, props.merchants.data, props.categories.data, effectiveRuleList)
                         )
                       )
                       props.ctx.api.client.getAllBankStatementRows.onComplete {
