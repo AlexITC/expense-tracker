@@ -16,7 +16,8 @@ import net.wiringbits.api.models.merchants.{
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.core.SafeHooks
-import net.wiringbits.models.{SaveState, User}
+import net.wiringbits.models.User
+import net.wiringbits.ui.forms.SubmitHooks
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.compat.{MuiCompat, RouterCompat}
@@ -242,18 +243,18 @@ object DescriptionRow {
     val (merchantIdOpt, setMerchantIdOpt) = Hooks.useState[Option[UUID]](None)
     val (categoryInput, setCategoryInput) = Hooks.useState("")
     val (categoryIdOpt, setCategoryIdOpt) = Hooks.useState[Option[UUID]](None)
-    val (save, setSave) = Hooks.useState[SaveState](SaveState.Idle)
-    val saving = save.isSaving
+    val submit = SubmitHooks.useSubmit()
+    val saving = submit.isSubmitting
 
     def handleAssign(): Unit = {
       val merchantName = merchantInput.trim
       val catName = categoryInput.trim
       if (merchantName.isEmpty) {
-        setSave(SaveState.Failed("Merchant name is required"))
+        submit.fail("Merchant name is required")
       } else if (catName.isEmpty) {
-        setSave(SaveState.Failed("Category is required"))
+        submit.fail("Category is required")
       } else {
-        setSave(SaveState.Saving)
+        submit.begin()
 
         val fResult: Future[Unit] = for {
           (resolvedCategoryId, newCategoryOpt) <- CategoryResolver.resolveOrCreateCategory(
@@ -328,14 +329,14 @@ object DescriptionRow {
         }
 
         fResult.onComplete {
-          case Success(_) => setSave(SaveState.Idle)
-          case Failure(ex) => setSave(SaveState.Failed(ex.getMessage))
+          case Success(_) => submit.reset()
+          case Failure(ex) => submit.fail(ex.getMessage)
         }
       }
     }
 
     def handleIgnore(): Unit = {
-      setSave(SaveState.Saving)
+      submit.begin()
       props.ctx.api.client
         .createImportRule(
           CreateImportRule.Request(
@@ -352,10 +353,10 @@ object DescriptionRow {
               pattern = props.description,
               amount = None
             )
-            setSave(SaveState.Idle)
+            submit.reset()
             props.onDone(rule, None, None)
           case Failure(ex) =>
-            setSave(SaveState.Failed(ex.getMessage))
+            submit.fail(ex.getMessage)
         }
     }
 
@@ -478,7 +479,7 @@ object DescriptionRow {
               .onClick(_ => handleIgnore())
           )
         ),
-        save.errorOpt match {
+        submit.error match {
           case Some(err) =>
             mui.Typography(err).sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "12px" })
           case None => Fragment()

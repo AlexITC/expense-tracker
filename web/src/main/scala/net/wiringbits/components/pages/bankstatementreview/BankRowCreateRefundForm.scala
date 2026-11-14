@@ -8,6 +8,7 @@ import net.wiringbits.api.models.bankstatements.{CreateRefundFromRow, GetBankSta
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
 import net.wiringbits.api.models.merchants.{CreateMerchant, GetMerchants}
 import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.ui.forms.SubmitHooks
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 import org.scalajs.dom
@@ -85,7 +86,7 @@ object BankRowCreateRefundForm {
     val (categoryInput, setCategoryInput) = Hooks.useState(initCategoryName)
     val (categoryIdOpt, setCategoryIdOpt) = Hooks.useState[Option[UUID]](initCategoryIdOpt)
 
-    val (error, setError) = Hooks.useState("")
+    val submit = SubmitHooks.useSubmit()
 
     def selectMerchant(m: GetMerchants.Response.Merchant): Unit = {
       setMerchantInput(m.name)
@@ -98,10 +99,10 @@ object BankRowCreateRefundForm {
 
     def handleSubmit(): Unit =
       (Try(BigDecimal(amount)).toOption, Try(LocalDate.parse(date)).toOption) match {
-        case (None, _) => setError("Invalid amount")
-        case (_, None) => setError("Invalid date")
+        case (None, _) => submit.fail("Invalid amount")
+        case (_, None) => submit.fail("Invalid date")
         case (Some(amt), Some(dt)) =>
-          setError("")
+          submit.begin()
           val merchantName = merchantInput.trim
           val categoryName = categoryInput.trim
 
@@ -151,7 +152,7 @@ object BankRowCreateRefundForm {
 
           fResult.onComplete {
             case Success(_) => ()
-            case Failure(ex) => setError(ex.getMessage)
+            case Failure(ex) => submit.fail(ex.getMessage)
           }
       }
 
@@ -169,7 +170,7 @@ object BankRowCreateRefundForm {
         setMerchantInput(text)
         if (rsn != "reset") setMerchantIdOpt(None)
       },
-      disabled = false,
+      disabled = submit.isSubmitting,
       fullWidth = true
     )
 
@@ -187,7 +188,7 @@ object BankRowCreateRefundForm {
         setCategoryInput(text)
         if (rsn != "reset") setCategoryIdOpt(None)
       },
-      disabled = false,
+      disabled = submit.isSubmitting,
       fullWidth = true
     )
 
@@ -199,15 +200,18 @@ object BankRowCreateRefundForm {
         mui
           .Typography("New refund")
           .sx(new CSSPropertiesUtils { fontWeight = "700"; fontSize = "14px"; userSelect = "none" }),
-        if (error.nonEmpty)
-          mui.Typography(error).sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
-        else Fragment(),
+        submit.error match {
+          case Some(msg) =>
+            mui.Typography(msg).sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
+          case None => Fragment()
+        },
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "12px" })(
           mui.TextField
             .outlined()
             .label("Amount")
             .size("small")
             .value(amount)
+            .disabled(submit.isSubmitting)
             .onChange(e => setAmount(e.target.asInstanceOf[dom.HTMLInputElement].value))
             .sx(new CSSPropertiesUtils { flex = "1" }),
           mui.TextField
@@ -215,6 +219,7 @@ object BankRowCreateRefundForm {
             .label("Date")
             .size("small")
             .value(date)
+            .disabled(submit.isSubmitting)
             .onChange(e => setDate(e.target.asInstanceOf[dom.HTMLInputElement].value))
             .sx(new CSSPropertiesUtils { flex = "1" })
         ),
@@ -223,17 +228,19 @@ object BankRowCreateRefundForm {
           .label("Notes")
           .size("small")
           .value(notes)
+          .disabled(submit.isSubmitting)
           .onChange(e => setNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
         (mui.Autocomplete.withProps(merchantAcProps).withKey("merchant"): ReactElement),
         (mui.Autocomplete.withProps(categoryAcProps).withKey("category"): ReactElement),
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
           mui.Button
-            .normal()("Save")
+            .normal()(if (submit.isSubmitting) "Saving…" else "Save")
             .variant("contained")
             .size("small")
+            .disabled(submit.isSubmitting)
             .`type`("submit")
             .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
-          mui.Button.normal()("Cancel").size("small").onClick(_ => props.onCancel())
+          mui.Button.normal()("Cancel").size("small").disabled(submit.isSubmitting).onClick(_ => props.onCancel())
         )
       )
     )
