@@ -16,8 +16,7 @@ def transform(request: CreateUserApiRequest): CreateUserData = request.into[Crea
 
 While the `transform` function would succeed, the `age` value will never become the `yearsOld` value, if there wasn't a default value, we'd get a compile error which would give us a chance to fix the problem (`request.into[CreateUserData].withFieldRenamed(_.age, _.yearsOld).transform`).
 
-Still, there can be exceptions:
-- The http API layer usually gets default values when adding a new parameter to an API method, this way, we keep backwards compatibility to support old API clients.
+This applies to the http API request/response models too: add a new parameter without a default so every caller and Chimney transform is forced to account for it, instead of silently taking the default. We prefer that compile error over implicit backwards compatibility for old clients.
 
 
 ## 2022/Apr - Naming conventions for api/data models
