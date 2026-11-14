@@ -122,9 +122,16 @@ class ImportRuleMatcherSpec extends AnyWordSpec with Matchers {
       ImportRuleMatcher.findRowWinner(List(r), "AMZN charge", BigDecimal("-12.51")) must be(None)
     }
 
-    "not match when only the sign differs" in {
+    "match regardless of sign, so a charge and an equal-magnitude refund both match" in {
+      val r = setMerchantRule(UUID.randomUUID(), "amzn", mid, amount = Some(BigDecimal("12.50")))
+      ImportRuleMatcher.findRowWinner(List(r), "AMZN charge", BigDecimal("-12.50")) must be(Some(r))
+      ImportRuleMatcher.findRowWinner(List(r), "AMZN refund", BigDecimal("12.50")) must be(Some(r))
+    }
+
+    "match a rule stored with a negative amount by its magnitude" in {
       val r = setMerchantRule(UUID.randomUUID(), "amzn", mid, amount = Some(charge))
-      ImportRuleMatcher.findRowWinner(List(r), "AMZN refund", charge.abs) must be(None)
+      ImportRuleMatcher.findRowWinner(List(r), "AMZN charge", charge) must be(Some(r))
+      ImportRuleMatcher.findRowWinner(List(r), "AMZN refund", charge.abs) must be(Some(r))
     }
 
     "not match on the amount alone" in {
@@ -161,10 +168,15 @@ class ImportRuleMatcherSpec extends AnyWordSpec with Matchers {
   }
 
   "findReceiptWinner with amounts" should {
-    "compare the positive receipt total against the rule amount as a charge" in {
-      val r = setMerchantRule(UUID.randomUUID(), "amzn", mid, amount = Some(BigDecimal("-12.50")))
+    "match the receipt total against the rule amount by magnitude" in {
+      val r = setMerchantRule(UUID.randomUUID(), "amzn", mid, amount = Some(BigDecimal("12.50")))
       ImportRuleMatcher.findReceiptWinner(List(r), "AMZN receipt", Some(BigDecimal("12.50"))) must be(Some(r))
       ImportRuleMatcher.findReceiptWinner(List(r), "AMZN receipt", Some(BigDecimal("13.00"))) must be(None)
+    }
+
+    "match a receipt against a rule stored with a negative amount" in {
+      val r = setMerchantRule(UUID.randomUUID(), "amzn", mid, amount = Some(BigDecimal("-12.50")))
+      ImportRuleMatcher.findReceiptWinner(List(r), "AMZN receipt", Some(BigDecimal("12.50"))) must be(Some(r))
     }
 
     "not match a rule with an amount when the receipt total is unknown" in {
@@ -197,9 +209,13 @@ class ImportRuleMatcherSpec extends AnyWordSpec with Matchers {
 
     "accept valid rules" in {
       valid() must be(Right(()))
-      valid(amount = Some(BigDecimal("-12.50"))) must be(Right(()))
+      valid(amount = Some(BigDecimal("12.50"))) must be(Right(()))
       valid(amount = Some(BigDecimal("9999999999.99"))) must be(Right(()))
       valid(action = withDescription("x" * ImportRuleMatcher.MaxDescriptionLength)) must be(Right(()))
+    }
+
+    "reject a negative amount" in {
+      valid(amount = Some(BigDecimal("-12.50"))) must be(Left("Rule amount must be a positive value"))
     }
 
     "reject a short pattern" in {
@@ -222,7 +238,7 @@ class ImportRuleMatcherSpec extends AnyWordSpec with Matchers {
     }
 
     "reject an amount that does not fit the column" in {
-      valid(amount = Some(BigDecimal("-10000000000"))) must be(
+      valid(amount = Some(BigDecimal("10000000000"))) must be(
         Left("Rule amount must have at most 10 integer digits")
       )
     }
@@ -240,7 +256,7 @@ class ImportRuleMatcherSpec extends AnyWordSpec with Matchers {
 
   "validateFields" should {
     "run the same checks as validate before an action exists" in {
-      ImportRuleMatcher.validateFields("AMZN", Some(BigDecimal("-1.50")), Some("Lunch")) must be(Right(()))
+      ImportRuleMatcher.validateFields("AMZN", Some(BigDecimal("1.50")), Some("Lunch")) must be(Right(()))
       ImportRuleMatcher.validateFields("ab", None, None) must be(Left("Rule pattern must be at least 3 characters"))
       ImportRuleMatcher.validateFields("AMZN", None, Some(" ")) must be(Left("Rule description must not be blank"))
     }

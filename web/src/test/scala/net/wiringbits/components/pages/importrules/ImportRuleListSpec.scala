@@ -136,9 +136,9 @@ class ImportRuleListSpec extends AnyWordSpec with ReactTestDom {
 
   "checkInputs" should {
     "return the parsed amount and trimmed description" in {
-      val f = form(ImportRuleActionKind.SetMerchant).copy(amount = "-9.99", description = "  Lunch ")
+      val f = form(ImportRuleActionKind.SetMerchant).copy(amount = "9.99", description = "  Lunch ")
       ImportRuleList.checkInputs(f) must be(
-        Right(ImportRuleList.RuleInputs(Some(BigDecimal("-9.99")), Some("Lunch")))
+        Right(ImportRuleList.RuleInputs(Some(BigDecimal("9.99")), Some("Lunch")))
       )
     }
 
@@ -159,6 +159,12 @@ class ImportRuleListSpec extends AnyWordSpec with ReactTestDom {
     "reject an amount the shared validator rejects" in {
       ImportRuleList.checkInputs(form(ImportRuleActionKind.Ignore).copy(amount = "0")).isLeft must be(true)
       ImportRuleList.checkInputs(form(ImportRuleActionKind.Ignore).copy(amount = "-1.234")).isLeft must be(true)
+    }
+
+    "reject a negative amount" in {
+      ImportRuleList.checkInputs(form(ImportRuleActionKind.Ignore).copy(amount = "-9.99")) must be(
+        Left("Rule amount must be a positive value")
+      )
     }
 
     "reject a pattern that is too short" in {
@@ -192,7 +198,8 @@ class ImportRuleListSpec extends AnyWordSpec with ReactTestDom {
       )
       val f = ImportRuleList.RuleForm.fromRule(r)
       f.kind must be(ImportRuleActionKind.SetMerchant)
-      f.amount must be("-12.50")
+      // A stored negative amount prefills as its positive magnitude.
+      f.amount must be("12.50")
       f.merchantInput must be("Shop")
       f.merchantId must be(Some(mid))
       f.overrideCategoryInput must be("Food")
@@ -234,8 +241,8 @@ class ImportRuleListSpec extends AnyWordSpec with ReactTestDom {
   }
 
   "amountLabel" should {
-    "keep the stored scale without exponent notation" in {
-      ImportRuleList.amountLabel(BigDecimal("-12.50")) must be("-12.50")
+    "show the positive magnitude without exponent notation" in {
+      ImportRuleList.amountLabel(BigDecimal("-12.50")) must be("12.50")
       ImportRuleList.amountLabel(BigDecimal("1E+3")) must be("1000")
     }
   }
@@ -334,7 +341,7 @@ class ImportRuleListSpec extends AnyWordSpec with ReactTestDom {
         ): ReactElement
       )
       val text = container.textContent
-      text must include("-12.50")
+      text must include("12.50")
       text must include("Team lunch")
       text must include("→ Shop (Food)")
     }
@@ -352,9 +359,11 @@ class ImportRuleListSpec extends AnyWordSpec with ReactTestDom {
         ): ReactElement
       )
       val text = container.textContent
-      text must include("Amount (signed, e.g. -12.50)")
+      text must include("Amount (optional, e.g. 12.50)")
       text must include("Description (optional)")
       text must include("Category (optional)")
+      text must include("Matches on")
+      text must include("Sets")
     }
   }
 }
