@@ -5,6 +5,10 @@ import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.savings.*
+import net.wiringbits.common.models.SavingsGoalName
+import net.wiringbits.forms.SavingsGoalFormData
+import net.wiringbits.ui.components.inputs.SavingsGoalNameInput
+import net.wiringbits.ui.forms.SubmitHooks
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
@@ -102,38 +106,40 @@ object SavingsGoalList {
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
-    val (newName, setNewName) = Hooks.useState("")
-    val (newTarget, setNewTarget) = Hooks.useState("")
+    val (createForm, setCreateForm) = Hooks.useState(SavingsGoalFormData.initial(name = None, targetAmount = ""))
+    val createSubmit = SubmitHooks.useSubmit()
     val (error, setError) = Hooks.useState("")
     val (editingGoalId, setEditingGoalId) = Hooks.useState[Option[UUID]](None)
-    val (editName, setEditName) = Hooks.useState("")
-    val (editTarget, setEditTarget) = Hooks.useState("")
+    val (editForm, setEditForm) = Hooks.useState(SavingsGoalFormData.initial(name = None, targetAmount = ""))
+    val editSubmit = SubmitHooks.useSubmit()
 
-    def handleCreateGoal(): Unit = {
-      val targetAmount = if (newTarget.isEmpty) None else Try(BigDecimal(newTarget)).toOption
-      if (!newTarget.isEmpty && targetAmount.isEmpty) setError("Invalid target amount")
-      else
+    def handleCreateGoal(): Unit =
+      createForm.submitRequest.foreach { request =>
+        createSubmit.begin()
         props.ctx.api.client
-          .createSavingsGoal(CreateSavingsGoal.Request(newName, targetAmount))
+          .createSavingsGoal(request)
           .onComplete {
             case Success(_) =>
-              setNewName(""); setNewTarget(""); setError(""); props.onRefresh()
-            case Failure(ex) => setError(ex.getMessage)
+              createSubmit.succeed()
+              setCreateForm(SavingsGoalFormData.initial(name = None, targetAmount = ""))
+              props.onRefresh()
+            case Failure(ex) => createSubmit.fail(ex.getMessage)
           }
-    }
+      }
 
-    def handleUpdateGoal(goalId: UUID): Unit = {
-      val targetAmount = if (editTarget.isEmpty) None else Try(BigDecimal(editTarget)).toOption
-      if (!editTarget.isEmpty && targetAmount.isEmpty) setError("Invalid target amount")
-      else
+    def handleUpdateGoal(goalId: UUID): Unit =
+      editForm.updateRequest.foreach { request =>
+        editSubmit.begin()
         props.ctx.api.client
-          .updateSavingsGoal(goalId, UpdateSavingsGoal.Request(editName, targetAmount))
+          .updateSavingsGoal(goalId, request)
           .onComplete {
             case Success(_) =>
-              setEditingGoalId(None); setError(""); props.onRefresh()
-            case Failure(ex) => setError(ex.getMessage)
+              editSubmit.succeed()
+              setEditingGoalId(None)
+              props.onRefresh()
+            case Failure(ex) => editSubmit.fail(ex.getMessage)
           }
-    }
+      }
 
     def handleDeleteGoal(goalId: UUID): Unit =
       props.ctx.api.client
@@ -145,7 +151,9 @@ object SavingsGoalList {
           case Failure(ex) => setError(ex.getMessage)
         }
 
-    val createForm: ReactElement = form(onSubmit := { e =>
+    val createTargetError = createForm.parsedTarget.collect { case Left(message) => message }
+
+    val createGoalForm: ReactElement = form(onSubmit := { e =>
       e.preventDefault()
       handleCreateGoal()
     })(
@@ -156,26 +164,40 @@ object SavingsGoalList {
         backgroundColor = "var(--lc-paper)"
         marginBottom = "16px"
         display = "flex"
-        flexWrap = "wrap"
-        alignItems = "center"
+        flexDirection = "column"
         gap = "12px"
       })(
-        mui.TextField
-          .outlined()
-          .label("Goal name")
-          .value(newName)
-          .size("small")
-          .onChange(e => setNewName(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+        SavingsGoalNameInput.component(
+          SavingsGoalNameInput.Props(
+            field = createForm.name,
+            disabled = createSubmit.isSubmitting,
+            onChange = value => setCreateForm(cur => cur.copy(name = cur.name.updated(value)))
+          )
+        ),
         mui.TextField
           .outlined()
           .label("Target amount (optional)")
-          .value(newTarget)
+          .value(createForm.targetAmount)
           .size("small")
-          .onChange(e => setNewTarget(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+          .disabled(createSubmit.isSubmitting)
+          .error(createTargetError.isDefined)
+          .helperText(createTargetError.getOrElse(""))
+          .onChange(e => {
+            val value = e.target.asInstanceOf[dom.HTMLInputElement].value
+            setCreateForm(cur => cur.copy(targetAmount = value))
+          }),
+        createSubmit.error match {
+          case Some(message) =>
+            mui
+              .Typography(message)
+              .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
+          case None => Fragment()
+        },
         mui.Button
           .normal()("Add goal")
           .variant("contained")
           .`type`("submit")
+          .disabled(createSubmit.buttonDisabled(createForm.submitRequest.isDefined))
           .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)"; borderRadius = "8px" })
       )
     )
@@ -190,41 +212,58 @@ object SavingsGoalList {
       val progressText = goal.progress.map(p => f" (${p * 100}%.1f%%)").getOrElse("")
 
       val goalContent: ReactElement =
-        if (isEditing)
+        if (isEditing) {
+          val editTargetError = editForm.parsedTarget.collect { case Left(message) => message }
           form(onSubmit := { e =>
             e.preventDefault()
             handleUpdateGoal(goal.id)
           })(
             mui.Box.sx(new CSSPropertiesUtils {
-              display = "flex"; flexWrap = "wrap"; alignItems = "center"; gap = "12px"
+              display = "flex"; flexDirection = "column"; gap = "12px"
             })(
-              mui.TextField
-                .outlined()
-                .autoFocus(true)
-                .label("Name")
-                .value(editName)
-                .size("small")
-                .onChange(e => setEditName(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+              SavingsGoalNameInput.component(
+                SavingsGoalNameInput.Props(
+                  field = editForm.name,
+                  disabled = editSubmit.isSubmitting,
+                  onChange = value => setEditForm(cur => cur.copy(name = cur.name.updated(value)))
+                )
+              ),
               mui.TextField
                 .outlined()
                 .label("Target (optional)")
-                .value(editTarget)
+                .value(editForm.targetAmount)
                 .size("small")
-                .onChange(e => setEditTarget(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-              (mui.Button
-                .normal()("Save")
-                .size("small")
-                .variant("contained")
-                .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
-                .`type`("submit")
-                .build: ReactElement),
-              mui.Button
-                .normal()("Cancel")
-                .size("small")
-                .onClick(_ => setEditingGoalId(None))
+                .disabled(editSubmit.isSubmitting)
+                .error(editTargetError.isDefined)
+                .helperText(editTargetError.getOrElse(""))
+                .onChange(e => {
+                  val value = e.target.asInstanceOf[dom.HTMLInputElement].value
+                  setEditForm(cur => cur.copy(targetAmount = value))
+                }),
+              editSubmit.error match {
+                case Some(message) =>
+                  mui
+                    .Typography(message)
+                    .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
+                case None => Fragment()
+              },
+              mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px" })(
+                (mui.Button
+                  .normal()("Save")
+                  .size("small")
+                  .variant("contained")
+                  .disabled(editSubmit.buttonDisabled(editForm.updateRequest.isDefined))
+                  .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
+                  .`type`("submit")
+                  .build: ReactElement),
+                mui.Button
+                  .normal()("Cancel")
+                  .size("small")
+                  .onClick(_ => setEditingGoalId(None))
+              )
             )
           )
-        else
+        } else
           mui.Box.sx(new CSSPropertiesUtils {
             display = "flex"
             alignItems = "center"
@@ -261,8 +300,13 @@ object SavingsGoalList {
                 .sx(new CSSPropertiesUtils { color = "var(--lc-text-2)" })
                 .onClick { _ =>
                   setEditingGoalId(Some(goal.id))
-                  setEditName(goal.name)
-                  setEditTarget(goal.targetAmount.map(_.toString).getOrElse(""))
+                  setEditForm(_ =>
+                    SavingsGoalFormData.initial(
+                      name = Some(SavingsGoalName.trusted(goal.name)),
+                      targetAmount = goal.targetAmount.map(_.toString).getOrElse("")
+                    )
+                  )
+                  editSubmit.reset()
                 },
               mui.Button
                 .normal()("Delete")
@@ -293,7 +337,7 @@ object SavingsGoalList {
     }
 
     Fragment(
-      createForm,
+      createGoalForm,
       if (error.nonEmpty)
         mui
           .Typography(error)

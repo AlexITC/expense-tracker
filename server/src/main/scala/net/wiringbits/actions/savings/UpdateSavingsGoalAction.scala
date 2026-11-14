@@ -12,16 +12,14 @@ class UpdateSavingsGoalAction @Inject() (savingsRepository: SavingsRepository)(i
   def apply(goalId: UUID, userId: UUID, request: UpdateSavingsGoal.Request): Future[UpdateSavingsGoal.Response] = {
     for {
       _ <- validate(request)
-      _ <- savingsRepository.updateGoal(id = goalId, userId = userId, request.name, request.targetAmount)
+      _ <- savingsRepository.updateGoal(id = goalId, userId = userId, request.name.string, request.targetAmount)
     } yield UpdateSavingsGoal.Response()
   }
 
   private def validate(request: UpdateSavingsGoal.Request): Future[Unit] = {
     // Existence/ownership is enforced by the UPDATE's WHERE id = ? AND user_id = ? (SavingsGoalDAO.update throws
     // "Savings goal not found" when no row matches), so there is no pre-read here.
-    if (request.name.isBlank) Future.failed(new RuntimeException("The name is required"))
-    else if (request.name.length > 100) Future.failed(new RuntimeException("Name must be 100 characters or less"))
-    else if (request.targetAmount.exists(_ <= 0))
+    if (request.targetAmount.exists(_ <= 0))
       Future.failed(new RuntimeException("Target amount must be greater than zero"))
     else Future.unit
   }
