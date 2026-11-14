@@ -113,13 +113,13 @@ class HomePageSpec extends AnyWordSpec with BeforeAndAfterEach {
 | Layer | Test? | Notes |
 |---|---|---|
 | Repositories | Yes — all operations | Real DB, `PostgresSpec` |
-| Controllers / routes | Yes — happy path + error + permission checks | Full Play app |
+| Actions | Yes (new features) — behaviour + error + ownership | Real DB, `PostgresSpec`; see RULE-TE-011 |
+| Controllers / routes | Yes — auth/permission + request/response encoding | Full Play app; action mocked for new features (RULE-TE-011) |
 | Form data / validation | Yes — all validators | Pure unit test |
-| Actions | No — intentionally untested directly | Thin wrappers; covered indirectly by controller tests |
 | Component render | Minimal — render-without-crash | Catches Slinky element-reuse bugs |
 | Page logic / UI flows | No — not currently covered | |
 
-Actions are not tested directly because they are thin orchestration wrappers over validators and repositories, and controller tests already exercise them end-to-end.
+For new backend features, behaviour is owned by the action's integration test and the controller test is kept thin (RULE-TE-011). Older controllers exercise their behaviour end-to-end through the real action; those are grandfathered and need not be rewritten.
 
 **RULE-TE-010 — Frontend DOM tests require justification**
 
@@ -138,6 +138,25 @@ BankStatementReviewLogic.resultLabel(id, merchants, Right(())) mustBe "✓ Acme"
 ```
 
 If you cannot extract a pure function and a DOM test feels necessary, state the specific runtime failure it prevents in a comment on the test.
+
+**RULE-TE-011 — New backend features: action/controller test split**
+
+New backend features split their server tests along the layer boundary instead of driving everything through the controller:
+
+- **The action owns behaviour.** Each action has an integration test (`PostgresSpec`, real Postgres, data via `RepositoryUtils`) covering the happy path, domain errors, conflicts, and ownership (cross-user requests must not see or mutate another user's rows). This is where behaviour is asserted.
+- **The controller is thin.** The controller test covers auth/permission (unauthenticated and wrong-user requests return the expected error) and request/response encoding (the decoded request reaches the action, the action's result is encoded back). It injects a Mockito mock of the action via a Guice override and verifies the controller delegates to it with the decoded request; it does not re-assert the behaviour the action test already owns and does not need a real DB for the delegation path.
+
+```scala
+// Controller test: mock the action, assert delegation + encoding, not behaviour.
+private val action = mock[CreateSubscriptionAction]
+override def guiceApplicationBuilder(): GuiceApplicationBuilder =
+  super.guiceApplicationBuilder().overrides(inject.bind[CreateSubscriptionAction].to(action))
+
+when(action.apply(eqTo(userId), any)).thenReturn(Future.successful(CreateSubscription.Response(id)))
+// ... POST the request, assert 200 + body, then verify(action).apply(eqTo(userId), eqTo(decodedRequest))
+```
+
+This keeps behaviour tests fast and close to the logic, and keeps controller tests focused on the web boundary. It applies to new features; existing controllers that exercise behaviour through the real action are grandfathered (RULE-TE-005).
 
 **RULE-TE-006 — `.futureValue` for async**
 
