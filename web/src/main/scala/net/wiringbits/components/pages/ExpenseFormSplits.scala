@@ -43,4 +43,29 @@ object ExpenseFormSplits {
     val splits = if (explicit.nonEmpty) explicit else merchantDefaultSplits(merchants, merchantIdStr, amount)
     splitsError(amount, splits.map(_.amount)).toLeft(splits)
   }
+
+  def merchantDefaultSplits(
+      merchants: List[GetMerchants.Response.Merchant],
+      merchantId: Option[UUID],
+      amount: BigDecimal
+  ): List[CreateExpense.Split] =
+    merchantId
+      .flatMap(id => merchants.find(_.id == id))
+      .flatMap(_.categoryId)
+      .map(catId => List(CreateExpense.Split(catId, amount)))
+      .getOrElse(Nil)
+
+  /** Typed variant of [[createSplits]] for validated forms: rows with no category are dropped, then the explicit splits
+    * are sent, else the merchant's default category for the full amount. Fails when they don't cover the amount.
+    */
+  def createSplits(
+      amount: BigDecimal,
+      splits: List[(Option[UUID], BigDecimal)],
+      merchants: List[GetMerchants.Response.Merchant],
+      merchantId: Option[UUID]
+  ): Either[String, List[CreateExpense.Split]] = {
+    val explicit = splits.collect { case (Some(catId), amt) => CreateExpense.Split(catId, amt) }
+    val result = if (explicit.nonEmpty) explicit else merchantDefaultSplits(merchants, merchantId, amount)
+    splitsError(amount, result.map(_.amount)).toLeft(result)
+  }
 }

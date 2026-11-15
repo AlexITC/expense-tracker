@@ -380,14 +380,23 @@ class ExpensesPageSpec extends AnyWordSpec {
     }
 
     "fail when the splits leave a remainder" in {
-      ExpenseList.updateSplits(BigDecimal("10"), List(catA.toString -> "4")) must be(
+      ExpenseList.updateSplits(BigDecimal("10"), List(Some(catA) -> BigDecimal("4"))) must be(
         Left(ExpenseSplits.NotFullyAllocatedError)
       )
     }
 
     "send the splits when they cover the amount" in {
-      ExpenseList.updateSplits(BigDecimal("10"), List(catA.toString -> "4", catB.toString -> "6")) must be(
+      ExpenseList.updateSplits(
+        BigDecimal("10"),
+        List(Some(catA) -> BigDecimal("4"), Some(catB) -> BigDecimal("6"))
+      ) must be(
         Right(List(UpdateExpense.Split(catA, BigDecimal("4")), UpdateExpense.Split(catB, BigDecimal("6"))))
+      )
+    }
+
+    "drop rows with no category" in {
+      ExpenseList.updateSplits(BigDecimal("10"), List(Some(catA) -> BigDecimal("10"), None -> BigDecimal("3"))) must be(
+        Right(List(UpdateExpense.Split(catA, BigDecimal("10"))))
       )
     }
   }
