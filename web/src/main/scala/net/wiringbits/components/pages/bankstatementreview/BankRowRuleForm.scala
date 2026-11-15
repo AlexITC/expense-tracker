@@ -4,15 +4,10 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.common.models.{CategoryName, MerchantName}
 import net.wiringbits.api.models.bankstatements.GetBankStatement
-import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
-import net.wiringbits.api.models.merchants.{
-  CreateImportRule,
-  CreateMerchant,
-  GetMerchants,
-  ImportRuleAction,
-  ImportRuleActionKind
-}
+import net.wiringbits.api.models.categories.GetCategories
+import net.wiringbits.api.models.merchants.{CreateImportRule, GetMerchants, ImportRuleAction, ImportRuleActionKind}
 import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.components.pages.{CategoryResolver, MerchantResolver}
 import net.wiringbits.forms.BankRowRuleFormData
 import net.wiringbits.ui.components.inputs.{
   CategoryAutocompleteInput,
@@ -30,7 +25,6 @@ import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 import slinky.web.html.{form, onSubmit}
 
-import java.time.Instant
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
@@ -69,57 +63,6 @@ object BankRowRuleForm {
         .createImportRule(CreateImportRule.Request(action, pattern.trim, amount))
         .map(resp => ImportRuleMatcher.Rule(resp.id, action, pattern.trim, amount))
 
-    // Resolving a selection to an id is the component's side effect: an existing selection already carries the id, a
-    // new one is matched against the loaded rows by name and only created when it is genuinely new. The name is an
-    // already-valid primitive from the field, so nothing is parsed here.
-    def resolveCategory(selection: ExistingOrNewValue[CategoryName, UUID]): Future[UUID] =
-      selection.id match {
-        case Some(id) => Future.successful(id)
-        case None =>
-          props.categories.find(_.name.equalsIgnoreCase(selection.value.string)) match {
-            case Some(existing) => Future.successful(existing.id)
-            case None =>
-              props.ctx.api.client
-                .createCategory(CreateCategory.Request(name = selection.value, description = None))
-                .map(_.id)
-          }
-      }
-
-    def resolveCategoryOpt(selection: Option[ExistingOrNewValue[CategoryName, UUID]]): Future[Option[UUID]] =
-      selection match {
-        case None => Future.successful(None)
-        case Some(ref) => resolveCategory(ref).map(Some(_))
-      }
-
-    def resolveMerchant(
-        selection: ExistingOrNewValue[MerchantName, UUID],
-        categoryId: Option[UUID]
-    ): Future[(UUID, Option[GetMerchants.Response.Merchant])] =
-      selection.id match {
-        case Some(id) => Future.successful((id, None))
-        case None =>
-          props.merchants.find(_.name.equalsIgnoreCase(selection.value.string)) match {
-            case Some(existing) => Future.successful((existing.id, None))
-            case None =>
-              props.ctx.api.client
-                .createMerchant(
-                  CreateMerchant.Request(name = selection.value, notes = None, categoryId = categoryId, taxId = None)
-                )
-                .map { resp =>
-                  val created = GetMerchants.Response.Merchant(
-                    id = resp.id,
-                    name = resp.name,
-                    notes = None,
-                    categoryId = categoryId,
-                    taxId = None,
-                    reviewed = false,
-                    createdAt = Instant.now()
-                  )
-                  (resp.id, Some(created))
-                }
-          }
-      }
-
     def handleSave(): Unit =
       formData.submitRequest match {
         case None =>
@@ -131,10 +74,12 @@ object BankRowRuleForm {
               saveRule(ImportRuleAction.Ignore, pattern, amount).map(rule => (rule, None))
 
             case BankRowRuleFormData.Resolved.SetCategory(pattern, amount, description, categorySelection) =>
-              resolveCategory(categorySelection).flatMap { categoryId =>
-                saveRule(ImportRuleAction.SetCategory(categoryId, description = description), pattern, amount)
-                  .map(rule => (rule, None))
-              }
+              CategoryResolver
+                .findOrCreateCategory(props.ctx.api.client, props.categories, categorySelection)
+                .flatMap { categoryId =>
+                  saveRule(ImportRuleAction.SetCategory(categoryId, description = description), pattern, amount)
+                    .map(rule => (rule, None))
+                }
 
             case BankRowRuleFormData.Resolved.SetMerchant(
                   pattern,
@@ -143,15 +88,19 @@ object BankRowRuleForm {
                   merchantSelection,
                   categorySelection
                 ) =>
-              resolveCategoryOpt(categorySelection).flatMap { categoryId =>
-                resolveMerchant(merchantSelection, categoryId).flatMap { case (merchantId, created) =>
-                  saveRule(
-                    ImportRuleAction.SetMerchant(merchantId, categoryId = categoryId, description = description),
-                    pattern,
-                    amount
-                  ).map(rule => (rule, created))
+              CategoryResolver
+                .findOrCreateCategoryOpt(props.ctx.api.client, props.categories, categorySelection)
+                .flatMap { categoryId =>
+                  MerchantResolver
+                    .findOrCreateMerchant(props.ctx.api.client, props.merchants, merchantSelection, categoryId)
+                    .flatMap { case (merchantId, created) =>
+                      saveRule(
+                        ImportRuleAction.SetMerchant(merchantId, categoryId = categoryId, description = description),
+                        pattern,
+                        amount
+                      ).map(rule => (rule, created))
+                    }
                 }
-              }
           }
           result.onComplete {
             case Success((rule, created)) => props.onSuccess(rule, created)
