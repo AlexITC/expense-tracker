@@ -8,7 +8,7 @@ import org.scalajs.dom
 import slinky.core.FunctionalComponent
 
 /** Select analogue of [[ValidatedTextInput]]: renders a MUI select over `options` (value -> label) and runs the
-  * validator on the picked value. An optional blank entry (`noneLabel`) comes first.
+  * validator on the picked value. A blank "(none)" entry comes first.
   */
 abstract class ValidatedSelectInput[T: TextValidator] {
   private val validator = implicitly[TextValidator[T]]
@@ -17,8 +17,7 @@ abstract class ValidatedSelectInput[T: TextValidator] {
       field: FormField[T],
       options: Seq[(String, String)],
       onChange: ValidationResult[T] => Unit,
-      disabled: Boolean = false,
-      noneLabel: Option[String]
+      disabled: Boolean = false
   )
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
@@ -27,9 +26,7 @@ abstract class ValidatedSelectInput[T: TextValidator] {
     val helperText = props.field.value.flatMap(_.errorMessage).getOrElse("")
     val value = props.field.value.map(_.input).getOrElse("")
     val hasError = props.field.value.exists(_.hasError)
-    val noneItem = props.noneLabel.map { label =>
-      mui.MenuItem.normal()(label).value("").withKey(s"${props.field.name}-none").build
-    }
+    val noneItem = mui.MenuItem.normal()("(none)").value("").withKey(s"${props.field.name}-none").build
     val optionItems = props.options.map { case (optionValue, label) =>
       mui.MenuItem.normal()(label).value(optionValue).withKey(optionValue).build
     }
@@ -48,7 +45,7 @@ abstract class ValidatedSelectInput[T: TextValidator] {
       .helperText(helperText)
       .value(value)
       .onChange(e => onChange(e.target.asInstanceOf[dom.HTMLInputElement].value))(
-        (noneItem.toList ++ optionItems)*
+        (noneItem +: optionItems)*
       )
   }
 }

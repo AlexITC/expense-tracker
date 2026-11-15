@@ -47,4 +47,19 @@ object ExpenseSplitRow {
     )
 
   def nextKey(rows: List[ExpenseSplitRow]): Int = rows.map(_.key).maxOption.fold(0)(_ + 1)
+
+  /** The rows' (category, amount) pairs, or None while any row is invalid or untouched. */
+  def resolve(rows: List[ExpenseSplitRow]): Option[List[(Option[UUID], BigDecimal)]] =
+    rows.foldRight(Option(List.empty[(Option[UUID], BigDecimal)])) { (row, acc) =>
+      for {
+        rest <- acc
+        c <- row.category.valueOpt
+        a <- row.amount.valueOpt
+      } yield (c, a.value) :: rest
+    }
+
+  def remove(rows: List[ExpenseSplitRow], key: Int): List[ExpenseSplitRow] = rows.filterNot(_.key == key)
+
+  def update(rows: List[ExpenseSplitRow], key: Int, f: ExpenseSplitRow => ExpenseSplitRow): List[ExpenseSplitRow] =
+    rows.map(r => if (r.key == key) f(r) else r)
 }

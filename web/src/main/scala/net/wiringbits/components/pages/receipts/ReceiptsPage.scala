@@ -619,8 +619,7 @@ object ReceiptList {
                     options = props.categories.data.map(c => c.id.toString -> c.name),
                     onChange = (value: ValidationResult[Option[UUID]]) =>
                       updateForm(_.updateSplit(row.key, r => r.copy(category = r.category.updated(value)))),
-                    disabled = disabled,
-                    noneLabel = Some("(none)")
+                    disabled = disabled
                   )
                 )
               ),

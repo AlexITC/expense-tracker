@@ -155,6 +155,17 @@ object BankRowCreateExpenseForm {
       aliasToCreate(pattern = pattern, merchantName = "")
     else None
 
+  /** Whether the rule pattern input is on screen (and so validated/resolved): the merchant alias when a merchant is
+    * picked and no rule covers the row yet, or the category-rule input while its opt-in is active.
+    */
+  def rulePatternShown(
+      merchantName: String,
+      hint: RuleHint,
+      showCategoryRuleOption: Boolean,
+      optIn: Boolean
+  ): Boolean =
+    (merchantName.nonEmpty && hint == RuleHint.NeedsAlias) || (showCategoryRuleOption && optIn)
+
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
@@ -190,8 +201,12 @@ object BankRowCreateExpenseForm {
     val showCategoryRuleOption = merchantName.isEmpty && categoryInput.nonEmpty && hint == RuleHint.NeedsAlias
     // The pattern only validates/resolves while its input is on screen: the merchant alias, or the active opt-in.
     val formData = storedFormData.copy(rulePatternShown =
-      (merchantName.nonEmpty && hint == RuleHint.NeedsAlias) ||
-        (showCategoryRuleOption && storedFormData.categoryRuleOptIn)
+      rulePatternShown(
+        merchantName = merchantName,
+        hint = hint,
+        showCategoryRuleOption = showCategoryRuleOption,
+        optIn = storedFormData.categoryRuleOptIn
+      )
     )
 
     // A suggestion can arrive (via polling) after the form was opened blank; apply it only while the

@@ -487,8 +487,7 @@ object ExpenseList {
             options = props.merchants.data.map(m => m.id.toString -> m.name),
             onChange = (value: ValidationResult[Option[UUID]]) =>
               update(cur => cur.copy(merchantId = cur.merchantId.updated(value))),
-            disabled = disabled,
-            noneLabel = Some("(none)")
+            disabled = disabled
           )
         )
       ),
@@ -516,8 +515,7 @@ object ExpenseList {
                     options = props.categories.data.map(c => c.id.toString -> c.name),
                     onChange = (value: ValidationResult[Option[UUID]]) =>
                       update(_.updateSplit(row.key, r => r.copy(category = r.category.updated(value)))),
-                    disabled = disabled,
-                    noneLabel = Some("(none)")
+                    disabled = disabled
                   )
                 )
               ),

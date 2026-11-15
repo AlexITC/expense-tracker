@@ -328,4 +328,28 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
         Some("OXXO STORE")
     }
   }
+
+  "rulePatternShown" should {
+    import BankRowCreateExpenseForm.RuleHint
+
+    "be true for a merchant alias the row needs" in {
+      BankRowCreateExpenseForm.rulePatternShown("Oxxo", RuleHint.NeedsAlias, false, false) mustBe true
+    }
+
+    "be false for a merchant the row already matches" in {
+      BankRowCreateExpenseForm.rulePatternShown("Oxxo", RuleHint.MatchesByName, false, false) mustBe false
+    }
+
+    "be true for the category rule option with the opt-in on" in {
+      BankRowCreateExpenseForm.rulePatternShown("", RuleHint.NeedsAlias, true, true) mustBe true
+    }
+
+    "be false for the category rule option with the opt-in off" in {
+      BankRowCreateExpenseForm.rulePatternShown("", RuleHint.NeedsAlias, true, false) mustBe false
+    }
+
+    "be false without a merchant or a category rule option" in {
+      BankRowCreateExpenseForm.rulePatternShown("", RuleHint.NeedsAlias, false, true) mustBe false
+    }
+  }
 }

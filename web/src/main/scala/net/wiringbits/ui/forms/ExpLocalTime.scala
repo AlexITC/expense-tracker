@@ -28,11 +28,5 @@ object ExpLocalTime {
     case ValidationResult.Invalid(_, error) => Left(error)
   }
 
-  given optionalValidator: TextValidator[Option[ExpLocalTime]] = (string: String) =>
-    if (string.trim.isEmpty) ValidationResult.Valid(string, None)
-    else
-      validate(string) match {
-        case ValidationResult.Valid(input, value) => ValidationResult.Valid(input, Some(value))
-        case ValidationResult.Invalid(input, error) => ValidationResult.Invalid(input = input, error = error)
-      }
+  given optionalValidator: TextValidator[Option[ExpLocalTime]] = OptionalValidator.optional(validate)
 }

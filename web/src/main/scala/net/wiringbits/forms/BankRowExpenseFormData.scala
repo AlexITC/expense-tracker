@@ -36,7 +36,7 @@ case class BankRowExpenseFormData(
     rulePattern: FormField[Option[ExpRulePattern]],
     categoryRuleOptIn: Boolean,
     receiptId: Option[UUID],
-    rulePatternShown: Boolean = false
+    rulePatternShown: Boolean
 ) extends FormData[BankRowExpenseFormData.Resolved] {
   override def fields: List[FormField[?]] = List(amount, date, notes, merchant, category) ++
     Option.when(rulePatternShown)(rulePattern)
@@ -159,6 +159,7 @@ object BankRowExpenseFormData {
         case None => asOptional(ExistingSelections.newMerchant(merchantInput))
       }
     BankRowExpenseFormData(
+      rulePatternShown = false,
       amount = new FormField(
         label = "Amount",
         name = "amount",

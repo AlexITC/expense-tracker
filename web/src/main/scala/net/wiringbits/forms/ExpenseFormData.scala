@@ -32,7 +32,7 @@ case class ExpenseFormData(
       t <- time.valueOpt
       m <- merchantId.valueOpt
       n <- notes.valueOpt
-      s <- resolvedSplits
+      s <- ExpenseSplitRow.resolve(splits)
     } yield ExpenseFormData.Resolved(
       amount = a.value,
       date = d.value,
@@ -42,22 +42,13 @@ case class ExpenseFormData(
       splits = s
     )
 
-  private def resolvedSplits: Option[List[(Option[UUID], BigDecimal)]] =
-    splits.foldRight(Option(List.empty[(Option[UUID], BigDecimal)])) { (row, acc) =>
-      for {
-        rest <- acc
-        c <- row.category.valueOpt
-        a <- row.amount.valueOpt
-      } yield (c, a.value) :: rest
-    }
-
   def addSplit: ExpenseFormData =
     copy(splits = splits :+ ExpenseSplitRow.blank(prefix = prefix, key = ExpenseSplitRow.nextKey(splits)))
 
-  def removeSplit(key: Int): ExpenseFormData = copy(splits = splits.filterNot(_.key == key))
+  def removeSplit(key: Int): ExpenseFormData = copy(splits = ExpenseSplitRow.remove(splits, key))
 
   def updateSplit(key: Int, f: ExpenseSplitRow => ExpenseSplitRow): ExpenseFormData =
-    copy(splits = splits.map(r => if (r.key == key) f(r) else r))
+    copy(splits = ExpenseSplitRow.update(splits, key, f))
 }
 
 object ExpenseFormData {

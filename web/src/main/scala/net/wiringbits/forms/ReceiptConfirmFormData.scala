@@ -44,7 +44,7 @@ case class ReceiptConfirmFormData(
       t <- time.valueOpt
       m <- merchant.valueOpt
       n <- notes.valueOpt
-      s <- resolvedSplits
+      s <- ExpenseSplitRow.resolve(splits)
     } yield ReceiptConfirmFormData.Resolved(
       amount = a.value,
       date = d.value,
@@ -55,24 +55,15 @@ case class ReceiptConfirmFormData(
       rowId = rowId
     )
 
-  private def resolvedSplits: Option[List[(Option[UUID], BigDecimal)]] =
-    splits.foldRight(Option(List.empty[(Option[UUID], BigDecimal)])) { (row, acc) =>
-      for {
-        rest <- acc
-        c <- row.category.valueOpt
-        a <- row.amount.valueOpt
-      } yield (c, a.value) :: rest
-    }
-
   def addSplit: ReceiptConfirmFormData =
     copy(splits =
       splits :+ ExpenseSplitRow.blank(prefix = ReceiptConfirmFormData.Prefix, key = ExpenseSplitRow.nextKey(splits))
     )
 
-  def removeSplit(key: Int): ReceiptConfirmFormData = copy(splits = splits.filterNot(_.key == key))
+  def removeSplit(key: Int): ReceiptConfirmFormData = copy(splits = ExpenseSplitRow.remove(splits, key))
 
   def updateSplit(key: Int, f: ExpenseSplitRow => ExpenseSplitRow): ReceiptConfirmFormData =
-    copy(splits = splits.map(r => if (r.key == key) f(r) else r))
+    copy(splits = ExpenseSplitRow.update(splits, key, f))
 
   /** Attaches the id of a merchant created by a submit, so a retry after a later failure reuses it. */
   def withResolvedMerchant(id: UUID): ReceiptConfirmFormData =
