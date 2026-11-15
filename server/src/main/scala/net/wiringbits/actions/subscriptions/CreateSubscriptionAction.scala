@@ -50,8 +50,9 @@ class CreateSubscriptionAction @Inject() (
   private def validateFields(request: CreateSubscription.Request): Future[Unit] =
     SubscriptionValidator
       .validate(
-        request.cadence,
-        request.intervalDays,
+        cadence = request.cadence,
+        intervalDays = request.intervalDays,
+        intervalMonths = request.intervalMonths,
         amountMin = request.amountMin,
         amountMax = request.amountMax
       )

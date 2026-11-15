@@ -9,7 +9,13 @@ import net.wiringbits.api.models.subscriptions.{
   UpdateSubscription
 }
 import net.wiringbits.common.models.SubscriptionName
-import net.wiringbits.ui.forms.{ExpLocalDate, ExpOptionalId, SubscriptionAmount, SubscriptionIntervalDays}
+import net.wiringbits.ui.forms.{
+  ExpLocalDate,
+  ExpOptionalId,
+  SubscriptionAmount,
+  SubscriptionIntervalDays,
+  SubscriptionIntervalMonths
+}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -27,6 +33,8 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       form.copy(name = form.name.updated(SubscriptionName.validate(raw)))
     private def withInterval(raw: String): SubscriptionFormData =
       form.copy(intervalDays = form.intervalDays.updated(SubscriptionIntervalDays.validate(raw)))
+    private def withIntervalMonths(raw: String): SubscriptionFormData =
+      form.copy(intervalMonths = form.intervalMonths.updated(SubscriptionIntervalMonths.validate(raw)))
     private def withCategory(raw: String): SubscriptionFormData =
       form.copy(categoryId = form.categoryId.updated(ExpOptionalId.validate(raw)))
   }
@@ -36,6 +44,8 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       form.copy(details = f(form.details))
     private def withName(raw: String): CreateSubscriptionFormData = form.withDetails(_.withName(raw))
     private def withInterval(raw: String): CreateSubscriptionFormData = form.withDetails(_.withInterval(raw))
+    private def withIntervalMonths(raw: String): CreateSubscriptionFormData =
+      form.withDetails(_.withIntervalMonths(raw))
     private def withCategory(raw: String): CreateSubscriptionFormData = form.withDetails(_.withCategory(raw))
     private def withCadence(cadence: SubscriptionCadence): CreateSubscriptionFormData =
       form.withDetails(_.copy(cadence = cadence))
@@ -58,6 +68,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     name = SubscriptionName.trusted("Streaming"),
     cadence = SubscriptionCadence.Monthly,
     intervalDays = None,
+    intervalMonths = None,
     amountMin = Some(BigDecimal("12.50")),
     amountMax = Some(BigDecimal("12.50")),
     paymentMethod = SubscriptionPaymentMethod.DirectDebit,
@@ -68,6 +79,8 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
   private val rangeForm = validForm.withAmountMode(AmountMode.Range).withMin("10").withMax("25.00")
 
   private val everyNDaysForm = validForm.withCadence(SubscriptionCadence.EveryNDays)
+
+  private val everyNMonthsForm = validForm.withCadence(SubscriptionCadence.EveryNMonths)
 
   private def assertBlocked(form: CreateSubscriptionFormData) = {
     form.isValid must be(false)
@@ -91,6 +104,13 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       everyNDaysForm.fields.map(_.name) must contain("subscription-create-interval")
       validForm.withCadence(SubscriptionCadence.Yearly).fields.map(_.name) must not contain
         "subscription-create-interval"
+      everyNMonthsForm.fields.map(_.name) must not contain "subscription-create-interval"
+    }
+
+    "list the interval months only for an every-N-months cadence" in {
+      everyNMonthsForm.fields.map(_.name) must contain("subscription-create-interval-months")
+      everyNDaysForm.fields.map(_.name) must not contain "subscription-create-interval-months"
+      validForm.fields.map(_.name) must not contain "subscription-create-interval-months"
     }
   }
 
@@ -116,8 +136,21 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       )
     }
 
+    "include the interval months for an every-N-months cadence" in {
+      everyNMonthsForm.withIntervalMonths(" 3 ").submitRequest must be(
+        Some(expectedRequest.copy(cadence = SubscriptionCadence.EveryNMonths, intervalMonths = Some(3)))
+      )
+    }
+
     "ignore the interval input for other cadences, even when invalid" in {
       validForm.withInterval("abc").submitRequest must be(Some(expectedRequest))
+    }
+
+    "ignore the interval months input for other cadences, even when invalid" in {
+      validForm.withIntervalMonths("abc").submitRequest must be(Some(expectedRequest))
+      everyNDaysForm.withInterval("14").withIntervalMonths("3").submitRequest must be(
+        Some(expectedRequest.copy(cadence = SubscriptionCadence.EveryNDays, intervalDays = Some(14)))
+      )
     }
 
     "include the picked category" in {
@@ -136,6 +169,15 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
 
     "return None when an every-N-days cadence has no interval" in {
       assertBlocked(everyNDaysForm)
+    }
+
+    "return None when an every-N-months cadence has no interval" in {
+      assertBlocked(everyNMonthsForm)
+    }
+
+    "return None when the interval months is out of bounds" in {
+      assertBlocked(everyNMonthsForm.withIntervalMonths("0"))
+      assertBlocked(everyNMonthsForm.withIntervalMonths("25"))
     }
 
     "return None when the exact amount is not a number" in {
@@ -167,6 +209,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       name = s"Gym ${UUID.randomUUID()}",
       cadence = SubscriptionCadence.EveryNDays,
       intervalDays = Some(28),
+      intervalMonths = None,
       paymentMethod = SubscriptionPaymentMethod.CardPortal,
       categoryId = Some(categoryId),
       terms = List(
@@ -187,6 +230,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       name = SubscriptionName.trusted(subscription.name),
       cadence = subscription.cadence,
       intervalDays = subscription.intervalDays,
+      intervalMonths = subscription.intervalMonths,
       paymentMethod = subscription.paymentMethod,
       categoryId = subscription.categoryId
     )
@@ -219,6 +263,34 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
 
     "block an every-N-days cadence without a valid interval" in {
       val form = editForm.withInterval("0")
+      form.isValid must be(false)
+      form.submitRequest must be(None)
+    }
+
+    "seed and round-trip an every-N-months subscription" in {
+      val quarterly = subscription.copy(
+        cadence = SubscriptionCadence.EveryNMonths,
+        intervalDays = None,
+        intervalMonths = Some(3)
+      )
+      val form = SubscriptionFormData.fromSubscription(nameLabel = "Name", subscription = quarterly)
+      form.fields.map(_.name) must be(
+        List("subscription-edit-name", "subscription-edit-interval-months", "subscription-edit-category")
+      )
+      form.intervalMonths.inputValue must be("3")
+      form.submitRequest must be(
+        Some(
+          expectedUpdate.copy(
+            cadence = SubscriptionCadence.EveryNMonths,
+            intervalDays = None,
+            intervalMonths = Some(3)
+          )
+        )
+      )
+    }
+
+    "block an every-N-months cadence without a valid interval" in {
+      val form = editForm.copy(cadence = SubscriptionCadence.EveryNMonths).withIntervalMonths("30")
       form.isValid must be(false)
       form.submitRequest must be(None)
     }

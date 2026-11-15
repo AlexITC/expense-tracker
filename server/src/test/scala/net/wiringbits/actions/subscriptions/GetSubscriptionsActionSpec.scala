@@ -29,6 +29,21 @@ class GetSubscriptionsActionSpec extends RepositorySpec with RepositoryUtils {
       response.data.map(_.name) must be(List(s"$base A", s"$base B"))
     }
 
+    "map an every-n-months interval" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val existing = createSubscription(
+        user.id,
+        name = s"Insurance ${UUID.randomUUID()}",
+        cadence = SubscriptionCadence.EveryNMonths,
+        intervalMonths = Some(3)
+      ).futureValue
+
+      val item = newAction().apply(user.id).futureValue.data.find(_.id == existing.id).value
+      item.cadence must be(SubscriptionCadence.EveryNMonths)
+      item.intervalDays must be(None)
+      item.intervalMonths must be(Some(3))
+    }
+
     "map every stored field" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val category = createCategory(user.id, name = s"Category ${UUID.randomUUID()}").futureValue
@@ -48,6 +63,7 @@ class GetSubscriptionsActionSpec extends RepositorySpec with RepositoryUtils {
       item.name must be(existing.name)
       item.cadence must be(SubscriptionCadence.EveryNDays)
       item.intervalDays must be(Some(45))
+      item.intervalMonths must be(None)
       item.paymentMethod must be(SubscriptionPaymentMethod.ManualTransfer)
       item.categoryId must be(Some(category.id))
       item.terms must be(

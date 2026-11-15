@@ -18,6 +18,7 @@ class GetSubscriptionsSpec extends AnyWordSpec with Matchers {
             name = "Streaming",
             cadence = SubscriptionCadence.Monthly,
             intervalDays = None,
+            intervalMonths = None,
             paymentMethod = SubscriptionPaymentMethod.DirectDebit,
             categoryId = None,
             terms = List(

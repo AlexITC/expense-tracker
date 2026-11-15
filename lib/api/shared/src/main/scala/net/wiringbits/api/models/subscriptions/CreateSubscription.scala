@@ -17,6 +17,7 @@ object CreateSubscription {
       name: SubscriptionName,
       cadence: SubscriptionCadence,
       intervalDays: Option[Int],
+      intervalMonths: Option[Int],
       amountMin: Option[BigDecimal],
       amountMax: Option[BigDecimal],
       paymentMethod: SubscriptionPaymentMethod,

@@ -15,6 +15,7 @@ object UpdateSubscription {
       name: SubscriptionName,
       cadence: SubscriptionCadence,
       intervalDays: Option[Int],
+      intervalMonths: Option[Int],
       paymentMethod: SubscriptionPaymentMethod,
       categoryId: Option[UUID]
   )

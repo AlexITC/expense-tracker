@@ -19,7 +19,8 @@ import net.wiringbits.ui.forms.{
   ExpRulePattern,
   PositiveBigDecimal,
   SubscriptionAmount,
-  SubscriptionIntervalDays
+  SubscriptionIntervalDays,
+  SubscriptionIntervalMonths
 }
 
 import java.util.UUID
@@ -50,6 +51,8 @@ object OptionalRulePatternInput extends ValidatedTextInput[Option[ExpRulePattern
 object RuleAmountInput extends ValidatedTextInput[Option[ExpRuleAmount]]
 
 object SubscriptionIntervalDaysInput extends ValidatedTextInput[SubscriptionIntervalDays]
+
+object SubscriptionIntervalMonthsInput extends ValidatedTextInput[SubscriptionIntervalMonths]
 
 object SubscriptionAmountInput extends ValidatedTextInput[Option[SubscriptionAmount]]
 

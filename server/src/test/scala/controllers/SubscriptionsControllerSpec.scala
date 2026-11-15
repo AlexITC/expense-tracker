@@ -60,6 +60,7 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
     name = SubscriptionName.trusted("Streaming"),
     cadence = SubscriptionCadence.EveryNDays,
     intervalDays = Some(28),
+    intervalMonths = None,
     amountMin = Some(BigDecimal("9.99")),
     amountMax = Some(BigDecimal("12.50")),
     paymentMethod = SubscriptionPaymentMethod.CardPortal,
@@ -71,6 +72,7 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
     name = SubscriptionName.trusted("Gym"),
     cadence = SubscriptionCadence.Yearly,
     intervalDays = None,
+    intervalMonths = None,
     paymentMethod = SubscriptionPaymentMethod.DirectDebit,
     categoryId = None
   )
@@ -107,6 +109,7 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
             name = "Streaming",
             cadence = SubscriptionCadence.EveryNDays,
             intervalDays = Some(28),
+            intervalMonths = None,
             paymentMethod = SubscriptionPaymentMethod.CardPortal,
             categoryId = Some(UUID.randomUUID()),
             terms = List(
@@ -132,6 +135,7 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
             name = "Water",
             cadence = SubscriptionCadence.Monthly,
             intervalDays = None,
+            intervalMonths = None,
             paymentMethod = SubscriptionPaymentMethod.Cash,
             categoryId = None,
             terms = List(

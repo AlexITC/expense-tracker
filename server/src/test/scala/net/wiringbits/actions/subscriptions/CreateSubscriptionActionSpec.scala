@@ -27,6 +27,7 @@ class CreateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       name: String = uniqueName("Streaming"),
       cadence: SubscriptionCadence = SubscriptionCadence.Monthly,
       intervalDays: Option[Int] = None,
+      intervalMonths: Option[Int] = None,
       amountMin: Option[BigDecimal] = None,
       amountMax: Option[BigDecimal] = None,
       paymentMethod: SubscriptionPaymentMethod = SubscriptionPaymentMethod.DirectDebit,
@@ -37,6 +38,7 @@ class CreateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       name = SubscriptionName.trusted(name),
       cadence = cadence,
       intervalDays = intervalDays,
+      intervalMonths = intervalMonths,
       amountMin = amountMin,
       amountMax = amountMax,
       paymentMethod = paymentMethod,
@@ -63,6 +65,7 @@ class CreateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       stored.name must be(req.name.string)
       stored.cadence must be(SubscriptionCadence.Yearly)
       stored.intervalDays must be(None)
+      stored.intervalMonths must be(None)
       stored.paymentMethod must be(SubscriptionPaymentMethod.CardPortal)
       stored.categoryId must be(Some(category.id))
       val term =
@@ -105,6 +108,27 @@ class CreateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       val stored = repositories.subscriptions.find(id = response.id, userId = user.id).futureValue.value
       stored.cadence must be(SubscriptionCadence.EveryNDays)
       stored.intervalDays must be(Some(45))
+    }
+
+    "store an every-n-months cadence with its interval" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val req = request(cadence = SubscriptionCadence.EveryNMonths, intervalMonths = Some(3))
+
+      val response = newAction().apply(user.id, req).futureValue
+
+      val stored = repositories.subscriptions.find(id = response.id, userId = user.id).futureValue.value
+      stored.cadence must be(SubscriptionCadence.EveryNMonths)
+      stored.intervalDays must be(None)
+      stored.intervalMonths must be(Some(3))
+    }
+
+    "reject an every-n-months cadence without interval" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val req = request(cadence = SubscriptionCadence.EveryNMonths)
+
+      val error = newAction().apply(user.id, req).failed.futureValue
+      error.getMessage must be("Interval months is required for an every-N-months cadence")
+      repositories.subscriptions.count(user.id).futureValue must be(0L)
     }
 
     "reject a duplicate name" in withRepositories() { implicit repositories =>

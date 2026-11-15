@@ -9,7 +9,13 @@ import net.wiringbits.api.models.subscriptions.{
 }
 import net.wiringbits.api.utils.SubscriptionValidator
 import net.wiringbits.common.models.SubscriptionName
-import net.wiringbits.ui.forms.{ExpLocalDate, ExpOptionalId, SubscriptionAmount, SubscriptionIntervalDays}
+import net.wiringbits.ui.forms.{
+  ExpLocalDate,
+  ExpOptionalId,
+  SubscriptionAmount,
+  SubscriptionIntervalDays,
+  SubscriptionIntervalMonths
+}
 import net.wiringbits.webapp.utils.slinkyUtils.forms.{FormData, FormField}
 
 import java.util.UUID
@@ -89,6 +95,7 @@ case class SubscriptionFormData(
     name: FormField[SubscriptionName],
     cadence: SubscriptionCadence,
     intervalDays: FormField[SubscriptionIntervalDays],
+    intervalMonths: FormField[SubscriptionIntervalMonths],
     paymentMethod: SubscriptionPaymentMethod,
     categoryId: FormField[Option[UUID]]
 ) extends FormData[UpdateSubscription.Request] {
@@ -96,6 +103,7 @@ case class SubscriptionFormData(
   override def fields: List[FormField[?]] = {
     val intervalFields = cadence match {
       case SubscriptionCadence.EveryNDays => List(intervalDays)
+      case SubscriptionCadence.EveryNMonths => List(intervalMonths)
       case SubscriptionCadence.Monthly | SubscriptionCadence.Yearly => Nil
     }
     List(name) ++ intervalFields ++ List(categoryId)
@@ -104,8 +112,11 @@ case class SubscriptionFormData(
   override def formValidationErrors: List[String] = {
     // The cross-field rules only make sense once the inputs they check are valid.
     val validatorError = for {
-      interval <- resolvedInterval
-      error <- SubscriptionValidator.validateCadence(cadence = cadence, intervalDays = interval).left.toOption
+      intervals <- resolvedIntervals
+      error <- SubscriptionValidator
+        .validateCadence(cadence = cadence, intervalDays = intervals.days, intervalMonths = intervals.months)
+        .left
+        .toOption
     } yield error
     super.formValidationErrors ++ validatorError.toList
   }
@@ -115,23 +126,31 @@ case class SubscriptionFormData(
     else
       for {
         validName <- name.valueOpt
-        interval <- resolvedInterval
+        intervals <- resolvedIntervals
         category <- categoryId.valueOpt
       } yield UpdateSubscription.Request(
         name = validName,
         cadence = cadence,
-        intervalDays = interval,
+        intervalDays = intervals.days,
+        intervalMonths = intervals.months,
         paymentMethod = paymentMethod,
         categoryId = category
       )
 
-  // The interval only applies to EveryNDays; for other cadences the (hidden) input is ignored.
-  def resolvedInterval: Option[Option[Int]] =
+  // Each interval only applies to its own cadence; for other cadences the (hidden) input is ignored.
+  def resolvedIntervals: Option[SubscriptionIntervals] =
     cadence match {
-      case SubscriptionCadence.EveryNDays => intervalDays.valueOpt.map(days => Some(days.value))
-      case SubscriptionCadence.Monthly | SubscriptionCadence.Yearly => Some(None)
+      case SubscriptionCadence.EveryNDays =>
+        intervalDays.valueOpt.map(days => SubscriptionIntervals(days = Some(days.value), months = None))
+      case SubscriptionCadence.EveryNMonths =>
+        intervalMonths.valueOpt.map(months => SubscriptionIntervals(days = None, months = Some(months.value)))
+      case SubscriptionCadence.Monthly | SubscriptionCadence.Yearly =>
+        Some(SubscriptionIntervals(days = None, months = None))
     }
 }
+
+/** The interval fields to send for the selected cadence, in the flat encoding of the API models. */
+case class SubscriptionIntervals(days: Option[Int], months: Option[Int])
 
 /** The create form: the subscription's own inputs plus its first term (amount and start date). */
 case class CreateSubscriptionFormData(
@@ -145,10 +164,16 @@ case class CreateSubscriptionFormData(
   override def formValidationErrors: List[String] = {
     // The cross-field rules only make sense once the inputs they check are valid.
     val validatorError = for {
-      interval <- details.resolvedInterval
+      intervals <- details.resolvedIntervals
       (min, max) <- amounts.resolved
       error <- SubscriptionValidator
-        .validate(cadence = details.cadence, intervalDays = interval, amountMin = min, amountMax = max)
+        .validate(
+          cadence = details.cadence,
+          intervalDays = intervals.days,
+          intervalMonths = intervals.months,
+          amountMin = min,
+          amountMax = max
+        )
         .left
         .toOption
     } yield error
@@ -160,14 +185,15 @@ case class CreateSubscriptionFormData(
     else
       for {
         validName <- details.name.valueOpt
-        interval <- details.resolvedInterval
+        intervals <- details.resolvedIntervals
         (min, max) <- amounts.resolved
         category <- details.categoryId.valueOpt
         start <- startDate.valueOpt
       } yield CreateSubscription.Request(
         name = validName,
         cadence = details.cadence,
-        intervalDays = interval,
+        intervalDays = intervals.days,
+        intervalMonths = intervals.months,
         amountMin = min,
         amountMax = max,
         paymentMethod = details.paymentMethod,
@@ -184,6 +210,7 @@ object SubscriptionFormData {
       name: Option[String],
       cadence: SubscriptionCadence,
       intervalDays: Option[String],
+      intervalMonths: Option[String],
       paymentMethod: SubscriptionPaymentMethod,
       categoryId: String
   ): SubscriptionFormData =
@@ -200,6 +227,12 @@ object SubscriptionFormData {
         name = s"$prefix-interval",
         required = true,
         value = intervalDays.map(SubscriptionIntervalDays.validate)
+      ),
+      intervalMonths = new FormField(
+        label = "Interval (months)",
+        name = s"$prefix-interval-months",
+        required = true,
+        value = intervalMonths.map(SubscriptionIntervalMonths.validate)
       ),
       paymentMethod = paymentMethod,
       categoryId = new FormField(
@@ -220,6 +253,7 @@ object SubscriptionFormData {
       name = Some(subscription.name),
       cadence = subscription.cadence,
       intervalDays = subscription.intervalDays.map(_.toString),
+      intervalMonths = subscription.intervalMonths.map(_.toString),
       paymentMethod = subscription.paymentMethod,
       categoryId = subscription.categoryId.fold("")(_.toString)
     )
@@ -237,6 +271,7 @@ object CreateSubscriptionFormData {
         name = None,
         cadence = SubscriptionCadence.Monthly,
         intervalDays = None,
+        intervalMonths = None,
         paymentMethod = SubscriptionPaymentMethod.DirectDebit,
         categoryId = ""
       ),

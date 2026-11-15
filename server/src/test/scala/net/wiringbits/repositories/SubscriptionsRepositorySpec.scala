@@ -192,6 +192,7 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
           name = newName,
           cadence = SubscriptionCadence.EveryNDays,
           intervalDays = Some(30),
+          intervalMonths = None,
           paymentMethod = SubscriptionPaymentMethod.Cash,
           categoryId = None
         )
@@ -224,6 +225,7 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
           name = request.name,
           cadence = SubscriptionCadence.Monthly,
           intervalDays = None,
+          intervalMonths = None,
           paymentMethod = request.paymentMethod,
           categoryId = None
         )
@@ -248,6 +250,7 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
           name = request.name,
           cadence = request.cadence,
           intervalDays = request.intervalDays,
+          intervalMonths = request.intervalMonths,
           paymentMethod = request.paymentMethod,
           categoryId = Some(foreignCategory.id)
         )
@@ -268,6 +271,7 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
           name = existing.name,
           cadence = request.cadence,
           intervalDays = request.intervalDays,
+          intervalMonths = request.intervalMonths,
           paymentMethod = request.paymentMethod,
           categoryId = request.categoryId
         )
@@ -288,6 +292,7 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
           name = uniqueName("Hijacked"),
           cadence = request.cadence,
           intervalDays = request.intervalDays,
+          intervalMonths = request.intervalMonths,
           paymentMethod = request.paymentMethod,
           categoryId = None
         )

@@ -25,9 +25,16 @@ import net.wiringbits.ui.components.inputs.{
   OptionalIdSelectInput,
   SubscriptionAmountInput,
   SubscriptionIntervalDaysInput,
+  SubscriptionIntervalMonthsInput,
   SubscriptionNameInput
 }
-import net.wiringbits.ui.forms.{ExpLocalDate, SubmitHooks, SubscriptionAmount, SubscriptionIntervalDays}
+import net.wiringbits.ui.forms.{
+  ExpLocalDate,
+  SubmitHooks,
+  SubscriptionAmount,
+  SubscriptionIntervalDays,
+  SubscriptionIntervalMonths
+}
 import net.wiringbits.webapp.utils.slinkyUtils.forms.FormData
 import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.forms.FormField
@@ -296,6 +303,19 @@ object SubscriptionList {
               )
             )
           )
+        case SubscriptionCadence.EveryNMonths =>
+          Seq(
+            fieldBox(key = "interval-months", boxMinWidth = "140px")(
+              SubscriptionIntervalMonthsInput.component(
+                SubscriptionIntervalMonthsInput.Props(
+                  field = data.intervalMonths,
+                  disabled = disabled,
+                  onChange = (value: ValidationResult[SubscriptionIntervalMonths]) =>
+                    update(x => x.copy(intervalMonths = x.intervalMonths.updated(value)))
+                )
+              )
+            )
+          )
         case SubscriptionCadence.Monthly | SubscriptionCadence.Yearly => Seq.empty
       }
 
@@ -314,8 +334,9 @@ object SubscriptionList {
           label = "Cadence",
           value = data.cadence.entryName,
           disabled = disabled,
-          options =
-            SubscriptionCadence.values.toSeq.map(c => c.entryName -> SubscriptionStatusLogic.cadenceLabel(c, None)),
+          options = SubscriptionCadence.values.toSeq.map(c =>
+            c.entryName -> SubscriptionStatusLogic.cadenceLabel(c, intervalDays = None, intervalMonths = None)
+          ),
           onChange = v => update(_.copy(cadence = SubscriptionCadence.fromEntryName(v)))
         )
       ) ++ intervalField ++ Seq[ReactElement](
@@ -555,7 +576,13 @@ object SubscriptionList {
 
     def details(s: GetSubscriptions.Response.Subscription, term: Option[SubscriptionTerm]): String =
       List(
-        Some(SubscriptionStatusLogic.cadenceLabel(s.cadence, s.intervalDays)),
+        Some(
+          SubscriptionStatusLogic.cadenceLabel(
+            s.cadence,
+            intervalDays = s.intervalDays,
+            intervalMonths = s.intervalMonths
+          )
+        ),
         term
           .map(t => SubscriptionStatusLogic.amountLabel(amountMin = t.amountMin, amountMax = t.amountMax))
           .filter(_.nonEmpty),
@@ -613,7 +640,13 @@ object SubscriptionList {
               .Typography(s.name)
               .sx(new CSSPropertiesUtils { fontSize = "14px"; fontWeight = "600"; color = "var(--lc-text)" }),
             SubscriptionStatusLogic
-              .status(terms = s.terms, cadence = s.cadence, intervalDays = s.intervalDays, today = today)
+              .status(
+                terms = s.terms,
+                cadence = s.cadence,
+                intervalDays = s.intervalDays,
+                intervalMonths = s.intervalMonths,
+                today = today
+              )
               .toOption
               .fold[ReactElement](Fragment())(statusChip)
           ),

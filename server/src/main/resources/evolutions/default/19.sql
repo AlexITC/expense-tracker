@@ -33,3 +33,6 @@ ALTER TABLE subscription
   DROP COLUMN amount_min,
   DROP COLUMN amount_max,
   DROP COLUMN start_date;
+
+-- The interval of an every-N-months cadence, set only when cadence is EveryNMonths (like interval_days for EveryNDays).
+ALTER TABLE subscription ADD COLUMN interval_months INT NULL;

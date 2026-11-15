@@ -25,6 +25,7 @@ class UpdateSubscriptionAction @Inject() (subscriptionsRepository: Subscriptions
         name = request.name.string,
         cadence = request.cadence,
         intervalDays = request.intervalDays,
+        intervalMonths = request.intervalMonths,
         paymentMethod = request.paymentMethod,
         categoryId = request.categoryId
       )
@@ -33,6 +34,10 @@ class UpdateSubscriptionAction @Inject() (subscriptionsRepository: Subscriptions
 
   private def validateFields(request: UpdateSubscription.Request): Future[Unit] =
     SubscriptionValidator
-      .validateCadence(request.cadence, request.intervalDays)
+      .validateCadence(
+        cadence = request.cadence,
+        intervalDays = request.intervalDays,
+        intervalMonths = request.intervalMonths
+      )
       .fold(error => Future.failed(new RuntimeException(error)), _ => Future.unit)
 }

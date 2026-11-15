@@ -7,12 +7,24 @@ import org.scalatest.wordspec.AnyWordSpec
 class SubscriptionValidatorSpec extends AnyWordSpec with Matchers {
 
   private def validateAmounts(min: Option[BigDecimal], max: Option[BigDecimal]) =
-    SubscriptionValidator.validate(SubscriptionCadence.Monthly, intervalDays = None, amountMin = min, amountMax = max)
+    SubscriptionValidator.validate(
+      SubscriptionCadence.Monthly,
+      intervalDays = None,
+      intervalMonths = None,
+      amountMin = min,
+      amountMax = max
+    )
 
   "validate" should {
     "accept a monthly or yearly cadence without interval and amounts" in {
       List(SubscriptionCadence.Monthly, SubscriptionCadence.Yearly).foreach { cadence =>
-        SubscriptionValidator.validate(cadence, intervalDays = None, amountMin = None, amountMax = None) mustBe Right(
+        SubscriptionValidator.validate(
+          cadence,
+          intervalDays = None,
+          intervalMonths = None,
+          amountMin = None,
+          amountMax = None
+        ) mustBe Right(
           ()
         )
       }
@@ -22,6 +34,7 @@ class SubscriptionValidatorSpec extends AnyWordSpec with Matchers {
       SubscriptionValidator.validate(
         SubscriptionCadence.EveryNDays,
         intervalDays = Some(14),
+        intervalMonths = None,
         amountMin = None,
         amountMax = None
       ) mustBe Right(())
@@ -31,6 +44,7 @@ class SubscriptionValidatorSpec extends AnyWordSpec with Matchers {
       SubscriptionValidator.validate(
         SubscriptionCadence.EveryNDays,
         intervalDays = None,
+        intervalMonths = None,
         amountMin = None,
         amountMax = None
       ) mustBe
@@ -42,6 +56,7 @@ class SubscriptionValidatorSpec extends AnyWordSpec with Matchers {
         SubscriptionValidator.validate(
           SubscriptionCadence.EveryNDays,
           intervalDays = Some(days),
+          intervalMonths = None,
           amountMin = None,
           amountMax = None
         ) mustBe
@@ -51,9 +66,83 @@ class SubscriptionValidatorSpec extends AnyWordSpec with Matchers {
 
     "reject an interval on a monthly or yearly cadence" in {
       List(SubscriptionCadence.Monthly, SubscriptionCadence.Yearly).foreach { cadence =>
-        SubscriptionValidator.validate(cadence, intervalDays = Some(30), amountMin = None, amountMax = None) mustBe
+        SubscriptionValidator.validate(
+          cadence,
+          intervalDays = Some(30),
+          intervalMonths = None,
+          amountMin = None,
+          amountMax = None
+        ) mustBe
           Left("Interval days is only allowed for an every-N-days cadence")
       }
+    }
+
+    "accept an every-N-months cadence within the interval bounds" in {
+      List(1, 3, 24).foreach { months =>
+        SubscriptionValidator.validate(
+          SubscriptionCadence.EveryNMonths,
+          intervalDays = None,
+          intervalMonths = Some(months),
+          amountMin = None,
+          amountMax = None
+        ) mustBe Right(())
+      }
+    }
+
+    "reject an every-N-months cadence without interval" in {
+      SubscriptionValidator.validate(
+        SubscriptionCadence.EveryNMonths,
+        intervalDays = None,
+        intervalMonths = None,
+        amountMin = None,
+        amountMax = None
+      ) mustBe
+        Left("Interval months is required for an every-N-months cadence")
+    }
+
+    "reject an interval months outside the bounds" in {
+      List(0, -1, 25).foreach { months =>
+        SubscriptionValidator.validate(
+          SubscriptionCadence.EveryNMonths,
+          intervalDays = None,
+          intervalMonths = Some(months),
+          amountMin = None,
+          amountMax = None
+        ) mustBe
+          Left("Interval months must be between 1 and 24")
+      }
+    }
+
+    "reject interval months on any other cadence" in {
+      List(SubscriptionCadence.Monthly, SubscriptionCadence.Yearly).foreach { cadence =>
+        SubscriptionValidator.validate(
+          cadence,
+          intervalDays = None,
+          intervalMonths = Some(3),
+          amountMin = None,
+          amountMax = None
+        ) mustBe
+          Left("Interval months is only allowed for an every-N-months cadence")
+      }
+      SubscriptionValidator.validate(
+        SubscriptionCadence.EveryNDays,
+        intervalDays = Some(14),
+        intervalMonths = Some(3),
+        amountMin = None,
+        amountMax = None
+      ) mustBe
+        Left("Interval months is only allowed for an every-N-months cadence")
+    }
+
+    "reject interval days on an every-N-months cadence" in {
+      SubscriptionValidator.validate(
+        SubscriptionCadence.EveryNMonths,
+        intervalDays = Some(30),
+        intervalMonths = Some(3),
+        amountMin = None,
+        amountMax = None
+      ) mustBe
+        Left("Interval days is only allowed for an every-N-days cadence")
     }
 
     "accept a valid amount range" in {
@@ -106,6 +195,7 @@ class SubscriptionValidatorSpec extends AnyWordSpec with Matchers {
       SubscriptionValidator.validate(
         SubscriptionCadence.EveryNDays,
         intervalDays = None,
+        intervalMonths = None,
         amountMin = Some(BigDecimal("5")),
         amountMax = None
       ) mustBe

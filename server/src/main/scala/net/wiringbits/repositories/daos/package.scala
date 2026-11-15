@@ -394,6 +394,7 @@ package object daos {
       "name",
       "cadence",
       "interval_days",
+      "interval_months",
       "payment_method",
       "category_id",
       "created_at",

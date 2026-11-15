@@ -8,7 +8,7 @@ class SubscriptionEnumsSpec extends AnyWordSpec with Matchers {
 
   "SubscriptionCadence" should {
     "use the spec entry names" in {
-      SubscriptionCadence.values.map(_.entryName).toList mustBe List("Monthly", "Yearly", "EveryNDays")
+      SubscriptionCadence.values.map(_.entryName).toList mustBe List("Monthly", "Yearly", "EveryNDays", "EveryNMonths")
     }
 
     "resolve every value from its entry name" in {

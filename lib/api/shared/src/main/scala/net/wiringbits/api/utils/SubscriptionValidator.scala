@@ -12,25 +12,51 @@ object SubscriptionValidator {
   // Caps the term history of one subscription so a single row cannot grow unbounded.
   val MaxTermsPerSubscription: Int = 200
 
+  // Bounds of an every-N-months cadence: from monthly up to every two years.
+  val MinIntervalMonths: Int = 1
+  val MaxIntervalMonths: Int = 24
+
   /** Validates the subscription fields that depend on each other; shared so the frontend can check the same rules. */
   def validate(
       cadence: SubscriptionCadence,
       intervalDays: Option[Int],
+      intervalMonths: Option[Int],
       amountMin: Option[BigDecimal],
       amountMax: Option[BigDecimal]
   ): Either[String, Unit] =
     for {
-      _ <- validateCadence(cadence, intervalDays)
+      _ <- validateCadence(cadence = cadence, intervalDays = intervalDays, intervalMonths = intervalMonths)
       _ <- validateAmountRange(amountMin = amountMin, amountMax = amountMax)
     } yield ()
 
-  /** Validates the cadence and its interval alone, for edits that do not touch the amounts. */
-  def validateCadence(cadence: SubscriptionCadence, intervalDays: Option[Int]): Either[String, Unit] =
+  /** Validates the cadence and its intervals alone, for edits that do not touch the amounts. */
+  def validateCadence(
+      cadence: SubscriptionCadence,
+      intervalDays: Option[Int],
+      intervalMonths: Option[Int]
+  ): Either[String, Unit] =
+    for {
+      _ <- validateIntervalDays(cadence, intervalDays)
+      _ <- validateIntervalMonths(cadence, intervalMonths)
+    } yield ()
+
+  private def validateIntervalDays(cadence: SubscriptionCadence, intervalDays: Option[Int]): Either[String, Unit] =
     (cadence, intervalDays) match {
       case (SubscriptionCadence.EveryNDays, None) => Left("Interval days is required for an every-N-days cadence")
       case (SubscriptionCadence.EveryNDays, Some(d)) if d <= 0 => Left("Interval days must be greater than zero")
       case (SubscriptionCadence.EveryNDays, Some(_)) => Right(())
       case (_, Some(_)) => Left("Interval days is only allowed for an every-N-days cadence")
+      case (_, None) => Right(())
+    }
+
+  private def validateIntervalMonths(cadence: SubscriptionCadence, intervalMonths: Option[Int]): Either[String, Unit] =
+    (cadence, intervalMonths) match {
+      case (SubscriptionCadence.EveryNMonths, None) =>
+        Left("Interval months is required for an every-N-months cadence")
+      case (SubscriptionCadence.EveryNMonths, Some(m)) if m < MinIntervalMonths || m > MaxIntervalMonths =>
+        Left(s"Interval months must be between $MinIntervalMonths and $MaxIntervalMonths")
+      case (SubscriptionCadence.EveryNMonths, Some(_)) => Right(())
+      case (_, Some(_)) => Left("Interval months is only allowed for an every-N-months cadence")
       case (_, None) => Right(())
     }
 

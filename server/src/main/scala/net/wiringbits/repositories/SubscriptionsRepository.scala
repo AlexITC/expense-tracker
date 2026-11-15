@@ -72,6 +72,7 @@ class SubscriptionsRepository @Inject() (database: Database)(implicit
       name: String,
       cadence: SubscriptionCadence,
       intervalDays: Option[Int],
+      intervalMonths: Option[Int],
       paymentMethod: SubscriptionPaymentMethod,
       categoryId: Option[UUID]
   ): Future[Unit] = Future {
@@ -87,6 +88,7 @@ class SubscriptionsRepository @Inject() (database: Database)(implicit
           name = name,
           cadence = cadence,
           intervalDays = intervalDays,
+          intervalMonths = intervalMonths,
           paymentMethod = paymentMethod,
           categoryId = categoryId,
           updatedAt = clock.instant()

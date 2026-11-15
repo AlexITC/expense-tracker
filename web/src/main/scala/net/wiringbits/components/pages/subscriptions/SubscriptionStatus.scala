@@ -17,6 +17,9 @@ enum SubscriptionStatus(val label: String) {
 enum SubscriptionStatusError(val message: String) {
   case MissingInterval extends SubscriptionStatusError("Interval days is required for an every-N-days cadence")
   case NonPositiveInterval extends SubscriptionStatusError("Interval days must be greater than zero")
+  case MissingIntervalMonths
+      extends SubscriptionStatusError("Interval months is required for an every-N-months cadence")
+  case NonPositiveIntervalMonths extends SubscriptionStatusError("Interval months must be greater than zero")
 }
 
 object SubscriptionStatusLogic {
@@ -54,6 +57,7 @@ object SubscriptionStatusLogic {
       terms: List[SubscriptionTerm],
       cadence: SubscriptionCadence,
       intervalDays: Option[Int],
+      intervalMonths: Option[Int],
       today: LocalDate
   ): Either[SubscriptionStatusError, Option[LocalDate]] =
     coveringTerm(terms, today) match {
@@ -62,6 +66,7 @@ object SubscriptionStatusLogic {
           anchor = cadenceAnchor(terms, term),
           cadence = cadence,
           intervalDays = intervalDays,
+          intervalMonths = intervalMonths,
           today = today
         )
           .map(Some(_))
@@ -72,9 +77,16 @@ object SubscriptionStatusLogic {
       terms: List[SubscriptionTerm],
       cadence: SubscriptionCadence,
       intervalDays: Option[Int],
+      intervalMonths: Option[Int],
       today: LocalDate
   ): Either[SubscriptionStatusError, SubscriptionStatus] =
-    expectedDate(terms = terms, cadence = cadence, intervalDays = intervalDays, today = today).map {
+    expectedDate(
+      terms = terms,
+      cadence = cadence,
+      intervalDays = intervalDays,
+      intervalMonths = intervalMonths,
+      today = today
+    ).map {
       case None => SubscriptionStatus.Cancelled
       case Some(expected) =>
         if (expected.isAfter(today)) SubscriptionStatus.Upcoming
@@ -91,6 +103,7 @@ object SubscriptionStatusLogic {
       anchor: LocalDate,
       cadence: SubscriptionCadence,
       intervalDays: Option[Int],
+      intervalMonths: Option[Int],
       today: LocalDate
   ): Either[SubscriptionStatusError, LocalDate] =
     if (anchor.isAfter(today)) Right(anchor)
@@ -108,6 +121,14 @@ object SubscriptionStatusLogic {
             case Some(_) => Left(SubscriptionStatusError.NonPositiveInterval)
             case None => Left(SubscriptionStatusError.MissingInterval)
           }
+        case SubscriptionCadence.EveryNMonths =>
+          intervalMonths match {
+            case Some(n) if n > 0 =>
+              val steps = ChronoUnit.MONTHS.between(anchor, today) / n
+              Right(latestOnOrBefore(today, steps, k => anchor.plusMonths(k * n)))
+            case Some(_) => Left(SubscriptionStatusError.NonPositiveIntervalMonths)
+            case None => Left(SubscriptionStatusError.MissingIntervalMonths)
+          }
       }
 
   def amountLabel(amountMin: Option[BigDecimal], amountMax: Option[BigDecimal]): String =
@@ -117,7 +138,7 @@ object SubscriptionStatusLogic {
       case _ => ""
     }
 
-  def cadenceLabel(cadence: SubscriptionCadence, intervalDays: Option[Int]): String =
+  def cadenceLabel(cadence: SubscriptionCadence, intervalDays: Option[Int], intervalMonths: Option[Int]): String =
     cadence match {
       case SubscriptionCadence.Monthly => "Monthly"
       case SubscriptionCadence.Yearly => "Yearly"
@@ -126,6 +147,12 @@ object SubscriptionStatusLogic {
           case Some(1) => "Every day"
           case Some(days) => s"Every $days days"
           case None => "Every N days"
+        }
+      case SubscriptionCadence.EveryNMonths =>
+        intervalMonths match {
+          case Some(1) => "Every month"
+          case Some(months) => s"Every $months months"
+          case None => "Every N months"
         }
     }
 

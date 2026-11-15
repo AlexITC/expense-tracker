@@ -17,6 +17,7 @@ class CreateSubscriptionSpec extends AnyWordSpec with Matchers {
         |  "name": "$name",
         |  "cadence": "$cadence",
         |  "intervalDays": null,
+        |  "intervalMonths": null,
         |  "amountMin": 9.99,
         |  "amountMax": 9.99,
         |  "paymentMethod": "DirectDebit",
@@ -32,6 +33,7 @@ class CreateSubscriptionSpec extends AnyWordSpec with Matchers {
         name = SubscriptionName.trusted("Streaming"),
         cadence = SubscriptionCadence.EveryNDays,
         intervalDays = Some(28),
+        intervalMonths = None,
         amountMin = Some(BigDecimal("9.99")),
         amountMax = Some(BigDecimal("12.50")),
         paymentMethod = SubscriptionPaymentMethod.CardPortal,
@@ -43,9 +45,26 @@ class CreateSubscriptionSpec extends AnyWordSpec with Matchers {
       decoded.name.string mustBe "Streaming"
     }
 
+    "round-trip an every-N-months request" in {
+      val request = CreateSubscription.Request(
+        name = SubscriptionName.trusted("Insurance"),
+        cadence = SubscriptionCadence.EveryNMonths,
+        intervalDays = None,
+        intervalMonths = Some(3),
+        amountMin = None,
+        amountMax = None,
+        paymentMethod = SubscriptionPaymentMethod.DirectDebit,
+        categoryId = None,
+        startDate = LocalDate.of(2026, 1, 31)
+      )
+      val decoded = Json.toJson(request).as[CreateSubscription.Request]
+      decoded.copy(name = request.name) mustBe request
+    }
+
     "decode null optional fields as None" in {
       val result = requestJson("Streaming", "Monthly").as[CreateSubscription.Request]
       result.intervalDays mustBe None
+      result.intervalMonths mustBe None
       result.categoryId mustBe None
       result.cadence mustBe SubscriptionCadence.Monthly
     }

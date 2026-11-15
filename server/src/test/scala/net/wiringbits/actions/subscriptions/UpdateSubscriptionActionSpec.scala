@@ -22,6 +22,7 @@ class UpdateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       name: String = uniqueName("Mobile"),
       cadence: SubscriptionCadence = SubscriptionCadence.EveryNDays,
       intervalDays: Option[Int] = Some(30),
+      intervalMonths: Option[Int] = None,
       paymentMethod: SubscriptionPaymentMethod = SubscriptionPaymentMethod.Cash,
       categoryId: Option[UUID] = None
   ): UpdateSubscription.Request =
@@ -29,6 +30,7 @@ class UpdateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       name = SubscriptionName.trusted(name),
       cadence = cadence,
       intervalDays = intervalDays,
+      intervalMonths = intervalMonths,
       paymentMethod = paymentMethod,
       categoryId = categoryId
     )
@@ -52,6 +54,7 @@ class UpdateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       stored.name must be(req.name.string)
       stored.cadence must be(SubscriptionCadence.EveryNDays)
       stored.intervalDays must be(Some(30))
+      stored.intervalMonths must be(None)
       stored.paymentMethod must be(SubscriptionPaymentMethod.Cash)
       stored.categoryId must be(Some(category.id))
     }
@@ -70,6 +73,69 @@ class UpdateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
 
       repositories.subscriptions.terms(subscriptionId = existing.id, userId = user.id).futureValue must be(
         List(existing.firstTerm)
+      )
+    }
+
+    "switch to an every-n-months cadence" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val existing = createSubscription(
+        user.id,
+        name = uniqueName("Phone"),
+        cadence = SubscriptionCadence.EveryNDays,
+        intervalDays = Some(45)
+      ).futureValue
+
+      newAction()
+        .apply(
+          subscriptionId = existing.id,
+          userId = user.id,
+          request(cadence = SubscriptionCadence.EveryNMonths, intervalDays = None, intervalMonths = Some(6))
+        )
+        .futureValue
+
+      val stored = repositories.subscriptions.find(id = existing.id, userId = user.id).futureValue.value
+      stored.cadence must be(SubscriptionCadence.EveryNMonths)
+      stored.intervalDays must be(None)
+      stored.intervalMonths must be(Some(6))
+    }
+
+    "clear the interval months when leaving an every-n-months cadence" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val existing = createSubscription(
+        user.id,
+        name = uniqueName("Phone"),
+        cadence = SubscriptionCadence.EveryNMonths,
+        intervalMonths = Some(3)
+      ).futureValue
+
+      newAction()
+        .apply(
+          subscriptionId = existing.id,
+          userId = user.id,
+          request(cadence = SubscriptionCadence.Monthly, intervalDays = None)
+        )
+        .futureValue
+
+      val stored = repositories.subscriptions.find(id = existing.id, userId = user.id).futureValue.value
+      stored.cadence must be(SubscriptionCadence.Monthly)
+      stored.intervalMonths must be(None)
+    }
+
+    "reject an every-n-months interval out of bounds" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val existing = createSubscription(user.id, name = uniqueName("Phone")).futureValue
+
+      val error = newAction()
+        .apply(
+          subscriptionId = existing.id,
+          userId = user.id,
+          request(cadence = SubscriptionCadence.EveryNMonths, intervalDays = None, intervalMonths = Some(25))
+        )
+        .failed
+        .futureValue
+      error.getMessage must be("Interval months must be between 1 and 24")
+      repositories.subscriptions.find(id = existing.id, userId = user.id).futureValue.value.cadence must be(
+        existing.cadence
       )
     }
 

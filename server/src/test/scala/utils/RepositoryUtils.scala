@@ -254,6 +254,7 @@ trait RepositoryUtils {
       name: String = "Test Subscription",
       cadence: SubscriptionCadence = SubscriptionCadence.Monthly,
       intervalDays: Option[Int] = None,
+      intervalMonths: Option[Int] = None,
       amountMin: Option[BigDecimal] = None,
       amountMax: Option[BigDecimal] = None,
       paymentMethod: SubscriptionPaymentMethod = SubscriptionPaymentMethod.DirectDebit,
@@ -269,6 +270,7 @@ trait RepositoryUtils {
       name = name,
       cadence = cadence,
       intervalDays = intervalDays,
+      intervalMonths = intervalMonths,
       paymentMethod = paymentMethod,
       categoryId = categoryId,
       firstTerm = SubscriptionTerm(
