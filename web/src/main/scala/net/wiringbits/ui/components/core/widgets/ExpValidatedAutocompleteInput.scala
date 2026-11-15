@@ -10,6 +10,7 @@ import net.wiringbits.webapp.utils.slinkyUtils.forms.FormField
 import slinky.core.FunctionalComponent
 import slinky.core.facade.ReactElement
 
+import scala.reflect.ClassTag
 import scala.scalajs.js
 
 /** The select/create analogue of [[ValidatedTextInput]].
@@ -19,18 +20,24 @@ import scala.scalajs.js
   * shape with the resolved `id`. Editing after a pick clears the `id`, so the name is always validated like any text
   * field and nothing is parsed at submit.
   *
-  * A concrete input provides the option's label and id, and how to narrow the raw value MUI hands back (a selected
-  * option, or a freeSolo typed `String`) to an option. All the `js.*` interop stays inside this component; its `Props`
-  * and those hooks are plain Scala.
+  * A concrete input only provides the option's label and id. Narrowing the raw value MUI hands back (a selected option,
+  * or a freeSolo typed `String`) is done here with the `Opt` `ClassTag`, since the erased type parameter cannot be
+  * matched directly. All the `js.*` interop stays inside this component; its `Props` are plain Scala.
   */
-abstract class ExpValidatedAutocompleteInput[Opt, T: TextValidator, Id] {
+abstract class ExpValidatedAutocompleteInput[Opt: ClassTag, T: TextValidator, Id] {
   private val validator = implicitly[TextValidator[T]]
+  private val optionTag = implicitly[ClassTag[Opt]]
 
   type Value = Option[ExistingOrNewValue[T, Id]]
 
-  protected def asOption(value: Any): Option[Opt]
   protected def optionLabel(option: Opt): String
   protected def optionId(option: Opt): Id
+
+  private def asOption(value: Any): Option[Opt] =
+    value match {
+      case optionTag(option) => Some(option)
+      case _ => None
+    }
 
   case class Props(
       field: FormField[Value],

@@ -21,22 +21,12 @@ object RuleDescriptionInput extends ValidatedTextInput[Option[ExpRuleDescription
 
 object MerchantAutocompleteInput
     extends ExpValidatedAutocompleteInput[GetMerchants.Response.Merchant, MerchantName, UUID] {
-  override protected def asOption(value: Any): Option[GetMerchants.Response.Merchant] =
-    value match {
-      case merchant: GetMerchants.Response.Merchant => Some(merchant)
-      case _ => None
-    }
   override protected def optionLabel(option: GetMerchants.Response.Merchant): String = option.name
   override protected def optionId(option: GetMerchants.Response.Merchant): UUID = option.id
 }
 
 object CategoryAutocompleteInput
     extends ExpValidatedAutocompleteInput[GetCategories.Response.Category, CategoryName, UUID] {
-  override protected def asOption(value: Any): Option[GetCategories.Response.Category] =
-    value match {
-      case category: GetCategories.Response.Category => Some(category)
-      case _ => None
-    }
   override protected def optionLabel(option: GetCategories.Response.Category): String = option.name
   override protected def optionId(option: GetCategories.Response.Category): UUID = option.id
 }
