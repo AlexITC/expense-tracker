@@ -1,5 +1,5 @@
 ---
-description: Scala coding patterns — Chimney for case-class and sum-type mapping, no dropped Futures, no silent defaults for missing data, avoid default parameter values, no read-compat shims for regenerable persisted data, enums over stringly-typed values
+description: Scala coding patterns — Chimney for case-class and sum-type mapping, no dropped Futures, no silent defaults for missing data, avoid default parameter values, no read-compat shims for regenerable persisted data, enums over stringly-typed values, validated primitives built with validate/parse not .trusted outside tests and DAO row parsing, primitive held in form state not constructed at submit
 ---
 
 Review the added/changed lines for the patterns below only. Report clear,
@@ -141,6 +141,33 @@ Those belong in the PR description, not the source. Not: a comment that document
 non-obvious *why*/intent a reader genuinely needs; a warning about a surprising
 coupling or edge case; a `TODO`/`FIXME`; a scaladoc describing the member it is
 attached to.
+
+## Build validated primitives with `validate`/`parse`, not `.trusted`
+A `WrappedString` primitive's `.trusted(s)` constructs the value **without
+running its `validate`** — it is an escape hatch for input already known to be
+valid: a repository/DAO reading a column the DB validated when it was written,
+and test fixtures. Flag `SomePrimitive.trusted(...)` on a value a user just
+entered or a parser derived — in a frontend form, a controller, or an action —
+because it silently bypasses the length/format checks the primitive exists to
+enforce and defers them to a later, blunter failure (a decode/transport error
+instead of the field's own message). Construct the value from its validator
+instead and surface the error: validate the field through the typed form stack
+(`FormField` / `ValidatedTextInput`), or when creating inline, `parse(raw)` and
+fail the effect with the `Left` message (`Future.failed`) rather than
+`.trusted`-ing a user value and relying on the server to reject it. Not:
+`.trusted` under `src/test`; `.trusted` in a repository/DAO that parses a stored
+row; a hardcoded literal constant the author controls (e.g. a seed value).
+
+Prefer holding the primitive in form state over constructing it at submit. The
+validated-form stack keeps the value in a `FormField[T]` (see `SignInFormData`:
+`FormField[Email]`) that validates on every change through
+`ValidatedTextInput[T]`, and `submitRequest` builds the request straight from
+`valueOpt` with no construction at send. Flag a raw-`String` state/field that is
+turned into the primitive only at submit via `parse(...)`/`Future.failed` when a
+`FormField[T]` + `ValidatedTextInput[T]` could hold and validate it live. The
+inline `parse` fallback is only for a value that genuinely cannot be a text form
+field — not a `WrappedString` (e.g. a numeric amount), or a flow with no form
+state to host the field.
 
 ## Log user-scoped operations with the user id
 Flag a `logger.*` statement describing an operation on a specific user's data
