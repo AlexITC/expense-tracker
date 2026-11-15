@@ -19,6 +19,65 @@ enum AmountMode {
   case Exact, Range
 }
 
+/** The amount inputs of a term, shared by every form that sets one. `fields` lists only the inputs the selected mode
+  * uses; blank means "unknown amount".
+  */
+case class SubscriptionAmountFields(
+    mode: AmountMode,
+    exact: FormField[Option[SubscriptionAmount]],
+    min: FormField[Option[SubscriptionAmount]],
+    max: FormField[Option[SubscriptionAmount]]
+) {
+
+  def fields: List[FormField[?]] =
+    mode match {
+      case AmountMode.Exact => List(exact)
+      case AmountMode.Range => List(min, max)
+    }
+
+  /** The (min, max) pair to send, once the inputs of the selected mode are valid; an exact amount sends min = max. */
+  def resolved: Option[(Option[BigDecimal], Option[BigDecimal])] =
+    mode match {
+      case AmountMode.Exact =>
+        exact.valueOpt.map { amount =>
+          val value = amount.map(_.value)
+          (value, value)
+        }
+      case AmountMode.Range =>
+        for {
+          minValue <- min.valueOpt
+          maxValue <- max.valueOpt
+        } yield (minValue.map(_.value), maxValue.map(_.value))
+    }
+
+  /** The shared cross-field amount rule, checked once the inputs it reads are valid. */
+  def rangeError: Option[String] =
+    for {
+      (minValue, maxValue) <- resolved
+      error <- SubscriptionValidator.validateAmountRange(amountMin = minValue, amountMax = maxValue).left.toOption
+    } yield error
+}
+
+object SubscriptionAmountFields {
+
+  private def field(name: String, label: String): FormField[Option[SubscriptionAmount]] =
+    new FormField(
+      label = label,
+      name = name,
+      required = false,
+      value = Some(SubscriptionAmount.optionalValidator(""))
+    )
+
+  /** Blank amounts in exact mode, so the fields start valid. */
+  def initial(prefix: String): SubscriptionAmountFields =
+    SubscriptionAmountFields(
+      mode = AmountMode.Exact,
+      exact = field(name = s"$prefix-exact-amount", label = "Amount (optional)"),
+      min = field(name = s"$prefix-min-amount", label = "Minimum amount"),
+      max = field(name = s"$prefix-max-amount", label = "Maximum amount")
+    )
+}
+
 /** The subscription's own inputs, shared by the create and edit forms; on its own it is the edit form, since amounts
   * and dates live in the subscription's terms. Every input is a validated field; `fields` lists only the inputs the
   * selected cadence uses, so a hidden input never blocks the form. The rules that span several fields come from the
@@ -74,31 +133,20 @@ case class SubscriptionFormData(
     }
 }
 
-/** The create form: the subscription's own inputs plus its first term (amount and start date). `fields` lists only the
-  * amount inputs the selected amount mode uses.
-  */
+/** The create form: the subscription's own inputs plus its first term (amount and start date). */
 case class CreateSubscriptionFormData(
     details: SubscriptionFormData,
-    amountMode: AmountMode,
-    exactAmount: FormField[Option[SubscriptionAmount]],
-    minAmount: FormField[Option[SubscriptionAmount]],
-    maxAmount: FormField[Option[SubscriptionAmount]],
+    amounts: SubscriptionAmountFields,
     startDate: FormField[ExpLocalDate]
 ) extends FormData[CreateSubscription.Request] {
 
-  override def fields: List[FormField[?]] = {
-    val amountFields = amountMode match {
-      case AmountMode.Exact => List(exactAmount)
-      case AmountMode.Range => List(minAmount, maxAmount)
-    }
-    details.fields ++ amountFields ++ List(startDate)
-  }
+  override def fields: List[FormField[?]] = details.fields ++ amounts.fields ++ List(startDate)
 
   override def formValidationErrors: List[String] = {
     // The cross-field rules only make sense once the inputs they check are valid.
     val validatorError = for {
       interval <- details.resolvedInterval
-      (min, max) <- resolvedAmounts
+      (min, max) <- amounts.resolved
       error <- SubscriptionValidator
         .validate(cadence = details.cadence, intervalDays = interval, amountMin = min, amountMax = max)
         .left
@@ -113,7 +161,7 @@ case class CreateSubscriptionFormData(
       for {
         validName <- details.name.valueOpt
         interval <- details.resolvedInterval
-        (min, max) <- resolvedAmounts
+        (min, max) <- amounts.resolved
         category <- details.categoryId.valueOpt
         start <- startDate.valueOpt
       } yield CreateSubscription.Request(
@@ -126,20 +174,6 @@ case class CreateSubscriptionFormData(
         categoryId = category,
         startDate = start.value
       )
-
-  private def resolvedAmounts: Option[(Option[BigDecimal], Option[BigDecimal])] =
-    amountMode match {
-      case AmountMode.Exact =>
-        exactAmount.valueOpt.map { amount =>
-          val value = amount.map(_.value)
-          (value, value)
-        }
-      case AmountMode.Range =>
-        for {
-          min <- minAmount.valueOpt
-          max <- maxAmount.valueOpt
-        } yield (min.map(_.value), max.map(_.value))
-    }
 }
 
 object SubscriptionFormData {
@@ -195,15 +229,6 @@ object CreateSubscriptionFormData {
 
   private val Prefix = "subscription-create"
 
-  // Blank means "unknown amount", so the field starts valid.
-  private def amountField(key: String, label: String): FormField[Option[SubscriptionAmount]] =
-    new FormField(
-      label = label,
-      name = s"$Prefix-$key",
-      required = false,
-      value = Some(SubscriptionAmount.optionalValidator(""))
-    )
-
   def initial(nameLabel: String): CreateSubscriptionFormData =
     CreateSubscriptionFormData(
       details = SubscriptionFormData.build(
@@ -215,10 +240,7 @@ object CreateSubscriptionFormData {
         paymentMethod = SubscriptionPaymentMethod.DirectDebit,
         categoryId = ""
       ),
-      amountMode = AmountMode.Exact,
-      exactAmount = amountField(key = "exact-amount", label = "Amount (optional)"),
-      minAmount = amountField(key = "min-amount", label = "Minimum amount"),
-      maxAmount = amountField(key = "max-amount", label = "Maximum amount"),
+      amounts = SubscriptionAmountFields.initial(Prefix),
       startDate = new FormField(
         label = "Start date (YYYY-MM-DD)",
         name = s"$Prefix-start-date",

@@ -10,7 +10,15 @@ import net.wiringbits.api.models.subscriptions.{
   SubscriptionTerm
 }
 import net.wiringbits.components.widgets.Loader
-import net.wiringbits.forms.{AmountMode, CreateSubscriptionFormData, SubscriptionFormData}
+import net.wiringbits.forms.{
+  AmountMode,
+  CreateSubscriptionFormData,
+  SubscriptionAmountFields,
+  SubscriptionCancelFormData,
+  SubscriptionFormData,
+  SubscriptionPriceChangeFormData,
+  SubscriptionResumeFormData
+}
 import net.wiringbits.models.User
 import net.wiringbits.ui.components.inputs.{
   DateInput,
@@ -20,6 +28,7 @@ import net.wiringbits.ui.components.inputs.{
   SubscriptionNameInput
 }
 import net.wiringbits.ui.forms.{ExpLocalDate, SubmitHooks, SubscriptionAmount, SubscriptionIntervalDays}
+import net.wiringbits.webapp.utils.slinkyUtils.forms.FormData
 import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.forms.FormField
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -33,7 +42,7 @@ import slinky.web.html.{form, onSubmit}
 
 import java.time.LocalDate
 import java.util.UUID
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
 
 object SubscriptionsPage {
@@ -61,6 +70,15 @@ object SubscriptionsPage {
       )
     )
   }
+}
+
+/** The inline editor open on the page; only one can be open at a time. */
+private enum SubscriptionEditor {
+  case Closed
+  case Edit(subscriptionId: UUID)
+  case PriceChange(subscriptionId: UUID)
+  case Cancel(subscriptionId: UUID)
+  case Resume(subscriptionId: UUID)
 }
 
 object SubscriptionList {
@@ -97,6 +115,7 @@ object SubscriptionList {
       case SubscriptionStatus.Upcoming => ("var(--lc-tint)", "var(--lc-brand-dark)")
       case SubscriptionStatus.Due => ("var(--lc-warm-bg)", "var(--lc-warning-text)")
       case SubscriptionStatus.Overdue => ("var(--lc-badge-error-bg)", "var(--lc-error)")
+      case SubscriptionStatus.Cancelled => ("var(--lc-border)", "var(--lc-text-2)")
     }
     mui.Chip
       .label(status.label)
@@ -112,9 +131,14 @@ object SubscriptionList {
     val (createFormData, setCreateFormData) = Hooks.useState(StatefulFormData(emptyForm))
     // Validation errors stay hidden until the user edits the create form, so a fresh form isn't shown as invalid
     val (createTouched, setCreateTouched) = Hooks.useState(false)
-    val (editingId, setEditingId) = Hooks.useState[Option[UUID]](None)
+    val (editor, setEditor) = Hooks.useState[SubscriptionEditor](SubscriptionEditor.Closed)
     val (editFormData, setEditFormData) = Hooks.useState(StatefulFormData(emptyForm.details))
+    val (priceChangeFormData, setPriceChangeFormData) =
+      Hooks.useState(StatefulFormData(SubscriptionPriceChangeFormData.initial))
+    val (cancelFormData, setCancelFormData) = Hooks.useState(StatefulFormData(SubscriptionCancelFormData.initial))
+    val (resumeFormData, setResumeFormData) = Hooks.useState(StatefulFormData(SubscriptionResumeFormData.initial))
     val createControl = SubmitHooks.useSubmit()
+    // One control serves every inline editor, since only one is open at a time.
     val editControl = SubmitHooks.useSubmit()
     val deleteControl = SubmitHooks.useSubmit()
 
@@ -128,10 +152,17 @@ object SubscriptionList {
       setCreateFormData(cur => cur.filling.copy(data = f(cur.data)))
     }
 
-    def onEditDataChanged(f: SubscriptionFormData => SubscriptionFormData): Unit = {
+    def editorUpdater[T <: FormData[?]](
+        setFormData: (StatefulFormData[T] => StatefulFormData[T]) => Unit
+    ): (T => T) => Unit = f => {
       editControl.clearError()
-      setEditFormData(cur => cur.filling.copy(data = f(cur.data)))
+      setFormData(cur => cur.filling.copy(data = f(cur.data)))
     }
+
+    val onEditDataChanged = editorUpdater(setEditFormData)
+    val onPriceChangeDataChanged = editorUpdater(setPriceChangeFormData)
+    val onCancelDataChanged = editorUpdater(setCancelFormData)
+    val onResumeDataChanged = editorUpdater(setResumeFormData)
 
     def handleCreate(e: SyntheticEvent[?, dom.Event]): Unit = {
       e.preventDefault()
@@ -150,19 +181,20 @@ object SubscriptionList {
       }
     }
 
-    def handleUpdate(subscriptionId: UUID)(e: SyntheticEvent[?, dom.Event]): Unit = {
+    // Submits an inline editor's request, closing the editor and refreshing the list on success.
+    def submitEditor[R](request: Option[R], send: R => Future[?])(
+        e: SyntheticEvent[?, dom.Event]
+    ): Unit = {
       e.preventDefault()
-      editFormData.data.submitRequest.foreach { request =>
+      request.foreach { r =>
         editControl.begin()
-        props.ctx.api.client
-          .updateSubscription(subscriptionId, request)
-          .onComplete {
-            case Success(_) =>
-              editControl.succeed()
-              setEditingId(None)
-              props.onRefresh()
-            case Failure(ex) => editControl.fail(ex.getMessage)
-          }
+        send(r).onComplete {
+          case Success(_) =>
+            editControl.succeed()
+            setEditor(_ => SubscriptionEditor.Closed)
+            props.onRefresh()
+          case Failure(ex) => editControl.fail(ex.getMessage)
+        }
       }
     }
 
@@ -185,7 +217,25 @@ object SubscriptionList {
           SubscriptionFormData.fromSubscription(nameLabel = NameLabel, subscription = s)
         )
       )
-      setEditingId(Some(s.id))
+      setEditor(_ => SubscriptionEditor.Edit(s.id))
+    }
+
+    def startPriceChange(subscriptionId: UUID): Unit = {
+      editControl.reset()
+      setPriceChangeFormData(_ => StatefulFormData(SubscriptionPriceChangeFormData.initial))
+      setEditor(_ => SubscriptionEditor.PriceChange(subscriptionId))
+    }
+
+    def startCancel(subscriptionId: UUID): Unit = {
+      editControl.reset()
+      setCancelFormData(_ => StatefulFormData(SubscriptionCancelFormData.initial))
+      setEditor(_ => SubscriptionEditor.Cancel(subscriptionId))
+    }
+
+    def startResume(subscriptionId: UUID): Unit = {
+      editControl.reset()
+      setResumeFormData(_ => StatefulFormData(SubscriptionResumeFormData.initial))
+      setEditor(_ => SubscriptionEditor.Resume(subscriptionId))
     }
 
     def selectField(
@@ -292,35 +342,34 @@ object SubscriptionList {
       )
     }
 
-    // The amount and start date set the first term, so only the create form has them.
-    def firstTermFields(
-        data: CreateSubscriptionFormData,
+    def amountFields(
+        data: SubscriptionAmountFields,
         disabled: Boolean,
-        update: (CreateSubscriptionFormData => CreateSubscriptionFormData) => Unit
+        update: (SubscriptionAmountFields => SubscriptionAmountFields) => Unit
     ): Seq[ReactElement] = {
-      val amountFields: Seq[ReactElement] = data.amountMode match {
+      val inputs: Seq[ReactElement] = data.mode match {
         case AmountMode.Exact =>
           Seq[ReactElement](
             amountInput(
               key = "exact-amount",
-              field = data.exactAmount,
+              field = data.exact,
               disabled = disabled,
-              onChange = value => update(x => x.copy(exactAmount = x.exactAmount.updated(value)))
+              onChange = value => update(x => x.copy(exact = x.exact.updated(value)))
             )
           )
         case AmountMode.Range =>
           Seq[ReactElement](
             amountInput(
               key = "min-amount",
-              field = data.minAmount,
+              field = data.min,
               disabled = disabled,
-              onChange = value => update(x => x.copy(minAmount = x.minAmount.updated(value)))
+              onChange = value => update(x => x.copy(min = x.min.updated(value)))
             ),
             amountInput(
               key = "max-amount",
-              field = data.maxAmount,
+              field = data.max,
               disabled = disabled,
-              onChange = value => update(x => x.copy(maxAmount = x.maxAmount.updated(value)))
+              onChange = value => update(x => x.copy(max = x.max.updated(value)))
             )
           )
       }
@@ -329,24 +378,37 @@ object SubscriptionList {
         selectField(
           key = "amount-mode",
           label = "Amount",
-          value = data.amountMode.toString,
+          value = data.mode.toString,
           disabled = disabled,
           options = AmountMode.values.toSeq.map(m => m.toString -> m.toString),
-          onChange = v => update(_.copy(amountMode = AmountMode.valueOf(v)))
+          onChange = v => update(_.copy(mode = AmountMode.valueOf(v)))
         )
-      ) ++ amountFields ++ Seq[ReactElement](
-        fieldBox(key = "start-date", boxMinWidth = "200px")(
-          DateInput.component(
-            DateInput.Props(
-              field = data.startDate,
-              disabled = disabled,
-              onChange =
-                (value: ValidationResult[ExpLocalDate]) => update(x => x.copy(startDate = x.startDate.updated(value)))
-            )
-          )
-        )
-      )
+      ) ++ inputs
     }
+
+    def dateField(
+        key: String,
+        field: FormField[ExpLocalDate],
+        disabled: Boolean,
+        onChange: ValidationResult[ExpLocalDate] => Unit
+    ): ReactElement =
+      fieldBox(key = key, boxMinWidth = "200px")(
+        DateInput.component(DateInput.Props(field = field, disabled = disabled, onChange = onChange))
+      )
+
+    // The amount and start date set the first term, so only the create form has them.
+    def firstTermFields(
+        data: CreateSubscriptionFormData,
+        disabled: Boolean,
+        update: (CreateSubscriptionFormData => CreateSubscriptionFormData) => Unit
+    ): Seq[ReactElement] =
+      amountFields(data.amounts, disabled, f => update(x => x.copy(amounts = f(x.amounts)))) :+
+        dateField(
+          key = "start-date",
+          field = data.startDate,
+          disabled = disabled,
+          onChange = value => update(x => x.copy(startDate = x.startDate.updated(value)))
+        )
 
     def errorText(key: String, text: Option[String]): ReactElement =
       text match {
@@ -391,8 +453,14 @@ object SubscriptionList {
         )
       )
 
-    def editForm(subscriptionId: UUID): ReactElement =
-      form(onSubmit := (handleUpdate(subscriptionId)(_)))(
+    def inlineEditor(
+        inputs: Seq[ReactElement],
+        validationError: Option[String],
+        submitLabel: String,
+        canSubmit: Boolean,
+        onFormSubmit: SyntheticEvent[?, dom.Event] => Unit
+    ): ReactElement =
+      form(onSubmit := onFormSubmit)(
         mui.Box.sx(new CSSPropertiesUtils {
           display = "flex"
           flexWrap = "wrap"
@@ -400,22 +468,90 @@ object SubscriptionList {
           gap = "12px"
           padding = "4px 0"
         })(
-          Fragment(formFields(editFormData.data, editControl.inputDisabled, onEditDataChanged)*),
-          errorText("error", editFormData.firstValidationError.orElse(editControl.error)),
+          Fragment(inputs*),
+          errorText("error", validationError.orElse(editControl.error)),
           mui.Button
-            .normal()("Save")
+            .normal()(submitLabel)
             .size("small")
             .variant("contained")
             .`type`("submit")
-            .disabled(editControl.buttonDisabled(editFormData.data.isValid))
+            .disabled(editControl.buttonDisabled(canSubmit))
             .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
           mui.Button
-            .normal()("Cancel")
+            .normal()("Close")
             .size("small")
             .disabled(editControl.inputDisabled)
-            .onClick(_ => setEditingId(None))
+            .onClick(_ => setEditor(_ => SubscriptionEditor.Closed))
         )
       )
+
+    def editForm(subscriptionId: UUID): ReactElement =
+      inlineEditor(
+        inputs = formFields(editFormData.data, editControl.inputDisabled, onEditDataChanged),
+        validationError = editFormData.firstValidationError,
+        submitLabel = "Save",
+        canSubmit = editFormData.data.isValid,
+        onFormSubmit = submitEditor(
+          editFormData.data.submitRequest,
+          props.ctx.api.client.updateSubscription(subscriptionId, _)
+        )
+      )
+
+    def priceChangeForm(subscriptionId: UUID): ReactElement = {
+      val data = priceChangeFormData.data
+      val disabled = editControl.inputDisabled
+      inlineEditor(
+        inputs = dateField(
+          key = "effective-from",
+          field = data.effectiveFrom,
+          disabled = disabled,
+          onChange = value => onPriceChangeDataChanged(x => x.copy(effectiveFrom = x.effectiveFrom.updated(value)))
+        ) +: amountFields(
+          data.amounts,
+          disabled,
+          f => onPriceChangeDataChanged(x => x.copy(amounts = f(x.amounts)))
+        ),
+        validationError = priceChangeFormData.firstValidationError,
+        submitLabel = "Change price",
+        canSubmit = data.isValid,
+        onFormSubmit = submitEditor(data.submitRequest, props.ctx.api.client.changeSubscriptionPrice(subscriptionId, _))
+      )
+    }
+
+    def cancelForm(subscriptionId: UUID): ReactElement = {
+      val data = cancelFormData.data
+      inlineEditor(
+        inputs = Seq(
+          dateField(
+            key = "effective-to",
+            field = data.effectiveTo,
+            disabled = editControl.inputDisabled,
+            onChange = value => onCancelDataChanged(x => x.copy(effectiveTo = x.effectiveTo.updated(value)))
+          )
+        ),
+        validationError = cancelFormData.firstValidationError,
+        submitLabel = "Cancel subscription",
+        canSubmit = data.isValid,
+        onFormSubmit = submitEditor(data.submitRequest, props.ctx.api.client.cancelSubscription(subscriptionId, _))
+      )
+    }
+
+    def resumeForm(subscriptionId: UUID): ReactElement = {
+      val data = resumeFormData.data
+      val disabled = editControl.inputDisabled
+      inlineEditor(
+        inputs = dateField(
+          key = "effective-from",
+          field = data.effectiveFrom,
+          disabled = disabled,
+          onChange = value => onResumeDataChanged(x => x.copy(effectiveFrom = x.effectiveFrom.updated(value)))
+        ) +: amountFields(data.amounts, disabled, f => onResumeDataChanged(x => x.copy(amounts = f(x.amounts)))),
+        validationError = resumeFormData.firstValidationError,
+        submitLabel = "Resume",
+        canSubmit = data.isValid,
+        onFormSubmit = submitEditor(data.submitRequest, props.ctx.api.client.resumeSubscription(subscriptionId, _))
+      )
+    }
 
     def details(s: GetSubscriptions.Response.Subscription, term: Option[SubscriptionTerm]): String =
       List(
@@ -424,12 +560,47 @@ object SubscriptionList {
           .map(t => SubscriptionStatusLogic.amountLabel(amountMin = t.amountMin, amountMax = t.amountMax))
           .filter(_.nonEmpty),
         Some(SubscriptionStatusLogic.paymentMethodLabel(s.paymentMethod)),
-        s.categoryId.flatMap(categoryNames.get),
-        term.map(t => s"Since ${t.effectiveFrom}")
+        s.categoryId.flatMap(categoryNames.get)
       ).flatten.mkString(" · ")
 
+    // Terms are half-open, so a closed term's end is the first date it no longer applies.
+    def termHistory(s: GetSubscriptions.Response.Subscription): ReactElement = {
+      val current = SubscriptionStatusLogic.coveringTerm(s.terms, today)
+      val lines: List[ReactElement] = s.terms.sortBy(_.effectiveFrom.toEpochDay).map { t =>
+        val range = t.effectiveTo match {
+          case Some(to) => s"${t.effectiveFrom} until $to"
+          case None => s"${t.effectiveFrom} onwards"
+        }
+        val amount = SubscriptionStatusLogic.amountLabel(amountMin = t.amountMin, amountMax = t.amountMax) match {
+          case "" => "Unknown amount"
+          case label => label
+        }
+        val marker = if (current.contains(t)) " (current)" else ""
+        mui
+          .Typography(s"$range · $amount$marker")
+          .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" })
+          .withKey(t.id.toString)
+      }
+      mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; marginTop = "4px" })(lines*)
+    }
+
+    def actionButton(key: String, label: String, onClick: () => Unit): ReactElement =
+      mui.Button
+        .normal()(label)
+        .size("small")
+        .sx(new CSSPropertiesUtils { color = "var(--lc-text-2)" })
+        .onClick(_ => onClick())
+        .withKey(key)
+
     def summary(s: GetSubscriptions.Response.Subscription): ReactElement = {
-      val term = SubscriptionStatusLogic.currentTerm(s.terms, today)
+      val term = SubscriptionStatusLogic.expectedTerm(s.terms, today)
+      val termActions: Seq[ReactElement] =
+        if (s.terms.exists(_.effectiveTo.isEmpty))
+          Seq(
+            actionButton(key = "change-price", label = "Change price", onClick = () => startPriceChange(s.id)),
+            actionButton(key = "cancel", label = "Cancel", onClick = () => startCancel(s.id))
+          )
+        else Seq(actionButton(key = "resume", label = "Resume", onClick = () => startResume(s.id)))
       mui.Box.sx(new CSSPropertiesUtils {
         display = "flex"
         alignItems = "center"
@@ -441,29 +612,19 @@ object SubscriptionList {
             mui
               .Typography(s.name)
               .sx(new CSSPropertiesUtils { fontSize = "14px"; fontWeight = "600"; color = "var(--lc-text)" }),
-            term
-              .flatMap(t =>
-                SubscriptionStatusLogic
-                  .status(
-                    startDate = t.effectiveFrom,
-                    cadence = s.cadence,
-                    intervalDays = s.intervalDays,
-                    today = today
-                  )
-                  .toOption
-              )
+            SubscriptionStatusLogic
+              .status(terms = s.terms, cadence = s.cadence, intervalDays = s.intervalDays, today = today)
+              .toOption
               .fold[ReactElement](Fragment())(statusChip)
           ),
           mui
             .Typography(details(s, term))
-            .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" })
+            .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" }),
+          termHistory(s)
         ),
-        mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px" })(
-          mui.Button
-            .normal()("Edit")
-            .size("small")
-            .sx(new CSSPropertiesUtils { color = "var(--lc-text-2)" })
-            .onClick(_ => startEditing(s)),
+        mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px"; alignSelf = "flex-start" })(
+          actionButton(key = "edit", label = "Edit", onClick = () => startEditing(s)),
+          Fragment(termActions*),
           mui.Button
             .normal()("Delete")
             .size("small")
@@ -475,7 +636,15 @@ object SubscriptionList {
     }
 
     val items: Seq[ReactElement] = props.subscriptions.data.map { s =>
-      val content = if (editingId.contains(s.id)) editForm(s.id) else summary(s)
+      def withEditorFor(id: UUID)(editorForm: => ReactElement): ReactElement =
+        if (id == s.id) Fragment(summary(s), editorForm) else summary(s)
+      val content: ReactElement = editor match {
+        case SubscriptionEditor.Closed => summary(s)
+        case SubscriptionEditor.Edit(id) => if (id == s.id) editForm(s.id) else summary(s)
+        case SubscriptionEditor.PriceChange(id) => withEditorFor(id)(priceChangeForm(s.id))
+        case SubscriptionEditor.Cancel(id) => withEditorFor(id)(cancelForm(s.id))
+        case SubscriptionEditor.Resume(id) => withEditorFor(id)(resumeForm(s.id))
+      }
       mui.Box.sx(cardStyle)(content).withKey(s.id.toString)
     }
 

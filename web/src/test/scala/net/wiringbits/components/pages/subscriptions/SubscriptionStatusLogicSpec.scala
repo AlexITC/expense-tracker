@@ -11,16 +11,25 @@ class SubscriptionStatusLogicSpec extends AnyWordSpec {
 
   private def date(s: String): LocalDate = LocalDate.parse(s)
 
+  private def term(from: String, to: Option[String], amount: Option[String] = None): SubscriptionTerm =
+    SubscriptionTerm(
+      id = UUID.randomUUID(),
+      effectiveFrom = date(from),
+      effectiveTo = to.map(date),
+      amountMin = amount.map(BigDecimal(_)),
+      amountMax = amount.map(BigDecimal(_))
+    )
+
   private def monthly(start: String, today: String): Either[SubscriptionStatusError, LocalDate] =
-    SubscriptionStatusLogic.expectedDate(
-      startDate = date(start),
+    SubscriptionStatusLogic.latestOccurrence(
+      anchor = date(start),
       cadence = SubscriptionCadence.Monthly,
       intervalDays = None,
       today = date(today)
     )
 
-  "expectedDate" should {
-    "return the start date when it is in the future" in {
+  "latestOccurrence" should {
+    "return the anchor when it is in the future" in {
       monthly(start = "2026-03-10", today = "2026-03-01") must be(Right(date("2026-03-10")))
     }
 
@@ -37,8 +46,8 @@ class SubscriptionStatusLogicSpec extends AnyWordSpec {
     }
 
     "clamp a leap-day yearly start to 28 February and return to 29 February in the next leap year" in {
-      def yearly(today: String) = SubscriptionStatusLogic.expectedDate(
-        startDate = date("2024-02-29"),
+      def yearly(today: String) = SubscriptionStatusLogic.latestOccurrence(
+        anchor = date("2024-02-29"),
         cadence = SubscriptionCadence.Yearly,
         intervalDays = None,
         today = date(today)
@@ -49,8 +58,8 @@ class SubscriptionStatusLogicSpec extends AnyWordSpec {
     }
 
     "step every-N-days occurrences by the interval" in {
-      def everyTwoWeeks(today: String) = SubscriptionStatusLogic.expectedDate(
-        startDate = date("2026-01-01"),
+      def everyTwoWeeks(today: String) = SubscriptionStatusLogic.latestOccurrence(
+        anchor = date("2026-01-01"),
         cadence = SubscriptionCadence.EveryNDays,
         intervalDays = Some(14),
         today = date(today)
@@ -62,8 +71,8 @@ class SubscriptionStatusLogicSpec extends AnyWordSpec {
 
     "fail when an every-N-days cadence has no interval" in {
       SubscriptionStatusLogic
-        .expectedDate(
-          startDate = date("2026-01-01"),
+        .latestOccurrence(
+          anchor = date("2026-01-01"),
           cadence = SubscriptionCadence.EveryNDays,
           intervalDays = None,
           today = date("2026-02-01")
@@ -72,8 +81,8 @@ class SubscriptionStatusLogicSpec extends AnyWordSpec {
 
     "fail when an every-N-days cadence has a non-positive interval" in {
       SubscriptionStatusLogic
-        .expectedDate(
-          startDate = date("2026-01-01"),
+        .latestOccurrence(
+          anchor = date("2026-01-01"),
           cadence = SubscriptionCadence.EveryNDays,
           intervalDays = Some(0),
           today = date("2026-02-01")
@@ -81,30 +90,96 @@ class SubscriptionStatusLogicSpec extends AnyWordSpec {
     }
   }
 
-  "status" should {
-    def monthlyStatus(start: String, today: String) = SubscriptionStatusLogic.status(
-      startDate = date(start),
+  "expectedDate" should {
+    def monthlyExpected(terms: List[SubscriptionTerm], today: String) = SubscriptionStatusLogic.expectedDate(
+      terms = terms,
       cadence = SubscriptionCadence.Monthly,
       intervalDays = None,
       today = date(today)
     )
 
-    "be upcoming when the start date is in the future" in {
-      monthlyStatus(start = "2026-05-01", today = "2026-04-20") must be(Right(SubscriptionStatus.Upcoming))
+    "keep the billing day across a mid-cycle price change" in {
+      val terms = List(term("2026-01-10", Some("2026-03-20")), term("2026-03-20", None))
+      monthlyExpected(terms, today = "2026-03-15") must be(Right(Some(date("2026-03-10"))))
+      monthlyExpected(terms, today = "2026-03-25") must be(Right(Some(date("2026-03-10"))))
+      monthlyExpected(terms, today = "2026-04-25") must be(Right(Some(date("2026-04-10"))))
+    }
+
+    "keep the billing day across several adjacent terms" in {
+      val terms = List(
+        term("2026-01-10", Some("2026-02-15")),
+        term("2026-02-15", Some("2026-03-20")),
+        term("2026-03-20", None)
+      )
+      monthlyExpected(terms, today = "2026-05-12") must be(Right(Some(date("2026-05-10"))))
+    }
+
+    "keep the every-N-days phase across a price change" in {
+      val terms = List(term("2026-01-01", Some("2026-01-20")), term("2026-01-20", None))
+      SubscriptionStatusLogic.expectedDate(
+        terms = terms,
+        cadence = SubscriptionCadence.EveryNDays,
+        intervalDays = Some(14),
+        today = date("2026-02-01")
+      ) must be(Right(Some(date("2026-01-29"))))
+    }
+
+    "re-anchor on the resume date after a gap" in {
+      val terms = List(term("2026-01-10", Some("2026-03-01")), term("2026-05-20", None))
+      monthlyExpected(terms, today = "2026-06-25") must be(Right(Some(date("2026-06-20"))))
+    }
+
+    "return the next term's start when today falls in a gap" in {
+      val terms = List(term("2026-01-10", Some("2026-03-01")), term("2026-05-01", None))
+      monthlyExpected(terms, today = "2026-04-15") must be(Right(Some(date("2026-05-01"))))
+    }
+
+    "return None when every term has ended" in {
+      monthlyExpected(List(term("2026-01-10", Some("2026-03-01"))), today = "2026-04-15") must be(Right(None))
+    }
+  }
+
+  "status" should {
+    def monthlyStatus(terms: List[SubscriptionTerm], today: String) = SubscriptionStatusLogic.status(
+      terms = terms,
+      cadence = SubscriptionCadence.Monthly,
+      intervalDays = None,
+      today = date(today)
+    )
+
+    "be upcoming when the only term starts in the future" in {
+      monthlyStatus(List(term("2026-05-01", None)), today = "2026-04-20") must be(Right(SubscriptionStatus.Upcoming))
     }
 
     "be due when the expected date is today" in {
-      monthlyStatus(start = "2026-01-20", today = "2026-04-20") must be(Right(SubscriptionStatus.Due))
+      monthlyStatus(List(term("2026-01-20", None)), today = "2026-04-20") must be(Right(SubscriptionStatus.Due))
     }
 
     "be overdue when the expected date is in the past" in {
-      monthlyStatus(start = "2026-01-10", today = "2026-04-20") must be(Right(SubscriptionStatus.Overdue))
+      monthlyStatus(List(term("2026-01-10", None)), today = "2026-04-20") must be(Right(SubscriptionStatus.Overdue))
+    }
+
+    "be upcoming during a gap before a resumed term" in {
+      val terms = List(term("2026-01-10", Some("2026-03-01")), term("2026-05-01", None))
+      monthlyStatus(terms, today = "2026-04-20") must be(Right(SubscriptionStatus.Upcoming))
+    }
+
+    "be cancelled, never overdue, once every term has ended" in {
+      val terms = List(term("2026-01-10", Some("2026-03-01")))
+      monthlyStatus(terms, today = "2026-03-01") must be(Right(SubscriptionStatus.Cancelled))
+      monthlyStatus(terms, today = "2026-08-25") must be(Right(SubscriptionStatus.Cancelled))
+    }
+
+    "not become due on a price change date that is not a billing day" in {
+      val terms = List(term("2026-01-10", Some("2026-04-20")), term("2026-04-20", None))
+      monthlyStatus(terms, today = "2026-04-20") must not be Right(SubscriptionStatus.Due)
+      monthlyStatus(terms, today = "2026-05-10") must be(Right(SubscriptionStatus.Due))
     }
 
     "propagate a missing interval as an error" in {
       SubscriptionStatusLogic
         .status(
-          startDate = date("2026-01-01"),
+          terms = List(term("2026-01-01", None)),
           cadence = SubscriptionCadence.EveryNDays,
           intervalDays = None,
           today = date("2026-02-01")
@@ -152,33 +227,52 @@ class SubscriptionStatusLogicSpec extends AnyWordSpec {
     }
   }
 
-  "currentTerm" should {
-    def term(from: String, to: Option[String]) =
-      SubscriptionTerm(
-        id = UUID.randomUUID(),
-        effectiveFrom = date(from),
-        effectiveTo = to.map(date),
-        amountMin = None,
-        amountMax = None
-      )
-
+  "coveringTerm" should {
     val closed = term("2026-01-01", Some("2026-03-01"))
     val open = term("2026-03-01", None)
 
-    "pick the term whose range covers today" in {
-      SubscriptionStatusLogic.currentTerm(List(closed, open), date("2026-02-15")) must be(Some(closed))
+    "pick the term whose range covers the date" in {
+      SubscriptionStatusLogic.coveringTerm(List(closed, open), date("2026-02-15")) must be(Some(closed))
     }
 
     "treat the end date as exclusive" in {
-      SubscriptionStatusLogic.currentTerm(List(closed, open), date("2026-03-01")) must be(Some(open))
+      SubscriptionStatusLogic.coveringTerm(List(closed, open), date("2026-03-01")) must be(Some(open))
     }
 
-    "fall back to the open term when it starts in the future" in {
-      SubscriptionStatusLogic.currentTerm(List(open), date("2026-02-01")) must be(Some(open))
+    "return None before the first term starts" in {
+      SubscriptionStatusLogic.coveringTerm(List(open), date("2026-02-01")) must be(None)
     }
 
     "return None when every term has ended" in {
-      SubscriptionStatusLogic.currentTerm(List(closed), date("2026-04-01")) must be(None)
+      SubscriptionStatusLogic.coveringTerm(List(closed), date("2026-04-01")) must be(None)
+    }
+  }
+
+  "expectedTerm" should {
+    "switch the amount to the new price on its effective date" in {
+      val old = term("2026-01-01", Some("2026-03-01"), Some("10.00"))
+      val raised = term("2026-03-01", None, Some("12.00"))
+      SubscriptionStatusLogic.expectedTerm(List(old, raised), date("2026-02-28")).flatMap(_.amountMin) must be(
+        Some(BigDecimal("10.00"))
+      )
+      SubscriptionStatusLogic.expectedTerm(List(old, raised), date("2026-03-01")).flatMap(_.amountMin) must be(
+        Some(BigDecimal("12.00"))
+      )
+    }
+
+    "fall back to the next term when none covers the date" in {
+      val future = term("2026-05-01", None, Some("9.99"))
+      SubscriptionStatusLogic.expectedTerm(
+        List(term("2026-01-01", Some("2026-02-01")), future),
+        date("2026-03-01")
+      ) must
+        be(Some(future))
+    }
+
+    "return None for a cancelled subscription" in {
+      SubscriptionStatusLogic.expectedTerm(List(term("2026-01-01", Some("2026-02-01"))), date("2026-03-01")) must be(
+        None
+      )
     }
   }
 }

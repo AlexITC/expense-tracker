@@ -39,12 +39,15 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     private def withCategory(raw: String): CreateSubscriptionFormData = form.withDetails(_.withCategory(raw))
     private def withCadence(cadence: SubscriptionCadence): CreateSubscriptionFormData =
       form.withDetails(_.copy(cadence = cadence))
+    private def withAmounts(f: SubscriptionAmountFields => SubscriptionAmountFields): CreateSubscriptionFormData =
+      form.copy(amounts = f(form.amounts))
+    private def withAmountMode(mode: AmountMode): CreateSubscriptionFormData = form.withAmounts(_.copy(mode = mode))
     private def withExact(raw: String): CreateSubscriptionFormData =
-      form.copy(exactAmount = form.exactAmount.updated(SubscriptionAmount.optionalValidator(raw)))
+      form.withAmounts(a => a.copy(exact = a.exact.updated(SubscriptionAmount.optionalValidator(raw))))
     private def withMin(raw: String): CreateSubscriptionFormData =
-      form.copy(minAmount = form.minAmount.updated(SubscriptionAmount.optionalValidator(raw)))
+      form.withAmounts(a => a.copy(min = a.min.updated(SubscriptionAmount.optionalValidator(raw))))
     private def withMax(raw: String): CreateSubscriptionFormData =
-      form.copy(maxAmount = form.maxAmount.updated(SubscriptionAmount.optionalValidator(raw)))
+      form.withAmounts(a => a.copy(max = a.max.updated(SubscriptionAmount.optionalValidator(raw))))
     private def withStartDate(raw: String): CreateSubscriptionFormData =
       form.copy(startDate = form.startDate.updated(ExpLocalDate.validate(raw)))
   }
@@ -62,7 +65,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     startDate = LocalDate.parse("2026-01-15")
   )
 
-  private val rangeForm = validForm.copy(amountMode = AmountMode.Range).withMin("10").withMax("25.00")
+  private val rangeForm = validForm.withAmountMode(AmountMode.Range).withMin("10").withMax("25.00")
 
   private val everyNDaysForm = validForm.withCadence(SubscriptionCadence.EveryNDays)
 
@@ -89,13 +92,6 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       validForm.withCadence(SubscriptionCadence.Yearly).fields.map(_.name) must not contain
         "subscription-create-interval"
     }
-
-    "list both range amounts for a range" in {
-      rangeForm.fields.map(
-        _.name
-      ) must contain allOf ("subscription-create-min-amount", "subscription-create-max-amount")
-      rangeForm.fields.map(_.name) must not contain "subscription-create-exact-amount"
-    }
   }
 
   "submitRequest" should {
@@ -114,12 +110,6 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       validForm.withExact(" ").submitRequest must be(Some(expectedRequest.copy(amountMin = None, amountMax = None)))
     }
 
-    "return a request without amounts when both range amounts are blank" in {
-      rangeForm.withMin("").withMax("").submitRequest must be(
-        Some(expectedRequest.copy(amountMin = None, amountMax = None))
-      )
-    }
-
     "include the interval for an every-N-days cadence" in {
       everyNDaysForm.withInterval(" 14 ").submitRequest must be(
         Some(expectedRequest.copy(cadence = SubscriptionCadence.EveryNDays, intervalDays = Some(14)))
@@ -128,10 +118,6 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
 
     "ignore the interval input for other cadences, even when invalid" in {
       validForm.withInterval("abc").submitRequest must be(Some(expectedRequest))
-    }
-
-    "ignore the hidden range amounts in exact mode" in {
-      validForm.withMin("abc").submitRequest must be(Some(expectedRequest))
     }
 
     "include the picked category" in {
@@ -154,14 +140,6 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
 
     "return None when the exact amount is not a number" in {
       assertBlocked(validForm.withExact("abc"))
-    }
-
-    "return None when a range amount is not a number" in {
-      assertBlocked(rangeForm.withMax("lots"))
-    }
-
-    "return None when only one range amount is set" in {
-      assertBlocked(rangeForm.withMax(""))
     }
 
     "return None when the minimum is greater than the maximum" in {

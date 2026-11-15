@@ -10,6 +10,7 @@ enum SubscriptionStatus(val label: String) {
   case Upcoming extends SubscriptionStatus("Upcoming")
   case Due extends SubscriptionStatus("Due")
   case Overdue extends SubscriptionStatus("Overdue")
+  case Cancelled extends SubscriptionStatus("Cancelled")
 }
 
 /** Why an expected date cannot be computed for a subscription. */
@@ -20,53 +21,94 @@ enum SubscriptionStatusError(val message: String) {
 
 object SubscriptionStatusLogic {
 
-  /** The term whose half-open range [effectiveFrom, effectiveTo) covers `today`, otherwise the open term (which then
-    * starts in the future). None when every term has ended.
-    */
-  def currentTerm(terms: List[SubscriptionTerm], today: LocalDate): Option[SubscriptionTerm] =
-    terms
-      .find(t => !t.effectiveFrom.isAfter(today) && t.effectiveTo.forall(today.isBefore))
-      .orElse(terms.find(_.effectiveTo.isEmpty))
+  /** The term whose half-open range [effectiveFrom, effectiveTo) contains `date`. */
+  def coveringTerm(terms: List[SubscriptionTerm], date: LocalDate): Option[SubscriptionTerm] =
+    terms.find(t => !t.effectiveFrom.isAfter(date) && t.effectiveTo.forall(date.isBefore))
 
-  /** The most recent charge date on or before `today`, or the start date when it is still in the future.
-    *
-    * Every occurrence is computed from `startDate` (never from the previous occurrence) so month-end clamping does not
-    * drift: a 31 Jan start gives 28 Feb and then 31 Mar.
+  /** The earliest term starting after `date`. */
+  def nextTerm(terms: List[SubscriptionTerm], date: LocalDate): Option[SubscriptionTerm] =
+    terms.filter(_.effectiveFrom.isAfter(date)).minByOption(_.effectiveFrom.toEpochDay)
+
+  /** The term the expected charge belongs to: the one covering `today`, otherwise the next one to start. */
+  def expectedTerm(terms: List[SubscriptionTerm], today: LocalDate): Option[SubscriptionTerm] =
+    coveringTerm(terms, today).orElse(nextTerm(terms, today))
+
+  /** The start of the contiguous run of terms containing `term`. A price change starts an adjacent term and keeps the
+    * billing day, so only a gap (a resume after cancelling) starts a new anchor.
+    */
+  def cadenceAnchor(terms: List[SubscriptionTerm], term: SubscriptionTerm): LocalDate = {
+    @tailrec
+    def loop(from: LocalDate): LocalDate =
+      terms.find(_.effectiveTo.contains(from)) match {
+        case Some(prev) => loop(prev.effectiveFrom)
+        case None => from
+      }
+    loop(term.effectiveFrom)
+  }
+
+  /** The expected charge date: the latest occurrence of the cadence anchored on the start of the contiguous run of
+    * terms covering `today`; when no term covers `today`, the start of the next term. None when no term covers `today`
+    * and none starts later, so a cancelled subscription is never overdue.
     */
   def expectedDate(
-      startDate: LocalDate,
+      terms: List[SubscriptionTerm],
       cadence: SubscriptionCadence,
       intervalDays: Option[Int],
       today: LocalDate
-  ): Either[SubscriptionStatusError, LocalDate] =
-    if (startDate.isAfter(today)) Right(startDate)
-    else
-      cadence match {
-        case SubscriptionCadence.Monthly =>
-          Right(latestOnOrBefore(today, ChronoUnit.MONTHS.between(startDate, today), startDate.plusMonths))
-        case SubscriptionCadence.Yearly =>
-          Right(latestOnOrBefore(today, ChronoUnit.YEARS.between(startDate, today), startDate.plusYears))
-        case SubscriptionCadence.EveryNDays =>
-          intervalDays match {
-            case Some(interval) if interval > 0 =>
-              val steps = ChronoUnit.DAYS.between(startDate, today) / interval
-              Right(startDate.plusDays(steps * interval))
-            case Some(_) => Left(SubscriptionStatusError.NonPositiveInterval)
-            case None => Left(SubscriptionStatusError.MissingInterval)
-          }
-      }
+  ): Either[SubscriptionStatusError, Option[LocalDate]] =
+    coveringTerm(terms, today) match {
+      case Some(term) =>
+        latestOccurrence(
+          anchor = cadenceAnchor(terms, term),
+          cadence = cadence,
+          intervalDays = intervalDays,
+          today = today
+        )
+          .map(Some(_))
+      case None => Right(nextTerm(terms, today).map(_.effectiveFrom))
+    }
 
   def status(
-      startDate: LocalDate,
+      terms: List[SubscriptionTerm],
       cadence: SubscriptionCadence,
       intervalDays: Option[Int],
       today: LocalDate
   ): Either[SubscriptionStatusError, SubscriptionStatus] =
-    expectedDate(startDate = startDate, cadence = cadence, intervalDays = intervalDays, today = today).map { expected =>
-      if (expected.isAfter(today)) SubscriptionStatus.Upcoming
-      else if (expected.isEqual(today)) SubscriptionStatus.Due
-      else SubscriptionStatus.Overdue
+    expectedDate(terms = terms, cadence = cadence, intervalDays = intervalDays, today = today).map {
+      case None => SubscriptionStatus.Cancelled
+      case Some(expected) =>
+        if (expected.isAfter(today)) SubscriptionStatus.Upcoming
+        else if (expected.isEqual(today)) SubscriptionStatus.Due
+        else SubscriptionStatus.Overdue
     }
+
+  /** The most recent occurrence of the cadence on or before `today`, or the anchor when it is still in the future.
+    *
+    * Every occurrence is computed from `anchor` (never from the previous occurrence) so month-end clamping does not
+    * drift: a 31 Jan anchor gives 28 Feb and then 31 Mar.
+    */
+  def latestOccurrence(
+      anchor: LocalDate,
+      cadence: SubscriptionCadence,
+      intervalDays: Option[Int],
+      today: LocalDate
+  ): Either[SubscriptionStatusError, LocalDate] =
+    if (anchor.isAfter(today)) Right(anchor)
+    else
+      cadence match {
+        case SubscriptionCadence.Monthly =>
+          Right(latestOnOrBefore(today, ChronoUnit.MONTHS.between(anchor, today), anchor.plusMonths))
+        case SubscriptionCadence.Yearly =>
+          Right(latestOnOrBefore(today, ChronoUnit.YEARS.between(anchor, today), anchor.plusYears))
+        case SubscriptionCadence.EveryNDays =>
+          intervalDays match {
+            case Some(interval) if interval > 0 =>
+              val steps = ChronoUnit.DAYS.between(anchor, today) / interval
+              Right(anchor.plusDays(steps * interval))
+            case Some(_) => Left(SubscriptionStatusError.NonPositiveInterval)
+            case None => Left(SubscriptionStatusError.MissingInterval)
+          }
+      }
 
   def amountLabel(amountMin: Option[BigDecimal], amountMax: Option[BigDecimal]): String =
     (amountMin, amountMax) match {
