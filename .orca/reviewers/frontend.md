@@ -1,5 +1,5 @@
 ---
-description: Frontend — fetch via AsyncComponent; drive async submit/save in-flight and error state through the shared useSubmit lifecycle; mutually-exclusive UI state as one ADT; state derived from its previous value set via the functional updater; hook dependency lists via SafeHooks (String keys); filters and view selections encoded in the URL; navigate with the router link, not hand-rolled anchors; reuse the MUI component (Autocomplete, Dialog, Menu, Pagination, …) instead of re-implementing it
+description: Frontend — fetch via AsyncComponent; drive async submit/save in-flight and error state through the shared useSubmit lifecycle; mutually-exclusive UI state as one ADT; state derived from its previous value set via the functional updater; hook dependency lists via SafeHooks (String keys); filters and view selections encoded in the URL; navigate with the router link, not hand-rolled anchors; reuse the MUI component (Autocomplete, Dialog, Menu, Pagination, …) instead of re-implementing it; a FormData model carries a spec; required fields modeled on the field (not Option, not hand-checked, submit gated on isValid); seed validated fields with the raw value; keep js.* interop inside the component; no hardcoded React keys in reusable components; pick-or-create through a shared resolver
 files: web/src/main/scala
 ---
 
@@ -138,3 +138,74 @@ what is rendered, it does not pop a dropdown of options that returns a chosen
 value); a fixed, short, known set of choices, which is a `mui.Select`/`mui.MenuItem`
 (or an `enum`-backed select), not a type-ahead; a genuinely bespoke widget MUI has
 no equivalent for.
+
+## A FormData model carries a spec
+A `FormData` subclass holds the form's logic — `submitRequest`, the field list,
+and any transition such as a kind switch — all of it pure and testable without a
+browser. Flag a new or changed `FormData` under `net/wiringbits/forms` whose logic
+is added or altered with no matching `*FormDataSpec` added or updated (see
+`SignInFormDataSpec`). The spec exercises `submitRequest` (a request when the data
+is valid, `None` when a required field is missing or any field is invalid) and any
+transition the model exposes. It is a plain ScalaTest spec: no jsdom, no component.
+
+Not: a component (a `*Spec` for rendering belongs with the component, and much of
+it needs jsdom); a `FormData` change that is a pure rename or field reorder with no
+behaviour change.
+
+## Required fields are modeled on the field, not re-checked by hand
+A required input is a `FormField(required = true)` whose value type is the
+primitive, so a blank is invalid; `FormData.isValid` already reports a required
+field left empty (even untouched), and the submit button is disabled through it
+(`useSubmit`'s `buttonDisabled(formData.isValid)`). Flag:
+- a required field typed `Option[...]` (the `Option` is for genuinely optional
+  fields only), and
+- a hand-written required check in `formValidationErrors` such as
+  `Option.when(field.valueOpt.isEmpty)("… is required")` that re-expresses what
+  `isValid` already enforces.
+
+Not: an optional field held as `Option` (correct); a form-level cross-field rule
+that no single field can express (a captcha, "end after start"), which legitimately
+lives in `formValidationErrors`.
+
+## Seed validated fields with the raw value
+When a `FormData.initial`/edit-seed fills a validated `FormField` from source data
+(a bank row, an API model), pass the value as-is and let the field's validator
+surface an over-limit or malformed value, so the user sees it and chooses what to
+change. Flag a `.trim` or `.take(limit)` applied to a value only to squeeze it into
+a validated field — that silently discards or truncates the user's data instead of
+flagging it.
+
+Not: trimming at submit as part of real normalization the API expects; a value that
+is not seeding a validated field.
+
+## Keep JS interop inside the component; its Props stay plain Scala
+A component that wraps a ScalablyTyped/MUI widget bridges its loosely-typed
+callbacks internally — narrowing the `js.Any` a callback hands back (a `ClassTag`
+plus a match on the concrete option type, never `js.Dynamic` field access on a
+Scala.js case class), and interpreting MUI's event-reason strings. Flag `js.Any`
+or `js.Dynamic` in a component's public `Props`, or a raw MUI reason string (e.g.
+`"reset"`) leaking to the caller that configures the component. The caller should
+pass plain typed functions/values; the `js.*` stays inside.
+
+Not: `js.*` inside the component's own body and the `MuiCompat` helpers (where the
+interop belongs); a thin typed facade value passed in.
+
+## Don't hardcode a React key in a reusable component
+A `withKey` inside a reusable input/widget must derive from its props (the field
+name, an id), not a string literal — two instances of the same component rendered
+as siblings would otherwise share a key and collide. Flag a literal
+`.withKey("…")` in a shared component.
+
+Not: a caller choosing keys for the specific siblings it lays out at one use site
+(that is the caller's responsibility, and distinct per site).
+
+## Resolve pick-or-create through a shared resolver
+A field that lets the user pick an existing entity or type a new one resolves to an
+id the same way everywhere: the picked id, else an existing row matched by
+case-insensitive name, else a freshly created one. Flag a form that inlines that
+`list.find(_.name.equalsIgnoreCase(x)) … else client.createX(...)` dance — route it
+through the shared resolver (`CategoryResolver`, `MerchantResolver`) so the create
+path and its validated input live in one place, not re-implemented per form.
+
+Not: a lookup that only finds (never creates); resolving something that is not a
+user-entered entity selection.
