@@ -2,7 +2,7 @@ package net.wiringbits.forms
 
 import net.wiringbits.api.models.merchants.ImportRuleActionKind
 import net.wiringbits.common.models.{CategoryName, MerchantName}
-import net.wiringbits.ui.forms.{ExpRuleAmount, ExpRuleDescription, ExpRulePattern, ExpSelection}
+import net.wiringbits.ui.forms.{ExpRuleAmount, ExpRuleDescription, ExpRulePattern, ExistingOrNewValue}
 import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.forms.{FormData, FormField}
 
@@ -28,22 +28,22 @@ sealed trait BankRowRuleFormData extends FormData[BankRowRuleFormData.Resolved] 
 
 object BankRowRuleFormData {
 
-  /** The validated inputs a submit yields, one variant per action kind. Merchant/category are still [[ExpSelection]]s
-    * (name + optional id) because resolving them to ids is the component's async side effect.
+  /** The validated inputs a submit yields, one variant per action kind. Merchant/category are still
+    * [[ExistingOrNewValue]]s (name + optional id) because resolving them to ids is the component's async side effect.
     */
   enum Resolved {
     case SetMerchant(
         pattern: String,
         amount: Option[BigDecimal],
         description: Option[String],
-        merchant: ExpSelection[MerchantName, UUID],
-        category: Option[ExpSelection[CategoryName, UUID]]
+        merchant: ExistingOrNewValue[MerchantName, UUID],
+        category: Option[ExistingOrNewValue[CategoryName, UUID]]
     )
     case SetCategory(
         pattern: String,
         amount: Option[BigDecimal],
         description: Option[String],
-        category: ExpSelection[CategoryName, UUID]
+        category: ExistingOrNewValue[CategoryName, UUID]
     )
     case Ignore(pattern: String, amount: Option[BigDecimal])
   }
@@ -52,8 +52,8 @@ object BankRowRuleFormData {
       pattern: FormField[ExpRulePattern],
       amount: FormField[Option[ExpRuleAmount]],
       description: FormField[Option[ExpRuleDescription]],
-      merchant: FormField[Option[ExpSelection[MerchantName, UUID]]],
-      category: FormField[Option[ExpSelection[CategoryName, UUID]]]
+      merchant: FormField[Option[ExistingOrNewValue[MerchantName, UUID]]],
+      category: FormField[Option[ExistingOrNewValue[CategoryName, UUID]]]
   ) extends BankRowRuleFormData {
     override def actionKind: ImportRuleActionKind = ImportRuleActionKind.SetMerchant
     override def fields: List[FormField[?]] = List(pattern, amount, description, merchant, category)
@@ -86,7 +86,7 @@ object BankRowRuleFormData {
       pattern: FormField[ExpRulePattern],
       amount: FormField[Option[ExpRuleAmount]],
       description: FormField[Option[ExpRuleDescription]],
-      category: FormField[Option[ExpSelection[CategoryName, UUID]]]
+      category: FormField[Option[ExistingOrNewValue[CategoryName, UUID]]]
   ) extends BankRowRuleFormData {
     override def actionKind: ImportRuleActionKind = ImportRuleActionKind.SetCategory
     override def fields: List[FormField[?]] = List(pattern, amount, description, category)
@@ -149,7 +149,7 @@ object BankRowRuleFormData {
       value = Some(ExpRuleDescription.optionalValidator(seed))
     )
 
-  private def emptyMerchant: FormField[Option[ExpSelection[MerchantName, UUID]]] =
+  private def emptyMerchant: FormField[Option[ExistingOrNewValue[MerchantName, UUID]]] =
     new FormField(
       label = "Merchant",
       name = "merchant",
@@ -157,7 +157,7 @@ object BankRowRuleFormData {
       value = Some(ValidationResult.Valid("", None))
     )
 
-  private def emptyCategory(required: Boolean): FormField[Option[ExpSelection[CategoryName, UUID]]] =
+  private def emptyCategory(required: Boolean): FormField[Option[ExistingOrNewValue[CategoryName, UUID]]] =
     new FormField(
       label = "Category",
       name = "category",

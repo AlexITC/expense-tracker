@@ -3,7 +3,7 @@ package net.wiringbits.ui.components.core.widgets
 import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
 import com.olvind.mui.muiMaterial.components as mui
 import com.olvind.mui.muiMaterial.textFieldTextFieldMod.OutlinedTextFieldProps
-import net.wiringbits.ui.forms.ExpSelection
+import net.wiringbits.ui.forms.ExistingOrNewValue
 import net.wiringbits.webapp.common.validators.{TextValidator, ValidationResult}
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 import net.wiringbits.webapp.utils.slinkyUtils.forms.FormField
@@ -14,15 +14,15 @@ import scala.scalajs.js
 
 /** The select/create analogue of [[ValidatedTextInput]].
   *
-  * The field holds `Option[ExpSelection[T, Id]]`: blank is `None`, typing validates the text live through the
-  * primitive's `TextValidator` into `Some(ExpSelection(value, id = None))`, and picking an option sets the same shape
-  * with the resolved `id`. Editing after a pick clears the `id`. So the name is always validated like any text field,
-  * the id rides alongside when it came from an existing row, and nothing is parsed at submit.
+  * The field holds `Option[ExistingOrNewValue[T, Id]]`: blank is `None`, typing validates the text live through the
+  * primitive's `TextValidator` into `Some(ExistingOrNewValue(value, id = None))`, and picking an option sets the same
+  * shape with the resolved `id`. Editing after a pick clears the `id`. So the name is always validated like any text
+  * field, the id rides alongside when it came from an existing row, and nothing is parsed at submit.
   */
 abstract class ExpValidatedAutocompleteInput[Opt, T: TextValidator, Id] {
   private val validator = implicitly[TextValidator[T]]
 
-  type Value = Option[ExpSelection[T, Id]]
+  type Value = Option[ExistingOrNewValue[T, Id]]
 
   case class Props(
       field: FormField[Value],
@@ -37,10 +37,10 @@ abstract class ExpValidatedAutocompleteInput[Opt, T: TextValidator, Id] {
 
   private def validateText(text: String): ValidationResult[Value] =
     if (text.trim.isEmpty) ValidationResult.Valid(text, None)
-    else validator(text).map(value => Some(ExpSelection(value = value, id = None)))
+    else validator(text).map(value => Some(ExistingOrNewValue(value = value, id = None)))
 
   private def selected(id: Id, name: String): ValidationResult[Value] =
-    validator(name).map(value => Some(ExpSelection(value = value, id = Some(id))))
+    validator(name).map(value => Some(ExistingOrNewValue(value = value, id = Some(id))))
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     val helperText = props.field.value.flatMap(_.errorMessage).getOrElse("")

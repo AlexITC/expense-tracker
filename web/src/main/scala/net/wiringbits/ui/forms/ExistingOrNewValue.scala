@@ -7,4 +7,4 @@ package net.wiringbits.ui.forms
   * value came from picking one, and absent when the user typed a new value to create. `Id` is a type parameter because
   * not every entity is keyed by `UUID`. A blank field is represented by wrapping this in `Option`.
   */
-case class ExpSelection[T, Id](value: T, id: Option[Id])
+case class ExistingOrNewValue[T, Id](value: T, id: Option[Id])

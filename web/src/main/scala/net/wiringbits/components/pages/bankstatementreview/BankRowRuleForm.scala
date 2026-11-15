@@ -22,7 +22,7 @@ import net.wiringbits.ui.components.inputs.{
   ExpRuleDescriptionInput,
   ExpRulePatternInput
 }
-import net.wiringbits.ui.forms.{ExpRuleAmount, ExpRuleDescription, ExpRulePattern, ExpSelection, SubmitHooks}
+import net.wiringbits.ui.forms.{ExpRuleAmount, ExpRuleDescription, ExpRulePattern, ExistingOrNewValue, SubmitHooks}
 import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.forms.FormField
@@ -73,7 +73,7 @@ object BankRowRuleForm {
     // Resolving a selection to an id is the component's side effect: an existing selection already carries the id, a
     // new one is matched against the loaded rows by name and only created when it is genuinely new. The name is an
     // already-valid primitive from the field, so nothing is parsed here.
-    def resolveCategory(selection: ExpSelection[CategoryName, UUID]): Future[UUID] =
+    def resolveCategory(selection: ExistingOrNewValue[CategoryName, UUID]): Future[UUID] =
       selection.id match {
         case Some(id) => Future.successful(id)
         case None =>
@@ -86,14 +86,14 @@ object BankRowRuleForm {
           }
       }
 
-    def resolveCategoryOpt(selection: Option[ExpSelection[CategoryName, UUID]]): Future[Option[UUID]] =
+    def resolveCategoryOpt(selection: Option[ExistingOrNewValue[CategoryName, UUID]]): Future[Option[UUID]] =
       selection match {
         case None => Future.successful(None)
         case Some(ref) => resolveCategory(ref).map(Some(_))
       }
 
     def resolveMerchant(
-        selection: ExpSelection[MerchantName, UUID],
+        selection: ExistingOrNewValue[MerchantName, UUID],
         categoryId: Option[UUID]
     ): Future[(UUID, Option[GetMerchants.Response.Merchant])] =
       selection.id match {
@@ -173,13 +173,13 @@ object BankRowRuleForm {
         case other => other
       }
 
-    def updateMerchant(value: ValidationResult[Option[ExpSelection[MerchantName, UUID]]]): Unit =
+    def updateMerchant(value: ValidationResult[Option[ExistingOrNewValue[MerchantName, UUID]]]): Unit =
       setFormData {
         case fd: BankRowRuleFormData.SetMerchant => fd.copy(merchant = fd.merchant.updated(value))
         case other => other
       }
 
-    def updateCategory(value: ValidationResult[Option[ExpSelection[CategoryName, UUID]]]): Unit =
+    def updateCategory(value: ValidationResult[Option[ExistingOrNewValue[CategoryName, UUID]]]): Unit =
       setFormData {
         case fd: BankRowRuleFormData.SetMerchant => fd.copy(category = fd.category.updated(value))
         case fd: BankRowRuleFormData.SetCategory => fd.copy(category = fd.category.updated(value))
@@ -213,7 +213,7 @@ object BankRowRuleForm {
         )
         .withKey("description"): ReactElement)
 
-    def merchantAutocomplete(field: FormField[Option[ExpSelection[MerchantName, UUID]]]): ReactElement =
+    def merchantAutocomplete(field: FormField[Option[ExistingOrNewValue[MerchantName, UUID]]]): ReactElement =
       (ExpMerchantAutocompleteInput
         .component(
           ExpMerchantAutocompleteInput.Props(
@@ -233,7 +233,7 @@ object BankRowRuleForm {
         )
         .withKey("merchant"): ReactElement)
 
-    def categoryAutocomplete(field: FormField[Option[ExpSelection[CategoryName, UUID]]]): ReactElement =
+    def categoryAutocomplete(field: FormField[Option[ExistingOrNewValue[CategoryName, UUID]]]): ReactElement =
       (ExpCategoryAutocompleteInput
         .component(
           ExpCategoryAutocompleteInput.Props(
