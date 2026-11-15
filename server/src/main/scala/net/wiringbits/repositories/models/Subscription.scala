@@ -37,6 +37,10 @@ object Subscription {
       updatedAt: Instant
   )
 
-  // terms are ordered by effectiveFrom.
-  case class WithTerms(subscription: Subscription, terms: List[SubscriptionTerm])
+  // terms are ordered by effectiveFrom; extraCharges by dueDate, then id.
+  case class WithDetails(
+      subscription: Subscription,
+      terms: List[SubscriptionTerm],
+      extraCharges: List[SubscriptionExtraCharge]
+  )
 }

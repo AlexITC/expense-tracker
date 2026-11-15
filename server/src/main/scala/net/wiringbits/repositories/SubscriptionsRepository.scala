@@ -8,8 +8,15 @@ import net.wiringbits.api.models.subscriptions.{
 }
 import net.wiringbits.api.utils.SubscriptionTerms
 import net.wiringbits.executors.DatabaseExecutionContext
-import net.wiringbits.repositories.daos.{CategoryDAO, ExpenseDAO, MerchantDAO, SubscriptionDAO, SubscriptionTermDAO}
-import net.wiringbits.repositories.models.{Subscription, SubscriptionTerm}
+import net.wiringbits.repositories.daos.{
+  CategoryDAO,
+  ExpenseDAO,
+  MerchantDAO,
+  SubscriptionDAO,
+  SubscriptionExtraChargeDAO,
+  SubscriptionTermDAO
+}
+import net.wiringbits.repositories.models.{Subscription, SubscriptionExtraCharge, SubscriptionTerm}
 import net.wiringbits.repositories.support.ConstraintViolations
 import play.api.db.Database
 
@@ -42,11 +49,18 @@ class SubscriptionsRepository @Inject() (database: Database)(implicit
     }
   }
 
-  def all(userId: UUID): Future[List[Subscription.WithTerms]] = Future {
+  def all(userId: UUID): Future[List[Subscription.WithDetails]] = Future {
     database.withTransaction { implicit conn =>
       val subscriptions = SubscriptionDAO.all(userId)
       val termsBySubscription = SubscriptionTermDAO.allForUser(userId).groupBy(_.subscriptionId)
-      subscriptions.map(s => Subscription.WithTerms(s, termsBySubscription.getOrElse(s.id, List.empty)))
+      val extrasBySubscription = SubscriptionExtraChargeDAO.allForUser(userId).groupBy(_.subscriptionId)
+      subscriptions.map { s =>
+        Subscription.WithDetails(
+          subscription = s,
+          terms = termsBySubscription.getOrElse(s.id, List.empty),
+          extraCharges = extrasBySubscription.getOrElse(s.id, List.empty)
+        )
+      }
     }
   }
 
@@ -192,6 +206,27 @@ class SubscriptionsRepository @Inject() (database: Database)(implicit
       if (MerchantDAO.find(id = merchantId, userId = userId).isEmpty)
         throw new RuntimeException("Merchant not found")
       ExpenseDAO.earliestDateForMerchant(userId = userId, merchantId = merchantId)
+    }
+  }
+
+  // Counts under the subscription row lock, so concurrent adds cannot exceed the cap.
+  def addExtraCharge(charge: SubscriptionExtraCharge, maxPerSubscription: Int): Future[Unit] = Future {
+    database.withTransaction { implicit conn =>
+      if (SubscriptionDAO.lockForUpdate(id = charge.subscriptionId, userId = charge.userId).isEmpty)
+        throw new RuntimeException("Subscription not found")
+      val count = SubscriptionExtraChargeDAO.countForSubscription(
+        subscriptionId = charge.subscriptionId,
+        userId = charge.userId
+      )
+      if (count >= maxPerSubscription)
+        throw new RuntimeException(s"Maximum number of extra charges ($maxPerSubscription) reached")
+      SubscriptionExtraChargeDAO.create(charge)
+    }
+  }
+
+  def deleteExtraCharge(id: UUID, subscriptionId: UUID, userId: UUID): Future[Unit] = Future {
+    database.withTransaction { implicit conn =>
+      SubscriptionExtraChargeDAO.delete(id = id, subscriptionId = subscriptionId, userId = userId)
     }
   }
 

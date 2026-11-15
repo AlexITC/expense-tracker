@@ -21,7 +21,9 @@ class SubscriptionsController @Inject() (
     changeSubscriptionPriceAction: ChangeSubscriptionPriceAction,
     cancelSubscriptionAction: CancelSubscriptionAction,
     resumeSubscriptionAction: ResumeSubscriptionAction,
-    getSubscriptionStartDateSuggestionAction: GetSubscriptionStartDateSuggestionAction
+    getSubscriptionStartDateSuggestionAction: GetSubscriptionStartDateSuggestionAction,
+    addSubscriptionExtraChargeAction: AddSubscriptionExtraChargeAction,
+    deleteSubscriptionExtraChargeAction: DeleteSubscriptionExtraChargeAction
 )(implicit ec: ExecutionContext) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
@@ -120,6 +122,38 @@ class SubscriptionsController @Inject() (
     } yield Right(response)
   }
 
+  private def addExtraCharge(
+      subscriptionId: UUID,
+      request: AddSubscriptionExtraCharge.Request,
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, AddSubscriptionExtraCharge.Response]] = handleRequest {
+    for {
+      userId <- userIdF
+      _ = logger.info(
+        s"Add subscription extra charge: userId=$userId, subscriptionId=$subscriptionId, recurrence=${request.recurrence}"
+      )
+      response <- addSubscriptionExtraChargeAction(subscriptionId = subscriptionId, userId = userId, request)
+    } yield Right(response)
+  }
+
+  private def deleteExtraCharge(
+      subscriptionId: UUID,
+      extraChargeId: UUID,
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, DeleteSubscriptionExtraCharge.Response]] = handleRequest {
+    for {
+      userId <- userIdF
+      _ = logger.info(
+        s"Delete subscription extra charge: userId=$userId, subscriptionId=$subscriptionId, extraChargeId=$extraChargeId"
+      )
+      response <- deleteSubscriptionExtraChargeAction(
+        subscriptionId = subscriptionId,
+        extraChargeId = extraChargeId,
+        userId = userId
+      )
+    } yield Right(response)
+  }
+
   def routes: List[ServerEndpoint[PekkoStreams & WebSockets, Future]] = {
     List(
       SubscriptionsEndpoints.getSubscriptions.serverLogic(getSubscriptions),
@@ -129,7 +163,9 @@ class SubscriptionsController @Inject() (
       SubscriptionsEndpoints.changeSubscriptionPrice.serverLogic(changeSubscriptionPrice),
       SubscriptionsEndpoints.cancelSubscription.serverLogic(cancelSubscription),
       SubscriptionsEndpoints.resumeSubscription.serverLogic(resumeSubscription),
-      SubscriptionsEndpoints.getStartDateSuggestion.serverLogic(getStartDateSuggestion)
+      SubscriptionsEndpoints.getStartDateSuggestion.serverLogic(getStartDateSuggestion),
+      SubscriptionsEndpoints.addExtraCharge.serverLogic(addExtraCharge),
+      SubscriptionsEndpoints.deleteExtraCharge.serverLogic(deleteExtraCharge)
     )
   }
 }

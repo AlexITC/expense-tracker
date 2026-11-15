@@ -23,6 +23,8 @@ object GetSubscriptions {
         description: Option[String],
         // Ordered by effectiveFrom; the cadence anchor for expected dates is the covering term's effectiveFrom.
         terms: List[SubscriptionTerm],
+        // Ordered by dueDate, then id.
+        extraCharges: List[SubscriptionExtraCharge],
         createdAt: Instant
     )
   }

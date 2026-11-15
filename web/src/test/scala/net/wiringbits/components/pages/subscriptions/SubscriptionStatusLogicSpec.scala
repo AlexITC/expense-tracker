@@ -1,6 +1,12 @@
 package net.wiringbits.components.pages.subscriptions
 
-import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod, SubscriptionTerm}
+import net.wiringbits.api.models.subscriptions.{
+  SubscriptionCadence,
+  SubscriptionExtraCharge,
+  SubscriptionExtraChargeRecurrence,
+  SubscriptionPaymentMethod,
+  SubscriptionTerm
+}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -305,6 +311,31 @@ class SubscriptionStatusLogicSpec extends AnyWordSpec {
       SubscriptionStatusLogic.paymentMethodLabel(SubscriptionPaymentMethod.ManualTransfer) must be("Manual transfer")
       SubscriptionStatusLogic.paymentMethodLabel(SubscriptionPaymentMethod.CardPortal) must be("Card portal")
       SubscriptionStatusLogic.paymentMethodLabel(SubscriptionPaymentMethod.Cash) must be("Cash")
+    }
+  }
+
+  "extraChargeLabel" should {
+    def charge(recurrence: SubscriptionExtraChargeRecurrence) = SubscriptionExtraCharge(
+      id = UUID.randomUUID(),
+      label = "Membership fee",
+      amount = BigDecimal("12.00"),
+      recurrence = recurrence,
+      dueDate = date("2025-03-01")
+    )
+
+    "show a periodic charge from its first due date" in {
+      SubscriptionStatusLogic.extraChargeLabel(charge(SubscriptionExtraChargeRecurrence.Yearly)) must be(
+        "Membership fee 12.00 yearly from 2025-03-01"
+      )
+      SubscriptionStatusLogic.extraChargeLabel(charge(SubscriptionExtraChargeRecurrence.Monthly)) must be(
+        "Membership fee 12.00 monthly from 2025-03-01"
+      )
+    }
+
+    "show a one-off charge on its due date" in {
+      SubscriptionStatusLogic.extraChargeLabel(charge(SubscriptionExtraChargeRecurrence.OneOff)) must be(
+        "Membership fee 12.00 on 2025-03-01"
+      )
     }
   }
 

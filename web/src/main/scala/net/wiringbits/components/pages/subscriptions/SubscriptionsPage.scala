@@ -7,6 +7,7 @@ import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.subscriptions.{
   GetSubscriptions,
   SubscriptionCadence,
+  SubscriptionExtraChargeRecurrence,
   SubscriptionPaymentMethod,
   SubscriptionTerm
 }
@@ -19,6 +20,7 @@ import net.wiringbits.forms.{
   CreateSubscriptionFormData,
   SubscriptionAmountFields,
   SubscriptionCancelFormData,
+  SubscriptionExtraChargeFormData,
   SubscriptionFormData,
   SubscriptionPriceChangeFormData,
   SubscriptionResumeFormData
@@ -28,8 +30,10 @@ import net.wiringbits.ui.components.inputs.{
   DateInput,
   OptionalIdSelectInput,
   OptionalMerchantAutocompleteInput,
+  RequiredSubscriptionAmountInput,
   SubscriptionAmountInput,
   SubscriptionDescriptionInput,
+  SubscriptionExtraChargeLabelInput,
   SubscriptionIntervalDaysInput,
   SubscriptionIntervalMonthsInput,
   SubscriptionNameInput
@@ -100,6 +104,7 @@ private enum SubscriptionEditor {
   case PriceChange(subscriptionId: UUID)
   case Cancel(subscriptionId: UUID)
   case Resume(subscriptionId: UUID)
+  case AddExtraCharge(subscriptionId: UUID)
 }
 
 /** The start-date suggestion fetched for the create form's merchant, tagged with that merchant so a response that lands
@@ -169,6 +174,8 @@ object SubscriptionList {
       Hooks.useState(StatefulFormData(SubscriptionPriceChangeFormData.initial))
     val (cancelFormData, setCancelFormData) = Hooks.useState(StatefulFormData(SubscriptionCancelFormData.initial))
     val (resumeFormData, setResumeFormData) = Hooks.useState(StatefulFormData(SubscriptionResumeFormData.initial))
+    val (extraChargeFormData, setExtraChargeFormData) =
+      Hooks.useState(StatefulFormData(SubscriptionExtraChargeFormData.initial))
     val createControl = SubmitHooks.useSubmit()
     val (startDateSuggestion, setStartDateSuggestion) =
       Hooks.useState[StartDateSuggestion](StartDateSuggestion.NotRequested)
@@ -220,6 +227,7 @@ object SubscriptionList {
     val onPriceChangeDataChanged = editorUpdater(setPriceChangeFormData)
     val onCancelDataChanged = editorUpdater(setCancelFormData)
     val onResumeDataChanged = editorUpdater(setResumeFormData)
+    val onExtraChargeDataChanged = editorUpdater(setExtraChargeFormData)
 
     def handleCreate(e: SyntheticEvent[?, dom.Event]): Unit = {
       e.preventDefault()
@@ -289,6 +297,18 @@ object SubscriptionList {
         }
     }
 
+    def handleDeleteExtraCharge(subscriptionId: UUID, extraChargeId: UUID): Unit = {
+      deleteControl.begin()
+      props.ctx.api.client
+        .deleteSubscriptionExtraCharge(subscriptionId = subscriptionId, extraChargeId = extraChargeId)
+        .onComplete {
+          case Success(_) =>
+            deleteControl.reset()
+            props.onRefresh()
+          case Failure(ex) => deleteControl.fail(ex.getMessage)
+        }
+    }
+
     def startEditing(s: GetSubscriptions.Response.Subscription): Unit = {
       editControl.reset()
       setEditFormData(_ =>
@@ -319,6 +339,12 @@ object SubscriptionList {
       editControl.reset()
       setResumeFormData(_ => StatefulFormData(SubscriptionResumeFormData.initial))
       setEditor(_ => SubscriptionEditor.Resume(subscriptionId))
+    }
+
+    def startAddExtraCharge(subscriptionId: UUID): Unit = {
+      editControl.reset()
+      setExtraChargeFormData(_ => StatefulFormData(SubscriptionExtraChargeFormData.initial))
+      setEditor(_ => SubscriptionEditor.AddExtraCharge(subscriptionId))
     }
 
     def selectField(
@@ -712,6 +738,55 @@ object SubscriptionList {
       )
     }
 
+    def extraChargeForm(subscriptionId: UUID): ReactElement = {
+      val data = extraChargeFormData.data
+      val disabled = editControl.inputDisabled
+      inlineEditor(
+        inputs = Seq(
+          fieldBox(key = "label", boxMinWidth = "200px")(
+            SubscriptionExtraChargeLabelInput.component(
+              SubscriptionExtraChargeLabelInput.Props(
+                field = data.label,
+                disabled = disabled,
+                onChange = value => onExtraChargeDataChanged(x => x.copy(label = x.label.updated(value)))
+              )
+            )
+          ),
+          fieldBox(key = "amount", boxMinWidth = "140px")(
+            RequiredSubscriptionAmountInput.component(
+              RequiredSubscriptionAmountInput.Props(
+                field = data.amount,
+                disabled = disabled,
+                onChange = value => onExtraChargeDataChanged(x => x.copy(amount = x.amount.updated(value)))
+              )
+            )
+          ),
+          selectField(
+            key = "recurrence",
+            label = "Recurrence",
+            value = data.recurrence.entryName,
+            disabled = disabled,
+            options = SubscriptionExtraChargeRecurrence.values.toSeq.map(r =>
+              r.entryName -> SubscriptionStatusLogic.extraChargeRecurrenceLabel(r)
+            ),
+            onChange =
+              v => onExtraChargeDataChanged(_.copy(recurrence = SubscriptionExtraChargeRecurrence.fromEntryName(v)))
+          ),
+          dateField(
+            key = "due-date",
+            field = data.dueDate,
+            disabled = disabled,
+            onChange = value => onExtraChargeDataChanged(x => x.copy(dueDate = x.dueDate.updated(value)))
+          )
+        ),
+        validationError = extraChargeFormData.firstValidationError,
+        submitLabel = "Add extra charge",
+        canSubmit = data.isValid,
+        onFormSubmit =
+          submitEditor(data.submitRequest, props.ctx.api.client.addSubscriptionExtraCharge(subscriptionId, _))
+      )
+    }
+
     def details(s: GetSubscriptions.Response.Subscription, term: Option[SubscriptionTerm]): String =
       List(
         Some(
@@ -747,6 +822,26 @@ object SubscriptionList {
           .Typography(s"$range · $amount$marker")
           .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" })
           .withKey(t.id.toString)
+      }
+      mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; marginTop = "4px" })(lines*)
+    }
+
+    // Extras are listed for reference only: they do not affect the status or the expected amount.
+    def extraCharges(s: GetSubscriptions.Response.Subscription): ReactElement = {
+      val lines: List[ReactElement] = s.extraCharges.map { c =>
+        mui.Box
+          .sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; gap = "6px" })(
+            mui
+              .Typography(SubscriptionStatusLogic.extraChargeLabel(c))
+              .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" }),
+            mui.Button
+              .normal()("Remove")
+              .size("small")
+              .disabled(deleteControl.isSubmitting)
+              .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "11px"; minWidth = "0" })
+              .onClick(_ => handleDeleteExtraCharge(subscriptionId = s.id, extraChargeId = c.id))
+          )
+          .withKey(c.id.toString)
       }
       mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; marginTop = "4px" })(lines*)
     }
@@ -793,11 +888,13 @@ object SubscriptionList {
           mui
             .Typography(details(s, term))
             .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" }),
-          termHistory(s)
+          termHistory(s),
+          extraCharges(s)
         ),
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px"; alignSelf = "flex-start" })(
           actionButton(key = "edit", label = "Edit", onClick = () => startEditing(s)),
           Fragment(termActions*),
+          actionButton(key = "add-extra-charge", label = "Add extra charge", onClick = () => startAddExtraCharge(s.id)),
           mui.Button
             .normal()("Delete")
             .size("small")
@@ -817,6 +914,7 @@ object SubscriptionList {
         case SubscriptionEditor.PriceChange(id) => withEditorFor(id)(priceChangeForm(s.id))
         case SubscriptionEditor.Cancel(id) => withEditorFor(id)(cancelForm(s.id))
         case SubscriptionEditor.Resume(id) => withEditorFor(id)(resumeForm(s.id))
+        case SubscriptionEditor.AddExtraCharge(id) => withEditorFor(id)(extraChargeForm(s.id))
       }
       mui.Box.sx(cardStyle)(content).withKey(s.id.toString)
     }

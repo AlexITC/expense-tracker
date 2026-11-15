@@ -6,7 +6,7 @@ import net.wiringbits.actions.subscriptions.*
 import net.wiringbits.api.models.subscriptions.*
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
-import net.wiringbits.common.models.{Captcha, SubscriptionDescription, SubscriptionName}
+import net.wiringbits.common.models.{Captcha, SubscriptionDescription, SubscriptionExtraChargeLabel, SubscriptionName}
 import net.wiringbits.util.TokenGenerator
 import org.mockito.ArgumentMatchers.{any, eq as eqTo}
 import org.mockito.Mockito.*
@@ -35,6 +35,8 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
   private val cancelAction = mock[CancelSubscriptionAction]
   private val resumeAction = mock[ResumeSubscriptionAction]
   private val startDateSuggestionAction = mock[GetSubscriptionStartDateSuggestionAction]
+  private val addExtraChargeAction = mock[AddSubscriptionExtraChargeAction]
+  private val deleteExtraChargeAction = mock[DeleteSubscriptionExtraChargeAction]
 
   override def guiceApplicationBuilder(container: PostgreSQLContainer): GuiceApplicationBuilder =
     super
@@ -50,7 +52,9 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
         inject.bind[ChangeSubscriptionPriceAction].to(changePriceAction),
         inject.bind[CancelSubscriptionAction].to(cancelAction),
         inject.bind[ResumeSubscriptionAction].to(resumeAction),
-        inject.bind[GetSubscriptionStartDateSuggestionAction].to(startDateSuggestionAction)
+        inject.bind[GetSubscriptionStartDateSuggestionAction].to(startDateSuggestionAction),
+        inject.bind[AddSubscriptionExtraChargeAction].to(addExtraChargeAction),
+        inject.bind[DeleteSubscriptionExtraChargeAction].to(deleteExtraChargeAction)
       )
 
   private val unauthorizedError = "Unauthorized: Invalid or missing authentication"
@@ -64,7 +68,9 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
       changePriceAction,
       cancelAction,
       resumeAction,
-      startDateSuggestionAction
+      startDateSuggestionAction,
+      addExtraChargeAction,
+      deleteExtraChargeAction
     )
 
   private val createRequest = CreateSubscription.Request(
@@ -106,6 +112,13 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
     amountMax = None
   )
 
+  private val addExtraChargeRequest = AddSubscriptionExtraCharge.Request(
+    label = SubscriptionExtraChargeLabel.trusted("Yearly fee"),
+    amount = BigDecimal("12.00"),
+    recurrence = SubscriptionExtraChargeRecurrence.Yearly,
+    dueDate = LocalDate.of(2025, 3, 1)
+  )
+
   "GET /subscriptions" should {
     "reject unauthenticated requests without invoking the action" in withApiClient { client =>
       resetActions()
@@ -145,6 +158,7 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
                 amountMax = Some(BigDecimal("12.50"))
               )
             ),
+            extraCharges = List.empty,
             createdAt = Instant.parse("2026-03-15T10:00:00Z")
           ),
           GetSubscriptions.Response.Subscription(
@@ -166,6 +180,7 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
                 amountMax = None
               )
             ),
+            extraCharges = List.empty,
             createdAt = Instant.parse("2026-02-01T08:30:00Z")
           )
         )
@@ -405,6 +420,75 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
         .thenReturn(Future.failed(new RuntimeException("boom")))
 
       client.getSubscriptionStartDateSuggestion(merchantId).expectError must be("boom")
+    }
+  }
+
+  "POST /subscriptions/:id/extra-charges" should {
+    "reject unauthenticated requests without invoking the action" in withApiClient { client =>
+      resetActions()
+
+      client.addSubscriptionExtraCharge(UUID.randomUUID(), addExtraChargeRequest).expectError must be(
+        unauthorizedError
+      )
+      verifyNoInteractions(addExtraChargeAction)
+    }
+
+    "pass the path id, session user and decoded request to the action" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      val expected = AddSubscriptionExtraCharge.Response(UUID.randomUUID())
+      when(addExtraChargeAction.apply(eqTo(subscriptionId), eqTo(userId), eqTo(addExtraChargeRequest)))
+        .thenReturn(Future.successful(expected))
+
+      client.addSubscriptionExtraCharge(subscriptionId, addExtraChargeRequest).futureValue must be(expected)
+      verify(addExtraChargeAction).apply(eqTo(subscriptionId), eqTo(userId), eqTo(addExtraChargeRequest))
+    }
+
+    "encode an action failure as the error message" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      when(addExtraChargeAction.apply(eqTo(subscriptionId), eqTo(userId), eqTo(addExtraChargeRequest)))
+        .thenReturn(Future.failed(new RuntimeException("boom")))
+
+      client.addSubscriptionExtraCharge(subscriptionId, addExtraChargeRequest).expectError must be("boom")
+    }
+  }
+
+  "DELETE /subscriptions/:id/extra-charges/:extraChargeId" should {
+    "reject unauthenticated requests without invoking the action" in withApiClient { client =>
+      resetActions()
+
+      client.deleteSubscriptionExtraCharge(UUID.randomUUID(), UUID.randomUUID()).expectError must be(
+        unauthorizedError
+      )
+      verifyNoInteractions(deleteExtraChargeAction)
+    }
+
+    "pass both path ids and the session user to the action" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      val extraChargeId = UUID.randomUUID()
+      when(deleteExtraChargeAction.apply(eqTo(subscriptionId), eqTo(extraChargeId), eqTo(userId)))
+        .thenReturn(Future.successful(DeleteSubscriptionExtraCharge.Response()))
+
+      client.deleteSubscriptionExtraCharge(subscriptionId, extraChargeId).futureValue must be(
+        DeleteSubscriptionExtraCharge.Response()
+      )
+      verify(deleteExtraChargeAction).apply(eqTo(subscriptionId), eqTo(extraChargeId), eqTo(userId))
+    }
+
+    "encode an action failure as the error message" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      val extraChargeId = UUID.randomUUID()
+      when(deleteExtraChargeAction.apply(eqTo(subscriptionId), eqTo(extraChargeId), eqTo(userId)))
+        .thenReturn(Future.failed(new RuntimeException("boom")))
+
+      client.deleteSubscriptionExtraCharge(subscriptionId, extraChargeId).expectError must be("boom")
     }
   }
 }

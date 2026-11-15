@@ -43,3 +43,23 @@ ALTER TABLE subscription ADD COLUMN merchant_id UUID NULL;
 ALTER TABLE subscription
   ADD CONSTRAINT subscription_merchant_id_fk FOREIGN KEY (merchant_id) REFERENCES merchant(id) ON DELETE SET NULL;
 CREATE INDEX subscription_merchant_id_index ON subscription USING BTREE (merchant_id);
+
+-- A fee charged on top of a subscription's terms, like a yearly membership fee. due_date is the date of a one-off
+-- charge, or the first occurrence of a periodic one.
+CREATE TABLE subscription_extra_charge (
+  id UUID NOT NULL,
+  user_id UUID NOT NULL,
+  subscription_id UUID NOT NULL,
+  label TEXT NOT NULL,
+  amount NUMERIC(12,2) NOT NULL,
+  recurrence TEXT NOT NULL,
+  due_date DATE NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  CONSTRAINT subscription_extra_charge_id_pk PRIMARY KEY (id),
+  CONSTRAINT subscription_extra_charge_user_id_fk FOREIGN KEY (user_id) REFERENCES users(user_id),
+  CONSTRAINT subscription_extra_charge_subscription_id_fk FOREIGN KEY (subscription_id) REFERENCES subscription(id) ON DELETE CASCADE
+);
+
+CREATE INDEX subscription_extra_charge_user_id_index ON subscription_extra_charge USING BTREE (user_id);
+CREATE INDEX subscription_extra_charge_subscription_id_index ON subscription_extra_charge USING BTREE (subscription_id);

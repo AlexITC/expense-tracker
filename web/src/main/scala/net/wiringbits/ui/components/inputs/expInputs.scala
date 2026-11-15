@@ -56,6 +56,8 @@ object SubscriptionIntervalMonthsInput extends ValidatedTextInput[SubscriptionIn
 
 object SubscriptionAmountInput extends ValidatedTextInput[Option[SubscriptionAmount]]
 
+object RequiredSubscriptionAmountInput extends ValidatedTextInput[SubscriptionAmount]
+
 object RuleDescriptionInput extends ValidatedTextInput[Option[ExpRuleDescription]]
 
 object MerchantAutocompleteInput

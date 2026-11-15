@@ -1,6 +1,12 @@
 package net.wiringbits.components.pages.subscriptions
 
-import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod, SubscriptionTerm}
+import net.wiringbits.api.models.subscriptions.{
+  SubscriptionCadence,
+  SubscriptionExtraCharge,
+  SubscriptionExtraChargeRecurrence,
+  SubscriptionPaymentMethod,
+  SubscriptionTerm
+}
 
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -164,6 +170,22 @@ object SubscriptionStatusLogic {
       case SubscriptionPaymentMethod.Cash => "Cash"
       case SubscriptionPaymentMethod.CardAutoCharge => "Automatic card charge"
     }
+
+  def extraChargeRecurrenceLabel(recurrence: SubscriptionExtraChargeRecurrence): String =
+    recurrence match {
+      case SubscriptionExtraChargeRecurrence.OneOff => "One-off"
+      case SubscriptionExtraChargeRecurrence.Monthly => "Monthly"
+      case SubscriptionExtraChargeRecurrence.Yearly => "Yearly"
+    }
+
+  def extraChargeLabel(charge: SubscriptionExtraCharge): String = {
+    val schedule = charge.recurrence match {
+      case SubscriptionExtraChargeRecurrence.OneOff => s"on ${charge.dueDate}"
+      case SubscriptionExtraChargeRecurrence.Monthly | SubscriptionExtraChargeRecurrence.Yearly =>
+        s"${extraChargeRecurrenceLabel(charge.recurrence).toLowerCase} from ${charge.dueDate}"
+    }
+    s"${charge.label} ${charge.amount.bigDecimal.toPlainString} $schedule"
+  }
 
   // `ChronoUnit.between` can undercount when the start day-of-month is clamped (31 Jan -> 28 Feb counts as 0 months),
   // so step forward while the next occurrence still fits.

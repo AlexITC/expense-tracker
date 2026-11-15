@@ -202,4 +202,28 @@ class SubscriptionValidatorSpec extends AnyWordSpec with Matchers {
         Left("Interval days is required for an every-N-days cadence")
     }
   }
+
+  "validateExtraChargeAmount" should {
+    "accept a positive amount with up to two decimals and ten integer digits" in {
+      List(BigDecimal("0.01"), BigDecimal("12"), BigDecimal("9999999999.99")).foreach { amount =>
+        SubscriptionValidator.validateExtraChargeAmount(amount) mustBe Right(())
+      }
+    }
+
+    "reject a zero or negative amount" in {
+      List(BigDecimal("0"), BigDecimal("-5.00")).foreach { amount =>
+        SubscriptionValidator.validateExtraChargeAmount(amount) mustBe Left("Amount must be greater than zero")
+      }
+    }
+
+    "reject more than two decimals" in {
+      SubscriptionValidator.validateExtraChargeAmount(BigDecimal("1.234")) mustBe
+        Left("Amount must have at most 2 decimal places")
+    }
+
+    "reject more than ten integer digits" in {
+      SubscriptionValidator.validateExtraChargeAmount(BigDecimal("12345678901")) mustBe
+        Left("Amount must have at most 10 integer digits")
+    }
+  }
 }

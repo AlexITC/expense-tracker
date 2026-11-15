@@ -1,6 +1,14 @@
 package net.wiringbits.actions.subscriptions
 
-import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod, SubscriptionTerm}
+import net.wiringbits.api.models.subscriptions.{
+  AddSubscriptionExtraCharge,
+  SubscriptionCadence,
+  SubscriptionExtraCharge,
+  SubscriptionExtraChargeRecurrence,
+  SubscriptionPaymentMethod,
+  SubscriptionTerm
+}
+import net.wiringbits.common.models.SubscriptionExtraChargeLabel
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import net.wiringbits.repositories.models.SubscriptionTerm as Term
 import org.scalatest.OptionValues.*
@@ -8,7 +16,7 @@ import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
 import utils.RepositoryUtils
 
-import java.time.{Instant, LocalDate}
+import java.time.{Clock, Instant, LocalDate}
 import java.util.UUID
 
 class GetSubscriptionsActionSpec extends RepositorySpec with RepositoryUtils {
@@ -114,6 +122,55 @@ class GetSubscriptionsActionSpec extends RepositorySpec with RepositoryUtils {
       )
       item.terms.map(_.amountMin) must be(List(Some(BigDecimal("7.00")), Some(BigDecimal("8.00")), None))
       response.data.find(_.id == sibling.id).value.terms.map(_.id) must be(List(sibling.firstTerm.id))
+    }
+
+    "return each subscription's extra charges ordered by due date" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val other = createUser().futureValue
+      val existing = createSubscription(user.id, name = s"Gym ${UUID.randomUUID()}").futureValue
+      val sibling = createSubscription(user.id, name = s"Pool ${UUID.randomUUID()}").futureValue
+      val foreign = createSubscription(other.id, name = s"Other ${UUID.randomUUID()}").futureValue
+      val addAction =
+        new AddSubscriptionExtraChargeAction(repositories.subscriptions)(using executionContext, Clock.systemUTC())
+      def add(subscriptionId: UUID, userId: UUID, label: String, dueDate: LocalDate) =
+        addAction
+          .apply(
+            subscriptionId,
+            userId,
+            AddSubscriptionExtraCharge.Request(
+              label = SubscriptionExtraChargeLabel.trusted(label),
+              amount = BigDecimal("12.00"),
+              recurrence = SubscriptionExtraChargeRecurrence.Yearly,
+              dueDate = dueDate
+            )
+          )
+          .futureValue
+          .id
+      // Added out of date order so the result order comes from the query, not insertion.
+      val late = add(existing.id, user.id, "Late fee", LocalDate.of(2025, 6, 1))
+      val early = add(existing.id, user.id, "Early fee", LocalDate.of(2025, 3, 1))
+      add(foreign.id, other.id, "Foreign fee", LocalDate.of(2025, 1, 1))
+
+      val response = newAction().apply(user.id).futureValue
+      response.data.find(_.id == existing.id).value.extraCharges must be(
+        List(
+          SubscriptionExtraCharge(
+            id = early,
+            label = "Early fee",
+            amount = BigDecimal("12.00"),
+            recurrence = SubscriptionExtraChargeRecurrence.Yearly,
+            dueDate = LocalDate.of(2025, 3, 1)
+          ),
+          SubscriptionExtraCharge(
+            id = late,
+            label = "Late fee",
+            amount = BigDecimal("12.00"),
+            recurrence = SubscriptionExtraChargeRecurrence.Yearly,
+            dueDate = LocalDate.of(2025, 6, 1)
+          )
+        )
+      )
+      response.data.find(_.id == sibling.id).value.extraCharges must be(List.empty)
     }
   }
 }

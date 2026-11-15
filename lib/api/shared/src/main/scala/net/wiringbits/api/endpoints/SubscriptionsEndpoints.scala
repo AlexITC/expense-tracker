@@ -118,6 +118,38 @@ object SubscriptionsEndpoints {
       .errorOut(oneOf(HttpErrors.badRequest))
       .summary("Suggest a subscription start date from the merchant's earliest expense")
 
+  def addExtraCharge(implicit authHandler: ServerRequest => Future[UUID]): Endpoint[
+    Unit,
+    (UUID, AddSubscriptionExtraCharge.Request, Future[UUID]),
+    ErrorResponse,
+    AddSubscriptionExtraCharge.Response,
+    Any
+  ] =
+    baseEndpoint.post
+      .in(path[UUID]("subscriptionId"))
+      .in("extra-charges")
+      .in(jsonBody[AddSubscriptionExtraCharge.Request])
+      .in(userAuth)
+      .out(jsonBody[AddSubscriptionExtraCharge.Response])
+      .errorOut(oneOf(HttpErrors.badRequest))
+      .summary("Add an extra charge to a subscription")
+
+  def deleteExtraCharge(implicit authHandler: ServerRequest => Future[UUID]): Endpoint[
+    Unit,
+    (UUID, UUID, Future[UUID]),
+    ErrorResponse,
+    DeleteSubscriptionExtraCharge.Response,
+    Any
+  ] =
+    baseEndpoint.delete
+      .in(path[UUID]("subscriptionId"))
+      .in("extra-charges")
+      .in(path[UUID]("extraChargeId"))
+      .in(userAuth)
+      .out(jsonBody[DeleteSubscriptionExtraCharge.Response])
+      .errorOut(oneOf(HttpErrors.badRequest))
+      .summary("Delete an extra charge of a subscription")
+
   def routes(implicit authHandler: ServerRequest => Future[UUID]): List[AnyEndpoint] =
     List(
       getSubscriptions,
@@ -127,6 +159,8 @@ object SubscriptionsEndpoints {
       changeSubscriptionPrice,
       cancelSubscription,
       resumeSubscription,
-      getStartDateSuggestion
+      getStartDateSuggestion,
+      addExtraCharge,
+      deleteExtraCharge
     )
 }

@@ -343,6 +343,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
           amountMax = Some(BigDecimal("40.00"))
         )
       ),
+      extraCharges = List.empty,
       createdAt = Instant.parse("2026-02-01T10:00:00Z")
     )
 

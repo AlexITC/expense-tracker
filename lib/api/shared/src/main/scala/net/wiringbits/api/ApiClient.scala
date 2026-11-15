@@ -427,6 +427,18 @@ class ApiClient(config: ApiClient.Config)(implicit
   def getSubscriptionStartDateSuggestion(merchantId: UUID): Future[GetSubscriptionStartDateSuggestion.Response] =
     handleRequest(SubscriptionsEndpoints.getStartDateSuggestion, (merchantId, dummyUserId))
 
+  def addSubscriptionExtraCharge(
+      subscriptionId: UUID,
+      request: AddSubscriptionExtraCharge.Request
+  ): Future[AddSubscriptionExtraCharge.Response] =
+    handleRequest(SubscriptionsEndpoints.addExtraCharge, (subscriptionId, request, dummyUserId))
+
+  def deleteSubscriptionExtraCharge(
+      subscriptionId: UUID,
+      extraChargeId: UUID
+  ): Future[DeleteSubscriptionExtraCharge.Response] =
+    handleRequest(SubscriptionsEndpoints.deleteExtraCharge, (subscriptionId, extraChargeId, dummyUserId))
+
   def aiExtractBankStatement(
       request: AiExtractBankStatement.Request
   ): Future[AiExtractBankStatement.Response] =
