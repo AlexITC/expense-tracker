@@ -65,6 +65,7 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
     amountMax = Some(BigDecimal("12.50")),
     paymentMethod = SubscriptionPaymentMethod.CardPortal,
     categoryId = Some(UUID.randomUUID()),
+    merchantId = Some(UUID.randomUUID()),
     description = Some(SubscriptionDescription.trusted("Family plan")),
     startDate = LocalDate.of(2026, 3, 15)
   )
@@ -76,6 +77,7 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
     intervalMonths = None,
     paymentMethod = SubscriptionPaymentMethod.DirectDebit,
     categoryId = None,
+    merchantId = Some(UUID.randomUUID()),
     description = None
   )
 
@@ -114,6 +116,7 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
             intervalMonths = None,
             paymentMethod = SubscriptionPaymentMethod.CardPortal,
             categoryId = Some(UUID.randomUUID()),
+            merchantId = Some(UUID.randomUUID()),
             description = Some("Family plan"),
             terms = List(
               SubscriptionTerm(
@@ -141,6 +144,7 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
             intervalMonths = None,
             paymentMethod = SubscriptionPaymentMethod.Cash,
             categoryId = None,
+            merchantId = None,
             description = None,
             terms = List(
               SubscriptionTerm(

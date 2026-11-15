@@ -3,12 +3,15 @@ package net.wiringbits.components.pages.subscriptions
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.categories.GetCategories
+import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.subscriptions.{
   GetSubscriptions,
   SubscriptionCadence,
   SubscriptionPaymentMethod,
   SubscriptionTerm
 }
+import net.wiringbits.common.models.MerchantName
+import net.wiringbits.components.pages.MerchantResolver
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.forms.{
   AmountMode,
@@ -23,6 +26,7 @@ import net.wiringbits.models.User
 import net.wiringbits.ui.components.inputs.{
   DateInput,
   OptionalIdSelectInput,
+  OptionalMerchantAutocompleteInput,
   SubscriptionAmountInput,
   SubscriptionDescriptionInput,
   SubscriptionIntervalDaysInput,
@@ -30,6 +34,7 @@ import net.wiringbits.ui.components.inputs.{
   SubscriptionNameInput
 }
 import net.wiringbits.ui.forms.{
+  ExistingOrNewValue,
   ExpLocalDate,
   SubmitHooks,
   SubscriptionAmount,
@@ -69,7 +74,14 @@ object SubscriptionsPage {
         render = subscriptions =>
           AsyncComponent[GetCategories.Response](
             fetch = () => props.ctx.api.client.getCategories,
-            render = categories => SubscriptionList(props.ctx, subscriptions, categories, () => forceRefresh()),
+            render = categories =>
+              AsyncComponent[GetMerchants.Response](
+                fetch = () => props.ctx.api.client.getMerchants,
+                render =
+                  merchants => SubscriptionList(props.ctx, subscriptions, categories, merchants, () => forceRefresh()),
+                progressIndicator = () => Loader(props.ctx),
+                watchedObjects = List(timesRefreshing)
+              ),
             progressIndicator = () => Loader(props.ctx),
             watchedObjects = List(timesRefreshing)
           ),
@@ -94,14 +106,16 @@ object SubscriptionList {
       ctx: AppContext,
       subscriptions: GetSubscriptions.Response,
       categories: GetCategories.Response,
+      merchants: GetMerchants.Response,
       onRefresh: () => Unit
   ): KeyAddingStage =
-    component(Props(ctx, subscriptions, categories, onRefresh))
+    component(Props(ctx, subscriptions, categories, merchants, onRefresh))
 
   case class Props(
       ctx: AppContext,
       subscriptions: GetSubscriptions.Response,
       categories: GetCategories.Response,
+      merchants: GetMerchants.Response,
       onRefresh: () => Unit
   )
 
@@ -152,6 +166,22 @@ object SubscriptionList {
 
     val categoryNames: Map[UUID, String] = props.categories.data.map(c => c.id -> c.name).toMap
     val categoryOptions: Seq[(String, String)] = props.categories.data.map(c => c.id.toString -> c.name)
+    val merchantNames: Map[UUID, String] = props.merchants.data.map(m => m.id -> m.name).toMap
+
+    // Picks or creates the selected merchant (a new one takes the subscription's category as its default), then
+    // sends the request built with its id. A newly created merchant is reported through `onCreated` before sending,
+    // so the form can point at it and a retry after a failed send reuses it instead of creating it again.
+    def withResolvedMerchant[R](
+        selection: Option[ExistingOrNewValue[MerchantName, UUID]],
+        categoryId: Option[UUID],
+        onCreated: GetMerchants.Response.Merchant => Unit
+    )(send: Option[UUID] => Future[R]): Future[R] =
+      MerchantResolver
+        .findOrCreateMerchantOpt(props.ctx.api.client, props.merchants.data, selection, categoryId)
+        .flatMap { merchant =>
+          merchant.flatMap(_._2).foreach(onCreated)
+          send(merchant.map(_._1))
+        }
     val today = LocalDate.now()
 
     def onCreateDataChanged(f: CreateSubscriptionFormData => CreateSubscriptionFormData): Unit = {
@@ -174,10 +204,16 @@ object SubscriptionList {
 
     def handleCreate(e: SyntheticEvent[?, dom.Event]): Unit = {
       e.preventDefault()
-      createFormData.data.submitRequest.foreach { request =>
+      createFormData.data.submitRequest.foreach { resolved =>
         createControl.begin()
-        props.ctx.api.client
-          .createSubscription(request)
+        withResolvedMerchant(
+          resolved.details.merchant,
+          resolved.details.categoryId,
+          onCreated = created =>
+            setCreateFormData(cur =>
+              cur.copy(data = cur.data.copy(details = cur.data.details.withExistingMerchant(created)))
+            )
+        )(merchantId => props.ctx.api.client.createSubscription(resolved.request(merchantId)))
           .onComplete {
             case Success(_) =>
               createControl.reset()
@@ -222,7 +258,11 @@ object SubscriptionList {
       editControl.reset()
       setEditFormData(_ =>
         StatefulFormData(
-          SubscriptionFormData.fromSubscription(nameLabel = NameLabel, subscription = s)
+          SubscriptionFormData.fromSubscription(
+            nameLabel = NameLabel,
+            subscription = s,
+            merchants = props.merchants.data
+          )
         )
       )
       setEditor(_ => SubscriptionEditor.Edit(s.id))
@@ -350,6 +390,17 @@ object SubscriptionList {
             m.entryName -> SubscriptionStatusLogic.paymentMethodLabel(m)
           ),
           onChange = v => update(_.copy(paymentMethod = SubscriptionPaymentMethod.fromEntryName(v)))
+        ),
+        fieldBox(key = "merchant", boxMinWidth = "220px")(
+          OptionalMerchantAutocompleteInput.component(
+            OptionalMerchantAutocompleteInput.Props(
+              field = data.merchant,
+              options = props.merchants.data,
+              label = "Merchant (optional)",
+              onChange = value => update(x => x.copy(merchant = x.merchant.updated(value))),
+              disabled = disabled
+            )
+          )
         ),
         fieldBox(key = "category", boxMinWidth = "200px")(
           OptionalIdSelectInput.component(
@@ -524,7 +575,12 @@ object SubscriptionList {
         canSubmit = editFormData.data.isValid,
         onFormSubmit = submitEditor(
           editFormData.data.submitRequest,
-          props.ctx.api.client.updateSubscription(subscriptionId, _)
+          resolved =>
+            withResolvedMerchant(
+              resolved.merchant,
+              resolved.categoryId,
+              onCreated = created => setEditFormData(cur => cur.copy(data = cur.data.withExistingMerchant(created)))
+            )(merchantId => props.ctx.api.client.updateSubscription(subscriptionId, resolved.request(merchantId)))
         )
       )
 
@@ -597,6 +653,7 @@ object SubscriptionList {
           .map(t => SubscriptionStatusLogic.amountLabel(amountMin = t.amountMin, amountMax = t.amountMax))
           .filter(_.nonEmpty),
         Some(SubscriptionStatusLogic.paymentMethodLabel(s.paymentMethod)),
+        s.merchantId.flatMap(merchantNames.get),
         s.categoryId.flatMap(categoryNames.get),
         s.description
       ).flatten.mkString(" · ")

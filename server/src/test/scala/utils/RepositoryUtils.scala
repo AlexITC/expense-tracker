@@ -259,6 +259,7 @@ trait RepositoryUtils {
       amountMax: Option[BigDecimal] = None,
       paymentMethod: SubscriptionPaymentMethod = SubscriptionPaymentMethod.DirectDebit,
       categoryId: Option[UUID] = None,
+      merchantId: Option[UUID] = None,
       description: Option[String] = None,
       startDate: LocalDate = LocalDate.of(2024, 1, 15)
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[Subscription.Create] = {
@@ -274,6 +275,7 @@ trait RepositoryUtils {
       intervalMonths = intervalMonths,
       paymentMethod = paymentMethod,
       categoryId = categoryId,
+      merchantId = merchantId,
       description = description,
       firstTerm = SubscriptionTerm(
         id = UUID.randomUUID(),

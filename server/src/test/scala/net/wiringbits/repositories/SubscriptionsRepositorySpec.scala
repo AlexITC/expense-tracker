@@ -195,6 +195,7 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
           intervalMonths = None,
           paymentMethod = SubscriptionPaymentMethod.Cash,
           categoryId = None,
+          merchantId = None,
           description = Some("Family plan")
         )
         .futureValue
@@ -231,6 +232,7 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
           intervalMonths = None,
           paymentMethod = request.paymentMethod,
           categoryId = None,
+          merchantId = None,
           description = None
         )
         .futureValue
@@ -258,6 +260,7 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
           intervalMonths = request.intervalMonths,
           paymentMethod = request.paymentMethod,
           categoryId = Some(foreignCategory.id),
+          merchantId = None,
           description = None
         )
         .failed
@@ -280,6 +283,7 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
           intervalMonths = request.intervalMonths,
           paymentMethod = request.paymentMethod,
           categoryId = request.categoryId,
+          merchantId = None,
           description = None
         )
         .failed
@@ -302,6 +306,7 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
           intervalMonths = request.intervalMonths,
           paymentMethod = request.paymentMethod,
           categoryId = None,
+          merchantId = None,
           description = None
         )
         .failed

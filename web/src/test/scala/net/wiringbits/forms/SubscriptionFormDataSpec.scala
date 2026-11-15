@@ -8,8 +8,11 @@ import net.wiringbits.api.models.subscriptions.{
   SubscriptionTerm,
   UpdateSubscription
 }
-import net.wiringbits.common.models.{SubscriptionDescription, SubscriptionName}
+import net.wiringbits.api.models.merchants.GetMerchants
+import net.wiringbits.common.models.{MerchantName, SubscriptionDescription, SubscriptionName}
 import net.wiringbits.ui.forms.{
+  ExistingOrNewValue,
+  ExistingSelections,
   ExpLocalDate,
   ExpOptionalId,
   SubscriptionAmount,
@@ -17,6 +20,7 @@ import net.wiringbits.ui.forms.{
   SubscriptionIntervalDays,
   SubscriptionIntervalMonths
 }
+import net.wiringbits.webapp.common.validators.ValidationResult
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -26,6 +30,22 @@ import java.util.UUID
 class SubscriptionFormDataSpec extends AnyWordSpec {
 
   private val categoryId = UUID.randomUUID()
+
+  private val merchant = GetMerchants.Response.Merchant(
+    id = UUID.randomUUID(),
+    name = s"Merchant ${UUID.randomUUID()}",
+    notes = None,
+    categoryId = None,
+    taxId = None,
+    reviewed = true,
+    createdAt = Instant.parse("2026-01-01T00:00:00Z")
+  )
+
+  private def asOptional[T](result: ValidationResult[T]): ValidationResult[Option[T]] =
+    result match {
+      case ValidationResult.Valid(input, value) => ValidationResult.Valid(input, Some(value))
+      case ValidationResult.Invalid(input, error) => ValidationResult.Invalid(input = input, error = error)
+    }
 
   private val initialForm = CreateSubscriptionFormData.initial(nameLabel = "Name")
 
@@ -40,6 +60,10 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       form.copy(categoryId = form.categoryId.updated(ExpOptionalId.validate(raw)))
     private def withDescription(raw: String): SubscriptionFormData =
       form.copy(description = form.description.updated(SubscriptionDescriptionValidator.optionalValidator(raw)))
+    private def withMerchant(result: ValidationResult[Option[ExistingOrNewValue[MerchantName, UUID]]]) =
+      form.copy(merchant = form.merchant.updated(result))
+    // The request the page sends when no merchant is selected.
+    private def sentRequest: Option[UpdateSubscription.Request] = form.submitRequest.map(_.request(merchantId = None))
   }
 
   extension (form: CreateSubscriptionFormData) {
@@ -64,6 +88,11 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       form.withAmounts(a => a.copy(max = a.max.updated(SubscriptionAmount.optionalValidator(raw))))
     private def withStartDate(raw: String): CreateSubscriptionFormData =
       form.copy(startDate = form.startDate.updated(ExpLocalDate.validate(raw)))
+    private def withMerchant(
+        result: ValidationResult[Option[ExistingOrNewValue[MerchantName, UUID]]]
+    ): CreateSubscriptionFormData = form.withDetails(_.withMerchant(result))
+    // The request the page sends when no merchant is selected.
+    private def sentRequest: Option[CreateSubscription.Request] = form.submitRequest.map(_.request(merchantId = None))
   }
 
   private val validForm = initialForm.withName("Streaming").withExact("12.50").withStartDate("2026-01-15")
@@ -77,6 +106,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     amountMax = Some(BigDecimal("12.50")),
     paymentMethod = SubscriptionPaymentMethod.DirectDebit,
     categoryId = None,
+    merchantId = None,
     description = None,
     startDate = LocalDate.parse("2026-01-15")
   )
@@ -90,7 +120,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
   private def assertBlocked(form: CreateSubscriptionFormData) = {
     form.isValid must be(false)
     form.formValidationErrors must not be empty
-    form.submitRequest must be(None)
+    form.sentRequest must be(None)
   }
 
   "fields" should {
@@ -98,6 +128,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       initialForm.fields.map(_.name) must be(
         List(
           "subscription-create-name",
+          "subscription-create-merchant",
           "subscription-create-category",
           "subscription-create-description",
           "subscription-create-exact-amount",
@@ -123,44 +154,44 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
   "submitRequest" should {
     "return a request with min equal to max for an exact amount" in {
       validForm.isValid must be(true)
-      validForm.submitRequest must be(Some(expectedRequest))
+      validForm.sentRequest must be(Some(expectedRequest))
     }
 
     "return a request with both amounts for a range" in {
-      rangeForm.submitRequest must be(
+      rangeForm.sentRequest must be(
         Some(expectedRequest.copy(amountMin = Some(BigDecimal("10")), amountMax = Some(BigDecimal("25.00"))))
       )
     }
 
     "return a request without amounts when the exact amount is blank" in {
-      validForm.withExact(" ").submitRequest must be(Some(expectedRequest.copy(amountMin = None, amountMax = None)))
+      validForm.withExact(" ").sentRequest must be(Some(expectedRequest.copy(amountMin = None, amountMax = None)))
     }
 
     "include the interval for an every-N-days cadence" in {
-      everyNDaysForm.withInterval(" 14 ").submitRequest must be(
+      everyNDaysForm.withInterval(" 14 ").sentRequest must be(
         Some(expectedRequest.copy(cadence = SubscriptionCadence.EveryNDays, intervalDays = Some(14)))
       )
     }
 
     "include the interval months for an every-N-months cadence" in {
-      everyNMonthsForm.withIntervalMonths(" 3 ").submitRequest must be(
+      everyNMonthsForm.withIntervalMonths(" 3 ").sentRequest must be(
         Some(expectedRequest.copy(cadence = SubscriptionCadence.EveryNMonths, intervalMonths = Some(3)))
       )
     }
 
     "ignore the interval input for other cadences, even when invalid" in {
-      validForm.withInterval("abc").submitRequest must be(Some(expectedRequest))
+      validForm.withInterval("abc").sentRequest must be(Some(expectedRequest))
     }
 
     "ignore the interval months input for other cadences, even when invalid" in {
-      validForm.withIntervalMonths("abc").submitRequest must be(Some(expectedRequest))
-      everyNDaysForm.withInterval("14").withIntervalMonths("3").submitRequest must be(
+      validForm.withIntervalMonths("abc").sentRequest must be(Some(expectedRequest))
+      everyNDaysForm.withInterval("14").withIntervalMonths("3").sentRequest must be(
         Some(expectedRequest.copy(cadence = SubscriptionCadence.EveryNDays, intervalDays = Some(14)))
       )
     }
 
     "include the picked category" in {
-      validForm.withCategory(categoryId.toString).submitRequest must be(
+      validForm.withCategory(categoryId.toString).sentRequest must be(
         Some(expectedRequest.copy(categoryId = Some(categoryId)))
       )
     }
@@ -209,7 +240,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     }
 
     "include the trimmed description" in {
-      validForm.withDescription("  Family plan ").submitRequest must be(
+      validForm.withDescription("  Family plan ").sentRequest must be(
         Some(expectedRequest.copy(description = Some(SubscriptionDescription.trusted("Family plan"))))
       )
     }
@@ -217,11 +248,45 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     "send no description when it is blank" in {
       val form = validForm.withDescription("   ")
       form.isValid must be(true)
-      form.submitRequest must be(Some(expectedRequest))
+      form.sentRequest must be(Some(expectedRequest))
     }
 
     "return None when the description is over 500 characters" in {
       assertBlocked(validForm.withDescription("a" * 501))
+    }
+
+    "carry no merchant selection by default" in {
+      validForm.submitRequest.map(_.details.merchant) must be(Some(None))
+    }
+
+    "carry a picked merchant for the page to resolve" in {
+      val resolved = validForm.withMerchant(asOptional(ExistingSelections.merchant(merchant))).submitRequest
+      resolved.map(_.details.merchant) must be(
+        Some(Some(ExistingOrNewValue(value = MerchantName.trusted(merchant.name), id = Some(merchant.id))))
+      )
+      resolved.map(_.request(merchantId = Some(merchant.id))) must be(
+        Some(expectedRequest.copy(merchantId = Some(merchant.id)))
+      )
+    }
+
+    "carry a typed new merchant without an id" in {
+      validForm
+        .withMerchant(asOptional(ExistingSelections.newMerchant("Corner shop")))
+        .submitRequest
+        .map(
+          _.details.merchant
+        ) must be(Some(Some(ExistingOrNewValue(value = MerchantName.trusted("Corner shop"), id = None))))
+    }
+
+    "carry the created merchant's id once the typed merchant is replaced by it" in {
+      val typed = validForm.withMerchant(asOptional(ExistingSelections.newMerchant(merchant.name)))
+      typed.withDetails(_.withExistingMerchant(merchant)).submitRequest.map(_.details.merchant) must be(
+        Some(Some(ExistingOrNewValue(value = MerchantName.trusted(merchant.name), id = Some(merchant.id))))
+      )
+    }
+
+    "return None when the typed merchant name is invalid" in {
+      assertBlocked(validForm.withMerchant(asOptional(ExistingSelections.newMerchant("a" * 1000))))
     }
   }
 
@@ -234,6 +299,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       intervalMonths = None,
       paymentMethod = SubscriptionPaymentMethod.CardPortal,
       categoryId = Some(categoryId),
+      merchantId = Some(merchant.id),
       description = Some("Family plan"),
       terms = List(
         SubscriptionTerm(
@@ -247,7 +313,11 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       createdAt = Instant.parse("2026-02-01T10:00:00Z")
     )
 
-    val editForm = SubscriptionFormData.fromSubscription(nameLabel = "Name", subscription = subscription)
+    val editForm = SubscriptionFormData.fromSubscription(
+      nameLabel = "Name",
+      subscription = subscription,
+      merchants = List(merchant)
+    )
 
     val expectedUpdate = UpdateSubscription.Request(
       name = SubscriptionName.trusted(subscription.name),
@@ -256,6 +326,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       intervalMonths = subscription.intervalMonths,
       paymentMethod = subscription.paymentMethod,
       categoryId = subscription.categoryId,
+      merchantId = None,
       description = Some(SubscriptionDescription.trusted("Family plan"))
     )
 
@@ -264,6 +335,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
         List(
           "subscription-edit-name",
           "subscription-edit-interval",
+          "subscription-edit-merchant",
           "subscription-edit-category",
           "subscription-edit-description"
         )
@@ -274,13 +346,13 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       editForm.categoryId.inputValue must be(categoryId.toString)
       editForm.description.inputValue must be("Family plan")
       editForm.isValid must be(true)
-      editForm.submitRequest must be(Some(expectedUpdate))
+      editForm.sentRequest must be(Some(expectedUpdate))
     }
 
     "apply edits to the update request" in {
       val edited =
         editForm.withName("Pool").copy(cadence = SubscriptionCadence.Yearly).withCategory("").withDescription("")
-      edited.submitRequest must be(
+      edited.sentRequest must be(
         Some(
           expectedUpdate.copy(
             name = SubscriptionName.trusted("Pool"),
@@ -296,7 +368,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     "block an every-N-days cadence without a valid interval" in {
       val form = editForm.withInterval("0")
       form.isValid must be(false)
-      form.submitRequest must be(None)
+      form.sentRequest must be(None)
     }
 
     "seed and round-trip an every-N-months subscription" in {
@@ -305,17 +377,22 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
         intervalDays = None,
         intervalMonths = Some(3)
       )
-      val form = SubscriptionFormData.fromSubscription(nameLabel = "Name", subscription = quarterly)
+      val form = SubscriptionFormData.fromSubscription(
+        nameLabel = "Name",
+        subscription = quarterly,
+        merchants = List(merchant)
+      )
       form.fields.map(_.name) must be(
         List(
           "subscription-edit-name",
           "subscription-edit-interval-months",
+          "subscription-edit-merchant",
           "subscription-edit-category",
           "subscription-edit-description"
         )
       )
       form.intervalMonths.inputValue must be("3")
-      form.submitRequest must be(
+      form.sentRequest must be(
         Some(
           expectedUpdate.copy(
             cadence = SubscriptionCadence.EveryNMonths,
@@ -329,11 +406,35 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     "block an every-N-months cadence without a valid interval" in {
       val form = editForm.copy(cadence = SubscriptionCadence.EveryNMonths).withIntervalMonths("30")
       form.isValid must be(false)
+      form.sentRequest must be(None)
+    }
+
+    "seed the linked merchant by name and id" in {
+      editForm.merchant.inputValue must be(merchant.name)
+      editForm.submitRequest.map(_.merchant) must be(
+        Some(Some(ExistingOrNewValue(value = MerchantName.trusted(merchant.name), id = Some(merchant.id))))
+      )
+    }
+
+    "unlink the merchant when it is cleared" in {
+      editForm.withMerchant(ValidationResult.Valid("", None)).submitRequest.map(_.merchant) must be(Some(None))
+    }
+
+    "block a linked merchant missing from the merchant list" in {
+      val form = SubscriptionFormData.fromSubscription(nameLabel = "Name", subscription = subscription, merchants = Nil)
+      form.isValid must be(false)
       form.submitRequest must be(None)
     }
 
+    "seed no merchant for an unlinked subscription" in {
+      SubscriptionFormData
+        .fromSubscription(nameLabel = "Name", subscription = subscription.copy(merchantId = None), merchants = Nil)
+        .submitRequest
+        .map(_.merchant) must be(Some(None))
+    }
+
     "block an invalid name" in {
-      editForm.withName(" ").submitRequest must be(None)
+      editForm.withName(" ").sentRequest must be(None)
     }
   }
 }

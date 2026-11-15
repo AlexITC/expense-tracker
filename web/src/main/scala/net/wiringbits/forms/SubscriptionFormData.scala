@@ -7,9 +7,12 @@ import net.wiringbits.api.models.subscriptions.{
   SubscriptionPaymentMethod,
   UpdateSubscription
 }
+import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.utils.SubscriptionValidator
-import net.wiringbits.common.models.{SubscriptionDescription, SubscriptionName}
+import net.wiringbits.common.models.{MerchantName, SubscriptionDescription, SubscriptionName}
 import net.wiringbits.ui.forms.{
+  ExistingOrNewValue,
+  ExistingSelections,
   ExpLocalDate,
   ExpOptionalId,
   SubscriptionAmount,
@@ -17,8 +20,10 @@ import net.wiringbits.ui.forms.{
   SubscriptionIntervalDays,
   SubscriptionIntervalMonths
 }
+import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.forms.{FormData, FormField}
 
+import java.time.LocalDate
 import java.util.UUID
 
 /** Whether the user enters a single expected amount or a min/max range. */
@@ -88,7 +93,8 @@ object SubscriptionAmountFields {
 /** The subscription's own inputs, shared by the create and edit forms; on its own it is the edit form, since amounts
   * and dates live in the subscription's terms. Every input is a validated field; `fields` lists only the inputs the
   * selected cadence uses, so a hidden input never blocks the form. The rules that span several fields come from the
-  * shared [[SubscriptionValidator]].
+  * shared [[SubscriptionValidator]]. The merchant is a pick-or-create selection, so `submitRequest` returns it
+  * unresolved; the page resolves it to an id (creating the merchant if needed) and then builds the API request.
   *
   * `prefix` keeps field names (and thus DOM ids) unique, since the create and edit forms can be on screen together.
   */
@@ -98,9 +104,10 @@ case class SubscriptionFormData(
     intervalDays: FormField[SubscriptionIntervalDays],
     intervalMonths: FormField[SubscriptionIntervalMonths],
     paymentMethod: SubscriptionPaymentMethod,
+    merchant: FormField[Option[ExistingOrNewValue[MerchantName, UUID]]],
     categoryId: FormField[Option[UUID]],
     description: FormField[Option[SubscriptionDescription]]
-) extends FormData[UpdateSubscription.Request] {
+) extends FormData[SubscriptionFormData.Resolved] {
 
   override def fields: List[FormField[?]] = {
     val intervalFields = cadence match {
@@ -108,7 +115,7 @@ case class SubscriptionFormData(
       case SubscriptionCadence.EveryNMonths => List(intervalMonths)
       case SubscriptionCadence.Monthly | SubscriptionCadence.Yearly => Nil
     }
-    List(name) ++ intervalFields ++ List(categoryId, description)
+    List(name) ++ intervalFields ++ List(merchant, categoryId, description)
   }
 
   override def formValidationErrors: List[String] = {
@@ -123,23 +130,28 @@ case class SubscriptionFormData(
     super.formValidationErrors ++ validatorError.toList
   }
 
-  override def submitRequest: Option[UpdateSubscription.Request] =
+  override def submitRequest: Option[SubscriptionFormData.Resolved] =
     if (!isValid) None
     else
       for {
         validName <- name.valueOpt
         intervals <- resolvedIntervals
+        selectedMerchant <- merchant.valueOpt
         category <- categoryId.valueOpt
         validDescription <- description.valueOpt
-      } yield UpdateSubscription.Request(
+      } yield SubscriptionFormData.Resolved(
         name = validName,
         cadence = cadence,
-        intervalDays = intervals.days,
-        intervalMonths = intervals.months,
+        intervals = intervals,
         paymentMethod = paymentMethod,
+        merchant = selectedMerchant,
         categoryId = category,
         description = validDescription
       )
+
+  /** Points the merchant field at an existing merchant, e.g. one just created from the typed name. */
+  def withExistingMerchant(m: GetMerchants.Response.Merchant): SubscriptionFormData =
+    copy(merchant = merchant.updated(SubscriptionFormData.asOptional(ExistingSelections.merchant(m))))
 
   // Each interval only applies to its own cadence; for other cadences the (hidden) input is ignored.
   def resolvedIntervals: Option[SubscriptionIntervals] =
@@ -161,7 +173,7 @@ case class CreateSubscriptionFormData(
     details: SubscriptionFormData,
     amounts: SubscriptionAmountFields,
     startDate: FormField[ExpLocalDate]
-) extends FormData[CreateSubscription.Request] {
+) extends FormData[CreateSubscriptionFormData.Resolved] {
 
   override def fields: List[FormField[?]] = details.fields ++ amounts.fields ++ List(startDate)
 
@@ -184,31 +196,66 @@ case class CreateSubscriptionFormData(
     super.formValidationErrors ++ validatorError.toList
   }
 
-  override def submitRequest: Option[CreateSubscription.Request] =
+  override def submitRequest: Option[CreateSubscriptionFormData.Resolved] =
     if (!isValid) None
     else
       for {
-        validName <- details.name.valueOpt
-        intervals <- details.resolvedIntervals
+        resolvedDetails <- details.submitRequest
         (min, max) <- amounts.resolved
-        category <- details.categoryId.valueOpt
-        validDescription <- details.description.valueOpt
         start <- startDate.valueOpt
-      } yield CreateSubscription.Request(
-        name = validName,
-        cadence = details.cadence,
-        intervalDays = intervals.days,
-        intervalMonths = intervals.months,
+      } yield CreateSubscriptionFormData.Resolved(
+        details = resolvedDetails,
         amountMin = min,
         amountMax = max,
-        paymentMethod = details.paymentMethod,
-        categoryId = category,
-        description = validDescription,
         startDate = start.value
       )
 }
 
 object SubscriptionFormData {
+
+  /** A valid edit form whose merchant selection is not yet resolved to an id. */
+  case class Resolved(
+      name: SubscriptionName,
+      cadence: SubscriptionCadence,
+      intervals: SubscriptionIntervals,
+      paymentMethod: SubscriptionPaymentMethod,
+      merchant: Option[ExistingOrNewValue[MerchantName, UUID]],
+      categoryId: Option[UUID],
+      description: Option[SubscriptionDescription]
+  ) {
+    def request(merchantId: Option[UUID]): UpdateSubscription.Request =
+      UpdateSubscription.Request(
+        name = name,
+        cadence = cadence,
+        intervalDays = intervals.days,
+        intervalMonths = intervals.months,
+        paymentMethod = paymentMethod,
+        merchantId = merchantId,
+        categoryId = categoryId,
+        description = description
+      )
+  }
+
+  private[forms] def asOptional[T](result: ValidationResult[T]): ValidationResult[Option[T]] =
+    result match {
+      case ValidationResult.Valid(input, value) => ValidationResult.Valid(input, Some(value))
+      case ValidationResult.Invalid(input, error) => ValidationResult.Invalid(input = input, error = error)
+    }
+
+  // A linked merchant missing from the list is shown as an error rather than dropped, so saving never unlinks it
+  // silently.
+  private def merchantSeed(
+      merchantId: Option[UUID],
+      merchants: List[GetMerchants.Response.Merchant]
+  ): ValidationResult[Option[ExistingOrNewValue[MerchantName, UUID]]] =
+    merchantId match {
+      case None => ValidationResult.Valid("", None)
+      case Some(id) =>
+        merchants.find(_.id == id) match {
+          case Some(m) => asOptional(ExistingSelections.merchant(m))
+          case None => ValidationResult.Invalid(input = "", error = "The linked merchant was not found")
+        }
+    }
 
   private[forms] def build(
       prefix: String,
@@ -218,6 +265,7 @@ object SubscriptionFormData {
       intervalDays: Option[String],
       intervalMonths: Option[String],
       paymentMethod: SubscriptionPaymentMethod,
+      merchant: ValidationResult[Option[ExistingOrNewValue[MerchantName, UUID]]],
       categoryId: String,
       description: String
   ): SubscriptionFormData =
@@ -242,6 +290,12 @@ object SubscriptionFormData {
         value = intervalMonths.map(SubscriptionIntervalMonths.validate)
       ),
       paymentMethod = paymentMethod,
+      merchant = new FormField(
+        label = "Merchant (optional)",
+        name = s"$prefix-merchant",
+        required = false,
+        value = Some(merchant)
+      ),
       categoryId = new FormField(
         label = "Category (optional)",
         name = s"$prefix-category",
@@ -258,7 +312,8 @@ object SubscriptionFormData {
 
   def fromSubscription(
       nameLabel: String,
-      subscription: GetSubscriptions.Response.Subscription
+      subscription: GetSubscriptions.Response.Subscription,
+      merchants: List[GetMerchants.Response.Merchant]
   ): SubscriptionFormData =
     build(
       prefix = "subscription-edit",
@@ -268,12 +323,36 @@ object SubscriptionFormData {
       intervalDays = subscription.intervalDays.map(_.toString),
       intervalMonths = subscription.intervalMonths.map(_.toString),
       paymentMethod = subscription.paymentMethod,
+      merchant = merchantSeed(subscription.merchantId, merchants),
       categoryId = subscription.categoryId.fold("")(_.toString),
       description = subscription.description.getOrElse("")
     )
 }
 
 object CreateSubscriptionFormData {
+
+  /** A valid create form whose merchant selection is not yet resolved to an id. */
+  case class Resolved(
+      details: SubscriptionFormData.Resolved,
+      amountMin: Option[BigDecimal],
+      amountMax: Option[BigDecimal],
+      startDate: LocalDate
+  ) {
+    def request(merchantId: Option[UUID]): CreateSubscription.Request =
+      CreateSubscription.Request(
+        name = details.name,
+        cadence = details.cadence,
+        intervalDays = details.intervals.days,
+        intervalMonths = details.intervals.months,
+        amountMin = amountMin,
+        amountMax = amountMax,
+        paymentMethod = details.paymentMethod,
+        categoryId = details.categoryId,
+        merchantId = merchantId,
+        description = details.description,
+        startDate = startDate
+      )
+  }
 
   private val Prefix = "subscription-create"
 
@@ -287,6 +366,7 @@ object CreateSubscriptionFormData {
         intervalDays = None,
         intervalMonths = None,
         paymentMethod = SubscriptionPaymentMethod.DirectDebit,
+        merchant = ValidationResult.Valid("", None),
         categoryId = "",
         description = ""
       ),

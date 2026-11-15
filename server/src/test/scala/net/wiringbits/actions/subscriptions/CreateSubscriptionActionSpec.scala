@@ -32,6 +32,7 @@ class CreateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       amountMax: Option[BigDecimal] = None,
       paymentMethod: SubscriptionPaymentMethod = SubscriptionPaymentMethod.DirectDebit,
       categoryId: Option[UUID] = None,
+      merchantId: Option[UUID] = None,
       description: Option[String] = None,
       startDate: LocalDate = LocalDate.of(2024, 1, 15)
   ): CreateSubscription.Request =
@@ -44,6 +45,7 @@ class CreateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       amountMax = amountMax,
       paymentMethod = paymentMethod,
       categoryId = categoryId,
+      merchantId = merchantId,
       // Validated like the decoder does, so surrounding whitespace is trimmed before the action sees it.
       description = description.map(SubscriptionDescription.validate(_).toOption.value),
       startDate = startDate
@@ -185,6 +187,27 @@ class CreateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
 
       val error = newAction().apply(user.id, request(categoryId = Some(category.id))).failed.futureValue
       error.getMessage must include("Category not found")
+      repositories.subscriptions.all(user.id).futureValue must be(empty)
+    }
+
+    "link an own merchant" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val merchant = createMerchant(user.id, name = uniqueName("Merchant")).futureValue
+
+      val response = newAction().apply(user.id, request(merchantId = Some(merchant.id))).futureValue
+
+      repositories.subscriptions.find(id = response.id, userId = user.id).futureValue.value.merchantId must be(
+        Some(merchant.id)
+      )
+    }
+
+    "reject another user's merchant" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val other = createUser().futureValue
+      val merchant = createMerchant(other.id, name = uniqueName("Merchant")).futureValue
+
+      val error = newAction().apply(user.id, request(merchantId = Some(merchant.id))).failed.futureValue
+      error.getMessage must include("Merchant not found")
       repositories.subscriptions.all(user.id).futureValue must be(empty)
     }
 

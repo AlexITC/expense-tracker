@@ -18,6 +18,7 @@ object UpdateSubscription {
       intervalMonths: Option[Int],
       paymentMethod: SubscriptionPaymentMethod,
       categoryId: Option[UUID],
+      merchantId: Option[UUID],
       description: Option[SubscriptionDescription]
   )
   case class Response()

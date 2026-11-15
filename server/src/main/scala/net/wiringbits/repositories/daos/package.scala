@@ -397,6 +397,7 @@ package object daos {
       "interval_months",
       "payment_method",
       "category_id",
+      "merchant_id",
       "description",
       "created_at",
       "updated_at"

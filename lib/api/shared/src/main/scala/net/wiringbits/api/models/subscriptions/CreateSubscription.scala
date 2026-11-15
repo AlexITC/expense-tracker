@@ -22,6 +22,7 @@ object CreateSubscription {
       amountMax: Option[BigDecimal],
       paymentMethod: SubscriptionPaymentMethod,
       categoryId: Option[UUID],
+      merchantId: Option[UUID],
       description: Option[SubscriptionDescription],
       startDate: LocalDate
   )

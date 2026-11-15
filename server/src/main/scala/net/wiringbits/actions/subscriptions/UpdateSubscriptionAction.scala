@@ -28,6 +28,7 @@ class UpdateSubscriptionAction @Inject() (subscriptionsRepository: Subscriptions
         intervalMonths = request.intervalMonths,
         paymentMethod = request.paymentMethod,
         categoryId = request.categoryId,
+        merchantId = request.merchantId,
         // A present-but-empty description means "no description"; the primitive already trimmed it at decode.
         description = request.description.map(_.string).filter(_.nonEmpty)
       )

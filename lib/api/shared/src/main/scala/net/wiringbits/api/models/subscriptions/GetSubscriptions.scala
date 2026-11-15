@@ -19,6 +19,7 @@ object GetSubscriptions {
         intervalMonths: Option[Int],
         paymentMethod: SubscriptionPaymentMethod,
         categoryId: Option[UUID],
+        merchantId: Option[UUID],
         description: Option[String],
         // Ordered by effectiveFrom; the cadence anchor for expected dates is the covering term's effectiveFrom.
         terms: List[SubscriptionTerm],

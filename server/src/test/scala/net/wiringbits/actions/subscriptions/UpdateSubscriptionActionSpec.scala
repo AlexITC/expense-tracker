@@ -25,6 +25,7 @@ class UpdateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       intervalMonths: Option[Int] = None,
       paymentMethod: SubscriptionPaymentMethod = SubscriptionPaymentMethod.Cash,
       categoryId: Option[UUID] = None,
+      merchantId: Option[UUID] = None,
       description: Option[String] = None
   ): UpdateSubscription.Request =
     UpdateSubscription.Request(
@@ -34,6 +35,7 @@ class UpdateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       intervalMonths = intervalMonths,
       paymentMethod = paymentMethod,
       categoryId = categoryId,
+      merchantId = merchantId,
       // Validated like the decoder does, so surrounding whitespace is trimmed before the action sees it.
       description = description.map(SubscriptionDescription.validate(_).toOption.value)
     )
@@ -223,6 +225,59 @@ class UpdateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
         .futureValue
       error.getMessage must include("Category not found")
       repositories.subscriptions.find(id = existing.id, userId = user.id).futureValue.value.categoryId must be(None)
+    }
+
+    "link an own merchant" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val merchant = createMerchant(user.id, name = uniqueName("Merchant")).futureValue
+      val existing = createSubscription(user.id, name = uniqueName("Phone")).futureValue
+
+      newAction()
+        .apply(subscriptionId = existing.id, userId = user.id, request(merchantId = Some(merchant.id)))
+        .futureValue
+
+      repositories.subscriptions.find(id = existing.id, userId = user.id).futureValue.value.merchantId must be(
+        Some(merchant.id)
+      )
+    }
+
+    "reject another user's merchant" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val other = createUser().futureValue
+      val merchant = createMerchant(other.id, name = uniqueName("Merchant")).futureValue
+      val existing = createSubscription(user.id, name = uniqueName("Phone")).futureValue
+
+      val error = newAction()
+        .apply(subscriptionId = existing.id, userId = user.id, request(merchantId = Some(merchant.id)))
+        .failed
+        .futureValue
+      error.getMessage must include("Merchant not found")
+      repositories.subscriptions.find(id = existing.id, userId = user.id).futureValue.value.merchantId must be(None)
+    }
+
+    "unlink the merchant" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val merchant = createMerchant(user.id, name = uniqueName("Merchant")).futureValue
+      val existing =
+        createSubscription(user.id, name = uniqueName("Phone"), merchantId = Some(merchant.id)).futureValue
+
+      newAction().apply(subscriptionId = existing.id, userId = user.id, request(merchantId = None)).futureValue
+
+      repositories.subscriptions.find(id = existing.id, userId = user.id).futureValue.value.merchantId must be(None)
+    }
+
+    "leave the subscription without a merchant once the merchant is deleted" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val merchant = createMerchant(user.id, name = uniqueName("Merchant")).futureValue
+        val existing =
+          createSubscription(user.id, name = uniqueName("Phone"), merchantId = Some(merchant.id)).futureValue
+
+        repositories.merchants.delete(id = merchant.id, userId = user.id).futureValue
+
+        repositories.subscriptions.find(id = existing.id, userId = user.id).futureValue.value.merchantId must be(
+          None
+        )
     }
   }
 }

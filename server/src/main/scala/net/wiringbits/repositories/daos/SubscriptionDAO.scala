@@ -14,7 +14,7 @@ object SubscriptionDAO {
   def create(subscription: Subscription.Create)(implicit conn: Connection): Unit = {
     val _ = SQL"""
         INSERT INTO subscription (
-          id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, description, created_at, updated_at
+          id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, merchant_id, description, created_at, updated_at
         )
         VALUES (
           ${subscription.id.toString}::UUID,
@@ -25,6 +25,7 @@ object SubscriptionDAO {
           ${subscription.intervalMonths},
           ${subscription.paymentMethod.entryName},
           ${subscription.categoryId.map(_.toString)}::UUID,
+          ${subscription.merchantId.map(_.toString)}::UUID,
           ${subscription.description},
           ${subscription.createdAt},
           ${subscription.updatedAt}
@@ -34,7 +35,7 @@ object SubscriptionDAO {
 
   def all(userId: UUID)(implicit conn: Connection): List[Subscription] =
     SQL"""
-        SELECT id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, description, created_at, updated_at
+        SELECT id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, merchant_id, description, created_at, updated_at
         FROM subscription
         WHERE user_id = ${userId.toString}::UUID
         ORDER BY name
@@ -42,7 +43,7 @@ object SubscriptionDAO {
 
   def find(id: UUID, userId: UUID)(implicit conn: Connection): Option[Subscription] =
     SQL"""
-        SELECT id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, description, created_at, updated_at
+        SELECT id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, merchant_id, description, created_at, updated_at
         FROM subscription
         WHERE id = ${id.toString}::UUID
           AND user_id = ${userId.toString}::UUID
@@ -51,7 +52,7 @@ object SubscriptionDAO {
   // Row lock that serialises term changes on one subscription until the surrounding transaction ends.
   def lockForUpdate(id: UUID, userId: UUID)(implicit conn: Connection): Option[Subscription] =
     SQL"""
-        SELECT id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, description, created_at, updated_at
+        SELECT id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, merchant_id, description, created_at, updated_at
         FROM subscription
         WHERE id = ${id.toString}::UUID
           AND user_id = ${userId.toString}::UUID
@@ -74,6 +75,7 @@ object SubscriptionDAO {
       intervalMonths: Option[Int],
       paymentMethod: SubscriptionPaymentMethod,
       categoryId: Option[UUID],
+      merchantId: Option[UUID],
       description: Option[String],
       updatedAt: Instant
   )(implicit conn: Connection): Unit = {
@@ -85,12 +87,25 @@ object SubscriptionDAO {
             interval_months = $intervalMonths,
             payment_method = ${paymentMethod.entryName},
             category_id = ${categoryId.map(_.toString)}::UUID,
+            merchant_id = ${merchantId.map(_.toString)}::UUID,
             description = $description,
             updated_at = $updatedAt
         WHERE id = ${id.toString}::UUID
           AND user_id = ${userId.toString}::UUID
         """.executeUpdate()
     if (updated == 0) throw new RuntimeException("Subscription not found")
+  }
+
+  // Moves every subscription of the user linked to one merchant over to another, e.g. when merging duplicates.
+  def updateMerchantId(pendingId: UUID, realId: UUID, userId: UUID, updatedAt: Instant)(implicit
+      conn: Connection
+  ): Unit = {
+    val _ = SQL"""
+        UPDATE subscription
+        SET merchant_id = ${realId.toString}::UUID, updated_at = $updatedAt
+        WHERE merchant_id = ${pendingId.toString}::UUID
+          AND user_id = ${userId.toString}::UUID
+        """.executeUpdate()
   }
 
   def touch(id: UUID, userId: UUID, updatedAt: Instant)(implicit conn: Connection): Unit = {

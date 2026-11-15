@@ -21,6 +21,7 @@ class GetSubscriptionsSpec extends AnyWordSpec with Matchers {
             intervalMonths = None,
             paymentMethod = SubscriptionPaymentMethod.DirectDebit,
             categoryId = None,
+            merchantId = Some(UUID.randomUUID()),
             description = Some("Family plan"),
             terms = List(
               SubscriptionTerm(

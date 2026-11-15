@@ -37,3 +37,9 @@ ALTER TABLE subscription
 -- The interval of an every-N-months cadence, set only when cadence is EveryNMonths (like interval_days for EveryNDays).
 ALTER TABLE subscription ADD COLUMN interval_months INT NULL;
 ALTER TABLE subscription ADD COLUMN description TEXT NULL;
+
+-- The merchant that charges this subscription, unlinked when the merchant is deleted.
+ALTER TABLE subscription ADD COLUMN merchant_id UUID NULL;
+ALTER TABLE subscription
+  ADD CONSTRAINT subscription_merchant_id_fk FOREIGN KEY (merchant_id) REFERENCES merchant(id) ON DELETE SET NULL;
+CREATE INDEX subscription_merchant_id_index ON subscription USING BTREE (merchant_id);

@@ -219,4 +219,20 @@ class MerchantsRepositorySpec extends RepositorySpec with RepositoryUtils {
       ex.getMessage must include("Merchant not found")
     }
   }
+
+  "rePointAndDelete" should {
+    "move the pending merchant's subscriptions to the real merchant" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val pendingId = repositories.merchants.createPendingIfAbsent(user.id, s"Pending ${UUID.randomUUID()}").futureValue
+      val real = createMerchant(user.id, name = s"Real ${UUID.randomUUID()}").futureValue
+      val subscription =
+        createSubscription(user.id, name = s"Phone ${UUID.randomUUID()}", merchantId = Some(pendingId)).futureValue
+
+      repositories.merchants.rePointAndDelete(pendingId = pendingId, realId = real.id, userId = user.id).futureValue
+
+      repositories.subscriptions.find(id = subscription.id, userId = user.id).futureValue.value.merchantId must be(
+        Some(real.id)
+      )
+    }
+  }
 }

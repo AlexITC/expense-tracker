@@ -22,6 +22,7 @@ class CreateSubscriptionSpec extends AnyWordSpec with Matchers {
         |  "amountMax": 9.99,
         |  "paymentMethod": "DirectDebit",
         |  "categoryId": null,
+        |  "merchantId": null,
         |  "description": "$description",
         |  "startDate": "2026-01-15"
         |}
@@ -39,6 +40,7 @@ class CreateSubscriptionSpec extends AnyWordSpec with Matchers {
         amountMax = Some(BigDecimal("12.50")),
         paymentMethod = SubscriptionPaymentMethod.CardPortal,
         categoryId = Some(UUID.randomUUID()),
+        merchantId = Some(UUID.randomUUID()),
         description = Some(SubscriptionDescription.trusted("Family plan")),
         startDate = LocalDate.of(2026, 1, 15)
       )
@@ -58,6 +60,7 @@ class CreateSubscriptionSpec extends AnyWordSpec with Matchers {
         amountMax = None,
         paymentMethod = SubscriptionPaymentMethod.DirectDebit,
         categoryId = None,
+        merchantId = None,
         description = None,
         startDate = LocalDate.of(2026, 1, 31)
       )
@@ -70,6 +73,7 @@ class CreateSubscriptionSpec extends AnyWordSpec with Matchers {
       result.intervalDays mustBe None
       result.intervalMonths mustBe None
       result.categoryId mustBe None
+      result.merchantId mustBe None
       result.cadence mustBe SubscriptionCadence.Monthly
     }
 

@@ -47,6 +47,7 @@ class GetSubscriptionsActionSpec extends RepositorySpec with RepositoryUtils {
     "map every stored field" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val category = createCategory(user.id, name = s"Category ${UUID.randomUUID()}").futureValue
+      val merchant = createMerchant(user.id, name = s"Merchant ${UUID.randomUUID()}").futureValue
       val existing = createSubscription(
         user.id,
         name = s"Water ${UUID.randomUUID()}",
@@ -56,6 +57,7 @@ class GetSubscriptionsActionSpec extends RepositorySpec with RepositoryUtils {
         amountMax = Some(BigDecimal("15.50")),
         paymentMethod = SubscriptionPaymentMethod.ManualTransfer,
         categoryId = Some(category.id),
+        merchantId = Some(merchant.id),
         description = Some("Family plan"),
         startDate = LocalDate.of(2024, 4, 10)
       ).futureValue
@@ -67,6 +69,7 @@ class GetSubscriptionsActionSpec extends RepositorySpec with RepositoryUtils {
       item.intervalMonths must be(None)
       item.paymentMethod must be(SubscriptionPaymentMethod.ManualTransfer)
       item.categoryId must be(Some(category.id))
+      item.merchantId must be(Some(merchant.id))
       item.description must be(Some("Family plan"))
       item.terms must be(
         List(

@@ -8,7 +8,7 @@ import net.wiringbits.api.models.subscriptions.{
 }
 import net.wiringbits.api.utils.SubscriptionTerms
 import net.wiringbits.executors.DatabaseExecutionContext
-import net.wiringbits.repositories.daos.{CategoryDAO, SubscriptionDAO, SubscriptionTermDAO}
+import net.wiringbits.repositories.daos.{CategoryDAO, MerchantDAO, SubscriptionDAO, SubscriptionTermDAO}
 import net.wiringbits.repositories.models.{Subscription, SubscriptionTerm}
 import net.wiringbits.repositories.support.ConstraintViolations
 import play.api.db.Database
@@ -34,6 +34,8 @@ class SubscriptionsRepository @Inject() (database: Database)(implicit
           throw new RuntimeException("The first term must belong to the subscription being created")
         if (request.categoryId.exists(cid => CategoryDAO.find(id = cid, userId = request.userId).isEmpty))
           throw new RuntimeException("Category not found")
+        if (request.merchantId.exists(mid => MerchantDAO.find(id = mid, userId = request.userId).isEmpty))
+          throw new RuntimeException("Merchant not found")
         SubscriptionDAO.create(request)
         SubscriptionTermDAO.create(request.firstTerm)
       }
@@ -75,6 +77,7 @@ class SubscriptionsRepository @Inject() (database: Database)(implicit
       intervalMonths: Option[Int],
       paymentMethod: SubscriptionPaymentMethod,
       categoryId: Option[UUID],
+      merchantId: Option[UUID],
       description: Option[String]
   ): Future[Unit] = Future {
     ConstraintViolations.translating(
@@ -83,6 +86,8 @@ class SubscriptionsRepository @Inject() (database: Database)(implicit
       database.withTransaction { implicit conn =>
         if (categoryId.exists(cid => CategoryDAO.find(id = cid, userId = userId).isEmpty))
           throw new RuntimeException("Category not found")
+        if (merchantId.exists(mid => MerchantDAO.find(id = mid, userId = userId).isEmpty))
+          throw new RuntimeException("Merchant not found")
         SubscriptionDAO.update(
           id = id,
           userId = userId,
@@ -92,6 +97,7 @@ class SubscriptionsRepository @Inject() (database: Database)(implicit
           intervalMonths = intervalMonths,
           paymentMethod = paymentMethod,
           categoryId = categoryId,
+          merchantId = merchantId,
           description = description,
           updatedAt = clock.instant()
         )
