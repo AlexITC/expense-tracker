@@ -148,15 +148,26 @@ object BankRowRuleFormData {
   private def requiredMerchant: FormField[ExistingOrNewValue[MerchantName, UUID]] =
     new FormField(label = "Merchant", name = "merchant", required = true)
 
-  private def requiredCategory: FormField[ExistingOrNewValue[CategoryName, UUID]] =
-    new FormField(label = "Category", name = "category", required = true)
+  private def requiredCategory(
+      input: String,
+      selection: Option[ExistingOrNewValue[CategoryName, UUID]]
+  ): FormField[ExistingOrNewValue[CategoryName, UUID]] =
+    new FormField(
+      label = "Category",
+      name = "category",
+      required = true,
+      value = selection.map(value => ValidationResult.Valid(input, value))
+    )
 
-  private def optionalCategory: FormField[Option[ExistingOrNewValue[CategoryName, UUID]]] =
+  private def optionalCategory(
+      input: String,
+      selection: Option[ExistingOrNewValue[CategoryName, UUID]]
+  ): FormField[Option[ExistingOrNewValue[CategoryName, UUID]]] =
     new FormField(
       label = "Category (optional)",
       name = "category",
       required = false,
-      value = Some(ValidationResult.Valid("", None))
+      value = Some(ValidationResult.Valid(input, selection))
     )
 
   def initial(patternSeed: String, amountSeed: String, descriptionSeed: String): BankRowRuleFormData =
@@ -165,12 +176,13 @@ object BankRowRuleFormData {
       amount = amountField(amountSeed),
       description = descriptionField(descriptionSeed),
       merchant = requiredMerchant,
-      category = optionalCategory
+      category = optionalCategory(input = "", selection = None)
     )
 
-  /** Switches the active variant, carrying over the fields the kinds share: pattern and amount (all kinds) and the
-    * description (the rule's note, shared by SetMerchant and SetCategory). The kind-specific merchant/category
-    * selections are reset.
+  /** Switches the active variant, carrying over the fields the kinds share: pattern and amount (all kinds), and the
+    * description and category selection (shared by SetMerchant and SetCategory). The category just moves between its
+    * required and optional shapes, unwrapping its selected value when there is one. Only the SetMerchant-only merchant
+    * field is reset.
     */
   def changeKind(current: BankRowRuleFormData, kind: ImportRuleActionKind): BankRowRuleFormData = {
     val description = current match {
@@ -178,11 +190,27 @@ object BankRowRuleFormData {
       case fd: SetCategory => fd.description
       case _: Ignore => descriptionField("")
     }
+    val (categoryInput, categorySelection) = current match {
+      case fd: SetMerchant => (fd.category.inputValue, fd.category.valueOpt.flatten)
+      case fd: SetCategory => (fd.category.inputValue, fd.category.valueOpt)
+      case _: Ignore => ("", None)
+    }
     kind match {
       case ImportRuleActionKind.SetMerchant =>
-        SetMerchant(current.pattern, current.amount, description, requiredMerchant, optionalCategory)
+        SetMerchant(
+          current.pattern,
+          current.amount,
+          description,
+          requiredMerchant,
+          optionalCategory(input = categoryInput, selection = categorySelection)
+        )
       case ImportRuleActionKind.SetCategory =>
-        SetCategory(current.pattern, current.amount, description, requiredCategory)
+        SetCategory(
+          current.pattern,
+          current.amount,
+          description,
+          requiredCategory(input = categoryInput, selection = categorySelection)
+        )
       case ImportRuleActionKind.Ignore =>
         Ignore(current.pattern, current.amount)
     }
