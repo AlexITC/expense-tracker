@@ -7,6 +7,7 @@ import net.wiringbits.ui.components.core.widgets.{ExpValidatedAutocompleteInput,
 import net.wiringbits.ui.forms.{
   ExistingOrNewValue,
   ExpLocalDate,
+  ExpLocalTime,
   ExpNotes,
   ExpRuleAmount,
   ExpRuleDescription,
@@ -24,6 +25,10 @@ object PositiveBigDecimalInput extends ValidatedTextInput[Option[PositiveBigDeci
 object AmountInput extends ValidatedTextInput[PositiveBigDecimal]
 
 object DateInput extends ValidatedTextInput[ExpLocalDate]
+
+object TimeInput extends ValidatedTextInput[ExpLocalTime]
+
+object OptionalTimeInput extends ValidatedTextInput[Option[ExpLocalTime]]
 
 object NotesInput extends ValidatedTextInput[ExpNotes]
 
