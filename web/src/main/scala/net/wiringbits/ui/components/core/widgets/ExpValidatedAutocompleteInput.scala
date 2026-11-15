@@ -20,18 +20,18 @@ import scala.scalajs.js
   * shape with the resolved `id`. Editing after a pick clears the `id`, so the name is always validated like any text
   * field and nothing is parsed at submit.
   *
-  * A concrete input only provides the option's label and id. Narrowing the raw value MUI hands back (a selected option,
-  * or a freeSolo typed `String`) is done here with the `Opt` `ClassTag`, since the erased type parameter cannot be
-  * matched directly. All the `js.*` interop stays inside this component; its `Props` are plain Scala.
+  * An input is created with functions for the option's label and id. Narrowing the raw value MUI hands back (a selected
+  * option, or a freeSolo typed `String`) is done here with the `Opt` `ClassTag`, since the erased type parameter cannot
+  * be matched directly. All the `js.*` interop stays inside this component; its `Props` are plain Scala.
   */
-abstract class ExpValidatedAutocompleteInput[Opt: ClassTag, T: TextValidator, Id] {
+class ExpValidatedAutocompleteInput[Opt: ClassTag, T: TextValidator, Id](
+    optionLabel: Opt => String,
+    optionId: Opt => Id
+) {
   private val validator = implicitly[TextValidator[T]]
   private val optionTag = implicitly[ClassTag[Opt]]
 
   type Value = Option[ExistingOrNewValue[T, Id]]
-
-  protected def optionLabel(option: Opt): String
-  protected def optionId(option: Opt): Id
 
   private def asOption(value: Any): Option[Opt] =
     value match {

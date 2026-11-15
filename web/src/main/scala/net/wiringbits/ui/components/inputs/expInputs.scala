@@ -20,13 +20,13 @@ object RuleAmountInput extends ValidatedTextInput[Option[ExpRuleAmount]]
 object RuleDescriptionInput extends ValidatedTextInput[Option[ExpRuleDescription]]
 
 object MerchantAutocompleteInput
-    extends ExpValidatedAutocompleteInput[GetMerchants.Response.Merchant, MerchantName, UUID] {
-  override protected def optionLabel(option: GetMerchants.Response.Merchant): String = option.name
-  override protected def optionId(option: GetMerchants.Response.Merchant): UUID = option.id
-}
+    extends ExpValidatedAutocompleteInput[GetMerchants.Response.Merchant, MerchantName, UUID](
+      optionLabel = _.name,
+      optionId = _.id
+    )
 
 object CategoryAutocompleteInput
-    extends ExpValidatedAutocompleteInput[GetCategories.Response.Category, CategoryName, UUID] {
-  override protected def optionLabel(option: GetCategories.Response.Category): String = option.name
-  override protected def optionId(option: GetCategories.Response.Category): UUID = option.id
-}
+    extends ExpValidatedAutocompleteInput[GetCategories.Response.Category, CategoryName, UUID](
+      optionLabel = _.name,
+      optionId = _.id
+    )
