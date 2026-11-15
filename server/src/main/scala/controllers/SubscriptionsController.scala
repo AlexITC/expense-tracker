@@ -20,7 +20,8 @@ class SubscriptionsController @Inject() (
     deleteSubscriptionAction: DeleteSubscriptionAction,
     changeSubscriptionPriceAction: ChangeSubscriptionPriceAction,
     cancelSubscriptionAction: CancelSubscriptionAction,
-    resumeSubscriptionAction: ResumeSubscriptionAction
+    resumeSubscriptionAction: ResumeSubscriptionAction,
+    getSubscriptionStartDateSuggestionAction: GetSubscriptionStartDateSuggestionAction
 )(implicit ec: ExecutionContext) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
@@ -108,6 +109,17 @@ class SubscriptionsController @Inject() (
     } yield Right(response)
   }
 
+  private def getStartDateSuggestion(
+      merchantId: UUID,
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, GetSubscriptionStartDateSuggestion.Response]] = handleRequest {
+    for {
+      userId <- userIdF
+      _ = logger.info(s"Get subscription start date suggestion: userId=$userId, merchantId=$merchantId")
+      response <- getSubscriptionStartDateSuggestionAction(userId = userId, merchantId = merchantId)
+    } yield Right(response)
+  }
+
   def routes: List[ServerEndpoint[PekkoStreams & WebSockets, Future]] = {
     List(
       SubscriptionsEndpoints.getSubscriptions.serverLogic(getSubscriptions),
@@ -116,7 +128,8 @@ class SubscriptionsController @Inject() (
       SubscriptionsEndpoints.deleteSubscription.serverLogic(deleteSubscription),
       SubscriptionsEndpoints.changeSubscriptionPrice.serverLogic(changeSubscriptionPrice),
       SubscriptionsEndpoints.cancelSubscription.serverLogic(cancelSubscription),
-      SubscriptionsEndpoints.resumeSubscription.serverLogic(resumeSubscription)
+      SubscriptionsEndpoints.resumeSubscription.serverLogic(resumeSubscription),
+      SubscriptionsEndpoints.getStartDateSuggestion.serverLogic(getStartDateSuggestion)
     )
   }
 }

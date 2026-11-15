@@ -122,4 +122,14 @@ object ExpenseDAO {
           AND merchant_id = ${merchantId.toString}::UUID
         """.as(sqlGet[Option[BigDecimal]]("median_amount").single)
   }
+
+  def earliestDateForMerchant(userId: UUID, merchantId: UUID)(implicit conn: Connection): Option[LocalDate] = {
+    import anorm.SqlParser.get as sqlGet
+    SQL"""
+        SELECT MIN(date) AS earliest_date
+        FROM expense
+        WHERE user_id = ${userId.toString}::UUID
+          AND merchant_id = ${merchantId.toString}::UUID
+        """.as(sqlGet[Option[LocalDate]]("earliest_date").single)
+  }
 }

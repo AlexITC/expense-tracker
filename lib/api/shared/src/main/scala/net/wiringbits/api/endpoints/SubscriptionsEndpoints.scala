@@ -107,6 +107,17 @@ object SubscriptionsEndpoints {
       .errorOut(oneOf(HttpErrors.badRequest))
       .summary("Resume a cancelled subscription from a date")
 
+  def getStartDateSuggestion(implicit
+      authHandler: ServerRequest => Future[UUID]
+  ): Endpoint[Unit, (UUID, Future[UUID]), ErrorResponse, GetSubscriptionStartDateSuggestion.Response, Any] =
+    baseEndpoint.get
+      .in("start-date-suggestion")
+      .in(path[UUID]("merchantId"))
+      .in(userAuth)
+      .out(jsonBody[GetSubscriptionStartDateSuggestion.Response])
+      .errorOut(oneOf(HttpErrors.badRequest))
+      .summary("Suggest a subscription start date from the merchant's earliest expense")
+
   def routes(implicit authHandler: ServerRequest => Future[UUID]): List[AnyEndpoint] =
     List(
       getSubscriptions,
@@ -115,6 +126,7 @@ object SubscriptionsEndpoints {
       deleteSubscription,
       changeSubscriptionPrice,
       cancelSubscription,
-      resumeSubscription
+      resumeSubscription,
+      getStartDateSuggestion
     )
 }

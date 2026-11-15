@@ -12,6 +12,7 @@ import net.wiringbits.api.models.subscriptions.{
 }
 import net.wiringbits.common.models.MerchantName
 import net.wiringbits.components.pages.MerchantResolver
+import net.wiringbits.core.SafeHooks
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.forms.{
   AmountMode,
@@ -101,6 +102,15 @@ private enum SubscriptionEditor {
   case Resume(subscriptionId: UUID)
 }
 
+/** The start-date suggestion fetched for the create form's merchant, tagged with that merchant so a response that lands
+  * after the merchant changed is never shown for the new one.
+  */
+private enum StartDateSuggestion {
+  case NotRequested
+  case Found(merchantId: UUID, earliestExpenseDate: LocalDate)
+  case NoExpenses(merchantId: UUID)
+}
+
 object SubscriptionList {
   def apply(
       ctx: AppContext,
@@ -160,6 +170,9 @@ object SubscriptionList {
     val (cancelFormData, setCancelFormData) = Hooks.useState(StatefulFormData(SubscriptionCancelFormData.initial))
     val (resumeFormData, setResumeFormData) = Hooks.useState(StatefulFormData(SubscriptionResumeFormData.initial))
     val createControl = SubmitHooks.useSubmit()
+    val (startDateSuggestion, setStartDateSuggestion) =
+      Hooks.useState[StartDateSuggestion](StartDateSuggestion.NotRequested)
+    val suggestionControl = SubmitHooks.useSubmit()
     // One control serves every inline editor, since only one is open at a time.
     val editControl = SubmitHooks.useSubmit()
     val deleteControl = SubmitHooks.useSubmit()
@@ -183,6 +196,12 @@ object SubscriptionList {
           send(merchant.map(_._1))
         }
     val today = LocalDate.now()
+
+    val pickedMerchantId: Option[UUID] = createFormData.data.details.existingMerchantId
+    SafeHooks.useEffect(pickedMerchantId.fold("")(_.toString)) { () =>
+      setStartDateSuggestion(_ => StartDateSuggestion.NotRequested)
+      suggestionControl.reset()
+    }
 
     def onCreateDataChanged(f: CreateSubscriptionFormData => CreateSubscriptionFormData): Unit = {
       createControl.clearError()
@@ -240,6 +259,22 @@ object SubscriptionList {
           case Failure(ex) => editControl.fail(ex.getMessage)
         }
       }
+    }
+
+    def handleSuggestStartDate(merchantId: UUID): Unit = {
+      suggestionControl.begin()
+      props.ctx.api.client
+        .getSubscriptionStartDateSuggestion(merchantId)
+        .onComplete {
+          case Success(response) =>
+            suggestionControl.succeed()
+            val suggestion = response.earliestExpenseDate match {
+              case Some(date) => StartDateSuggestion.Found(merchantId = merchantId, earliestExpenseDate = date)
+              case None => StartDateSuggestion.NoExpenses(merchantId)
+            }
+            setStartDateSuggestion(_ => suggestion)
+          case Failure(ex) => suggestionControl.fail(ex.getMessage)
+        }
     }
 
     def handleDelete(subscriptionId: UUID): Unit = {
@@ -502,6 +537,42 @@ object SubscriptionList {
         case None => Fragment().withKey(key)
       }
 
+    // Only an explicit "Use this date" click writes the suggested date into the form.
+    def startDateSuggestionRow(merchantId: UUID): ReactElement = {
+      val hint = new CSSPropertiesUtils { color = "var(--lc-text-2)"; fontSize = "13px" }
+      val result: ReactElement = startDateSuggestion match {
+        case StartDateSuggestion.NotRequested => Fragment()
+        case StartDateSuggestion.Found(id, date) =>
+          if (id == merchantId)
+            Fragment(
+              mui.Typography(s"Earliest expense: $date").sx(hint),
+              mui.Button
+                .normal()("Use this date")
+                .size("small")
+                .disabled(createControl.inputDisabled)
+                .onClick(_ => onCreateDataChanged(_.withSuggestedStartDate(date)))
+            )
+          else Fragment()
+        case StartDateSuggestion.NoExpenses(id) =>
+          if (id == merchantId) mui.Typography("No expenses found for this merchant").sx(hint)
+          else Fragment()
+      }
+      mui.Box
+        .sx(new CSSPropertiesUtils {
+          display = "flex"; alignItems = "center"; gap = "12px"; flexWrap = "wrap"; width = "100%"
+        })(
+          mui.Button
+            .normal()("Suggest start date")
+            .size("small")
+            .variant("outlined")
+            .disabled(suggestionControl.isSubmitting || createControl.inputDisabled)
+            .onClick(_ => handleSuggestStartDate(merchantId)),
+          result,
+          errorText("suggestion-error", suggestionControl.error)
+        )
+        .withKey("start-date-suggestion")
+    }
+
     def createForm: ReactElement =
       form(onSubmit := (handleCreate(_)))(
         mui.Box.sx(new CSSPropertiesUtils {
@@ -520,7 +591,8 @@ object SubscriptionList {
               createFormData.data.details,
               createControl.inputDisabled,
               f => onCreateDataChanged(x => x.copy(details = f(x.details)))
-            ) ++ firstTermFields(createFormData.data, createControl.inputDisabled, onCreateDataChanged)*
+            ) ++ firstTermFields(createFormData.data, createControl.inputDisabled, onCreateDataChanged) ++
+              pickedMerchantId.map(startDateSuggestionRow).toSeq*
           ),
           errorText(
             "error",

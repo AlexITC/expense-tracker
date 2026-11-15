@@ -153,6 +153,10 @@ case class SubscriptionFormData(
   def withExistingMerchant(m: GetMerchants.Response.Merchant): SubscriptionFormData =
     copy(merchant = merchant.updated(SubscriptionFormData.asOptional(ExistingSelections.merchant(m))))
 
+  /** The id of the picked existing merchant; None when no merchant is set or a new one is typed. */
+  def existingMerchantId: Option[UUID] =
+    merchant.valueOpt.flatten.flatMap(_.id)
+
   // Each interval only applies to its own cadence; for other cadences the (hidden) input is ignored.
   def resolvedIntervals: Option[SubscriptionIntervals] =
     cadence match {
@@ -209,6 +213,10 @@ case class CreateSubscriptionFormData(
         amountMax = max,
         startDate = start.value
       )
+
+  /** Fills the start date with a suggested date, as if the user had typed it. */
+  def withSuggestedStartDate(date: LocalDate): CreateSubscriptionFormData =
+    copy(startDate = startDate.updated(ExpLocalDate.validate(date.toString)))
 }
 
 object SubscriptionFormData {

@@ -34,6 +34,7 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
   private val changePriceAction = mock[ChangeSubscriptionPriceAction]
   private val cancelAction = mock[CancelSubscriptionAction]
   private val resumeAction = mock[ResumeSubscriptionAction]
+  private val startDateSuggestionAction = mock[GetSubscriptionStartDateSuggestionAction]
 
   override def guiceApplicationBuilder(container: PostgreSQLContainer): GuiceApplicationBuilder =
     super
@@ -48,13 +49,23 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
         inject.bind[DeleteSubscriptionAction].to(deleteAction),
         inject.bind[ChangeSubscriptionPriceAction].to(changePriceAction),
         inject.bind[CancelSubscriptionAction].to(cancelAction),
-        inject.bind[ResumeSubscriptionAction].to(resumeAction)
+        inject.bind[ResumeSubscriptionAction].to(resumeAction),
+        inject.bind[GetSubscriptionStartDateSuggestionAction].to(startDateSuggestionAction)
       )
 
   private val unauthorizedError = "Unauthorized: Invalid or missing authentication"
 
   private def resetActions(): Unit =
-    reset(getAction, createAction, updateAction, deleteAction, changePriceAction, cancelAction, resumeAction)
+    reset(
+      getAction,
+      createAction,
+      updateAction,
+      deleteAction,
+      changePriceAction,
+      cancelAction,
+      resumeAction,
+      startDateSuggestionAction
+    )
 
   private val createRequest = CreateSubscription.Request(
     name = SubscriptionName.trusted("Streaming"),
@@ -352,6 +363,48 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
         .thenReturn(Future.failed(new RuntimeException("boom")))
 
       client.resumeSubscription(subscriptionId, resumeRequest).expectError must be("boom")
+    }
+  }
+
+  "GET /subscriptions/start-date-suggestion/:merchantId" should {
+    "reject unauthenticated requests without invoking the action" in withApiClient { client =>
+      resetActions()
+
+      client.getSubscriptionStartDateSuggestion(UUID.randomUUID()).expectError must be(unauthorizedError)
+      verifyNoInteractions(startDateSuggestionAction)
+    }
+
+    "pass the session user and path merchant id to the action" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val merchantId = UUID.randomUUID()
+      val expected = GetSubscriptionStartDateSuggestion.Response(Some(LocalDate.of(2025, 2, 3)))
+      when(startDateSuggestionAction.apply(eqTo(userId), eqTo(merchantId)))
+        .thenReturn(Future.successful(expected))
+
+      client.getSubscriptionStartDateSuggestion(merchantId).futureValue must be(expected)
+      verify(startDateSuggestionAction).apply(eqTo(userId), eqTo(merchantId))
+    }
+
+    "encode a missing suggestion as None" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val merchantId = UUID.randomUUID()
+      val expected = GetSubscriptionStartDateSuggestion.Response(None)
+      when(startDateSuggestionAction.apply(eqTo(userId), eqTo(merchantId)))
+        .thenReturn(Future.successful(expected))
+
+      client.getSubscriptionStartDateSuggestion(merchantId).futureValue must be(expected)
+    }
+
+    "encode an action failure as the error message" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val merchantId = UUID.randomUUID()
+      when(startDateSuggestionAction.apply(eqTo(userId), eqTo(merchantId)))
+        .thenReturn(Future.failed(new RuntimeException("boom")))
+
+      client.getSubscriptionStartDateSuggestion(merchantId).expectError must be("boom")
     }
   }
 }

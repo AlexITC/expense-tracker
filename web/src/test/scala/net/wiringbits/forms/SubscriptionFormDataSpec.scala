@@ -290,6 +290,39 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     }
   }
 
+  "existingMerchantId" should {
+    "be None when no merchant is selected" in {
+      validForm.details.existingMerchantId must be(None)
+    }
+
+    "be the picked merchant's id" in {
+      validForm.withMerchant(asOptional(ExistingSelections.merchant(merchant))).details.existingMerchantId must be(
+        Some(merchant.id)
+      )
+    }
+
+    "be None for a typed new merchant" in {
+      validForm
+        .withMerchant(asOptional(ExistingSelections.newMerchant("Corner shop")))
+        .details
+        .existingMerchantId must be(None)
+    }
+  }
+
+  "withSuggestedStartDate" should {
+    "fill an untouched start date so the form becomes submittable" in {
+      val form = initialForm.withName("Streaming").withSuggestedStartDate(LocalDate.of(2025, 2, 3))
+      form.startDate.valueOpt.map(_.value) must be(Some(LocalDate.of(2025, 2, 3)))
+      form.sentRequest.map(_.startDate) must be(Some(LocalDate.of(2025, 2, 3)))
+    }
+
+    "replace a typed start date" in {
+      validForm.withSuggestedStartDate(LocalDate.of(2025, 2, 3)).sentRequest must be(
+        Some(expectedRequest.copy(startDate = LocalDate.of(2025, 2, 3)))
+      )
+    }
+  }
+
   "fromSubscription" should {
     val subscription = GetSubscriptions.Response.Subscription(
       id = UUID.randomUUID(),

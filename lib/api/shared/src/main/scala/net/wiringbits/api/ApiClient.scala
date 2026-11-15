@@ -424,6 +424,9 @@ class ApiClient(config: ApiClient.Config)(implicit
   ): Future[ResumeSubscription.Response] =
     handleRequest(SubscriptionsEndpoints.resumeSubscription, (subscriptionId, request, dummyUserId))
 
+  def getSubscriptionStartDateSuggestion(merchantId: UUID): Future[GetSubscriptionStartDateSuggestion.Response] =
+    handleRequest(SubscriptionsEndpoints.getStartDateSuggestion, (merchantId, dummyUserId))
+
   def aiExtractBankStatement(
       request: AiExtractBankStatement.Request
   ): Future[AiExtractBankStatement.Response] =

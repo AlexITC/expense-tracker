@@ -8,7 +8,7 @@ import net.wiringbits.api.models.subscriptions.{
 }
 import net.wiringbits.api.utils.SubscriptionTerms
 import net.wiringbits.executors.DatabaseExecutionContext
-import net.wiringbits.repositories.daos.{CategoryDAO, MerchantDAO, SubscriptionDAO, SubscriptionTermDAO}
+import net.wiringbits.repositories.daos.{CategoryDAO, ExpenseDAO, MerchantDAO, SubscriptionDAO, SubscriptionTermDAO}
 import net.wiringbits.repositories.models.{Subscription, SubscriptionTerm}
 import net.wiringbits.repositories.support.ConstraintViolations
 import play.api.db.Database
@@ -185,6 +185,14 @@ class SubscriptionsRepository @Inject() (database: Database)(implicit
       )
     }
     SubscriptionDAO.touch(id = id, userId = userId, updatedAt = now)
+  }
+
+  def earliestExpenseDateForMerchant(userId: UUID, merchantId: UUID): Future[Option[LocalDate]] = Future {
+    database.withConnection { implicit conn =>
+      if (MerchantDAO.find(id = merchantId, userId = userId).isEmpty)
+        throw new RuntimeException("Merchant not found")
+      ExpenseDAO.earliestDateForMerchant(userId = userId, merchantId = merchantId)
+    }
   }
 
   def delete(id: UUID, userId: UUID): Future[Unit] = Future {
