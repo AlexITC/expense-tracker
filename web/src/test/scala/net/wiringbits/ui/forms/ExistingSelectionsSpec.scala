@@ -45,6 +45,16 @@ class ExistingSelectionsSpec extends AnyWordSpec {
       result.input must be(name)
     }
 
+    "attach the given id to a stored merchant or category name" in {
+      val id = UUID.randomUUID()
+      ExistingSelections.existingMerchant("Store", id).toOption.map(s => (s.value.string, s.id)) must be(
+        Some(("Store", Some(id)))
+      )
+      ExistingSelections.existingCategory("Food", id).toOption.map(s => (s.value.string, s.id)) must be(
+        Some(("Food", Some(id)))
+      )
+    }
+
     "build a new selection without an id from raw text" in {
       ExistingSelections.newCategory("Food").toOption.map(s => (s.value.string, s.id)) must be(Some(("Food", None)))
     }

@@ -1,29 +1,37 @@
 package net.wiringbits.components.pages.importrules
 
-import net.wiringbits.common.models.MerchantName
-import net.wiringbits.components.pages.{AutocompleteLabels, CategoryResolver}
-
-import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
-import net.wiringbits.components.widgets.Loader
 import net.wiringbits.api.models.categories.GetCategories
-import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.api.models.merchants.{
   CreateImportRule,
-  CreateMerchant,
   GetImportRules,
   GetMerchants,
   ImportRuleAction,
   ImportRuleActionKind,
   UpdateImportRule
 }
+import net.wiringbits.common.models.{CategoryName, MerchantName}
+import net.wiringbits.components.pages.{CategoryResolver, MerchantResolver}
+import net.wiringbits.components.widgets.Loader
 import net.wiringbits.core.SafeHooks
+import net.wiringbits.forms.BankRowRuleFormData
 import net.wiringbits.models.User
+import net.wiringbits.ui.components.inputs.{
+  CategoryAutocompleteInput,
+  MerchantAutocompleteInput,
+  OptionalCategoryAutocompleteInput,
+  RuleAmountInput,
+  RuleDescriptionInput,
+  RulePatternInput
+}
+import net.wiringbits.ui.forms.{ExistingOrNewValue, ExpRuleAmount, ExpRuleDescription, ExpRulePattern, SubmitHooks}
+import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.core.GenericHooks
+import net.wiringbits.webapp.utils.slinkyUtils.forms.FormField
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
@@ -31,7 +39,7 @@ import slinky.web.html.{form, onSubmit}
 
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success}
 
 object ImportRulesPage {
   def apply(ctx: AppContext, user: User): KeyAddingStage =
@@ -84,86 +92,6 @@ object ImportRuleList {
       onRefresh: () => Unit
   )
 
-  /** The raw inputs of the create form or the inline edit form.
-    *
-    * `categoryInput`/`categoryId` are the set_category target; `overrideCategoryInput`/`overrideCategoryId` are the
-    * optional category a set_merchant rule uses instead of the merchant's default.
-    */
-  case class RuleForm(
-      kind: ImportRuleActionKind,
-      pattern: String,
-      amount: String,
-      merchantInput: String,
-      merchantId: Option[UUID],
-      categoryInput: String,
-      categoryId: Option[UUID],
-      overrideCategoryInput: String,
-      overrideCategoryId: Option[UUID],
-      description: String
-  )
-
-  object RuleForm {
-    val empty: RuleForm = RuleForm(
-      kind = ImportRuleActionKind.SetMerchant,
-      pattern = "",
-      amount = "",
-      merchantInput = "",
-      merchantId = None,
-      categoryInput = "",
-      categoryId = None,
-      overrideCategoryInput = "",
-      overrideCategoryId = None,
-      description = ""
-    )
-
-    /** The edit form prefilled from a stored rule. `categoryName` is the set_category target or, for set_merchant, the
-      * override category.
-      */
-    def fromRule(r: GetImportRules.Rule): RuleForm = {
-      val categoryName = r.categoryName.getOrElse("")
-      RuleForm(
-        kind = r.action.kind,
-        pattern = r.pattern,
-        amount = r.amount.fold("")(_.abs.bigDecimal.toPlainString),
-        merchantInput = r.merchantName.getOrElse(""),
-        merchantId = r.action.merchantIdOpt,
-        categoryInput = if (r.action.categoryIdOpt.isDefined) categoryName else "",
-        categoryId = r.action.categoryIdOpt,
-        overrideCategoryInput = if (r.action.overrideCategoryIdOpt.isDefined) categoryName else "",
-        overrideCategoryId = r.action.overrideCategoryIdOpt,
-        description = r.action.descriptionOpt.getOrElse("")
-      )
-    }
-  }
-
-  /** The validated amount and description of a form, ready to build the request. */
-  case class RuleInputs(amount: Option[BigDecimal], description: Option[String])
-
-  /** Blank means no amount; anything else must parse as a number. */
-  def parseAmount(text: String): Either[String, Option[BigDecimal]] = {
-    val trimmed = text.trim
-    if (trimmed.isEmpty) Right(None)
-    else Try(BigDecimal(trimmed)).toOption.map(Some(_)).toRight("Amount must be a number, e.g. 12.50")
-  }
-
-  /** Runs the same checks as the server so errors show before any merchant/category is created. Ignore rules carry no
-    * description, so the field is dropped for them.
-    */
-  def checkInputs(form: RuleForm): Either[String, RuleInputs] = {
-    val description =
-      if (form.kind == ImportRuleActionKind.Ignore) None
-      else Option(form.description.trim).filter(_.nonEmpty)
-    for {
-      amount <- parseAmount(form.amount)
-      _ <- form.kind match {
-        case ImportRuleActionKind.SetMerchant if form.merchantInput.trim.isEmpty => Left("Enter a merchant name")
-        case ImportRuleActionKind.SetCategory if form.categoryInput.trim.isEmpty => Left("Enter a category name")
-        case _ => Right(())
-      }
-      _ <- ImportRuleMatcher.validateFields(form.pattern, amount, description)
-    } yield RuleInputs(amount, description)
-  }
-
   def actionLabel(r: GetImportRules.Rule): String = r.action match {
     case ImportRuleAction.Ignore => "Ignore"
     case ImportRuleAction.SetMerchant(_, Some(_), _) =>
@@ -197,35 +125,21 @@ object ImportRuleList {
       }
   }
 
-  // Free-solo autocompletes are not full width, so without a minimum they collapse to the typed text; this keeps them
-  // readable and aligned with the other inputs.
-  private val autocompleteFieldStyle = new CSSPropertiesUtils { minWidth = "200px" }
-
-  private def renderMerchantTextField(params: AutocompleteRenderInputParams): ReactElement =
-    (mui.TextField.outlined
-      .withProps(MuiCompat.textFieldProps(params, "Merchant", size = Some("small")))
-      .sx(autocompleteFieldStyle)
-      .withKey("tf"): ReactElement)
-
-  private def renderCategoryTextField(params: AutocompleteRenderInputParams): ReactElement =
-    (mui.TextField.outlined
-      .withProps(MuiCompat.textFieldProps(params, "Category", size = Some("small")))
-      .sx(autocompleteFieldStyle)
-      .withKey("tf"): ReactElement)
-
-  private def renderOverrideCategoryTextField(params: AutocompleteRenderInputParams): ReactElement =
-    (mui.TextField.outlined
-      .withProps(MuiCompat.textFieldProps(params, "Category (optional)", size = Some("small")))
-      .sx(autocompleteFieldStyle)
-      .withKey("tf"): ReactElement)
+  // The validated inputs are full width, so each sits in a flexible box that keeps it readable inside the wrapping
+  // field groups.
+  private def fieldBox(key: String)(input: ReactElement): ReactElement =
+    (mui.Box
+      .sx(new CSSPropertiesUtils { flex = "1 1 200px"; minWidth = "200px" })(input)
+      .withKey(key): ReactElement)
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
-    val (newForm, setNewForm) = Hooks.useState(RuleForm.empty)
-    val (error, setError) = Hooks.useState("")
-    val (editingId, setEditingId) = Hooks.useState[Option[UUID]](None)
-    val (editForm, setEditForm) = Hooks.useState(RuleForm.empty)
+    val (createForm, setCreateForm) = Hooks.useState(BankRowRuleFormData.empty)
+    val createSubmit = SubmitHooks.useSubmit()
+    val (editing, setEditing) = Hooks.useState[Option[(UUID, BankRowRuleFormData)]](None)
+    val editSubmit = SubmitHooks.useSubmit()
+    val (deleteError, setDeleteError) = Hooks.useState[Option[String]](None)
 
     val (localMerchants, setLocalMerchants) = Hooks.useState(props.merchants.data)
     val merchantsKey = props.merchants.data.map(_.id.toString).mkString(",")
@@ -245,112 +159,104 @@ object ImportRuleList {
     val currentPage = Math.min(page, totalPages - 1)
     val pagedRules = filteredRules.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
 
-    def resolveOrCreateMerchant(
-        merchantInput: String,
-        merchantIdOpt: Option[UUID]
-    ): Future[UUID] =
-      merchantIdOpt match {
-        case Some(id) => Future.successful(id)
-        case None =>
-          val name = merchantInput.trim
-          localMerchants.find(_.name.equalsIgnoreCase(name)) match {
-            case Some(existing) => Future.successful(existing.id)
-            case None =>
-              MerchantName
-                .parse(name)
-                .fold(
-                  error => Future.failed[CreateMerchant.Response](new RuntimeException(error)),
-                  validName =>
-                    props.ctx.api.client
-                      .createMerchant(CreateMerchant.Request(validName, notes = None, None, taxId = None))
-                )
-                .map { resp =>
-                  setLocalMerchants(cur =>
-                    cur :+ GetMerchants.Response
-                      .Merchant(
-                        resp.id,
-                        resp.name,
-                        notes = None,
-                        None,
-                        taxId = None,
-                        reviewed = false,
-                        java.time.Instant.now()
-                      )
-                  )
-                  resp.id
-                }
-          }
-      }
-
-    def resolveOrCreateCategory(
-        categoryInput: String,
-        categoryIdOpt: Option[UUID]
-    ): Future[UUID] =
+    def findOrCreateCategory(selection: ExistingOrNewValue[CategoryName, UUID]): Future[UUID] =
       CategoryResolver
-        .resolveOrCreateCategory(props.ctx.api.client, localCategories, categoryIdOpt, categoryInput)
-        .map { case (id, newCategoryOpt) =>
-          newCategoryOpt.foreach(c => setLocalCategories(cur => cur :+ c))
+        .findOrCreateCategoryReturningCreated(props.ctx.api.client, localCategories, selection)
+        .map { case (id, created) =>
+          created.foreach(c => setLocalCategories(cur => cur :+ c))
           id
         }
 
-    def resolveAction(form: RuleForm, description: Option[String]): Future[ImportRuleAction] =
-      form.kind match {
-        case ImportRuleActionKind.Ignore => Future.successful(ImportRuleAction.Ignore)
-        case ImportRuleActionKind.SetMerchant =>
+    def findOrCreateMerchant(
+        selection: ExistingOrNewValue[MerchantName, UUID],
+        categoryId: Option[UUID]
+    ): Future[UUID] =
+      MerchantResolver
+        .findOrCreateMerchant(props.ctx.api.client, localMerchants, selection, categoryId)
+        .map { case (id, created) =>
+          created.foreach(m => setLocalMerchants(cur => cur :+ m))
+          id
+        }
+
+    /** The action, pattern and amount of the request, creating the merchant/category the user typed if needed. */
+    def resolveRequest(resolved: BankRowRuleFormData.Resolved): Future[(ImportRuleAction, String, Option[BigDecimal])] =
+      resolved match {
+        case BankRowRuleFormData.Resolved.Ignore(pattern, amount) =>
+          Future.successful((ImportRuleAction.Ignore, pattern.trim, amount))
+        case BankRowRuleFormData.Resolved.SetCategory(pattern, amount, description, category) =>
+          findOrCreateCategory(category).map(categoryId =>
+            (ImportRuleAction.SetCategory(categoryId, description = description), pattern.trim, amount)
+          )
+        case BankRowRuleFormData.Resolved.SetMerchant(pattern, amount, description, merchant, category) =>
           for {
-            mid <- resolveOrCreateMerchant(form.merchantInput, form.merchantId)
-            overrideCategoryId <-
-              if (form.overrideCategoryInput.trim.isEmpty) Future.successful(None)
-              else resolveOrCreateCategory(form.overrideCategoryInput, form.overrideCategoryId).map(Some(_))
-          } yield ImportRuleAction.SetMerchant(mid, categoryId = overrideCategoryId, description = description)
-        case ImportRuleActionKind.SetCategory =>
-          resolveOrCreateCategory(form.categoryInput, form.categoryId)
-            .map(cid => ImportRuleAction.SetCategory(cid, description = description))
+            categoryId <- category.fold(Future.successful(Option.empty[UUID]))(c =>
+              findOrCreateCategory(c).map(Some(_))
+            )
+            // The override category belongs to the rule, not the merchant, so a new merchant gets no default category.
+            merchantId <- findOrCreateMerchant(merchant, categoryId = None)
+          } yield (
+            ImportRuleAction.SetMerchant(merchantId, categoryId = categoryId, description = description),
+            pattern.trim,
+            amount
+          )
       }
 
-    def submit(form: RuleForm, send: (ImportRuleAction, Option[BigDecimal]) => Future[Unit])(
-        onSaved: () => Unit
-    ): Unit =
-      checkInputs(form) match {
-        case Left(msg) => setError(msg)
-        case Right(inputs) =>
-          resolveAction(form, inputs.description)
-            .flatMap(action => send(action, inputs.amount))
+    def save(
+        formData: BankRowRuleFormData,
+        submit: SubmitHooks.Control,
+        send: (ImportRuleAction, String, Option[BigDecimal]) => Future[Unit]
+    )(onSaved: () => Unit): Unit =
+      formData.submitRequest match {
+        case None =>
+          submit.fail(formData.formValidationErrors.headOption.getOrElse("Please fix the highlighted fields"))
+        case Some(resolved) =>
+          submit.begin()
+          resolveRequest(resolved)
+            .flatMap(send.tupled)
             .onComplete {
-              case Success(_) => onSaved(); setError(""); props.onRefresh()
-              case Failure(ex) => setError(ex.getMessage)
+              case Success(_) => onSaved(); props.onRefresh()
+              case Failure(ex) => submit.fail(ex.getMessage)
             }
       }
 
     def handleCreate(): Unit =
-      submit(
-        newForm,
-        (action, amount) =>
+      save(
+        createForm,
+        createSubmit,
+        (action, pattern, amount) =>
+          props.ctx.api.client.createImportRule(CreateImportRule.Request(action, pattern, amount)).map(_ => ())
+      ) { () =>
+        createSubmit.reset()
+        setCreateForm(cur => BankRowRuleFormData.changeKind(BankRowRuleFormData.empty, cur.actionKind))
+      }
+
+    def handleUpdate(ruleId: UUID, formData: BankRowRuleFormData): Unit =
+      save(
+        formData,
+        editSubmit,
+        (action, pattern, amount) =>
           props.ctx.api.client
-            .createImportRule(CreateImportRule.Request(action, newForm.pattern, amount))
+            .updateImportRule(ruleId, UpdateImportRule.Request(action, pattern, amount))
             .map(_ => ())
-      )(() => setNewForm(cur => RuleForm.empty.copy(kind = cur.kind)))
+      ) { () =>
+        editSubmit.reset()
+        setEditing(None)
+      }
 
     def handleDelete(ruleId: UUID): Unit =
       props.ctx.api.client
         .deleteImportRule(ruleId)
         .onComplete {
-          case Success(_) => props.onRefresh()
-          case Failure(ex) => setError(ex.getMessage)
+          case Success(_) => setDeleteError(None); props.onRefresh()
+          case Failure(ex) => setDeleteError(Some(ex.getMessage))
         }
 
-    def handleUpdate(ruleId: UUID): Unit =
-      submit(
-        editForm,
-        (action, amount) =>
-          props.ctx.api.client
-            .updateImportRule(ruleId, UpdateImportRule.Request(action, editForm.pattern, amount))
-            .map(_ => ())
-      ) { () =>
-        setEditingId(None); setEditForm(RuleForm.empty)
-      }
+    type Update = (BankRowRuleFormData => BankRowRuleFormData) => Unit
 
-    def actionSelector(current: ImportRuleActionKind, onChange: ImportRuleActionKind => Unit): ReactElement = {
+    val updateCreate: Update = f => setCreateForm(cur => f(cur))
+    val updateEdit: Update = f => setEditing(cur => cur.map { case (id, fd) => (id, f(fd)) })
+
+    def actionSelector(current: ImportRuleActionKind, disabled: Boolean, update: Update): ReactElement = {
       val items = Seq(ImportRuleActionKind.SetMerchant, ImportRuleActionKind.SetCategory, ImportRuleActionKind.Ignore)
         .map { a =>
           val label = a match {
@@ -366,118 +272,88 @@ object ImportRuleList {
         .label("Action")
         .value(current.entryName)
         .size("small")
-        .onChange(e => onChange(ImportRuleActionKind.fromEntryName(e.target.asInstanceOf[dom.HTMLInputElement].value)))
+        .disabled(disabled)
+        .onChange { e =>
+          val kind = ImportRuleActionKind.fromEntryName(e.target.asInstanceOf[dom.HTMLInputElement].value)
+          update(cur => BankRowRuleFormData.changeKind(cur, kind))
+        }
         .sx(new CSSPropertiesUtils { minWidth = "140px" })(items*)
     }
-
-    def merchantAutocomplete(
-        inputValue: String,
-        onInputChange: String => Unit,
-        onIdChange: Option[UUID] => Unit
-    ): ReactElement = {
-      val acProps = MuiCompat.freeSoloAutocompleteProps(
-        options = localMerchants,
-        renderInput = renderMerchantTextField,
-        inputValue = inputValue,
-        getOptionLabel = AutocompleteLabels.merchantOptionLabel,
-        onSelect = value =>
-          (value: Any) match {
-            case m: GetMerchants.Response.Merchant => onIdChange(Some(m.id)); onInputChange(m.name)
-            case _ => ()
-          },
-        onInput = (text, rsn) => {
-          onInputChange(text)
-          if (rsn != "reset") onIdChange(None)
-        },
-        disabled = false,
-        fullWidth = false
-      )
-      (mui.Autocomplete.withProps(acProps).withKey("merchant-ac"): ReactElement)
-    }
-
-    def categoryAutocomplete(
-        key: String,
-        renderInput: AutocompleteRenderInputParams => ReactElement,
-        inputValue: String,
-        onInputChange: String => Unit,
-        onIdChange: Option[UUID] => Unit
-    ): ReactElement = {
-      val acProps = MuiCompat.freeSoloAutocompleteProps(
-        options = localCategories,
-        renderInput = renderInput,
-        inputValue = inputValue,
-        getOptionLabel = AutocompleteLabels.categoryOptionLabel,
-        onSelect = value =>
-          (value: Any) match {
-            case c: GetCategories.Response.Category => onIdChange(Some(c.id)); onInputChange(c.name)
-            case _ => ()
-          },
-        onInput = (text, rsn) => {
-          onInputChange(text)
-          if (rsn != "reset") onIdChange(None)
-        },
-        disabled = false,
-        fullWidth = false
-      )
-      (mui.Autocomplete.withProps(acProps).withKey(key): ReactElement)
-    }
-
-    def amountField(current: RuleForm, update: (RuleForm => RuleForm) => Unit): ReactElement =
-      mui.TextField
-        .outlined()
-        .label("Amount (optional, e.g. 12.50)")
-        .value(current.amount)
-        .size("small")
-        .onChange(e => { val v = e.target.asInstanceOf[dom.HTMLInputElement].value; update(_.copy(amount = v)) })
-        .withKey("amount")
 
     /** What the rule sets once it matches: the merchant/category target and the optional description. Empty for an
       * Ignore rule, which only matches.
       */
-    def setFields(current: RuleForm, update: (RuleForm => RuleForm) => Unit): Seq[ReactElement] = {
-      val targetFields: Seq[ReactElement] = current.kind match {
-        case ImportRuleActionKind.SetMerchant =>
+    def setFields(formData: BankRowRuleFormData, disabled: Boolean, update: Update): Seq[ReactElement] = {
+      def updateDescription(value: ValidationResult[Option[ExpRuleDescription]]): Unit =
+        update {
+          case fd: BankRowRuleFormData.SetMerchant => fd.copy(description = fd.description.updated(value))
+          case fd: BankRowRuleFormData.SetCategory => fd.copy(description = fd.description.updated(value))
+          case other => other
+        }
+
+      def descriptionInput(field: FormField[Option[ExpRuleDescription]]): ReactElement =
+        fieldBox("description")(
+          RuleDescriptionInput.component(
+            RuleDescriptionInput.Props(field = field, disabled = disabled, onChange = updateDescription)
+          )
+        )
+
+      formData match {
+        case fd: BankRowRuleFormData.SetMerchant =>
           Seq(
-            merchantAutocomplete(
-              current.merchantInput,
-              v => update(_.copy(merchantInput = v)),
-              id => update(_.copy(merchantId = id))
+            fieldBox("merchant")(
+              MerchantAutocompleteInput.component(
+                MerchantAutocompleteInput.Props(
+                  field = fd.merchant,
+                  options = localMerchants,
+                  label = "Merchant",
+                  onChange = value =>
+                    update {
+                      case cur: BankRowRuleFormData.SetMerchant => cur.copy(merchant = cur.merchant.updated(value))
+                      case other => other
+                    },
+                  disabled = disabled
+                )
+              )
             ),
-            categoryAutocomplete(
-              key = "override-category-ac",
-              renderInput = renderOverrideCategoryTextField,
-              inputValue = current.overrideCategoryInput,
-              onInputChange = v => update(_.copy(overrideCategoryInput = v)),
-              onIdChange = id => update(_.copy(overrideCategoryId = id))
-            )
+            fieldBox("override-category")(
+              OptionalCategoryAutocompleteInput.component(
+                OptionalCategoryAutocompleteInput.Props(
+                  field = fd.category,
+                  options = localCategories,
+                  label = "Category (optional)",
+                  onChange = value =>
+                    update {
+                      case cur: BankRowRuleFormData.SetMerchant => cur.copy(category = cur.category.updated(value))
+                      case other => other
+                    },
+                  disabled = disabled
+                )
+              )
+            ),
+            descriptionInput(fd.description)
           )
-        case ImportRuleActionKind.SetCategory =>
+        case fd: BankRowRuleFormData.SetCategory =>
           Seq(
-            categoryAutocomplete(
-              key = "category-ac",
-              renderInput = renderCategoryTextField,
-              inputValue = current.categoryInput,
-              onInputChange = v => update(_.copy(categoryInput = v)),
-              onIdChange = id => update(_.copy(categoryId = id))
-            )
+            fieldBox("category")(
+              CategoryAutocompleteInput.component(
+                CategoryAutocompleteInput.Props(
+                  field = fd.category,
+                  options = localCategories,
+                  label = "Category",
+                  onChange = value =>
+                    update {
+                      case cur: BankRowRuleFormData.SetCategory => cur.copy(category = cur.category.updated(value))
+                      case other => other
+                    },
+                  disabled = disabled
+                )
+              )
+            ),
+            descriptionInput(fd.description)
           )
-        case ImportRuleActionKind.Ignore => Seq.empty
+        case _: BankRowRuleFormData.Ignore => Seq.empty
       }
-      val descriptionField: Seq[ReactElement] =
-        if (current.kind == ImportRuleActionKind.Ignore) Seq.empty
-        else
-          Seq(
-            mui.TextField
-              .outlined()
-              .label("Description (optional)")
-              .value(current.description)
-              .size("small")
-              .onChange(e => {
-                val v = e.target.asInstanceOf[dom.HTMLInputElement].value; update(_.copy(description = v))
-              })
-              .withKey("description")
-          )
-      targetFields ++ descriptionField
     }
 
     def fieldGroup(label: String, key: String, fields: Seq[ReactElement]): ReactElement =
@@ -501,19 +377,43 @@ object ImportRuleList {
     /** The pattern and amount are match criteria; the merchant/category/description are what the rule sets. Grouping
       * and labelling them makes it clear which fields decide a match and which change the row.
       */
-    def ruleFormBody(
-        current: RuleForm,
-        update: (RuleForm => RuleForm) => Unit,
-        patternField: ReactElement
-    ): Seq[ReactElement] = {
-      val matchGroup =
-        fieldGroup(label = "Matches on", key = "match-group", fields = Seq(patternField, amountField(current, update)))
-      val sets = setFields(current, update)
+    def ruleFormBody(formData: BankRowRuleFormData, disabled: Boolean, update: Update): Seq[ReactElement] = {
+      val patternInput = fieldBox("pattern")(
+        RulePatternInput.component(
+          RulePatternInput.Props(
+            field = formData.pattern,
+            disabled = disabled,
+            onChange =
+              (value: ValidationResult[ExpRulePattern]) => update(cur => cur.withPattern(cur.pattern.updated(value)))
+          )
+        )
+      )
+      val amountInput = fieldBox("amount")(
+        RuleAmountInput.component(
+          RuleAmountInput.Props(
+            field = formData.amount,
+            disabled = disabled,
+            onChange = (value: ValidationResult[Option[ExpRuleAmount]]) =>
+              update(cur => cur.withAmount(cur.amount.updated(value)))
+          )
+        )
+      )
+      val matchGroup = fieldGroup(label = "Matches on", key = "match-group", fields = Seq(patternInput, amountInput))
+      val sets = setFields(formData, disabled, update)
       if (sets.isEmpty) Seq(matchGroup)
       else Seq(matchGroup, fieldGroup(label = "Sets", key = "set-group", fields = sets))
     }
 
-    val createForm = form(onSubmit := { e =>
+    def submitError(submit: SubmitHooks.Control): ReactElement =
+      submit.error match {
+        case Some(msg) =>
+          mui
+            .Typography(msg)
+            .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px"; width = "100%" })
+        case None => Fragment()
+      }
+
+    val createFormView = form(onSubmit := { e =>
       e.preventDefault()
       handleCreate()
     })(
@@ -528,27 +428,15 @@ object ImportRuleList {
         alignItems = "center"
         gap = "12px"
       })(
-        actionSelector(newForm.kind, k => setNewForm(_.copy(kind = k))),
-        Fragment(
-          ruleFormBody(
-            newForm,
-            f => setNewForm(f),
-            mui.TextField
-              .outlined()
-              .label("Pattern (substring)")
-              .value(newForm.pattern)
-              .size("small")
-              .onChange(e => {
-                val v = e.target.asInstanceOf[dom.HTMLInputElement].value; setNewForm(_.copy(pattern = v))
-              })
-              .withKey("pattern")
-          )*
-        ),
+        actionSelector(createForm.actionKind, createSubmit.isSubmitting, updateCreate),
+        Fragment(ruleFormBody(createForm, createSubmit.isSubmitting, updateCreate)*),
         mui.Button
-          .normal()("Add rule")
+          .normal()(if (createSubmit.isSubmitting) "Adding…" else "Add rule")
           .variant("contained")
+          .disabled(createSubmit.buttonDisabled(createForm.isValid))
           .`type`("submit")
-          .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)"; borderRadius = "8px" })
+          .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)"; borderRadius = "8px" }),
+        submitError(createSubmit)
       )
     )
 
@@ -579,48 +467,43 @@ object ImportRuleList {
           .withProps(MuiCompat.paginationProps(count = totalPages, page = currentPage, onChange = setPage))
       )
 
-    val ruleItems: Seq[ReactElement] = pagedRules.map { r =>
-      val isEditing = editingId.contains(r.id)
+    def editFormView(ruleId: UUID, formData: BankRowRuleFormData): ReactElement =
+      form(onSubmit := { e =>
+        e.preventDefault()
+        handleUpdate(ruleId, formData)
+      })(
+        mui.Box.sx(new CSSPropertiesUtils {
+          display = "flex"
+          flexWrap = "wrap"
+          alignItems = "center"
+          gap = "12px"
+          padding = "4px 0"
+        })(
+          actionSelector(formData.actionKind, editSubmit.isSubmitting, updateEdit),
+          Fragment(ruleFormBody(formData, editSubmit.isSubmitting, updateEdit)*),
+          mui.Button
+            .normal()(if (editSubmit.isSubmitting) "Saving…" else "Save")
+            .size("small")
+            .variant("contained")
+            .disabled(editSubmit.buttonDisabled(formData.isValid))
+            .`type`("submit")
+            .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
+          mui.Button
+            .normal()("Cancel")
+            .size("small")
+            .disabled(editSubmit.isSubmitting)
+            .onClick { _ =>
+              editSubmit.reset()
+              setEditing(None)
+            },
+          submitError(editSubmit)
+        )
+      )
 
-      val content: ReactElement =
-        if (isEditing)
-          mui.Box.sx(new CSSPropertiesUtils {
-            display = "flex"
-            flexWrap = "wrap"
-            alignItems = "center"
-            gap = "12px"
-            padding = "4px 0"
-          })(
-            actionSelector(editForm.kind, k => setEditForm(_.copy(kind = k))),
-            Fragment(
-              ruleFormBody(
-                editForm,
-                f => setEditForm(f),
-                mui.TextField
-                  .outlined()
-                  .autoFocus(true)
-                  .label("Pattern")
-                  .value(editForm.pattern)
-                  .size("small")
-                  .onChange(e => {
-                    val v = e.target.asInstanceOf[dom.HTMLInputElement].value; setEditForm(_.copy(pattern = v))
-                  })
-                  .onKeyDown(e => if (e.key == "Enter") handleUpdate(r.id))
-                  .withKey("pattern")
-              )*
-            ),
-            mui.Button
-              .normal()("Save")
-              .size("small")
-              .variant("contained")
-              .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
-              .onClick(_ => handleUpdate(r.id)),
-            mui.Button
-              .normal()("Cancel")
-              .size("small")
-              .onClick(_ => setEditingId(None))
-          )
-        else
+    val ruleItems: Seq[ReactElement] = pagedRules.map { r =>
+      val content: ReactElement = editing match {
+        case Some((id, formData)) if id == r.id => editFormView(id, formData)
+        case _ =>
           mui.Box.sx(new CSSPropertiesUtils {
             display = "flex"
             alignItems = "center"
@@ -675,8 +558,8 @@ object ImportRuleList {
                 .size("small")
                 .sx(new CSSPropertiesUtils { color = "var(--lc-text-2)" })
                 .onClick { _ =>
-                  setEditingId(Some(r.id))
-                  setEditForm(RuleForm.fromRule(r))
+                  editSubmit.reset()
+                  setEditing(Some((r.id, BankRowRuleFormData.fromRule(r))))
                 },
               mui.Button
                 .normal()("Delete")
@@ -685,17 +568,20 @@ object ImportRuleList {
                 .onClick(_ => handleDelete(r.id))
             )
           )
+      }
 
       mui.Box.sx(cardStyle)(content).withKey(r.id.toString)
     }
 
     Fragment(
-      createForm,
-      if (error.nonEmpty)
-        mui
-          .Typography(error)
-          .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px"; marginBottom = "8px" })
-      else Fragment(),
+      createFormView,
+      deleteError match {
+        case Some(msg) =>
+          mui
+            .Typography(msg)
+            .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px"; marginBottom = "8px" })
+        case None => Fragment()
+      },
       filterBar,
       Fragment(ruleItems*),
       paginationControls

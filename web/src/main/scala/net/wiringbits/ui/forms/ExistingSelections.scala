@@ -14,11 +14,18 @@ object ExistingSelections {
   def merchant(m: GetMerchants.Response.Merchant): ValidationResult[ExistingOrNewValue[MerchantName, UUID]] =
     withId(MerchantName.validate(m.name), Some(m.id))
 
+  /** A stored reference by name and id, e.g. the merchant an import rule points at. */
+  def existingMerchant(name: String, id: UUID): ValidationResult[ExistingOrNewValue[MerchantName, UUID]] =
+    withId(MerchantName.validate(name), Some(id))
+
   def newMerchant(text: String): ValidationResult[ExistingOrNewValue[MerchantName, UUID]] =
     withId(MerchantName.validate(text), None)
 
   def category(c: GetCategories.Response.Category): ValidationResult[ExistingOrNewValue[CategoryName, UUID]] =
     withId(CategoryName.validate(c.name), Some(c.id))
+
+  def existingCategory(name: String, id: UUID): ValidationResult[ExistingOrNewValue[CategoryName, UUID]] =
+    withId(CategoryName.validate(name), Some(id))
 
   def newCategory(text: String): ValidationResult[ExistingOrNewValue[CategoryName, UUID]] =
     withId(CategoryName.validate(text), None)
