@@ -1,8 +1,7 @@
 package net.wiringbits.components.pages.receipts
-import net.wiringbits.components.pages.{AutocompleteLabels, ExpenseFormSplits}
+import net.wiringbits.components.pages.{ExpenseFormSplits, MerchantResolver}
 
 import com.olvind.mui.csstype.mod.Property.FlexDirection
-import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
@@ -16,10 +15,25 @@ import net.wiringbits.api.models.merchants.{GetImportRules, ImportRuleAction}
 import net.wiringbits.api.models.receipts.{ConfirmReceipt, GetReceipt, GetReceipts, LinkReceiptToExpense}
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.components.pages.receipts.ReceiptsLogic.{BatchState, ReceiptMode}
-import net.wiringbits.forms.ReceiptConfirmFormData
+import net.wiringbits.forms.{ExpenseSplitRow, ReceiptConfirmFormData}
 import net.wiringbits.models.User
-import net.wiringbits.ui.components.inputs.{AmountInput, DateInput}
-import net.wiringbits.ui.forms.{ExpLocalDate, PositiveBigDecimal, SubmitHooks}
+import net.wiringbits.common.models.MerchantName
+import net.wiringbits.ui.components.inputs.{
+  AmountInput,
+  DateInput,
+  OptionalIdSelectInput,
+  OptionalMerchantAutocompleteInput,
+  OptionalNotesInput,
+  OptionalTimeInput
+}
+import net.wiringbits.ui.forms.{
+  ExistingOrNewValue,
+  ExpLocalDate,
+  ExpLocalTime,
+  ExpNotes,
+  PositiveBigDecimal,
+  SubmitHooks
+}
 import net.wiringbits.utils.ReceiptFileViewer
 import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -32,11 +46,11 @@ import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 import slinky.web.html.{alt, checked, form, iframe, img, input, multiple, onChange, onSubmit, sandbox, src, `type`}
 
-import java.time.{Instant, LocalTime}
+import java.time.Instant
 import java.util.UUID
 import scala.concurrent.ExecutionContext
 import scala.scalajs.js
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success}
 
 object ReceiptsPage {
   def apply(ctx: AppContext, user: User): KeyAddingStage =
@@ -346,55 +360,73 @@ object ReceiptList {
           case Failure(ex) => setError(ex.getMessage)
         }
 
-    def handleConfirm(receiptId: UUID, form: ReceiptConfirmFormData): Unit =
+    def handleConfirm(r: GetReceipts.Response.Receipt, form: ReceiptConfirmFormData): Unit =
       form.submitRequest match {
         case None =>
           confirmSubmit.fail(form.formValidationErrors.headOption.getOrElse("Please fix the highlighted fields"))
         case Some(resolved) =>
-          val formSplits = resolved.splits.map { case (catId, _, amt) => (catId, amt) }
-          ExpenseFormSplits.createSplits(resolved.amount, formSplits, props.merchants.data, resolved.merchantId) match {
+          // An existing merchant (picked, or matched by name) may contribute its default category; a merchant created
+          // here takes the first split's category, so it adds nothing beyond the explicit splits. Checking the
+          // coverage first means a failing form never creates a merchant.
+          val knownMerchantId = ReceiptsLogic.knownMerchantId(resolved.merchant, props.merchants.data)
+          ExpenseFormSplits.createSplits(
+            resolved.amount,
+            resolved.splits,
+            props.merchants.data,
+            knownMerchantId
+          ) match {
             case Left(msg) => confirmSubmit.fail(msg)
-            case Right(splits) => confirm(receiptId, resolved, splits)
+            case Right(splits) => confirm(r, resolved, splits)
           }
       }
 
     def confirm(
-        receiptId: UUID,
+        r: GetReceipts.Response.Receipt,
         form: ReceiptConfirmFormData.Resolved,
         splits: List[CreateExpense.Split]
     ): Unit = {
       confirmSubmit.begin()
-      val time = if (form.time.isEmpty) None else Try(LocalTime.parse(form.time)).toOption
-      val merchantId = if (form.merchantId.isEmpty) None else Try(UUID.fromString(form.merchantId)).toOption
-      val notes = Option(form.notes.trim).filter(_.nonEmpty)
-      props.ctx.api.client
-        .confirmReceipt(
-          receiptId,
-          ConfirmReceipt
-            .Request(
-              Some(form.amount),
-              Some(form.date),
-              time,
-              merchantId = merchantId,
-              notes = notes,
-              splits,
-              parsedMerchantName = form.parsedMerchantName,
-              rowId = form.rowId
-            )
+      val receiptId = r.id
+      val result = for {
+        merchantResult <- MerchantResolver.findOrCreateMerchantOpt(
+          props.ctx.api.client,
+          props.merchants.data,
+          form.merchant,
+          categoryId = form.splits.collectFirst { case (Some(categoryId), _) => categoryId }
         )
-        .onComplete {
-          case Success(_) =>
-            confirmSubmit.succeed()
-            setMode(_.confirmed(receiptId))
-            setError("")
-            showToast("Expense created")
-            props.ctx.api.client.getReceipt(receiptId).onComplete {
-              case Success(updated) =>
-                setLocalReceipts(cur => cur.map(r => if (r.id == updated.id) toListReceipt(updated) else r))
-              case Failure(_) => ()
-            }
-          case Failure(ex) => confirmSubmit.fail(ex.getMessage)
+        _ = merchantResult.flatMap(_._2).foreach { m =>
+          // A retry after a later failure must reuse this merchant instead of creating another one.
+          updateForm(_.withResolvedMerchant(m.id))
         }
+        _ <- props.ctx.api.client
+          .confirmReceipt(
+            receiptId,
+            ConfirmReceipt
+              .Request(
+                Some(form.amount),
+                Some(form.date),
+                form.time,
+                merchantId = merchantResult.map(_._1),
+                notes = form.notes,
+                splits,
+                parsedMerchantName = r.merchantName,
+                rowId = form.rowId
+              )
+          )
+      } yield ()
+      result.onComplete {
+        case Success(_) =>
+          confirmSubmit.succeed()
+          setMode(_.confirmed(receiptId))
+          setError("")
+          showToast("Expense created")
+          props.ctx.api.client.getReceipt(receiptId).onComplete {
+            case Success(updated) =>
+              setLocalReceipts(cur => cur.map(r => if (r.id == updated.id) toListReceipt(updated) else r))
+            case Failure(_) => ()
+          }
+        case Failure(ex) => confirmSubmit.fail(ex.getMessage)
+      }
     }
 
     def openLinkMode(receiptId: UUID): Unit = {
@@ -567,100 +599,51 @@ object ReceiptList {
       )
     }
 
-    def renderTextField(label: String)(params: AutocompleteRenderInputParams): ReactElement =
-      (mui.TextField.outlined.withProps(MuiCompat.textFieldProps(params, label, size = Some("small"))): ReactElement)
-
-    def merchantAutocomplete(merchantInput: String): ReactElement = {
-      val acProps = MuiCompat.freeSoloAutocompleteProps(
-        options = props.merchants.data,
-        renderInput = renderTextField("Merchant (optional)"),
-        inputValue = merchantInput,
-        getOptionLabel = AutocompleteLabels.merchantOptionLabel,
-        onSelect = value =>
-          (value: Any) match {
-            case m: GetMerchants.Response.Merchant =>
-              updateForm(_.copy(merchantId = m.id.toString, merchantInput = m.name))
-            case _ => ()
-          },
-        onInput = (text, rsn) =>
-          updateForm(f => f.copy(merchantInput = text, merchantId = if (rsn != "reset") "" else f.merchantId)),
-        disabled = false,
-        fullWidth = false
-      )
-      (mui.Autocomplete.withProps(acProps).withKey("merchant-ac"): ReactElement)
-    }
-
-    def splitRemainder(amountStr: String, splits: List[(String, String, String)]): BigDecimal = {
-      val total = Try(BigDecimal(amountStr)).getOrElse(BigDecimal(0))
-      val used = splits.flatMap { case (_, _, amt) => Try(BigDecimal(amt)).toOption }.sum
+    def splitRemainder(form: ReceiptConfirmFormData): BigDecimal = {
+      val total = form.amount.valueOpt.map(_.value).getOrElse(BigDecimal(0))
+      val used = form.splits.flatMap(_.amount.valueOpt.map(_.value)).sum
       total - used
     }
 
-    def splitRow(
-        catId: String,
-        catInput: String,
-        amt: String,
-        i: Int,
-        splits: List[(String, String, String)],
-        setSplits: List[(String, String, String)] => Unit
-    ): ReactElement = {
-      val catAcProps = MuiCompat.freeSoloAutocompleteProps(
-        options = props.categories.data,
-        renderInput = renderTextField("Category"),
-        inputValue = catInput,
-        getOptionLabel = AutocompleteLabels.categoryOptionLabel,
-        onSelect = value =>
-          (value: Any) match {
-            case c: GetCategories.Response.Category =>
-              setSplits(splits.zipWithIndex.map { case ((ci, cin, a), j) =>
-                if (j == i) (c.id.toString, c.name, a) else (ci, cin, a)
-              })
-            case _ => ()
-          },
-        onInput = (text, rsn) =>
-          if (rsn != "reset")
-            setSplits(splits.zipWithIndex.map { case ((ci, cin, a), j) =>
-              if (j == i) ("", text, a) else (ci, cin, a)
-            }),
-        disabled = false,
-        fullWidth = false
-      )
+    def splitRow(row: ExpenseSplitRow, disabled: Boolean): ReactElement =
       mui.ListItem
         .normal()(
           Container(
             flexDirection = FlexDirection.row,
             alignItems = Container.Alignment.center,
             child = Fragment(
-              (mui.Autocomplete.withProps(catAcProps).withKey(s"cat-ac-$i"): ReactElement),
-              mui.TextField
-                .outlined()
-                .label("Amount")
-                .value(amt)
-                .onChange(e =>
-                  setSplits(splits.zipWithIndex.map { case ((ci, cin, a), j) =>
-                    if (j == i) (ci, cin, e.target.asInstanceOf[dom.HTMLInputElement].value) else (ci, cin, a)
-                  })
-                ),
+              mui.Box.sx(new CSSPropertiesUtils { minWidth = "160px" })(
+                OptionalIdSelectInput.component(
+                  OptionalIdSelectInput.Props(
+                    field = row.category,
+                    options = props.categories.data.map(c => c.id.toString -> c.name),
+                    onChange = (value: ValidationResult[Option[UUID]]) =>
+                      updateForm(_.updateSplit(row.key, r => r.copy(category = r.category.updated(value)))),
+                    disabled = disabled
+                  )
+                )
+              ),
+              AmountInput.component(
+                AmountInput.Props(
+                  field = row.amount,
+                  disabled = disabled,
+                  onChange = (value: ValidationResult[PositiveBigDecimal]) =>
+                    updateForm(_.updateSplit(row.key, r => r.copy(amount = r.amount.updated(value))))
+                )
+              ),
               mui.Button
                 .normal()("Remove")
-                .onClick(_ => setSplits(splits.zipWithIndex.filter(_._2 != i).map(_._1)))
+                .disabled(disabled)
+                .onClick(_ => updateForm(_.removeSplit(row.key)))
             )
           )
         )
-        .withKey(i.toString)
+        .withKey(row.key.toString)
         .build
-    }
 
-    def splitsSection(
-        splits: List[(String, String, String)],
-        setSplits: List[(String, String, String)] => Unit,
-        amountStr: String
-    ): ReactElement = {
-      val rows =
-        splits.zipWithIndex.map { case ((catId, catInput, amt), i) =>
-          splitRow(catId = catId, catInput = catInput, amt = amt, i, splits, setSplits)
-        }
-      val rem = splitRemainder(amountStr, splits)
+    def splitsSection(form: ReceiptConfirmFormData, disabled: Boolean): ReactElement = {
+      val rows = form.splits.map(row => splitRow(row, disabled))
+      val rem = splitRemainder(form)
       Container(
         flexDirection = FlexDirection.column,
         child = Fragment(
@@ -669,9 +652,7 @@ object ReceiptList {
             flexDirection = FlexDirection.row,
             alignItems = Container.Alignment.center,
             child = Fragment(
-              mui.Button
-                .normal()("Add split")
-                .onClick(_ => setSplits(splits :+ ("", "", ""))),
+              mui.Button.normal()("Add split").disabled(disabled).onClick(_ => updateForm(_.addSplit)),
               mui.Typography(s"Uncategorized: $rem").sx(remainderStyling)
             )
           )
@@ -910,9 +891,8 @@ object ReceiptList {
             new CSSPropertiesUtils { fontSize = "0.8em"; color = "var(--lc-link)"; fontWeight = "bold" }
           val receiptAmt = cf.amount.valueOpt.map(_.value)
           val receiptDate = cf.date.valueOpt.map(_.value)
-          val receiptMerchant = Option(cf.merchantId)
-            .filter(_.nonEmpty)
-            .flatMap(id => Try(java.util.UUID.fromString(id)).toOption)
+          val receiptMerchant = cf.merchant.valueOpt.flatten
+            .flatMap(_.id)
             .flatMap(id => props.merchants.data.find(_.id == id))
             .map(_.name.toLowerCase)
           val rankedRows = rowList
@@ -929,7 +909,7 @@ object ReceiptList {
             .sortBy { case (_, score) => -score }
           form(onSubmit := { ev =>
             ev.preventDefault()
-            handleConfirm(r.id, cf)
+            handleConfirm(r, cf)
           })(
             Container(
               flexDirection = FlexDirection.column,
@@ -954,35 +934,45 @@ object ReceiptList {
                           updateForm(cur => cur.copy(date = cur.date.updated(value)))
                       )
                     ),
-                    mui.TextField
-                      .outlined()
-                      .label("Time (HH:MM, optional)")
-                      .value(cf.time)
-                      .onChange { e =>
-                        val v = e.target.asInstanceOf[dom.HTMLInputElement].value
-                        updateForm(_.copy(time = v))
-                      },
-                    merchantAutocomplete(cf.merchantInput),
-                    mui.TextField
-                      .outlined()
-                      .label("Notes (optional)")
-                      .value(cf.notes)
-                      .onChange { e =>
-                        val v = e.target.asInstanceOf[dom.HTMLInputElement].value
-                        updateForm(_.copy(notes = v))
-                      },
+                    OptionalTimeInput.component(
+                      OptionalTimeInput.Props(
+                        field = cf.time,
+                        disabled = confirmSubmit.inputDisabled,
+                        onChange = (value: ValidationResult[Option[ExpLocalTime]]) =>
+                          updateForm(cur => cur.copy(time = cur.time.updated(value)))
+                      )
+                    ),
+                    OptionalMerchantAutocompleteInput.component(
+                      OptionalMerchantAutocompleteInput.Props(
+                        field = cf.merchant,
+                        options = props.merchants.data,
+                        label = cf.merchant.label,
+                        onChange = (value: ValidationResult[Option[ExistingOrNewValue[MerchantName, UUID]]]) =>
+                          updateForm(cur => cur.copy(merchant = cur.merchant.updated(value))),
+                        disabled = confirmSubmit.inputDisabled,
+                        fullWidth = false
+                      )
+                    ),
+                    OptionalNotesInput.component(
+                      OptionalNotesInput.Props(
+                        field = cf.notes,
+                        disabled = confirmSubmit.inputDisabled,
+                        onChange = (value: ValidationResult[Option[ExpNotes]]) =>
+                          updateForm(cur => cur.copy(notes = cur.notes.updated(value)))
+                      )
+                    ),
                     mui.Button
                       .normal()("Save")
                       .variant("contained")
                       .disabled(confirmSubmit.buttonDisabled(cf.isValid))
-                      .onClick(_ => handleConfirm(r.id, cf)),
+                      .onClick(_ => handleConfirm(r, cf)),
                     mui.Button
                       .normal()("Cancel")
                       .onClick(_ => setMode(ReceiptMode.Viewing(Some(r.id))))
                   )
                 ),
                 confirmSubmit.error.map(msg => mui.Typography(msg).color("error"): ReactElement),
-                splitsSection(cf.splits, s => updateForm(_.copy(splits = s)), cf.amount.inputValue),
+                splitsSection(cf, confirmSubmit.inputDisabled),
                 if (rankedRows.nonEmpty)
                   Container(
                     flexDirection = FlexDirection.column,

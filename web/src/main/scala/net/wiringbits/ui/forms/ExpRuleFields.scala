@@ -26,6 +26,9 @@ object ExpRulePattern extends WrappedString.Companion[ExpRulePattern] {
     else ValidationResult.Valid(string, new ExpRulePattern(string))
 
   override def trusted(string: String): ExpRulePattern = new ExpRulePattern(string)
+
+  /** Blank input means "no rule"; anything else must be a valid pattern. */
+  given optionalValidator: TextValidator[Option[ExpRulePattern]] = OptionalValidator.optional(validate)
 }
 
 class ExpRuleDescription private (val string: String) extends WrappedString

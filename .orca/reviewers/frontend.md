@@ -1,5 +1,5 @@
 ---
-description: Frontend — fetch via AsyncComponent; drive async submit/save in-flight and error state through the shared useSubmit lifecycle; mutually-exclusive UI state as one ADT; state derived from its previous value set via the functional updater; hook dependency lists via SafeHooks (String keys); filters and view selections encoded in the URL; navigate with the router link, not hand-rolled anchors; reuse the MUI component (Autocomplete, Dialog, Menu, Pagination, …) instead of re-implementing it; a FormData model carries a spec; required fields modeled on the field (not Option, not hand-checked, submit gated on isValid); seed validated fields with the raw value; keep js.* interop inside the component; no hardcoded React keys in reusable components; pick-or-create through a shared resolver
+description: Frontend — fetch via AsyncComponent; drive async submit/save in-flight and error state through the shared useSubmit lifecycle; mutually-exclusive UI state as one ADT; state derived from its previous value set via the functional updater; hook dependency lists via SafeHooks (String keys); filters and view selections encoded in the URL; navigate with the router link, not hand-rolled anchors; reuse the MUI component (Autocomplete, Dialog, Menu, Pagination, …) instead of re-implementing it; a FormData model carries a spec; required fields modeled on the field (not Option, not hand-checked, submit gated on isValid); seed validated fields with the raw value; keep js.* interop inside the component; no hardcoded React keys in reusable components; pick-or-create through a shared resolver; every FormData input a FormField over a validated primitive (only Booleans and non-edited context ids stay raw)
 files: web/src/main/scala
 ---
 
@@ -177,6 +177,30 @@ flagging it.
 
 Not: trimming at submit as part of real normalization the API expects; a value that
 is not seeding a validated field.
+
+## Every FormData input is a validated FormField
+Each value the user edits in a form is a `FormField` over a validated primitive, and
+every such field is listed in `fields`, so `isValid` covers it and the submit button
+is gated on it. Flag:
+- a `FormData` subclass under `net/wiringbits/forms` that holds a user input as a
+  raw `String`, `BigDecimal`, `Int`, `UUID`, `LocalDate`, `LocalTime`, or a
+  tuple/list of these, and
+- a `FormField` input that is missing from `fields` (so `isValid` never sees it).
+
+Each kind of input has a validated shape:
+- text: a `WrappedString`-style primitive with a max length (see `ExpRulePattern`);
+- number: a bounded positive primitive such as `PositiveBigDecimal`;
+- date/time: a parsed primitive such as `ExpLocalDate` / `ExpLocalTime`;
+- picked id: a field whose validator enforces the id format (blank or a
+  well-formed id);
+- pick-or-create: an `ExistingOrNewValue` resolved through the shared resolver;
+- a list of rows (e.g. splits): a row case class of `FormField`s whose fields are
+  flattened into `fields`.
+
+Not: a `Boolean` checkbox/toggle; a pass-through context id the form carries but
+the user never edits (`rowId`, `receiptId`) — a constructor input, not bound to an
+editable control; a field that only matters while an opt-in `Boolean` on the same
+`FormData` is on, which may be added to `fields` only while that opt-in is on.
 
 ## Keep JS interop inside the component; its Props stay plain Scala
 A component that wraps a ScalablyTyped/MUI widget bridges its loosely-typed

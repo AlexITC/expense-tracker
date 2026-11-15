@@ -5,15 +5,21 @@ import com.olvind.mui.csstype.mod.Property.FlexDirection
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
-import net.wiringbits.forms.ExpenseFormData
+import net.wiringbits.forms.{ExpenseFormData, ExpenseSplitRow}
 import net.wiringbits.core.SafeHooks
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.expenses.{CreateExpense, GetExpenses, MergeDetailsSource, MergeExpenses, UpdateExpense}
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.models.User
-import net.wiringbits.ui.components.inputs.{AmountInput, DateInput}
-import net.wiringbits.ui.forms.{ExpLocalDate, PositiveBigDecimal, SubmitHooks}
+import net.wiringbits.ui.components.inputs.{
+  AmountInput,
+  DateInput,
+  OptionalIdSelectInput,
+  OptionalNotesInput,
+  OptionalTimeInput
+}
+import net.wiringbits.ui.forms.{ExpLocalDate, ExpLocalTime, ExpNotes, PositiveBigDecimal, SubmitHooks}
 import net.wiringbits.utils.ExpenseDuplicateDetector
 import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Shape}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -27,10 +33,10 @@ import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 import slinky.web.html.{form, onKeyDown, onSubmit}
 
-import java.time.{DayOfWeek, LocalDate, LocalTime}
+import java.time.{DayOfWeek, LocalDate}
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success}
 
 object ExpensesPage {
   def apply(ctx: AppContext, user: User): KeyAddingStage =
@@ -253,17 +259,14 @@ object ExpenseList {
           "The receipt moves to the bank-row expense and the receipt-only expense is deleted. This action cannot be undone."
     }
 
-  def toUpdateSplits(splits: List[(String, String)]): List[UpdateExpense.Split] =
-    splits.flatMap { case (catId, amt) =>
-      if (catId.nonEmpty && amt.nonEmpty)
-        Try(UpdateExpense.Split(UUID.fromString(catId), BigDecimal(amt))).toOption
-      else None
-    }
+  /** Rows with no category are dropped; the coverage rule then catches the mismatch. */
+  def toUpdateSplits(splits: List[(Option[UUID], BigDecimal)]): List[UpdateExpense.Split] =
+    splits.collect { case (Some(catId), amt) => UpdateExpense.Split(catId, amt) }
 
   /** The splits the edit form sends. Fails when they don't cover the amount exactly. */
   def updateSplits(
       amount: BigDecimal,
-      formSplits: List[(String, String)]
+      formSplits: List[(Option[UUID], BigDecimal)]
   ): Either[String, List[UpdateExpense.Split]] = {
     val splits = toUpdateSplits(formSplits)
     ExpenseFormSplits.splitsError(amount, splits.map(_.amount)).toLeft(splits)
@@ -323,12 +326,6 @@ object ExpenseList {
     val (showBulkMergeDialog, setShowBulkMergeDialog) = Hooks.useState(false)
     val (bulkMerging, setBulkMerging) = Hooks.useState(false)
 
-    def parseTime(time: String): Option[LocalTime] =
-      if (time.isEmpty) None else Try(LocalTime.parse(time)).toOption
-
-    def parseMerchantId(merchantId: String): Option[UUID] =
-      if (merchantId.isEmpty) None else Try(UUID.fromString(merchantId)).toOption
-
     def save[S](
         formData: ExpenseFormData,
         submit: SubmitHooks.Control,
@@ -358,7 +355,7 @@ object ExpenseList {
         (r, splits) =>
           props.ctx.api.client
             .createExpense(
-              CreateExpense.Request(r.amount, r.date, parseTime(r.time), parseMerchantId(r.merchantId), r.notes, splits)
+              CreateExpense.Request(r.amount, r.date, r.time, r.merchantId, r.notes, splits)
             )
             .map(_ => ())
       ) { () =>
@@ -417,7 +414,7 @@ object ExpenseList {
           props.ctx.api.client
             .updateExpense(
               expenseId,
-              UpdateExpense.Request(r.amount, r.date, parseTime(r.time), parseMerchantId(r.merchantId), r.notes, splits)
+              UpdateExpense.Request(r.amount, r.date, r.time, r.merchantId, r.notes, splits)
             )
             .map(_ => ())
       ) { () =>
@@ -437,7 +434,7 @@ object ExpenseList {
 
     def splitRemainder(formData: ExpenseFormData): BigDecimal = {
       val total = formData.amount.valueOpt.map(_.value).getOrElse(BigDecimal(0))
-      val used = formData.splits.flatMap { case (_, amt) => Try(BigDecimal(amt)).toOption }.sum
+      val used = formData.splits.flatMap(_.amount.valueOpt.map(_.value)).sum
       total - used
     }
 
@@ -475,93 +472,73 @@ object ExpenseList {
           )
         )
       ),
-      mui.TextField
-        .outlined()
-        .label("Time (HH:MM, optional)")
-        .value(formData.time)
-        .disabled(disabled)
-        .onChange { e =>
-          val value = e.target.asInstanceOf[dom.HTMLInputElement].value
-          update(_.copy(time = value))
-        },
-      merchantOptions(formData.merchantId, id => update(_.copy(merchantId = id))),
-      mui.TextField
-        .outlined()
-        .label("Notes (optional)")
-        .value(formData.notes)
-        .disabled(disabled)
-        .onChange { e =>
-          val value = e.target.asInstanceOf[dom.HTMLInputElement].value
-          update(_.copy(notes = value))
-        }
+      OptionalTimeInput.component(
+        OptionalTimeInput.Props(
+          field = formData.time,
+          disabled = disabled,
+          onChange =
+            (value: ValidationResult[Option[ExpLocalTime]]) => update(cur => cur.copy(time = cur.time.updated(value)))
+        )
+      ),
+      mui.Box.sx(new CSSPropertiesUtils { minWidth = "160px" })(
+        OptionalIdSelectInput.component(
+          OptionalIdSelectInput.Props(
+            field = formData.merchantId,
+            options = props.merchants.data.map(m => m.id.toString -> m.name),
+            onChange = (value: ValidationResult[Option[UUID]]) =>
+              update(cur => cur.copy(merchantId = cur.merchantId.updated(value))),
+            disabled = disabled
+          )
+        )
+      ),
+      OptionalNotesInput.component(
+        OptionalNotesInput.Props(
+          field = formData.notes,
+          disabled = disabled,
+          onChange =
+            (value: ValidationResult[Option[ExpNotes]]) => update(cur => cur.copy(notes = cur.notes.updated(value)))
+        )
+      )
     )
 
-    def merchantOptions(selectedId: String, setId: String => Unit): ReactElement = {
-      val none = mui.MenuItem.normal()("(none)").value("").withKey("none").build
-      val items = none +: props.merchants.data.map(m =>
-        mui.MenuItem.normal()(m.name).value(m.id.toString).withKey(m.id.toString).build
-      )
-      mui.TextField
-        .outlined()
-        .select(true)
-        .label("Merchant (optional)")
-        .value(selectedId)
-        .onChange(e => setId(e.target.asInstanceOf[dom.HTMLInputElement].value))
-        .sx(new CSSPropertiesUtils { minWidth = "160px" })(items*)
-    }
-
-    def splitRow(
-        catId: String,
-        amt: String,
-        i: Int,
-        splits: List[(String, String)],
-        setSplits: List[(String, String)] => Unit
-    ): ReactElement = {
-      val catNone = mui.MenuItem.normal()("(none)").value("").withKey("none").build
-      val catItems = catNone +: props.categories.data.map(c =>
-        mui.MenuItem.normal()(c.name).value(c.id.toString).withKey(c.id.toString).build
-      )
+    def splitRow(row: ExpenseSplitRow, disabled: Boolean, update: Update): ReactElement =
       mui.ListItem
         .normal()(
           Container(
             flexDirection = FlexDirection.row,
             alignItems = Container.Alignment.center,
             child = Fragment(
-              mui.TextField
-                .outlined()
-                .select(true)
-                .label("Category")
-                .value(catId)
-                .onChange(e =>
-                  setSplits(splits.zipWithIndex.map { case ((c, a), j) =>
-                    if (j == i) (e.target.asInstanceOf[dom.HTMLInputElement].value, a) else (c, a)
-                  })
-                )(catItems*),
-              mui.TextField
-                .outlined()
-                .label("Amount")
-                .value(amt)
-                .onChange(e =>
-                  setSplits(splits.zipWithIndex.map { case ((c, a), j) =>
-                    if (j == i) (c, e.target.asInstanceOf[dom.HTMLInputElement].value) else (c, a)
-                  })
-                ),
+              mui.Box.sx(new CSSPropertiesUtils { minWidth = "160px" })(
+                OptionalIdSelectInput.component(
+                  OptionalIdSelectInput.Props(
+                    field = row.category,
+                    options = props.categories.data.map(c => c.id.toString -> c.name),
+                    onChange = (value: ValidationResult[Option[UUID]]) =>
+                      update(_.updateSplit(row.key, r => r.copy(category = r.category.updated(value)))),
+                    disabled = disabled
+                  )
+                )
+              ),
+              AmountInput.component(
+                AmountInput.Props(
+                  field = row.amount,
+                  disabled = disabled,
+                  onChange = (value: ValidationResult[PositiveBigDecimal]) =>
+                    update(_.updateSplit(row.key, r => r.copy(amount = r.amount.updated(value))))
+                )
+              ),
               mui.Button
                 .normal()("Remove")
-                .onClick(_ => setSplits(splits.zipWithIndex.filter(_._2 != i).map(_._1)))
+                .disabled(disabled)
+                .onClick(_ => update(_.removeSplit(row.key)))
             )
           )
         )
-        .withKey(i.toString)
+        .withKey(row.key.toString)
         .build
-    }
 
-    def splitsSection(formData: ExpenseFormData, update: Update): ReactElement = {
-      val splits = formData.splits
-      val setSplits: List[(String, String)] => Unit = newSplits => update(_.copy(splits = newSplits))
-      val rows = splits.zipWithIndex.map { case ((catId, amt), i) =>
-        splitRow(catId = catId, amt = amt, i, splits, setSplits)
-      }
+    def splitsSection(formData: ExpenseFormData, disabled: Boolean, update: Update): ReactElement = {
+      val rows = formData.splits.map(row => splitRow(row, disabled, update))
       val rem = splitRemainder(formData)
       Container(
         flexDirection = FlexDirection.column,
@@ -571,7 +548,7 @@ object ExpenseList {
             flexDirection = FlexDirection.row,
             alignItems = Container.Alignment.center,
             child = Fragment(
-              mui.Button.normal()("Add split").onClick(_ => setSplits(splits :+ ("", ""))),
+              mui.Button.normal()("Add split").disabled(disabled).onClick(_ => update(_.addSplit)),
               mui.Typography(s"Uncategorized: $rem").sx(remainderStyling)
             )
           )
@@ -785,7 +762,7 @@ object ExpenseList {
                       }
                   )
                 ),
-                splitsSection(createFormData, updateCreate),
+                splitsSection(createFormData, createSubmit.isSubmitting, updateCreate),
                 submitError(createSubmit)
               )
             )
@@ -1035,7 +1012,7 @@ object ExpenseList {
                     mui.Button.normal()("Cancel").onClick(_ => cancelEdit())
                   )
                 ),
-                splitsSection(editForm, updateEdit),
+                splitsSection(editForm, editSubmit.isSubmitting, updateEdit),
                 submitError(editSubmit)
               )
             )

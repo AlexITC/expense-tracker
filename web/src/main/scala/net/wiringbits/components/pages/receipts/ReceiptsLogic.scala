@@ -3,7 +3,9 @@ package net.wiringbits.components.pages.receipts
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.common.models.MerchantName
 import net.wiringbits.forms.ReceiptConfirmFormData
+import net.wiringbits.ui.forms.ExistingOrNewValue
 
 import java.util.UUID
 
@@ -86,6 +88,15 @@ object ReceiptsLogic {
   /** The notes a batch-confirmed receipt's expense gets: the winning rule's description, if any. */
   def batchNotes(resolved: Option[ResolvedMerchant]): Option[String] =
     resolved.flatMap(_.description)
+
+  /** The existing merchant a confirm-form selection refers to before anything is created: the picked id, else a
+    * merchant whose name matches the typed one ignoring case. None for a blank selection or a new name.
+    */
+  def knownMerchantId(
+      selection: Option[ExistingOrNewValue[MerchantName, UUID]],
+      merchants: List[GetMerchants.Response.Merchant]
+  ): Option[UUID] =
+    selection.flatMap(sel => sel.id.orElse(merchants.find(_.name.equalsIgnoreCase(sel.value.string)).map(_.id)))
 
   /** What the receipts page is doing with the selected receipt. */
   enum ReceiptMode {

@@ -4,35 +4,36 @@ import net.wiringbits.api.models.bankstatements.GetBankStatement
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.common.models.{CategoryName, MerchantName}
-import net.wiringbits.ui.forms.{ExistingOrNewValue, ExistingSelections, ExpLocalDate, PositiveBigDecimal}
+import net.wiringbits.ui.forms.{ExistingOrNewValue, ExistingSelections, ExpLocalDate, ExpNotes, PositiveBigDecimal}
 import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.forms.{FormData, FormField}
 
 import java.time.LocalDate
 import java.util.UUID
 
-/** The "new refund" form of a bank statement row: a required positive amount and date, free-text notes, and optional
-  * merchant/category selections. Resolving or creating the selections stays a side effect of the component.
+/** The "new refund" form of a bank statement row: a required positive amount and date, optional validated notes, and
+  * optional merchant/category selections. Resolving or creating the selections stays a side effect of the component.
   */
 case class BankRowRefundFormData(
     amount: FormField[PositiveBigDecimal],
     date: FormField[ExpLocalDate],
-    notes: String,
+    notes: FormField[Option[ExpNotes]],
     merchant: FormField[Option[ExistingOrNewValue[MerchantName, UUID]]],
     category: FormField[Option[ExistingOrNewValue[CategoryName, UUID]]]
 ) extends FormData[BankRowRefundFormData.Resolved] {
-  override def fields: List[FormField[?]] = List(amount, date, merchant, category)
+  override def fields: List[FormField[?]] = List(amount, date, notes, merchant, category)
 
   override def submitRequest: Option[BankRowRefundFormData.Resolved] =
     for {
       a <- amount.valueOpt
       d <- date.valueOpt
+      n <- notes.valueOpt
       m <- merchant.valueOpt
       c <- category.valueOpt
     } yield BankRowRefundFormData.Resolved(
       amount = a.value,
       date = d.value,
-      notes = Some(notes).filter(_.trim.nonEmpty),
+      notes = n.map(_.string),
       merchant = m,
       category = c
     )
@@ -91,7 +92,12 @@ object BankRowRefundFormData {
         required = true,
         value = Some(ExpLocalDate.validate(row.date.toString))
       ),
-      notes = notes,
+      notes = new FormField(
+        label = "Notes",
+        name = "notes",
+        required = false,
+        value = Some(ExpNotes.optionalValidator(notes))
+      ),
       merchant = new FormField(
         label = "Merchant (optional)",
         name = "merchant",

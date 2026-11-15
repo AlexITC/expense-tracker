@@ -4,7 +4,7 @@ import net.wiringbits.api.models.bankstatements.GetBankStatement
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.common.models.{CategoryName, MerchantName}
-import net.wiringbits.ui.forms.{ExistingOrNewValue, ExpLocalDate, PositiveBigDecimal}
+import net.wiringbits.ui.forms.{ExistingOrNewValue, ExpLocalDate, ExpNotes, ExpRulePattern, PositiveBigDecimal}
 import net.wiringbits.webapp.common.validators.ValidationResult
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
@@ -66,7 +66,7 @@ class BankRowExpenseFormDataSpec extends AnyWordSpec {
             notes = Some("a note"),
             merchant = Some(storeSelection),
             category = foodSelection,
-            rulePattern = row.description,
+            rulePattern = None,
             categoryRuleOptIn = false,
             receiptId = None
           )
@@ -220,6 +220,67 @@ class BankRowExpenseFormDataSpec extends AnyWordSpec {
     "keep the id of an existing merchant" in {
       val form = BankRowExpenseFormData.initial(row, Some(store), "", Some(food), notes = "")
       form.withResolvedMerchant(UUID.randomUUID()) must be(form)
+    }
+  }
+
+  "notes" should {
+    "be seeded with the raw text" in {
+      val form = BankRowExpenseFormData.initial(row, None, "", Some(food), notes = "  a note  ")
+      form.notes.inputValue must be("  a note  ")
+      form.submitRequest.map(_.notes) must be(Some(Some("a note")))
+    }
+
+    "resolve blank notes to None" in {
+      val form = BankRowExpenseFormData.initial(row, None, "", Some(food), notes = "   ")
+      form.submitRequest.map(_.notes) must be(Some(None))
+    }
+
+    "make the form invalid when over the limit" in {
+      val form =
+        withFood.copy(notes = withFood.notes.updated(ExpNotes.optionalValidator("x" * (ExpNotes.MaxLength + 1))))
+      form.isValid must be(false)
+      form.submitRequest must be(None)
+    }
+  }
+
+  "rulePattern" should {
+    val tooShort = ExpRulePattern.optionalValidator("ab")
+    val tooLong = ExpRulePattern.optionalValidator("x" * 256)
+
+    "not block the form nor resolve while its input is hidden, even when opted in" in {
+      List(tooShort, tooLong).foreach { pattern =>
+        val form = withFood.copy(rulePattern = withFood.rulePattern.updated(pattern), categoryRuleOptIn = true)
+        form.isValid must be(true)
+        form.submitRequest.map(_.rulePattern) must be(Some(None))
+      }
+    }
+
+    "block the form while its input is shown" in {
+      List(tooShort, tooLong).foreach { pattern =>
+        val form = withFood.copy(rulePattern = withFood.rulePattern.updated(pattern), rulePatternShown = true)
+        form.isValid must be(false)
+        form.submitRequest must be(None)
+      }
+    }
+
+    "resolve a blank shown pattern to no rule" in {
+      val form =
+        withFood.copy(
+          rulePattern = withFood.rulePattern.updated(ExpRulePattern.optionalValidator("  ")),
+          rulePatternShown = true
+        )
+      form.isValid must be(true)
+      form.submitRequest.map(_.rulePattern) must be(Some(None))
+    }
+
+    "resolve a valid shown pattern" in {
+      val form =
+        withFood.copy(
+          rulePattern = withFood.rulePattern.updated(ExpRulePattern.optionalValidator("OXXO")),
+          rulePatternShown = true
+        )
+      form.isValid must be(true)
+      form.submitRequest.map(_.rulePattern) must be(Some(Some("OXXO")))
     }
   }
 }

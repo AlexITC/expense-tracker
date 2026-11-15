@@ -3,30 +3,31 @@ package net.wiringbits.forms
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.common.models.{CategoryName, MerchantName}
-import net.wiringbits.ui.forms.{ExistingOrNewValue, ExistingSelections}
+import net.wiringbits.ui.forms.{ExistingOrNewValue, ExistingSelections, ExpNotes}
 import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.forms.{FormData, FormField}
 
 import java.util.UUID
 
-/** The bulk expense creation form: an optional merchant, a required category and free-text notes, applied to every
-  * selected row. Resolving or creating the selections stays a side effect of the component.
+/** The bulk expense creation form: an optional merchant, a required category and optional validated notes, applied to
+  * every selected row. Resolving or creating the selections stays a side effect of the component.
   */
 case class BulkExpenseFormData(
     merchant: FormField[Option[ExistingOrNewValue[MerchantName, UUID]]],
     category: FormField[ExistingOrNewValue[CategoryName, UUID]],
-    notes: String
+    notes: FormField[Option[ExpNotes]]
 ) extends FormData[BulkExpenseFormData.Resolved] {
-  override def fields: List[FormField[?]] = List(merchant, category)
+  override def fields: List[FormField[?]] = List(merchant, category, notes)
 
   override def submitRequest: Option[BulkExpenseFormData.Resolved] =
     for {
       m <- merchant.valueOpt
       c <- category.valueOpt
+      n <- notes.valueOpt
     } yield BulkExpenseFormData.Resolved(
       merchant = m,
       category = c,
-      notes = Some(notes.trim).filter(_.nonEmpty)
+      notes = n.map(_.string)
     )
 
   /** Updates the merchant and, when an existing merchant with a known default category is picked, fills the category
@@ -61,6 +62,11 @@ object BulkExpenseFormData {
         value = Some(ValidationResult.Valid("", None))
       ),
       category = new FormField(label = "Category", name = "category", required = true),
-      notes = ""
+      notes = new FormField(
+        label = "Notes (optional, applied to all)",
+        name = "notes",
+        required = false,
+        value = Some(ExpNotes.optionalValidator(""))
+      )
     )
 }
