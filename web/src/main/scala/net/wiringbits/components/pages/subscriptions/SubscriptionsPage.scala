@@ -1,18 +1,23 @@
 package net.wiringbits.components.pages.subscriptions
 
-import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.subscriptions.{GetSubscriptions, SubscriptionCadence, SubscriptionPaymentMethod}
-import net.wiringbits.components.pages.AutocompleteLabels
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.forms.{AmountMode, SubscriptionFormData}
 import net.wiringbits.models.User
-import net.wiringbits.ui.components.inputs.SubscriptionNameInput
-import net.wiringbits.ui.forms.SubmitHooks
+import net.wiringbits.ui.components.inputs.{
+  DateInput,
+  OptionalIdSelectInput,
+  SubscriptionAmountInput,
+  SubscriptionIntervalDaysInput,
+  SubscriptionNameInput
+}
+import net.wiringbits.ui.forms.{ExpLocalDate, SubmitHooks, SubscriptionAmount, SubscriptionIntervalDays}
+import net.wiringbits.webapp.common.validators.ValidationResult
+import net.wiringbits.webapp.utils.slinkyUtils.forms.FormField
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
-import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.core.GenericHooks
 import net.wiringbits.webapp.utils.slinkyUtils.forms.StatefulFormData
@@ -82,15 +87,6 @@ object SubscriptionList {
     width = "100%"
   }
 
-  // Free-solo autocompletes are not full width, so without a minimum they collapse to the typed text.
-  private val autocompleteFieldStyle = new CSSPropertiesUtils { minWidth = "200px" }
-
-  private def renderCategoryTextField(params: AutocompleteRenderInputParams): ReactElement =
-    (mui.TextField.outlined
-      .withProps(MuiCompat.textFieldProps(params, "Category (optional)", size = Some("small")))
-      .sx(autocompleteFieldStyle)
-      .withKey("tf"): ReactElement)
-
   private def statusChip(status: SubscriptionStatus): ReactElement = {
     val (bg, fg) = status match {
       case SubscriptionStatus.Upcoming => ("var(--lc-tint)", "var(--lc-brand-dark)")
@@ -118,6 +114,7 @@ object SubscriptionList {
     val deleteControl = SubmitHooks.useSubmit()
 
     val categoryNames: Map[UUID, String] = props.categories.data.map(c => c.id -> c.name).toMap
+    val categoryOptions: Seq[(String, String)] = props.categories.data.map(c => c.id.toString -> c.name)
     val today = LocalDate.now()
 
     def onCreateDataChanged(f: SubscriptionFormData => SubscriptionFormData): Unit = {
@@ -180,31 +177,11 @@ object SubscriptionList {
       editControl.reset()
       setEditFormData(_ =>
         StatefulFormData(
-          SubscriptionFormData.fromSubscription(
-            nameLabel = NameLabel,
-            subscription = s,
-            categoryName = s.categoryId.flatMap(categoryNames.get)
-          )
+          SubscriptionFormData.fromSubscription(nameLabel = NameLabel, subscription = s)
         )
       )
       setEditingId(Some(s.id))
     }
-
-    def textField(
-        key: String,
-        label: String,
-        value: String,
-        disabled: Boolean,
-        onChange: String => Unit
-    ): ReactElement =
-      mui.TextField
-        .outlined()
-        .label(label)
-        .value(value)
-        .size("small")
-        .disabled(disabled)
-        .onChange(e => { val v = e.target.asInstanceOf[dom.HTMLInputElement].value; onChange(v) })
-        .withKey(key)
 
     def selectField(
         key: String,
@@ -229,91 +206,81 @@ object SubscriptionList {
         .withKey(key)
     }
 
-    def categoryAutocomplete(
-        data: SubscriptionFormData,
+    // The validated inputs are full width, so each sits in a box that sets its width within the wrapping row.
+    def fieldBox(key: String, boxMinWidth: String)(input: ReactElement): ReactElement =
+      mui.Box.sx(new CSSPropertiesUtils { minWidth = boxMinWidth })(input).withKey(key)
+
+    def amountInput(
+        key: String,
+        field: FormField[Option[SubscriptionAmount]],
         disabled: Boolean,
-        update: (SubscriptionFormData => SubscriptionFormData) => Unit
-    ): ReactElement = {
-      val acProps = MuiCompat.freeSoloAutocompleteProps(
-        options = props.categories.data,
-        renderInput = renderCategoryTextField,
-        inputValue = data.categoryInput,
-        getOptionLabel = AutocompleteLabels.categoryOptionLabel,
-        onSelect = value =>
-          (value: Any) match {
-            case c: GetCategories.Response.Category =>
-              update(_.copy(categoryId = Some(c.id), categoryInput = c.name))
-            case _ => ()
-          },
-        onInput = (text, rsn) =>
-          if (rsn == "reset") update(_.copy(categoryInput = text))
-          else update(_.copy(categoryInput = text, categoryId = None)),
-        disabled = disabled,
-        fullWidth = false
+        onChange: ValidationResult[Option[SubscriptionAmount]] => Unit
+    ): ReactElement =
+      fieldBox(key = key, boxMinWidth = "160px")(
+        SubscriptionAmountInput.component(
+          SubscriptionAmountInput.Props(field = field, disabled = disabled, onChange = onChange)
+        )
       )
-      (mui.Autocomplete.withProps(acProps).withKey("category-ac"): ReactElement)
-    }
 
     def formFields(
         data: SubscriptionFormData,
         disabled: Boolean,
         update: (SubscriptionFormData => SubscriptionFormData) => Unit
     ): Seq[ReactElement] = {
-      val intervalField: Seq[ReactElement] =
-        if (data.cadence == SubscriptionCadence.EveryNDays)
+      val intervalField: Seq[ReactElement] = data.cadence match {
+        case SubscriptionCadence.EveryNDays =>
           Seq(
-            textField(
-              key = "interval",
-              label = "Interval (days)",
-              value = data.intervalDays,
-              disabled = disabled,
-              onChange = v => update(_.copy(intervalDays = v))
+            fieldBox(key = "interval", boxMinWidth = "140px")(
+              SubscriptionIntervalDaysInput.component(
+                SubscriptionIntervalDaysInput.Props(
+                  field = data.intervalDays,
+                  disabled = disabled,
+                  onChange = (value: ValidationResult[SubscriptionIntervalDays]) =>
+                    update(x => x.copy(intervalDays = x.intervalDays.updated(value)))
+                )
+              )
             )
           )
-        else Seq.empty
+        case SubscriptionCadence.Monthly | SubscriptionCadence.Yearly => Seq.empty
+      }
 
       val amountFields: Seq[ReactElement] = data.amountMode match {
         case AmountMode.Exact =>
           Seq(
-            textField(
+            amountInput(
               key = "exact-amount",
-              label = "Amount (optional)",
-              value = data.exactAmount,
+              field = data.exactAmount,
               disabled = disabled,
-              onChange = v => update(_.copy(exactAmount = v))
+              onChange = value => update(x => x.copy(exactAmount = x.exactAmount.updated(value)))
             )
           )
         case AmountMode.Range =>
           Seq(
-            textField(
+            amountInput(
               key = "min-amount",
-              label = "Minimum amount",
-              value = data.minAmount,
+              field = data.minAmount,
               disabled = disabled,
-              onChange = v => update(_.copy(minAmount = v))
+              onChange = value => update(x => x.copy(minAmount = x.minAmount.updated(value)))
             ),
-            textField(
+            amountInput(
               key = "max-amount",
-              label = "Maximum amount",
-              value = data.maxAmount,
+              field = data.maxAmount,
               disabled = disabled,
-              onChange = v => update(_.copy(maxAmount = v))
+              onChange = value => update(x => x.copy(maxAmount = x.maxAmount.updated(value)))
             )
           )
       }
 
       Seq[ReactElement](
-        mui.Box
-          .sx(new CSSPropertiesUtils { minWidth = "240px" })(
-            SubscriptionNameInput.component(
-              SubscriptionNameInput.Props(
-                data.name,
-                disabled = disabled,
-                onChange = value => update(x => x.copy(name = x.name.updated(value)))
-              )
+        fieldBox(key = "name", boxMinWidth = "240px")(
+          SubscriptionNameInput.component(
+            SubscriptionNameInput.Props(
+              data.name,
+              disabled = disabled,
+              onChange = value => update(x => x.copy(name = x.name.updated(value)))
             )
           )
-          .withKey("name"),
+        ),
         selectField(
           key = "cadence",
           label = "Cadence",
@@ -343,13 +310,25 @@ object SubscriptionList {
           ),
           onChange = v => update(_.copy(paymentMethod = SubscriptionPaymentMethod.fromEntryName(v)))
         ),
-        categoryAutocomplete(data, disabled, update),
-        textField(
-          key = "start-date",
-          label = "Start date (YYYY-MM-DD)",
-          value = data.startDate,
-          disabled = disabled,
-          onChange = v => update(_.copy(startDate = v))
+        fieldBox(key = "category", boxMinWidth = "200px")(
+          OptionalIdSelectInput.component(
+            OptionalIdSelectInput.Props(
+              field = data.categoryId,
+              options = categoryOptions,
+              disabled = disabled,
+              onChange = value => update(x => x.copy(categoryId = x.categoryId.updated(value)))
+            )
+          )
+        ),
+        fieldBox(key = "start-date", boxMinWidth = "200px")(
+          DateInput.component(
+            DateInput.Props(
+              field = data.startDate,
+              disabled = disabled,
+              onChange =
+                (value: ValidationResult[ExpLocalDate]) => update(x => x.copy(startDate = x.startDate.updated(value)))
+            )
+          )
         )
       )
     }
@@ -386,7 +365,7 @@ object SubscriptionList {
             .normal()("Add subscription")
             .variant("contained")
             .`type`("submit")
-            .disabled(createControl.buttonDisabled(createFormData.data.submitRequest.isDefined))
+            .disabled(createControl.buttonDisabled(createFormData.data.isValid))
             .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)"; borderRadius = "8px" })
         )
       )
@@ -407,7 +386,7 @@ object SubscriptionList {
             .size("small")
             .variant("contained")
             .`type`("submit")
-            .disabled(editControl.buttonDisabled(editFormData.data.updateRequest.isDefined))
+            .disabled(editControl.buttonDisabled(editFormData.data.isValid))
             .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
           mui.Button
             .normal()("Cancel")

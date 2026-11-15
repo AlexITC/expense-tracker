@@ -8,6 +8,7 @@ import net.wiringbits.api.models.subscriptions.{
   UpdateSubscription
 }
 import net.wiringbits.common.models.SubscriptionName
+import net.wiringbits.ui.forms.{ExpLocalDate, ExpOptionalId, SubscriptionAmount, SubscriptionIntervalDays}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -16,15 +17,26 @@ import java.util.UUID
 
 class SubscriptionFormDataSpec extends AnyWordSpec {
 
-  private val categoryId = UUID.fromString("00000000-0000-0000-0000-000000000001")
+  private val categoryId = UUID.randomUUID()
 
   private val initialForm = SubscriptionFormData.initial(nameLabel = "Name")
 
-  private val validForm = initialForm.copy(
-    name = initialForm.name.updated(SubscriptionName.validate("Streaming")),
-    exactAmount = "12.50",
-    startDate = "2026-01-15"
-  )
+  extension (form: SubscriptionFormData) {
+    private def withName(raw: String) = form.copy(name = form.name.updated(SubscriptionName.validate(raw)))
+    private def withExact(raw: String) =
+      form.copy(exactAmount = form.exactAmount.updated(SubscriptionAmount.optionalValidator(raw)))
+    private def withMin(raw: String) =
+      form.copy(minAmount = form.minAmount.updated(SubscriptionAmount.optionalValidator(raw)))
+    private def withMax(raw: String) =
+      form.copy(maxAmount = form.maxAmount.updated(SubscriptionAmount.optionalValidator(raw)))
+    private def withInterval(raw: String) =
+      form.copy(intervalDays = form.intervalDays.updated(SubscriptionIntervalDays.validate(raw)))
+    private def withStartDate(raw: String) =
+      form.copy(startDate = form.startDate.updated(ExpLocalDate.validate(raw)))
+    private def withCategory(raw: String) = form.copy(categoryId = form.categoryId.updated(ExpOptionalId.validate(raw)))
+  }
+
+  private val validForm = initialForm.withName("Streaming").withExact("12.50").withStartDate("2026-01-15")
 
   private val expectedRequest = CreateSubscription.Request(
     name = SubscriptionName.trusted("Streaming"),
@@ -37,23 +49,46 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     startDate = LocalDate.parse("2026-01-15")
   )
 
-  private val rangeForm = validForm.copy(amountMode = AmountMode.Range, minAmount = "10", maxAmount = "25.00")
+  private val rangeForm = validForm.copy(amountMode = AmountMode.Range).withMin("10").withMax("25.00")
+
+  private val everyNDaysForm = validForm.copy(cadence = SubscriptionCadence.EveryNDays)
 
   private def assertBlocked(form: SubscriptionFormData) = {
+    form.isValid must be(false)
     form.formValidationErrors must not be empty
     form.submitRequest must be(None)
     form.updateRequest must be(None)
   }
 
   "fields" should {
-    "return the expected fields" in {
-      initialForm.fields.map(_.name) must be(List("name"))
+    "list the inputs of a monthly cadence with an exact amount" in {
+      initialForm.fields.map(_.name) must be(
+        List(
+          "subscription-create-name",
+          "subscription-create-exact-amount",
+          "subscription-create-category",
+          "subscription-create-start-date"
+        )
+      )
+    }
+
+    "list the interval only for an every-N-days cadence" in {
+      everyNDaysForm.fields.map(_.name) must contain("subscription-create-interval")
+      validForm.copy(cadence = SubscriptionCadence.Yearly).fields.map(_.name) must not contain
+        "subscription-create-interval"
+    }
+
+    "list both range amounts for a range" in {
+      rangeForm.fields.map(
+        _.name
+      ) must contain allOf ("subscription-create-min-amount", "subscription-create-max-amount")
+      rangeForm.fields.map(_.name) must not contain "subscription-create-exact-amount"
     }
   }
 
   "submitRequest" should {
     "return a request with min equal to max for an exact amount" in {
-      validForm.formValidationErrors must be(empty)
+      validForm.isValid must be(true)
       validForm.submitRequest must be(Some(expectedRequest))
     }
 
@@ -64,29 +99,31 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     }
 
     "return a request without amounts when the exact amount is blank" in {
-      validForm.copy(exactAmount = " ").submitRequest must be(
-        Some(expectedRequest.copy(amountMin = None, amountMax = None))
-      )
+      validForm.withExact(" ").submitRequest must be(Some(expectedRequest.copy(amountMin = None, amountMax = None)))
     }
 
     "return a request without amounts when both range amounts are blank" in {
-      rangeForm.copy(minAmount = "", maxAmount = "").submitRequest must be(
+      rangeForm.withMin("").withMax("").submitRequest must be(
         Some(expectedRequest.copy(amountMin = None, amountMax = None))
       )
     }
 
     "include the interval for an every-N-days cadence" in {
-      validForm.copy(cadence = SubscriptionCadence.EveryNDays, intervalDays = " 14 ").submitRequest must be(
+      everyNDaysForm.withInterval(" 14 ").submitRequest must be(
         Some(expectedRequest.copy(cadence = SubscriptionCadence.EveryNDays, intervalDays = Some(14)))
       )
     }
 
-    "ignore the interval input for other cadences" in {
-      validForm.copy(intervalDays = "14").submitRequest must be(Some(expectedRequest))
+    "ignore the interval input for other cadences, even when invalid" in {
+      validForm.withInterval("abc").submitRequest must be(Some(expectedRequest))
+    }
+
+    "ignore the hidden range amounts in exact mode" in {
+      validForm.withMin("abc").submitRequest must be(Some(expectedRequest))
     }
 
     "include the picked category" in {
-      validForm.copy(categoryInput = "Entertainment", categoryId = Some(categoryId)).submitRequest must be(
+      validForm.withCategory(categoryId.toString).submitRequest must be(
         Some(expectedRequest.copy(categoryId = Some(categoryId)))
       )
     }
@@ -95,54 +132,42 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       assertBlocked(validForm.copy(name = initialForm.name))
     }
 
-    "return None when the exact amount is not a number" in {
-      assertBlocked(validForm.copy(exactAmount = "abc"))
-    }
-
-    "return None when a range amount is not a number" in {
-      assertBlocked(rangeForm.copy(maxAmount = "lots"))
-    }
-
-    "return None when only one range amount is set" in {
-      assertBlocked(rangeForm.copy(maxAmount = ""))
-    }
-
-    "return None when the minimum is greater than the maximum" in {
-      assertBlocked(rangeForm.copy(minAmount = "30"))
-    }
-
-    "return None when the amount has too many decimals" in {
-      assertBlocked(validForm.copy(exactAmount = "1.234"))
-    }
-
-    "return None when the amount is not positive" in {
-      assertBlocked(validForm.copy(exactAmount = "0"))
+    "return None when the start date is untouched" in {
+      assertBlocked(validForm.copy(startDate = initialForm.startDate))
     }
 
     "return None when an every-N-days cadence has no interval" in {
-      assertBlocked(validForm.copy(cadence = SubscriptionCadence.EveryNDays, intervalDays = ""))
+      assertBlocked(everyNDaysForm)
     }
 
-    "return None when the interval is not a whole number" in {
-      assertBlocked(validForm.copy(cadence = SubscriptionCadence.EveryNDays, intervalDays = "1.5"))
+    "return None when the exact amount is not a number" in {
+      assertBlocked(validForm.withExact("abc"))
+    }
+
+    "return None when a range amount is not a number" in {
+      assertBlocked(rangeForm.withMax("lots"))
+    }
+
+    "return None when only one range amount is set" in {
+      assertBlocked(rangeForm.withMax(""))
+    }
+
+    "return None when the minimum is greater than the maximum" in {
+      val form = rangeForm.withMin("30")
+      form.formValidationErrors must contain("Minimum amount must not be greater than the maximum amount")
+      assertBlocked(form)
     }
 
     "return None when the interval is not positive" in {
-      assertBlocked(validForm.copy(cadence = SubscriptionCadence.EveryNDays, intervalDays = "0"))
-    }
-
-    "return None when the start date is blank" in {
-      assertBlocked(validForm.copy(startDate = ""))
+      assertBlocked(everyNDaysForm.withInterval("0"))
     }
 
     "return None when the start date is not in YYYY-MM-DD format" in {
-      assertBlocked(validForm.copy(startDate = "15/01/2026"))
+      assertBlocked(validForm.withStartDate("15/01/2026"))
     }
 
-    "return None when category text is typed but no category is picked" in {
-      val form = validForm.copy(categoryInput = "Entertainment", categoryId = None)
-      form.formValidationErrors must contain("Pick a category from the list")
-      assertBlocked(form)
+    "return None when the category is not a valid id" in {
+      assertBlocked(validForm.withCategory("not-an-id"))
     }
   }
 
@@ -168,8 +193,8 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
   "fromSubscription" should {
     def subscription(amountMin: Option[BigDecimal], amountMax: Option[BigDecimal]) =
       GetSubscriptions.Response.Subscription(
-        id = UUID.fromString("00000000-0000-0000-0000-000000000002"),
-        name = "Gym",
+        id = UUID.randomUUID(),
+        name = s"Gym ${UUID.randomUUID()}",
         cadence = SubscriptionCadence.EveryNDays,
         intervalDays = Some(28),
         amountMin = amountMin,
@@ -181,7 +206,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       )
 
     def roundTrip(s: GetSubscriptions.Response.Subscription) =
-      SubscriptionFormData.fromSubscription(nameLabel = "Name", subscription = s, categoryName = Some("Health"))
+      SubscriptionFormData.fromSubscription(nameLabel = "Name", subscription = s)
 
     def expectedUpdate(s: GetSubscriptions.Response.Subscription) = UpdateSubscription.Request(
       name = SubscriptionName.trusted(s.name),
@@ -198,8 +223,8 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       val s = subscription(Some(BigDecimal("40.00")), Some(BigDecimal("40.00")))
       val form = roundTrip(s)
       form.amountMode must be(AmountMode.Exact)
-      form.exactAmount must be("40.00")
-      form.categoryInput must be("Health")
+      form.exactAmount.inputValue must be("40.00")
+      form.categoryId.inputValue must be(categoryId.toString)
       form.updateRequest must be(Some(expectedUpdate(s)))
     }
 

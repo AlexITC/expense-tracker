@@ -9,66 +9,78 @@ import net.wiringbits.api.models.subscriptions.{
 }
 import net.wiringbits.api.utils.SubscriptionValidator
 import net.wiringbits.common.models.SubscriptionName
+import net.wiringbits.ui.forms.{ExpLocalDate, ExpOptionalId, SubscriptionAmount, SubscriptionIntervalDays}
 import net.wiringbits.webapp.utils.slinkyUtils.forms.{FormData, FormField}
 
-import java.time.LocalDate
 import java.util.UUID
-import scala.util.Try
 
 /** Whether the user enters a single expected amount or a min/max range. */
 enum AmountMode {
   case Exact, Range
 }
 
+/** The create/edit form of the subscriptions page. Every input is a validated field; `fields` lists only the inputs the
+  * selected cadence and amount mode use, so a hidden input never blocks the form. The rules that span several fields
+  * come from the shared [[SubscriptionValidator]].
+  *
+  * `prefix` keeps field names (and thus DOM ids) unique, since the create and edit forms can be on screen together.
+  */
 case class SubscriptionFormData(
     name: FormField[SubscriptionName],
     cadence: SubscriptionCadence,
-    intervalDays: String,
+    intervalDays: FormField[SubscriptionIntervalDays],
     amountMode: AmountMode,
-    exactAmount: String,
-    minAmount: String,
-    maxAmount: String,
+    exactAmount: FormField[Option[SubscriptionAmount]],
+    minAmount: FormField[Option[SubscriptionAmount]],
+    maxAmount: FormField[Option[SubscriptionAmount]],
     paymentMethod: SubscriptionPaymentMethod,
-    categoryInput: String,
-    categoryId: Option[UUID],
-    startDate: String
+    categoryId: FormField[Option[UUID]],
+    startDate: FormField[ExpLocalDate]
 ) extends FormData[CreateSubscription.Request] {
-  import SubscriptionFormData.*
 
-  override def fields: List[FormField[?]] = List(name)
+  override def fields: List[FormField[?]] = {
+    val intervalFields = cadence match {
+      case SubscriptionCadence.EveryNDays => List(intervalDays)
+      case SubscriptionCadence.Monthly | SubscriptionCadence.Yearly => Nil
+    }
+    val amountFields = amountMode match {
+      case AmountMode.Exact => List(exactAmount)
+      case AmountMode.Range => List(minAmount, maxAmount)
+    }
+    List(name) ++ intervalFields ++ amountFields ++ List(categoryId, startDate)
+  }
 
   override def formValidationErrors: List[String] = {
-    val parseErrors = List(parsedInterval, parsedAmounts, parsedStartDate, parsedCategoryId).flatMap(_.left.toOption)
-    // The cross-field rules only make sense once the inputs they check have been parsed.
+    // The cross-field rules only make sense once the inputs they check are valid.
     val validatorError = for {
-      interval <- parsedInterval.toOption
-      amounts <- parsedAmounts.toOption
+      interval <- resolvedInterval
+      (min, max) <- resolvedAmounts
       error <- SubscriptionValidator
-        .validate(cadence = cadence, intervalDays = interval, amountMin = amounts.min, amountMax = amounts.max)
+        .validate(cadence = cadence, intervalDays = interval, amountMin = min, amountMax = max)
         .left
         .toOption
     } yield error
-    List(fieldsError).flatten ++ parseErrors ++ validatorError.toList
+    super.formValidationErrors ++ validatorError.toList
   }
 
   override def submitRequest: Option[CreateSubscription.Request] =
-    if (formValidationErrors.nonEmpty) None
+    if (!isValid) None
     else
       for {
         validName <- name.valueOpt
-        interval <- parsedInterval.toOption
-        amounts <- parsedAmounts.toOption
-        start <- parsedStartDate.toOption
-        category <- parsedCategoryId.toOption
+        interval <- resolvedInterval
+        (min, max) <- resolvedAmounts
+        category <- categoryId.valueOpt
+        start <- startDate.valueOpt
       } yield CreateSubscription.Request(
         name = validName,
         cadence = cadence,
         intervalDays = interval,
-        amountMin = amounts.min,
-        amountMax = amounts.max,
+        amountMin = min,
+        amountMax = max,
         paymentMethod = paymentMethod,
         categoryId = category,
-        startDate = start
+        startDate = start.value
       )
 
   def updateRequest: Option[UpdateSubscription.Request] =
@@ -86,84 +98,125 @@ case class SubscriptionFormData(
     }
 
   // The interval only applies to EveryNDays; for other cadences the (hidden) input is ignored.
-  private def parsedInterval: Either[String, Option[Int]] =
-    if (cadence != SubscriptionCadence.EveryNDays || intervalDays.isBlank) Right(None)
-    else intervalDays.trim.toIntOption.toRight("Interval days must be a whole number").map(Some(_))
-
-  private def parsedAmounts: Either[String, Amounts] =
-    amountMode match {
-      case AmountMode.Exact =>
-        parseAmount(label = "Amount", input = exactAmount).map(amount => Amounts(min = amount, max = amount))
-      case AmountMode.Range =>
-        for {
-          min <- parseAmount(label = "Minimum amount", input = minAmount)
-          max <- parseAmount(label = "Maximum amount", input = maxAmount)
-        } yield Amounts(min = min, max = max)
+  private def resolvedInterval: Option[Option[Int]] =
+    cadence match {
+      case SubscriptionCadence.EveryNDays => intervalDays.valueOpt.map(days => Some(days.value))
+      case SubscriptionCadence.Monthly | SubscriptionCadence.Yearly => Some(None)
     }
 
-  private def parsedStartDate: Either[String, LocalDate] =
-    if (startDate.isBlank) Left("Start date is required")
-    else Try(LocalDate.parse(startDate.trim)).toOption.toRight("Start date must be a date in YYYY-MM-DD format")
-
-  // Typed text without a picked option is rejected: subscriptions never create categories implicitly.
-  private def parsedCategoryId: Either[String, Option[UUID]] =
-    categoryId match {
-      case Some(id) => Right(Some(id))
-      case None if categoryInput.isBlank => Right(None)
-      case None => Left("Pick a category from the list")
+  private def resolvedAmounts: Option[(Option[BigDecimal], Option[BigDecimal])] =
+    amountMode match {
+      case AmountMode.Exact =>
+        exactAmount.valueOpt.map { amount =>
+          val value = amount.map(_.value)
+          (value, value)
+        }
+      case AmountMode.Range =>
+        for {
+          min <- minAmount.valueOpt
+          max <- maxAmount.valueOpt
+        } yield (min.map(_.value), max.map(_.value))
     }
 }
 
 object SubscriptionFormData {
 
-  private case class Amounts(min: Option[BigDecimal], max: Option[BigDecimal])
+  private def build(
+      prefix: String,
+      nameLabel: String,
+      name: Option[String],
+      cadence: SubscriptionCadence,
+      intervalDays: Option[String],
+      amountMode: AmountMode,
+      exactAmount: String,
+      minAmount: String,
+      maxAmount: String,
+      paymentMethod: SubscriptionPaymentMethod,
+      categoryId: String,
+      startDate: Option[String]
+  ): SubscriptionFormData =
+    SubscriptionFormData(
+      name = new FormField(
+        label = nameLabel,
+        name = s"$prefix-name",
+        required = true,
+        value = name.map(SubscriptionName.validate)
+      ),
+      cadence = cadence,
+      intervalDays = new FormField(
+        label = "Interval (days)",
+        name = s"$prefix-interval",
+        required = true,
+        value = intervalDays.map(SubscriptionIntervalDays.validate)
+      ),
+      amountMode = amountMode,
+      exactAmount = amountField(prefix = prefix, key = "exact-amount", label = "Amount (optional)", raw = exactAmount),
+      minAmount = amountField(prefix = prefix, key = "min-amount", label = "Minimum amount", raw = minAmount),
+      maxAmount = amountField(prefix = prefix, key = "max-amount", label = "Maximum amount", raw = maxAmount),
+      paymentMethod = paymentMethod,
+      categoryId = new FormField(
+        label = "Category (optional)",
+        name = s"$prefix-category",
+        required = false,
+        value = Some(ExpOptionalId.validate(categoryId))
+      ),
+      startDate = new FormField(
+        label = "Start date (YYYY-MM-DD)",
+        name = s"$prefix-start-date",
+        required = true,
+        value = startDate.map(ExpLocalDate.validate)
+      )
+    )
 
-  // Blank means "unknown amount"; anything else must be a number.
-  private def parseAmount(label: String, input: String): Either[String, Option[BigDecimal]] =
-    if (input.isBlank) Right(None)
-    else Try(BigDecimal(input.trim)).toOption.toRight(s"$label must be a number").map(Some(_))
+  // Blank means "unknown amount", so the field starts valid.
+  private def amountField(
+      prefix: String,
+      key: String,
+      label: String,
+      raw: String
+  ): FormField[Option[SubscriptionAmount]] =
+    new FormField(
+      label = label,
+      name = s"$prefix-$key",
+      required = false,
+      value = Some(SubscriptionAmount.optionalValidator(raw))
+    )
 
-  def initial(nameLabel: String): SubscriptionFormData = SubscriptionFormData(
-    name = nameField(nameLabel, None),
-    cadence = SubscriptionCadence.Monthly,
-    intervalDays = "",
-    amountMode = AmountMode.Exact,
-    exactAmount = "",
-    minAmount = "",
-    maxAmount = "",
-    paymentMethod = SubscriptionPaymentMethod.DirectDebit,
-    categoryInput = "",
-    categoryId = None,
-    startDate = ""
-  )
+  def initial(nameLabel: String): SubscriptionFormData =
+    build(
+      prefix = "subscription-create",
+      nameLabel = nameLabel,
+      name = None,
+      cadence = SubscriptionCadence.Monthly,
+      intervalDays = None,
+      amountMode = AmountMode.Exact,
+      exactAmount = "",
+      minAmount = "",
+      maxAmount = "",
+      paymentMethod = SubscriptionPaymentMethod.DirectDebit,
+      categoryId = "",
+      startDate = None
+    )
 
   def fromSubscription(
       nameLabel: String,
-      subscription: GetSubscriptions.Response.Subscription,
-      categoryName: Option[String]
+      subscription: GetSubscriptions.Response.Subscription
   ): SubscriptionFormData = {
     val plain: Option[BigDecimal] => String = _.map(_.bigDecimal.toPlainString).getOrElse("")
     val isExact = subscription.amountMin == subscription.amountMax
-    SubscriptionFormData(
-      name = nameField(nameLabel, Some(subscription.name)),
+    build(
+      prefix = "subscription-edit",
+      nameLabel = nameLabel,
+      name = Some(subscription.name),
       cadence = subscription.cadence,
-      intervalDays = subscription.intervalDays.map(_.toString).getOrElse(""),
+      intervalDays = subscription.intervalDays.map(_.toString),
       amountMode = if (isExact) AmountMode.Exact else AmountMode.Range,
       exactAmount = if (isExact) plain(subscription.amountMin) else "",
       minAmount = if (isExact) "" else plain(subscription.amountMin),
       maxAmount = if (isExact) "" else plain(subscription.amountMax),
       paymentMethod = subscription.paymentMethod,
-      categoryInput = categoryName.getOrElse(""),
-      categoryId = subscription.categoryId,
-      startDate = subscription.startDate.toString
+      categoryId = subscription.categoryId.fold("")(_.toString),
+      startDate = Some(subscription.startDate.toString)
     )
   }
-
-  private def nameField(label: String, value: Option[String]): FormField[SubscriptionName] =
-    new FormField(
-      label = label,
-      name = "name",
-      required = true,
-      value = value.map(SubscriptionName.validate)
-    )
 }
