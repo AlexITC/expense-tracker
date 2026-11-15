@@ -6,7 +6,7 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{CreateRefundFromRow, GetBankStatement}
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
-import net.wiringbits.common.models.CategoryName
+import net.wiringbits.common.models.{CategoryName, MerchantName}
 import net.wiringbits.api.models.merchants.{CreateMerchant, GetMerchants}
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.ui.forms.SubmitHooks
@@ -127,14 +127,20 @@ object BankRowCreateRefundForm {
                 merchantIdOpt match {
                   case Some(id) => Future.successful(Some(id))
                   case None =>
-                    props.ctx.api.client
-                      .createMerchant(
-                        CreateMerchant.Request(
-                          name = merchantName,
-                          notes = None,
-                          categoryId = resolvedCategoryId,
-                          taxId = None
-                        )
+                    MerchantName
+                      .parse(merchantName)
+                      .fold(
+                        error => Future.failed[CreateMerchant.Response](new RuntimeException(error)),
+                        validName =>
+                          props.ctx.api.client
+                            .createMerchant(
+                              CreateMerchant.Request(
+                                name = validName,
+                                notes = None,
+                                categoryId = resolvedCategoryId,
+                                taxId = None
+                              )
+                            )
                       )
                       .map(r => Some(r.id))
                 }

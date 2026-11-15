@@ -1,4 +1,5 @@
 package controllers
+import net.wiringbits.common.models.MerchantName
 
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
@@ -39,10 +40,10 @@ class MerchantsLimitControllerSpec extends PlayPostgresSpec with LoginUtils with
     "reject creating a merchant beyond the configured limit" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
 
-      client.createMerchant(CreateMerchant.Request("First", None, None)).futureValue
-      client.createMerchant(CreateMerchant.Request("Second", None, None)).futureValue
+      client.createMerchant(CreateMerchant.Request(MerchantName.trusted("First"), None, None)).futureValue
+      client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Second"), None, None)).futureValue
 
-      val error = client.createMerchant(CreateMerchant.Request("Third", None, None)).expectError
+      val error = client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Third"), None, None)).expectError
       error must be("Maximum number of merchants (2) reached")
       client.getMerchants.futureValue.data.map(_.name) must contain theSameElementsAs List("First", "Second")
     }

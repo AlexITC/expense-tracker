@@ -1,4 +1,5 @@
 package controllers
+import net.wiringbits.common.models.MerchantName
 import net.wiringbits.common.models.CategoryName
 
 import net.wiringbits.common.ExpenseSplits
@@ -163,7 +164,9 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       createVerifyLoginUser(tokenGenerator).futureValue
       val merchant =
         client
-          .createMerchant(net.wiringbits.api.models.merchants.CreateMerchant.Request("Amazon", None, None))
+          .createMerchant(
+            net.wiringbits.api.models.merchants.CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None)
+          )
           .futureValue
 
       val req = CreateExpense.Request(
@@ -245,7 +248,9 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       createVerifyLoginUser(tokenGenerator)(using executionContext, client2).futureValue
       val merchant =
         client2
-          .createMerchant(net.wiringbits.api.models.merchants.CreateMerchant.Request("Shop", None, None))
+          .createMerchant(
+            net.wiringbits.api.models.merchants.CreateMerchant.Request(MerchantName.trusted("Shop"), None, None)
+          )
           .futureValue
 
       val req = CreateExpense.Request(
@@ -417,7 +422,9 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       createVerifyLoginUser(tokenGenerator).futureValue
       val merchant =
         client
-          .createMerchant(net.wiringbits.api.models.merchants.CreateMerchant.Request("Amazon", None, None))
+          .createMerchant(
+            net.wiringbits.api.models.merchants.CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None)
+          )
           .futureValue
       val req = CreateExpense.Request(
         BigDecimal("50.00"),
@@ -463,7 +470,9 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       createVerifyLoginUser(tokenGenerator).futureValue
       val userId = client.currentUser.futureValue.id
       val merchant = client
-        .createMerchant(net.wiringbits.api.models.merchants.CreateMerchant.Request("Receipt shop", None, None))
+        .createMerchant(
+          net.wiringbits.api.models.merchants.CreateMerchant.Request(MerchantName.trusted("Receipt shop"), None, None)
+        )
         .futureValue
       val loserSplits = fullSplit(BigDecimal("50.00")).futureValue
       val survivorId = client.createExpense(createRequest()).futureValue.id
@@ -557,7 +566,9 @@ class ExpensesControllerSpec extends PlayPostgresSpec with LoginUtils with Expen
       createVerifyLoginUser(tokenGenerator).futureValue
       val userId = client.currentUser.futureValue.id
       val merchant = client
-        .createMerchant(net.wiringbits.api.models.merchants.CreateMerchant.Request("Row shop", None, None))
+        .createMerchant(
+          net.wiringbits.api.models.merchants.CreateMerchant.Request(MerchantName.trusted("Row shop"), None, None)
+        )
         .futureValue
       val survivorSplits = fullSplit(BigDecimal("50.00")).futureValue
       val survivorId = client

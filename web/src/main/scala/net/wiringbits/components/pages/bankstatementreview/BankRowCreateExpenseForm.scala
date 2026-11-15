@@ -1,4 +1,6 @@
 package net.wiringbits.components.pages.bankstatementreview
+
+import net.wiringbits.common.models.MerchantName
 import net.wiringbits.components.pages.{AutocompleteLabels, CategoryResolver}
 
 import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
@@ -287,14 +289,20 @@ object BankRowCreateExpenseForm {
                 merchantIdOpt match {
                   case Some(id) => Future.successful(Some(id))
                   case None =>
-                    props.ctx.api.client
-                      .createMerchant(
-                        CreateMerchant.Request(
-                          name = merchantName,
-                          notes = None,
-                          categoryId = resolvedCategoryId,
-                          taxId = None
-                        )
+                    MerchantName
+                      .parse(merchantName)
+                      .fold(
+                        error => Future.failed[CreateMerchant.Response](new RuntimeException(error)),
+                        validName =>
+                          props.ctx.api.client
+                            .createMerchant(
+                              CreateMerchant.Request(
+                                name = validName,
+                                notes = None,
+                                categoryId = resolvedCategoryId,
+                                taxId = None
+                              )
+                            )
                       )
                       .map { r =>
                         val m = GetMerchants.Response.Merchant(

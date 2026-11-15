@@ -1,4 +1,5 @@
 package controllers
+import net.wiringbits.common.models.MerchantName
 import net.wiringbits.common.models.CategoryName
 
 import net.wiringbits.common.ExpenseSplits
@@ -903,7 +904,8 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Expe
       implicit client =>
         createVerifyLoginUser(tokenGenerator).futureValue
         val receiptId = setupParsedReceipt()
-        val merchantId = client.createMerchant(CreateMerchant.Request("Amazon", None, None)).futureValue.id
+        val merchantId =
+          client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None)).futureValue.id
 
         val req = ConfirmReceipt.Request(
           Some(BigDecimal("50.00")),
@@ -929,7 +931,8 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Expe
         client.uploadReceipt("second-receipt-idem".getBytes("UTF-8"), "Receipt", "r2.pdf").futureValue.id
       val docId2 = client.getReceipt(receiptId2).futureValue.documentId
       driveReceiptToCompletion(docId2)
-      val merchantId = client.createMerchant(CreateMerchant.Request("Amazon", None, None)).futureValue.id
+      val merchantId =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None)).futureValue.id
 
       val req = ConfirmReceipt.Request(
         Some(BigDecimal("50.00")),
@@ -955,7 +958,8 @@ class DocumentsControllerSpec extends PlayPostgresSpec with LoginUtils with Expe
     "skips rule creation when parsedMerchantName is None" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
       val receiptId = setupParsedReceipt()
-      val merchantId = client.createMerchant(CreateMerchant.Request("Amazon", None, None)).futureValue.id
+      val merchantId =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None)).futureValue.id
 
       val req =
         ConfirmReceipt.Request(

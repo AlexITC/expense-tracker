@@ -1,4 +1,5 @@
 package controllers
+import net.wiringbits.common.models.MerchantName
 import net.wiringbits.common.models.CategoryName
 
 import anorm.*
@@ -373,7 +374,8 @@ class BankStatementsControllerSpec extends PlayPostgresSpec with LoginUtils with
       )
       val category =
         client.createCategory(CreateCategory.Request(CategoryName.trusted("Groceries"), description = None)).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Supermarket", None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Supermarket"), None, None)).futureValue
       val req = CreateExpenseFromRow.Request(
         BigDecimal("50.00"),
         sampleDate,

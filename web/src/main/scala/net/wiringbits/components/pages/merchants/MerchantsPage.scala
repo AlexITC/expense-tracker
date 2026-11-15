@@ -7,13 +7,10 @@ import net.wiringbits.components.widgets.Loader
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
 import net.wiringbits.common.models.CategoryName
 import net.wiringbits.api.models.environmentconfig.GetEnvironmentConfig
-import net.wiringbits.api.models.merchants.{
-  CreateImportRule,
-  CreateMerchant,
-  GetMerchants,
-  ImportRuleAction,
-  UpdateMerchant
-}
+import net.wiringbits.api.models.merchants.{CreateImportRule, GetMerchants, ImportRuleAction}
+import net.wiringbits.forms.MerchantFormData
+import net.wiringbits.ui.components.inputs.MerchantNameInput
+import net.wiringbits.ui.forms.SubmitHooks
 import net.wiringbits.core.SafeHooks
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -99,16 +96,14 @@ object MerchantList {
     val (filter, setFilter) = Hooks.useState[MerchantFilter](MerchantFilter.All)
     val (searchText, setSearchText) = Hooks.useState("")
     val (page, setPage) = Hooks.useState(0)
-    val (newName, setNewName) = Hooks.useState("")
-    val (newNotes, setNewNotes) = Hooks.useState("")
-    val (newCategoryId, setNewCategoryId) = Hooks.useState("")
-    val (newTaxId, setNewTaxId) = Hooks.useState("")
+    val (createForm, setCreateForm) =
+      Hooks.useState(MerchantFormData.initial(name = None, notes = "", categoryId = "", taxId = ""))
+    val createSubmit = SubmitHooks.useSubmit()
     val (error, setError) = Hooks.useState("")
     val (editingId, setEditingId) = Hooks.useState[Option[UUID]](None)
-    val (editName, setEditName) = Hooks.useState("")
-    val (editNotes, setEditNotes) = Hooks.useState("")
-    val (editCategoryId, setEditCategoryId) = Hooks.useState("")
-    val (editTaxId, setEditTaxId) = Hooks.useState("")
+    val (editForm, setEditForm) =
+      Hooks.useState(MerchantFormData.initial(name = None, notes = "", categoryId = "", taxId = ""))
+    val editSubmit = SubmitHooks.useSubmit()
 
     val (createCatOpen, setCreateCatOpen) = Hooks.useState(false)
     val (createCatFor, setCreateCatFor) = Hooks.useState("")
@@ -121,9 +116,6 @@ object MerchantList {
 
     val (createRuleEnabled, setCreateRuleEnabled) = Hooks.useState(false)
     val (newRulePattern, setNewRulePattern) = Hooks.useState("")
-
-    def parseCategoryId(s: String): Option[UUID] =
-      if (s.isEmpty) None else Some(UUID.fromString(s))
 
     def categoryItems = {
       val none = mui.MenuItem.normal()("(none)").value("").withKey("none").build
@@ -162,8 +154,8 @@ object MerchantList {
               setLocalCategories(cur =>
                 cur :+ GetCategories.Response.Category(resp.id, resp.name, java.time.Instant.now(), None)
               )
-              if (createCatFor == "create") setNewCategoryId(resp.id.toString)
-              else setEditCategoryId(resp.id.toString)
+              if (createCatFor == "create") setCreateForm(cur => cur.copy(categoryId = resp.id.toString))
+              else setEditForm(cur => cur.copy(categoryId = resp.id.toString))
               setCreateCatOpen(false)
               setNewCatName("")
               setCatModalError("")
@@ -171,37 +163,34 @@ object MerchantList {
           }
 
     def handleCreate(): Unit =
-      props.ctx.api.client
-        .createMerchant(
-          CreateMerchant.Request(
-            newName,
-            notes = Option(newNotes.trim).filter(_.nonEmpty),
-            parseCategoryId(newCategoryId),
-            taxId = Option(newTaxId.trim).filter(_.nonEmpty)
-          )
-        )
-        .onComplete {
-          case Success(resp) =>
-            setNewName(""); setNewNotes(""); setNewCategoryId(""); setNewTaxId("")
-            setCreateRuleEnabled(false); setNewRulePattern(""); setError("")
-            if (createRuleEnabled && newRulePattern.trim.nonEmpty)
-              props.ctx.api.client
-                .createImportRule(
-                  CreateImportRule.Request(
-                    ImportRuleAction.SetMerchant(resp.id, categoryId = None, description = None),
-                    newRulePattern.trim,
-                    amount = None
+      createForm.submitRequest.foreach { request =>
+        createSubmit.begin()
+        props.ctx.api.client
+          .createMerchant(request)
+          .onComplete {
+            case Success(resp) =>
+              createSubmit.succeed()
+              setCreateForm(MerchantFormData.initial(name = None, notes = "", categoryId = "", taxId = ""))
+              setCreateRuleEnabled(false); setNewRulePattern(""); setError("")
+              if (createRuleEnabled && newRulePattern.trim.nonEmpty)
+                props.ctx.api.client
+                  .createImportRule(
+                    CreateImportRule.Request(
+                      ImportRuleAction.SetMerchant(resp.id, categoryId = None, description = None),
+                      newRulePattern.trim,
+                      amount = None
+                    )
                   )
-                )
-                .onComplete {
-                  case Success(_) => props.onRefresh()
-                  case Failure(ex) => setError(s"Rule: ${ex.getMessage}"); props.onRefresh()
-                }
-            else
-              props.onRefresh()
-          case Failure(ex) =>
-            setError(ex.getMessage)
-        }
+                  .onComplete {
+                    case Success(_) => props.onRefresh()
+                    case Failure(ex) => setError(s"Rule: ${ex.getMessage}"); props.onRefresh()
+                  }
+              else
+                props.onRefresh()
+            case Failure(ex) =>
+              createSubmit.fail(ex.getMessage)
+          }
+      }
 
     def handleDelete(merchantId: UUID): Unit =
       props.ctx.api.client
@@ -212,23 +201,19 @@ object MerchantList {
         }
 
     def handleUpdate(merchantId: UUID): Unit =
-      props.ctx.api.client
-        .updateMerchant(
-          merchantId,
-          UpdateMerchant.Request(
-            editName,
-            notes = Option(editNotes.trim).filter(_.nonEmpty),
-            parseCategoryId(editCategoryId),
-            taxId = Option(editTaxId.trim).filter(_.nonEmpty)
-          )
-        )
-        .onComplete {
-          case Success(_) =>
-            setEditingId(None); setEditName(""); setEditNotes(""); setEditCategoryId(""); setEditTaxId(""); setError("")
-            props.onRefresh()
-          case Failure(ex) =>
-            setError(ex.getMessage)
-        }
+      editForm.updateRequest.foreach { request =>
+        editSubmit.begin()
+        props.ctx.api.client
+          .updateMerchant(merchantId, request)
+          .onComplete {
+            case Success(_) =>
+              editSubmit.succeed()
+              setEditingId(None)
+              props.onRefresh()
+            case Failure(ex) =>
+              editSubmit.fail(ex.getMessage)
+          }
+      }
 
     val rulePatternField: ReactElement =
       if (createRuleEnabled)
@@ -243,7 +228,7 @@ object MerchantList {
     val merchantCount = props.response.data.size
     val atLimit = isAtLimit(count = merchantCount, maxMerchants = props.maxMerchants)
 
-    val createForm = form(onSubmit := { e =>
+    val createMerchantForm = form(onSubmit := { e =>
       e.preventDefault()
       if (!atLimit) handleCreate()
     })(
@@ -258,30 +243,44 @@ object MerchantList {
         gap = "12px"
       })(
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexWrap = "wrap"; alignItems = "center"; gap = "12px" })(
-          mui.TextField
-            .outlined()
-            .label("Merchant name")
-            .value(newName)
-            .size("small")
-            .onChange(e => setNewName(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+          MerchantNameInput.component(
+            MerchantNameInput.Props(
+              field = createForm.name,
+              disabled = createSubmit.isSubmitting,
+              onChange = value => setCreateForm(cur => cur.copy(name = cur.name.updated(value)))
+            )
+          ),
           mui.TextField
             .outlined()
             .label("Notes (optional)")
-            .value(newNotes)
+            .value(createForm.notes)
             .size("small")
-            .onChange(e => setNewNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+            .disabled(createSubmit.isSubmitting)
+            .onChange(e => {
+              val value = e.target.asInstanceOf[dom.HTMLInputElement].value
+              setCreateForm(cur => cur.copy(notes = value))
+            }),
           mui.TextField
             .outlined()
             .label("Tax ID (optional)")
-            .value(newTaxId)
+            .value(createForm.taxId)
             .size("small")
-            .onChange(e => setNewTaxId(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-          categorySelector(value = newCategoryId, setNewCategoryId, label = "Default category", forTarget = "create"),
+            .disabled(createSubmit.isSubmitting)
+            .onChange(e => {
+              val value = e.target.asInstanceOf[dom.HTMLInputElement].value
+              setCreateForm(cur => cur.copy(taxId = value))
+            }),
+          categorySelector(
+            value = createForm.categoryId,
+            value => setCreateForm(cur => cur.copy(categoryId = value)),
+            label = "Default category",
+            forTarget = "create"
+          ),
           mui.Button
             .normal()("Add")
             .variant("contained")
             .`type`("submit")
-            .disabled(atLimit)
+            .disabled(atLimit || createSubmit.buttonDisabled(createForm.submitRequest.isDefined))
             .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)"; borderRadius = "8px" })
         ),
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; gap = "12px" })(
@@ -290,11 +289,18 @@ object MerchantList {
             .size("small")
             .variant("outlined")
             .onClick { _ =>
-              if (!createRuleEnabled) setNewRulePattern(newName)
+              if (!createRuleEnabled) setNewRulePattern(createForm.name.value.map(_.input).getOrElse(""))
               setCreateRuleEnabled(!createRuleEnabled)
             },
           rulePatternField
         ),
+        createSubmit.error match {
+          case Some(message) =>
+            mui
+              .Typography(message)
+              .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
+          case None => Fragment()
+        },
         mui
           .Typography(usageLabel(count = merchantCount, max = props.maxMerchants))
           .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" })
@@ -341,28 +347,36 @@ object MerchantList {
               gap = "12px"
               padding = "4px 0"
             })(
-              mui.TextField
-                .outlined()
-                .autoFocus(true)
-                .label("Name")
-                .value(editName)
-                .size("small")
-                .onChange(e => setEditName(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+              MerchantNameInput.component(
+                MerchantNameInput.Props(
+                  field = editForm.name,
+                  disabled = editSubmit.isSubmitting,
+                  onChange = value => setEditForm(cur => cur.copy(name = cur.name.updated(value)))
+                )
+              ),
               mui.TextField
                 .outlined()
                 .label("Notes (optional)")
-                .value(editNotes)
+                .value(editForm.notes)
                 .size("small")
-                .onChange(e => setEditNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+                .disabled(editSubmit.isSubmitting)
+                .onChange(e => {
+                  val value = e.target.asInstanceOf[dom.HTMLInputElement].value
+                  setEditForm(cur => cur.copy(notes = value))
+                }),
               mui.TextField
                 .outlined()
                 .label("Tax ID (optional)")
-                .value(editTaxId)
+                .value(editForm.taxId)
                 .size("small")
-                .onChange(e => setEditTaxId(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+                .disabled(editSubmit.isSubmitting)
+                .onChange(e => {
+                  val value = e.target.asInstanceOf[dom.HTMLInputElement].value
+                  setEditForm(cur => cur.copy(taxId = value))
+                }),
               categorySelector(
-                value = editCategoryId,
-                setEditCategoryId,
+                value = editForm.categoryId,
+                value => setEditForm(cur => cur.copy(categoryId = value)),
                 label = "Default category",
                 forTarget = "edit"
               ),
@@ -371,11 +385,19 @@ object MerchantList {
                 .size("small")
                 .variant("contained")
                 .`type`("submit")
+                .disabled(editSubmit.buttonDisabled(editForm.updateRequest.isDefined))
                 .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
               mui.Button
                 .normal()("Cancel")
                 .size("small")
-                .onClick(_ => setEditingId(None))
+                .onClick(_ => setEditingId(None)),
+              editSubmit.error match {
+                case Some(message) =>
+                  mui
+                    .Typography(message)
+                    .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
+                case None => Fragment()
+              }
             )
           )
         else {
@@ -451,10 +473,15 @@ object MerchantList {
                 .sx(new CSSPropertiesUtils { color = "var(--lc-text-2)" })
                 .onClick { _ =>
                   setEditingId(Some(m.id))
-                  setEditName(m.name)
-                  setEditNotes(m.notes.getOrElse(""))
-                  setEditCategoryId(m.categoryId.map(_.toString).getOrElse(""))
-                  setEditTaxId(m.taxId.getOrElse(""))
+                  setEditForm(_ =>
+                    MerchantFormData.initial(
+                      name = Some(m.name),
+                      notes = m.notes.getOrElse(""),
+                      categoryId = m.categoryId.map(_.toString).getOrElse(""),
+                      taxId = m.taxId.getOrElse("")
+                    )
+                  )
+                  editSubmit.reset()
                 },
               mui.Button
                 .normal()("Delete")
@@ -522,7 +549,7 @@ object MerchantList {
         .onClick(_ => setFilter(f))
 
     Fragment(
-      createForm,
+      createMerchantForm,
       if (atLimit)
         mui
           .Typography(

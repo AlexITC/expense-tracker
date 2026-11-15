@@ -1,4 +1,5 @@
 package controllers
+import net.wiringbits.common.models.MerchantName
 import net.wiringbits.common.models.CategoryName
 
 import com.dimafeng.testcontainers.PostgreSQLContainer
@@ -47,7 +48,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "return the user's rules" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
 
       client
         .createImportRule(
@@ -76,7 +78,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "not return another user's rules" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
       client
         .createImportRule(
           CreateImportRule
@@ -99,7 +102,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
   "POST /import-rules (set_merchant)" should {
     "create a set_merchant rule" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
 
       val response =
         client
@@ -120,7 +124,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "fail when pattern is shorter than 3 characters" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
 
       val error =
         client
@@ -155,7 +160,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "fail when a rule with the same pattern and merchant already exists" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
       client
         .createImportRule(
           CreateImportRule
@@ -183,8 +189,10 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "allow the same pattern for a different merchant" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val m1 = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
-      val m2 = client.createMerchant(CreateMerchant.Request("Walmart", None, None, None)).futureValue
+      val m1 =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
+      val m2 =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Walmart"), None, None, None)).futureValue
 
       client
         .createImportRule(
@@ -207,7 +215,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
   "POST /import-rules (set_merchant with override category and description)" should {
     "round-trip the override category and description" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Coffee shop", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Coffee shop"), None, None, None)).futureValue
       val category =
         client.createCategory(CreateCategory.Request(CategoryName.trusted("Dining"), description = None)).futureValue
       val action =
@@ -227,7 +236,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
         client2.createCategory(CreateCategory.Request(CategoryName.trusted("Dining"), description = None)).futureValue
 
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Coffee shop", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Coffee shop"), None, None, None)).futureValue
       val action =
         ImportRuleAction.SetMerchant(merchant.id, categoryId = Some(foreignCategory.id), description = None)
 
@@ -264,7 +274,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "reject a description longer than the limit on update" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Coffee shop", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Coffee shop"), None, None, None)).futureValue
       val plain = ImportRuleAction.SetMerchant(merchant.id, categoryId = None, description = None)
       val created = client.createImportRule(CreateImportRule.Request(plain, "CAFE", amount = None)).futureValue
 
@@ -503,7 +514,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
   "PUT /import-rules/:id" should {
     "update a rule's pattern" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
       val created =
         client
           .createImportRule(
@@ -535,7 +547,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "allow updating a rule to its own values" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
       val created =
         client
           .createImportRule(
@@ -563,7 +576,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "fail when pattern is shorter than 3 characters" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
       val created =
         client
           .createImportRule(
@@ -593,7 +607,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "fail when the rule does not belong to the user" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
       val created =
         client
           .createImportRule(
@@ -625,7 +640,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "fail when merchant does not belong to the user" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
       val created =
         client
           .createImportRule(
@@ -655,7 +671,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "fail when updating to a pattern+merchant combo already used by another rule" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
       client
         .createImportRule(
           CreateImportRule
@@ -823,7 +840,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
   "DELETE /import-rules/:id" should {
     "delete a rule" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
       val created =
         client
           .createImportRule(
@@ -862,7 +880,8 @@ class ImportRulesControllerSpec extends PlayPostgresSpec with LoginUtils with Mo
 
     "fail when the rule does not belong to the user" in withApiClient { implicit client =>
       createVerifyLoginUser(tokenGenerator).futureValue
-      val merchant = client.createMerchant(CreateMerchant.Request("Amazon", None, None, None)).futureValue
+      val merchant =
+        client.createMerchant(CreateMerchant.Request(MerchantName.trusted("Amazon"), None, None, None)).futureValue
       val created =
         client
           .createImportRule(

@@ -1,4 +1,6 @@
 package net.wiringbits.components.pages.merchants
+
+import net.wiringbits.common.models.MerchantName
 import net.wiringbits.components.pages.{AutocompleteLabels, CategoryResolver}
 
 import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps, AutocompleteRenderInputParams}
@@ -272,14 +274,20 @@ object DescriptionRow {
                 case Some(existing) =>
                   Future.successful((existing.id, None: Option[GetMerchants.Response.Merchant]))
                 case None =>
-                  props.ctx.api.client
-                    .createMerchant(
-                      CreateMerchant.Request(
-                        name = merchantName,
-                        notes = None,
-                        categoryId = Some(resolvedCategoryId),
-                        taxId = None
-                      )
+                  MerchantName
+                    .parse(merchantName)
+                    .fold(
+                      error => Future.failed[CreateMerchant.Response](new RuntimeException(error)),
+                      validName =>
+                        props.ctx.api.client
+                          .createMerchant(
+                            CreateMerchant.Request(
+                              name = validName,
+                              notes = None,
+                              categoryId = Some(resolvedCategoryId),
+                              taxId = None
+                            )
+                          )
                     )
                     .map { r =>
                       val m = GetMerchants.Response.Merchant(

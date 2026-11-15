@@ -1,4 +1,6 @@
 package net.wiringbits.components.pages.importrules
+
+import net.wiringbits.common.models.MerchantName
 import net.wiringbits.components.pages.{AutocompleteLabels, CategoryResolver}
 
 import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
@@ -254,8 +256,14 @@ object ImportRuleList {
           localMerchants.find(_.name.equalsIgnoreCase(name)) match {
             case Some(existing) => Future.successful(existing.id)
             case None =>
-              props.ctx.api.client
-                .createMerchant(CreateMerchant.Request(name, notes = None, None, taxId = None))
+              MerchantName
+                .parse(name)
+                .fold(
+                  error => Future.failed[CreateMerchant.Response](new RuntimeException(error)),
+                  validName =>
+                    props.ctx.api.client
+                      .createMerchant(CreateMerchant.Request(validName, notes = None, None, taxId = None))
+                )
                 .map { resp =>
                   setLocalMerchants(cur =>
                     cur :+ GetMerchants.Response
