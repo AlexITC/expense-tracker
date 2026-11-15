@@ -4,11 +4,15 @@ import com.olvind.mui.csstype.mod.Property.FlexDirection
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
+import net.wiringbits.forms.RefundFormData
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.refunds.{CreateRefund, GetRefunds, LinkRefundToExpense, UpdateRefund}
 import net.wiringbits.models.User
+import net.wiringbits.ui.components.inputs.{AmountInput, DateInput}
+import net.wiringbits.ui.forms.{ExpLocalDate, PositiveBigDecimal, SubmitHooks}
+import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.Container
@@ -18,7 +22,6 @@ import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 import slinky.web.html.{form, onSubmit}
 
-import java.time.LocalDate
 import java.util.UUID
 import scala.concurrent.ExecutionContext
 import scala.scalajs.js
@@ -96,20 +99,12 @@ object RefundList {
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
-    val (newAmount, setNewAmount) = Hooks.useState("")
-    val (newDate, setNewDate) = Hooks.useState("")
-    val (newMerchantId, setNewMerchantId) = Hooks.useState("")
-    val (newCategoryId, setNewCategoryId) = Hooks.useState("")
-    val (newNotes, setNewNotes) = Hooks.useState("")
+    val (createForm, setCreateForm) = Hooks.useState(RefundFormData.initial)
+    val createSubmit = SubmitHooks.useSubmit()
+    val (editing, setEditing) = Hooks.useState[Option[(UUID, RefundFormData)]](None)
+    val editSubmit = SubmitHooks.useSubmit()
 
     val (error, setError) = Hooks.useState("")
-
-    val (editingId, setEditingId) = Hooks.useState[Option[UUID]](None)
-    val (editAmount, setEditAmount) = Hooks.useState("")
-    val (editDate, setEditDate) = Hooks.useState("")
-    val (editMerchantId, setEditMerchantId) = Hooks.useState("")
-    val (editCategoryId, setEditCategoryId) = Hooks.useState("")
-    val (editNotes, setEditNotes) = Hooks.useState("")
 
     val (linkingExpenseForRefund, setLinkingExpenseForRefund) = Hooks.useState[Option[UUID]](None)
     val (expenseFilter, setExpenseFilter) = Hooks.useState("")
@@ -142,28 +137,43 @@ object RefundList {
         )
       }
 
-    def handleCreate(): Unit = {
-      (Try(BigDecimal(newAmount)).toOption, Try(LocalDate.parse(newDate)).toOption) match {
-        case (None, _) => setError("Invalid amount")
-        case (_, None) => setError("Invalid date (use YYYY-MM-DD)")
-        case (Some(amount), Some(date)) =>
-          val merchantId = if (newMerchantId.isEmpty) None else Try(UUID.fromString(newMerchantId)).toOption
-          val categoryId = if (newCategoryId.isEmpty) None else Try(UUID.fromString(newCategoryId)).toOption
-          val notes = Option(newNotes.trim).filter(_.nonEmpty)
+    def save(
+        formData: RefundFormData,
+        submit: SubmitHooks.Control,
+        send: RefundFormData.Resolved => scala.concurrent.Future[Unit]
+    )(onSaved: () => Unit): Unit =
+      formData.submitRequest match {
+        case None =>
+          submit.fail(formData.formValidationErrors.headOption.getOrElse("Please fix the highlighted fields"))
+        case Some(resolved) =>
+          submit.begin()
+          send(resolved).onComplete {
+            case Success(_) => onSaved(); props.onRefresh()
+            case Failure(ex) => submit.fail(ex.getMessage)
+          }
+      }
+
+    def handleCreate(): Unit =
+      save(
+        createForm,
+        createSubmit,
+        r =>
           props.ctx.api.client
             .createRefund(
-              CreateRefund
-                .Request(amount, date, merchantId = merchantId, categoryId = categoryId, expenseId = None, notes)
+              CreateRefund.Request(
+                r.amount,
+                r.date,
+                merchantId = r.merchantId,
+                categoryId = r.categoryId,
+                expenseId = None,
+                r.notes
+              )
             )
-            .onComplete {
-              case Success(_) =>
-                setNewAmount(""); setNewDate(""); setNewMerchantId("")
-                setNewCategoryId(""); setNewNotes(""); setError("")
-                props.onRefresh()
-              case Failure(ex) => setError(ex.getMessage)
-            }
+            .map(_ => ())
+      ) { () =>
+        createSubmit.reset()
+        setCreateForm(RefundFormData.initial)
       }
-    }
 
     def handleDelete(refundId: UUID): Unit =
       props.ctx.api.client
@@ -173,28 +183,74 @@ object RefundList {
           case Failure(ex) => setError(ex.getMessage)
         }
 
-    def handleUpdate(refundId: UUID): Unit = {
-      (Try(BigDecimal(editAmount)).toOption, Try(LocalDate.parse(editDate)).toOption) match {
-        case (None, _) => setError("Invalid amount")
-        case (_, None) => setError("Invalid date (use YYYY-MM-DD)")
-        case (Some(amount), Some(date)) =>
-          val merchantId = if (editMerchantId.isEmpty) None else Try(UUID.fromString(editMerchantId)).toOption
-          val categoryId = if (editCategoryId.isEmpty) None else Try(UUID.fromString(editCategoryId)).toOption
-          val notes = Option(editNotes.trim).filter(_.nonEmpty)
+    def handleUpdate(refundId: UUID, formData: RefundFormData): Unit =
+      save(
+        formData,
+        editSubmit,
+        r =>
           props.ctx.api.client
             .updateRefund(
               refundId,
-              UpdateRefund.Request(amount, date, merchantId = merchantId, categoryId = categoryId, notes)
+              UpdateRefund.Request(r.amount, r.date, merchantId = r.merchantId, categoryId = r.categoryId, r.notes)
             )
-            .onComplete {
-              case Success(_) =>
-                setEditingId(None); setEditAmount(""); setEditDate("")
-                setEditMerchantId(""); setEditCategoryId(""); setEditNotes(""); setError("")
-                props.onRefresh()
-              case Failure(ex) => setError(ex.getMessage)
-            }
+            .map(_ => ())
+      ) { () =>
+        editSubmit.reset()
+        setEditing(None)
       }
-    }
+
+    type Update = (RefundFormData => RefundFormData) => Unit
+
+    val updateCreate: Update = f => setCreateForm(cur => f(cur))
+    val updateEdit: Update = f => setEditing(cur => cur.map { case (id, fd) => (id, f(fd)) })
+
+    def submitError(submit: SubmitHooks.Control): ReactElement =
+      submit.error match {
+        case Some(msg) =>
+          mui
+            .Typography(msg)
+            .sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px"; width = "100%" })
+        case None => Fragment()
+      }
+
+    def parseId(value: String): Option[UUID] =
+      if (value.isEmpty) None else Try(UUID.fromString(value)).toOption
+
+    /** Amount, date, merchant, category and notes inputs, shared by the create and the edit form. */
+    def formFields(formData: RefundFormData, disabled: Boolean, update: Update): Seq[ReactElement] = Seq(
+      mui.Box.sx(new CSSPropertiesUtils { width = "140px" })(
+        AmountInput.component(
+          AmountInput.Props(
+            field = formData.amount,
+            disabled = disabled,
+            onChange = (value: ValidationResult[PositiveBigDecimal]) =>
+              update(cur => cur.copy(amount = cur.amount.updated(value)))
+          )
+        )
+      ),
+      mui.Box.sx(new CSSPropertiesUtils { width = "170px" })(
+        DateInput.component(
+          DateInput.Props(
+            field = formData.date,
+            disabled = disabled,
+            onChange =
+              (value: ValidationResult[ExpLocalDate]) => update(cur => cur.copy(date = cur.date.updated(value)))
+          )
+        )
+      ),
+      merchantOptions(formData.merchantId, id => update(_.withMerchant(id, props.merchants.data))),
+      categoryOptions(formData.categoryId, id => update(_.copy(categoryId = id))),
+      mui.TextField
+        .outlined()
+        .label("Notes (optional)")
+        .value(formData.notes)
+        .size("small")
+        .disabled(disabled)
+        .onChange { e =>
+          val value = e.target.asInstanceOf[dom.HTMLInputElement].value
+          update(_.copy(notes = value))
+        }
+    )
 
     def handleLinkToExpense(refundId: UUID, expenseId: UUID): Unit =
       props.ctx.api.client
@@ -215,7 +271,7 @@ object RefundList {
           case Failure(ex) => setError(ex.getMessage)
         }
 
-    def merchantOptions(selectedId: String, setId: String => Unit): ReactElement = {
+    def merchantOptions(selectedId: Option[UUID], setId: Option[UUID] => Unit): ReactElement = {
       val none = mui.MenuItem.normal()("(none)").value("").withKey("none").build
       val items = none +: props.merchants.data.map(m =>
         mui.MenuItem.normal()(m.name).value(m.id.toString).withKey(m.id.toString).build
@@ -224,13 +280,13 @@ object RefundList {
         .outlined()
         .select(true)
         .label("Merchant (optional)")
-        .value(selectedId)
+        .value(selectedId.map(_.toString).getOrElse(""))
         .size("small")
-        .onChange(e => setId(e.target.asInstanceOf[dom.HTMLInputElement].value))
+        .onChange(e => setId(parseId(e.target.asInstanceOf[dom.HTMLInputElement].value)))
         .sx(new CSSPropertiesUtils { minWidth = "160px" })(items*)
     }
 
-    def categoryOptions(selectedId: String, setId: String => Unit): ReactElement = {
+    def categoryOptions(selectedId: Option[UUID], setId: Option[UUID] => Unit): ReactElement = {
       val none = mui.MenuItem.normal()("(none)").value("").withKey("none").build
       val items = none +: props.categories.data.map(c =>
         mui.MenuItem.normal()(c.name).value(c.id.toString).withKey(c.id.toString).build
@@ -239,9 +295,9 @@ object RefundList {
         .outlined()
         .select(true)
         .label("Category (optional)")
-        .value(selectedId)
+        .value(selectedId.map(_.toString).getOrElse(""))
         .size("small")
-        .onChange(e => setId(e.target.asInstanceOf[dom.HTMLInputElement].value))
+        .onChange(e => setId(parseId(e.target.asInstanceOf[dom.HTMLInputElement].value)))
         .sx(new CSSPropertiesUtils { minWidth = "160px" })(items*)
     }
 
@@ -297,7 +353,7 @@ object RefundList {
       )
     }
 
-    val createForm = form(onSubmit := { e =>
+    val createFormView = form(onSubmit := { e =>
       e.preventDefault()
       handleCreate()
     })(
@@ -312,54 +368,26 @@ object RefundList {
         alignItems = "center"
         gap = "12px"
       })(
-        mui.TextField
-          .outlined()
-          .label("Amount")
-          .value(newAmount)
-          .size("small")
-          .onChange(e => setNewAmount(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-        mui.TextField
-          .outlined()
-          .label("Date (YYYY-MM-DD)")
-          .value(newDate)
-          .size("small")
-          .onChange(e => setNewDate(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-        merchantOptions(
-          newMerchantId,
-          id => {
-            setNewMerchantId(id)
-            val defaultCat = Try(UUID.fromString(id)).toOption
-              .flatMap(mid => props.merchants.data.find(_.id == mid))
-              .flatMap(_.categoryId)
-              .map(_.toString)
-              .getOrElse("")
-            setNewCategoryId(defaultCat)
-          }
-        ),
-        categoryOptions(newCategoryId, setNewCategoryId),
-        mui.TextField
-          .outlined()
-          .label("Notes (optional)")
-          .value(newNotes)
-          .size("small")
-          .onChange(e => setNewNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+        Fragment(formFields(createForm, createSubmit.isSubmitting, updateCreate)*),
         mui.Button
           .normal()("Add")
           .variant("contained")
+          .disabled(createSubmit.buttonDisabled(createForm.isValid))
           .`type`("submit")
-          .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)"; borderRadius = "8px" })
+          .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)"; borderRadius = "8px" }),
+        submitError(createSubmit)
       )
     )
 
     val refundItems: Seq[ReactElement] = pagedRefunds.map { r =>
-      val isEditing = editingId.contains(r.id)
+      val editingForm = editing.collect { case (id, fd) if id == r.id => fd }
       val isLinkingExpense = linkingExpenseForRefund.contains(r.id)
 
-      val content: ReactElement =
-        if (isEditing)
+      val content: ReactElement = editingForm match {
+        case Some(editForm) =>
           form(onSubmit := { ev =>
             ev.preventDefault()
-            handleUpdate(r.id)
+            handleUpdate(r.id, editForm)
           })(
             mui.Box.sx(new CSSPropertiesUtils {
               display = "flex"
@@ -368,53 +396,27 @@ object RefundList {
               gap = "12px"
               padding = "4px 0"
             })(
-              mui.TextField
-                .outlined()
-                .autoFocus(true)
-                .label("Amount")
-                .value(editAmount)
-                .size("small")
-                .onChange(e => setEditAmount(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-              mui.TextField
-                .outlined()
-                .label("Date (YYYY-MM-DD)")
-                .value(editDate)
-                .size("small")
-                .onChange(e => setEditDate(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-              merchantOptions(
-                editMerchantId,
-                id => {
-                  setEditMerchantId(id)
-                  val defaultCat = Try(UUID.fromString(id)).toOption
-                    .flatMap(mid => props.merchants.data.find(_.id == mid))
-                    .flatMap(_.categoryId)
-                    .map(_.toString)
-                    .getOrElse("")
-                  setEditCategoryId(defaultCat)
-                }
-              ),
-              categoryOptions(editCategoryId, setEditCategoryId),
-              mui.TextField
-                .outlined()
-                .label("Notes (optional)")
-                .value(editNotes)
-                .size("small")
-                .onChange(e => setEditNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+              Fragment(formFields(editForm, editSubmit.isSubmitting, updateEdit)*),
               mui.Button
                 .normal()("Save")
                 .size("small")
                 .variant("contained")
+                .disabled(editSubmit.buttonDisabled(editForm.isValid))
                 .`type`("submit")
                 .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
               mui.Button
                 .normal()("Cancel")
                 .size("small")
-                .onClick(_ => setEditingId(None))
+                .onClick { _ =>
+                  editSubmit.reset()
+                  setEditing(None)
+                },
+              submitError(editSubmit)
             )
           )
-        else if (isLinkingExpense)
+        case None if isLinkingExpense =>
           renderExpenseLinkPicker(r.id)
-        else
+        case None =>
           mui.Box.sx(new CSSPropertiesUtils {
             display = "flex"
             alignItems = "center"
@@ -488,12 +490,8 @@ object RefundList {
                 .size("small")
                 .sx(new CSSPropertiesUtils { color = "var(--lc-text-2)" })
                 .onClick { _ =>
-                  setEditingId(Some(r.id))
-                  setEditAmount(r.amount.toString)
-                  setEditDate(r.date.toString)
-                  setEditMerchantId(r.merchantId.map(_.toString).getOrElse(""))
-                  setEditCategoryId(r.categoryId.map(_.toString).getOrElse(""))
-                  setEditNotes(r.notes.getOrElse(""))
+                  editSubmit.reset()
+                  setEditing(Some((r.id, RefundFormData.fromRefund(r))))
                 },
               r.expenseId match {
                 case Some(_) =>
@@ -519,12 +517,13 @@ object RefundList {
                 .onClick(_ => handleDelete(r.id))
             )
           )
+      }
 
       mui.Box.sx(cardStyle)(content).withKey(r.id.toString)
     }
 
     Fragment(
-      createForm,
+      createFormView,
       if (error.nonEmpty)
         mui
           .Typography(error)
