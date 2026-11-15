@@ -44,4 +44,15 @@ object MerchantResolver {
               }
         }
     }
+
+  private[pages] def findOrCreateMerchantOpt(
+      client: ApiClient,
+      merchants: List[GetMerchants.Response.Merchant],
+      selection: Option[ExistingOrNewValue[MerchantName, UUID]],
+      categoryId: Option[UUID]
+  )(implicit ec: ExecutionContext): Future[Option[(UUID, Option[GetMerchants.Response.Merchant])]] =
+    selection match {
+      case None => Future.successful(None)
+      case Some(ref) => findOrCreateMerchant(client, merchants, ref, categoryId).map(Some(_))
+    }
 }

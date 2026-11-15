@@ -11,15 +11,11 @@ class BulkExpenseCreationPageSpec extends AnyWordSpec {
   "importError" should {
 
     "fail when no rows are selected" in {
-      BulkExpenseCreationPage.importError(Nil, "Groceries") mustBe Some("No rows selected")
+      BulkExpenseCreationPage.importError(Nil) mustBe Some("No rows selected")
     }
 
-    "fail when the category is blank" in {
-      BulkExpenseCreationPage.importError(List(UUID.randomUUID()), "  ") mustBe Some("Choose a category")
-    }
-
-    "pass when rows are selected and a category is chosen" in {
-      BulkExpenseCreationPage.importError(List(UUID.randomUUID()), "Groceries") mustBe None
+    "pass when rows are selected" in {
+      BulkExpenseCreationPage.importError(List(UUID.randomUUID())) mustBe None
     }
   }
 

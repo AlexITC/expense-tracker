@@ -1,34 +1,34 @@
 package net.wiringbits.components.pages.bankstatementreview
-import net.wiringbits.components.pages.AutocompleteLabels
 
-import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{CreateRefundFromRow, GetBankStatement}
-import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
+import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.common.models.{CategoryName, MerchantName}
-import net.wiringbits.api.models.merchants.{CreateMerchant, GetMerchants}
+import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.utils.ImportRuleMatcher
-import net.wiringbits.ui.forms.SubmitHooks
+import net.wiringbits.components.pages.{CategoryResolver, MerchantResolver}
+import net.wiringbits.forms.BankRowRefundFormData
+import net.wiringbits.ui.components.inputs.{
+  AmountInput,
+  DateInput,
+  OptionalCategoryAutocompleteInput,
+  OptionalMerchantAutocompleteInput
+}
+import net.wiringbits.ui.forms.{ExistingOrNewValue, ExpLocalDate, PositiveBigDecimal, SubmitHooks}
+import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
-import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 import slinky.web.html.{form, onSubmit}
 
-import java.time.LocalDate
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success}
 
 object BankRowCreateRefundForm {
   def apply(props: Props): KeyAddingStage = component(props)
-
-  private def renderTextField(label: String)(params: AutocompleteRenderInputParams): ReactElement =
-    (mui.TextField.outlined
-      .withProps(MuiCompat.textFieldProps(params, label, size = Some("small")))
-      .withKey("tf"): ReactElement)
 
   case class Props(
       stmtId: UUID,
@@ -65,141 +65,61 @@ object BankRowCreateRefundForm {
 
     val (matchedMerchant, initCategoryIdOpt) =
       initialSelection(props.row, props.ruleList, props.merchants, props.categories)
-
-    val initMerchantName = matchedMerchant.map(_.name).getOrElse("")
-    val initMerchantIdOpt = matchedMerchant.map(_.id)
-    val initCategoryName =
-      initCategoryIdOpt.flatMap(cid => props.categories.find(_.id == cid)).map(_.name).getOrElse("")
-
-    val (amount, setAmount) = Hooks.useState(props.row.amount.abs.toString)
-    val (date, setDate) = Hooks.useState(props.row.date.toString)
-    val (notes, setNotes) =
-      Hooks.useState(
-        BankRowCreateExpenseForm.initialNotes(
+    val (formData, setFormData) = Hooks.useState(
+      BankRowRefundFormData.initial(
+        row = props.row,
+        matchedMerchant = matchedMerchant,
+        initialCategory = initCategoryIdOpt.flatMap(cid => props.categories.find(_.id == cid)),
+        notes = BankRowCreateExpenseForm.initialNotes(
           props.row,
           BankRowCreateExpenseForm.rowVerdict(props.row, props.ruleList, props.merchants)
         )
       )
-
-    val (merchantInput, setMerchantInput) = Hooks.useState(initMerchantName)
-    val (merchantIdOpt, setMerchantIdOpt) = Hooks.useState[Option[UUID]](initMerchantIdOpt)
-
-    val (categoryInput, setCategoryInput) = Hooks.useState(initCategoryName)
-    val (categoryIdOpt, setCategoryIdOpt) = Hooks.useState[Option[UUID]](initCategoryIdOpt)
-
+    )
     val submit = SubmitHooks.useSubmit()
 
-    def selectMerchant(m: GetMerchants.Response.Merchant): Unit = {
-      setMerchantInput(m.name)
-      setMerchantIdOpt(Some(m.id))
-      m.categoryId.foreach { cid =>
-        setCategoryIdOpt(Some(cid))
-        props.categories.find(_.id == cid).foreach(c => setCategoryInput(c.name))
-      }
-    }
-
     def handleSubmit(): Unit =
-      (Try(BigDecimal(amount)).toOption, Try(LocalDate.parse(date)).toOption) match {
-        case (None, _) => submit.fail("Invalid amount")
-        case (_, None) => submit.fail("Invalid date")
-        case (Some(amt), Some(dt)) =>
+      formData.submitRequest match {
+        case None =>
+          submit.fail(formData.formValidationErrors.headOption.getOrElse("Please fix the highlighted fields"))
+        case Some(resolved) =>
           submit.begin()
-          val merchantName = merchantInput.trim
-          val categoryName = categoryInput.trim
-
-          val fResult: Future[Unit] = for {
-            resolvedCategoryId <- categoryName match {
-              case "" => Future.successful[Option[UUID]](None)
-              case _ =>
-                categoryIdOpt match {
-                  case Some(id) => Future.successful(Some(id))
-                  case None =>
-                    props.ctx.api.client
-                      .createCategory(
-                        CreateCategory.Request(name = CategoryName.trusted(categoryName), description = None)
-                      )
-                      .map(r => Some(r.id))
-                }
-            }
-            resolvedMerchantId <- merchantName match {
-              case "" => Future.successful[Option[UUID]](None)
-              case _ =>
-                merchantIdOpt match {
-                  case Some(id) => Future.successful(Some(id))
-                  case None =>
-                    MerchantName
-                      .parse(merchantName)
-                      .fold(
-                        error => Future.failed[CreateMerchant.Response](new RuntimeException(error)),
-                        validName =>
-                          props.ctx.api.client
-                            .createMerchant(
-                              CreateMerchant.Request(
-                                name = validName,
-                                notes = None,
-                                categoryId = resolvedCategoryId,
-                                taxId = None
-                              )
-                            )
-                      )
-                      .map(r => Some(r.id))
-                }
-            }
+          val fResult: Future[UUID] = for {
+            categoryId <- CategoryResolver
+              .findOrCreateCategoryOpt(props.ctx.api.client, props.categories, resolved.category)
+            merchant <- MerchantResolver
+              .findOrCreateMerchantOpt(props.ctx.api.client, props.merchants, resolved.merchant, categoryId)
             resp <- props.ctx.api.client.createRefundFromRow(
               bankStatementId = props.stmtId,
               rowId = props.rowId,
               CreateRefundFromRow.Request(
-                amount = amt,
-                date = dt,
-                merchantId = resolvedMerchantId,
-                categoryId = resolvedCategoryId,
+                amount = resolved.amount,
+                date = resolved.date,
+                merchantId = merchant.map(_._1),
+                categoryId = categoryId,
                 expenseId = None,
-                notes = Some(notes).filter(_.nonEmpty)
+                notes = resolved.notes
               )
             )
-          } yield props.onSuccess(resp.refundId)
+          } yield resp.refundId
 
           fResult.onComplete {
-            case Success(_) => ()
+            case Success(refundId) => props.onSuccess(refundId)
             case Failure(ex) => submit.fail(ex.getMessage)
           }
       }
 
-    val merchantAcProps = MuiCompat.freeSoloAutocompleteProps(
-      options = props.merchants,
-      renderInput = renderTextField("Merchant (optional)"),
-      inputValue = merchantInput,
-      getOptionLabel = AutocompleteLabels.merchantOptionLabel,
-      onSelect = value =>
-        (value: Any) match {
-          case m: GetMerchants.Response.Merchant => selectMerchant(m)
-          case _ => ()
-        },
-      onInput = (text, rsn) => {
-        setMerchantInput(text)
-        if (rsn != "reset") setMerchantIdOpt(None)
-      },
-      disabled = submit.isSubmitting,
-      fullWidth = true
-    )
+    def updateAmount(value: ValidationResult[PositiveBigDecimal]): Unit =
+      setFormData(cur => cur.copy(amount = cur.amount.updated(value)))
 
-    val categoryAcProps = MuiCompat.freeSoloAutocompleteProps(
-      options = props.categories,
-      renderInput = renderTextField("Category (optional)"),
-      inputValue = categoryInput,
-      getOptionLabel = AutocompleteLabels.categoryOptionLabel,
-      onSelect = value =>
-        (value: Any) match {
-          case c: GetCategories.Response.Category => setCategoryIdOpt(Some(c.id)); setCategoryInput(c.name)
-          case _ => ()
-        },
-      onInput = (text, rsn) => {
-        setCategoryInput(text)
-        if (rsn != "reset") setCategoryIdOpt(None)
-      },
-      disabled = submit.isSubmitting,
-      fullWidth = true
-    )
+    def updateDate(value: ValidationResult[ExpLocalDate]): Unit =
+      setFormData(cur => cur.copy(date = cur.date.updated(value)))
+
+    def updateMerchant(value: ValidationResult[Option[ExistingOrNewValue[MerchantName, UUID]]]): Unit =
+      setFormData(cur => cur.selectMerchant(value, props.merchants, props.categories))
+
+    def updateCategory(value: ValidationResult[Option[ExistingOrNewValue[CategoryName, UUID]]]): Unit =
+      setFormData(cur => cur.copy(category = cur.category.updated(value)))
 
     form(onSubmit := { e =>
       e.preventDefault()
@@ -215,38 +135,53 @@ object BankRowCreateRefundForm {
           case None => Fragment()
         },
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "12px" })(
-          mui.TextField
-            .outlined()
-            .label("Amount")
-            .size("small")
-            .value(amount)
-            .disabled(submit.isSubmitting)
-            .onChange(e => setAmount(e.target.asInstanceOf[dom.HTMLInputElement].value))
-            .sx(new CSSPropertiesUtils { flex = "1" }),
-          mui.TextField
-            .outlined()
-            .label("Date")
-            .size("small")
-            .value(date)
-            .disabled(submit.isSubmitting)
-            .onChange(e => setDate(e.target.asInstanceOf[dom.HTMLInputElement].value))
-            .sx(new CSSPropertiesUtils { flex = "1" })
+          mui.Box.sx(new CSSPropertiesUtils { flex = "1" })(
+            AmountInput.component(
+              AmountInput.Props(field = formData.amount, disabled = submit.isSubmitting, onChange = updateAmount)
+            )
+          ),
+          mui.Box.sx(new CSSPropertiesUtils { flex = "1" })(
+            DateInput.component(
+              DateInput.Props(field = formData.date, disabled = submit.isSubmitting, onChange = updateDate)
+            )
+          )
         ),
         mui.TextField
           .outlined()
           .label("Notes")
           .size("small")
-          .value(notes)
+          .value(formData.notes)
           .disabled(submit.isSubmitting)
-          .onChange(e => setNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-        (mui.Autocomplete.withProps(merchantAcProps).withKey("merchant"): ReactElement),
-        (mui.Autocomplete.withProps(categoryAcProps).withKey("category"): ReactElement),
+          .onChange { e =>
+            val text = e.target.asInstanceOf[dom.HTMLInputElement].value
+            setFormData(cur => cur.copy(notes = text))
+          },
+        (OptionalMerchantAutocompleteInput
+          .component(
+            OptionalMerchantAutocompleteInput.Props(
+              field = formData.merchant,
+              options = props.merchants,
+              label = "Merchant (optional)",
+              onChange = updateMerchant,
+              disabled = submit.isSubmitting
+            )
+          ): ReactElement),
+        (OptionalCategoryAutocompleteInput
+          .component(
+            OptionalCategoryAutocompleteInput.Props(
+              field = formData.category,
+              options = props.categories,
+              label = "Category (optional)",
+              onChange = updateCategory,
+              disabled = submit.isSubmitting
+            )
+          ): ReactElement),
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
           mui.Button
             .normal()(if (submit.isSubmitting) "Saving…" else "Save")
             .variant("contained")
             .size("small")
-            .disabled(submit.isSubmitting)
+            .disabled(submit.buttonDisabled(formData.isValid))
             .`type`("submit")
             .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
           mui.Button.normal()("Cancel").size("small").disabled(submit.isSubmitting).onClick(_ => props.onCancel())

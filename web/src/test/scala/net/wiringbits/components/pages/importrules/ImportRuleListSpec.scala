@@ -3,7 +3,7 @@ package net.wiringbits.components.pages.importrules
 import monix.execution.Scheduler
 import monix.reactive.subjects.Var
 import net.wiringbits.api.models.categories.GetCategories
-import net.wiringbits.api.models.merchants.{GetImportRules, GetMerchants, ImportRuleAction, ImportRuleActionKind}
+import net.wiringbits.api.models.merchants.{GetImportRules, GetMerchants, ImportRuleAction}
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.common.models.Email
 import net.wiringbits.core.{I18nLang, ReactTestDom}
@@ -108,116 +108,6 @@ class ImportRuleListSpec extends AnyWordSpec with ReactTestDom {
       ImportRuleMatcher.Rule.fromApi(r) must be(
         ImportRuleMatcher.Rule(r.id, r.action, "uber", amount = None)
       )
-    }
-  }
-
-  private def form(kind: ImportRuleActionKind, pattern: String = "AMZN MKTP"): ImportRuleList.RuleForm =
-    ImportRuleList.RuleForm.empty.copy(
-      kind = kind,
-      pattern = pattern,
-      merchantInput = "Shop",
-      categoryInput = "Food"
-    )
-
-  "parseAmount" should {
-    "treat blank as no amount" in {
-      ImportRuleList.parseAmount("  ") must be(Right(None))
-    }
-
-    "parse a signed decimal" in {
-      ImportRuleList.parseAmount(" -12.50 ") must be(Right(Some(BigDecimal("-12.50"))))
-    }
-
-    "reject text that is not a number" in {
-      ImportRuleList.parseAmount("12,50").isLeft must be(true)
-      ImportRuleList.parseAmount("abc").isLeft must be(true)
-    }
-  }
-
-  "checkInputs" should {
-    "return the parsed amount and trimmed description" in {
-      val f = form(ImportRuleActionKind.SetMerchant).copy(amount = "9.99", description = "  Lunch ")
-      ImportRuleList.checkInputs(f) must be(
-        Right(ImportRuleList.RuleInputs(Some(BigDecimal("9.99")), Some("Lunch")))
-      )
-    }
-
-    "treat a blank description as none" in {
-      val f = form(ImportRuleActionKind.SetCategory).copy(description = "   ")
-      ImportRuleList.checkInputs(f) must be(Right(ImportRuleList.RuleInputs(None, None)))
-    }
-
-    "drop the description of an ignore rule" in {
-      val f = form(ImportRuleActionKind.Ignore).copy(description = "Lunch")
-      ImportRuleList.checkInputs(f) must be(Right(ImportRuleList.RuleInputs(None, None)))
-    }
-
-    "reject an amount that is not a number" in {
-      ImportRuleList.checkInputs(form(ImportRuleActionKind.Ignore).copy(amount = "x")).isLeft must be(true)
-    }
-
-    "reject an amount the shared validator rejects" in {
-      ImportRuleList.checkInputs(form(ImportRuleActionKind.Ignore).copy(amount = "0")).isLeft must be(true)
-      ImportRuleList.checkInputs(form(ImportRuleActionKind.Ignore).copy(amount = "-1.234")).isLeft must be(true)
-    }
-
-    "reject a negative amount" in {
-      ImportRuleList.checkInputs(form(ImportRuleActionKind.Ignore).copy(amount = "-9.99")) must be(
-        Left("Rule amount must be a positive value")
-      )
-    }
-
-    "reject a pattern that is too short" in {
-      ImportRuleList.checkInputs(form(ImportRuleActionKind.Ignore, pattern = "ab")).isLeft must be(true)
-    }
-
-    "reject a description longer than the limit" in {
-      val f = form(ImportRuleActionKind.SetMerchant)
-        .copy(description = "x" * (ImportRuleMatcher.MaxDescriptionLength + 1))
-      ImportRuleList.checkInputs(f).isLeft must be(true)
-    }
-
-    "require the merchant or category name of the action" in {
-      ImportRuleList.checkInputs(form(ImportRuleActionKind.SetMerchant).copy(merchantInput = " ")) must be(
-        Left("Enter a merchant name")
-      )
-      ImportRuleList.checkInputs(form(ImportRuleActionKind.SetCategory).copy(categoryInput = "")) must be(
-        Left("Enter a category name")
-      )
-    }
-  }
-
-  "RuleForm.fromRule" should {
-    "prefill amount, override category and description of a set_merchant rule" in {
-      val mid = UUID.randomUUID()
-      val cid = UUID.randomUUID()
-      val r = rule("AMZN", Some("Shop")).copy(
-        action = ImportRuleAction.SetMerchant(mid, categoryId = Some(cid), description = Some("Books")),
-        amount = Some(BigDecimal("-12.50")),
-        categoryName = Some("Food")
-      )
-      val f = ImportRuleList.RuleForm.fromRule(r)
-      f.kind must be(ImportRuleActionKind.SetMerchant)
-      // A stored negative amount prefills as its positive magnitude.
-      f.amount must be("12.50")
-      f.merchantInput must be("Shop")
-      f.merchantId must be(Some(mid))
-      f.overrideCategoryInput must be("Food")
-      f.overrideCategoryId must be(Some(cid))
-      f.categoryInput must be("")
-      f.categoryId must be(None)
-      f.description must be("Books")
-    }
-
-    "prefill the target category of a set_category rule" in {
-      val cid = UUID.randomUUID()
-      val r = categoryRule("STARBUCKS", "Coffee").copy(action = ImportRuleAction.SetCategory(cid, description = None))
-      val f = ImportRuleList.RuleForm.fromRule(r)
-      f.categoryInput must be("Coffee")
-      f.categoryId must be(Some(cid))
-      f.overrideCategoryInput must be("")
-      f.amount must be("")
-      f.description must be("")
     }
   }
 
@@ -359,8 +249,8 @@ class ImportRuleListSpec extends AnyWordSpec with ReactTestDom {
         ): ReactElement
       )
       val text = container.textContent
-      text must include("Amount (optional, e.g. 12.50)")
-      text must include("Description (optional)")
+      text must include("Amount")
+      text must include("Description")
       text must include("Category (optional)")
       text must include("Matches on")
       text must include("Sets")

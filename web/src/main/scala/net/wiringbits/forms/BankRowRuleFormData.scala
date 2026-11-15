@@ -1,8 +1,14 @@
 package net.wiringbits.forms
 
-import net.wiringbits.api.models.merchants.ImportRuleActionKind
+import net.wiringbits.api.models.merchants.{GetImportRules, ImportRuleActionKind}
 import net.wiringbits.common.models.{CategoryName, MerchantName}
-import net.wiringbits.ui.forms.{ExistingOrNewValue, ExpRuleAmount, ExpRuleDescription, ExpRulePattern}
+import net.wiringbits.ui.forms.{
+  ExistingOrNewValue,
+  ExistingSelections,
+  ExpRuleAmount,
+  ExpRuleDescription,
+  ExpRulePattern
+}
 import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.forms.{FormData, FormField}
 
@@ -120,8 +126,8 @@ object BankRowRuleFormData {
     override def withAmount(field: FormField[Option[ExpRuleAmount]]): BankRowRuleFormData = copy(amount = field)
   }
 
-  private def patternField(seed: String): FormField[ExpRulePattern] =
-    new FormField(label = "Pattern", name = "pattern", required = true, value = Some(ExpRulePattern.validate(seed)))
+  private def patternField(value: Option[ValidationResult[ExpRulePattern]]): FormField[ExpRulePattern] =
+    new FormField(label = "Pattern", name = "pattern", required = true, value = value)
 
   private def amountField(seed: String): FormField[Option[ExpRuleAmount]] =
     new FormField(
@@ -139,39 +145,89 @@ object BankRowRuleFormData {
       value = Some(ExpRuleDescription.optionalValidator(seed))
     )
 
-  private def requiredMerchant: FormField[ExistingOrNewValue[MerchantName, UUID]] =
-    new FormField(label = "Merchant", name = "merchant", required = true)
+  private def requiredMerchant(
+      value: Option[ValidationResult[ExistingOrNewValue[MerchantName, UUID]]]
+  ): FormField[ExistingOrNewValue[MerchantName, UUID]] =
+    new FormField(label = "Merchant", name = "merchant", required = true, value = value)
 
   private def requiredCategory(
-      input: String,
-      selection: Option[ExistingOrNewValue[CategoryName, UUID]]
+      value: Option[ValidationResult[ExistingOrNewValue[CategoryName, UUID]]]
   ): FormField[ExistingOrNewValue[CategoryName, UUID]] =
-    new FormField(
-      label = "Category",
-      name = "category",
-      required = true,
-      value = selection.map(value => ValidationResult.Valid(input, value))
-    )
+    new FormField(label = "Category", name = "category", required = true, value = value)
 
   private def optionalCategory(
-      input: String,
-      selection: Option[ExistingOrNewValue[CategoryName, UUID]]
+      value: ValidationResult[Option[ExistingOrNewValue[CategoryName, UUID]]]
   ): FormField[Option[ExistingOrNewValue[CategoryName, UUID]]] =
-    new FormField(
-      label = "Category (optional)",
-      name = "category",
-      required = false,
-      value = Some(ValidationResult.Valid(input, selection))
-    )
+    new FormField(label = "Category (optional)", name = "category", required = false, value = Some(value))
+
+  private def validSelection[T](input: String, selection: Option[T]): Option[ValidationResult[T]] =
+    selection.map(value => ValidationResult.Valid(input, value))
+
+  private def asOptional[T](result: ValidationResult[T]): ValidationResult[Option[T]] =
+    result match {
+      case ValidationResult.Valid(input, value) => ValidationResult.Valid(input, Some(value))
+      case ValidationResult.Invalid(input, error) => ValidationResult.Invalid(input = input, error = error)
+    }
 
   def initial(patternSeed: String, amountSeed: String, descriptionSeed: String): BankRowRuleFormData =
     SetMerchant(
-      pattern = patternField(patternSeed),
+      pattern = patternField(Some(ExpRulePattern.validate(patternSeed))),
       amount = amountField(amountSeed),
       description = descriptionField(descriptionSeed),
-      merchant = requiredMerchant,
-      category = optionalCategory(input = "", selection = None)
+      merchant = requiredMerchant(None),
+      category = optionalCategory(ValidationResult.Valid("", None))
     )
+
+  /** A blank create form: the pattern is untouched, so no error shows yet but the form is not submittable. */
+  def empty: BankRowRuleFormData =
+    SetMerchant(
+      pattern = patternField(None),
+      amount = amountField(""),
+      description = descriptionField(""),
+      merchant = requiredMerchant(None),
+      category = optionalCategory(ValidationResult.Valid("", None))
+    )
+
+  /** The edit form of a stored rule. Every value is validated rather than trusted, so a stored value the form would
+    * reject shows as invalid. A stored negative amount seeds as its positive magnitude. `categoryName` is the
+    * set_category target or, for set_merchant, the override category.
+    */
+  def fromRule(r: GetImportRules.Rule): BankRowRuleFormData = {
+    val pattern = patternField(Some(ExpRulePattern.validate(r.pattern)))
+    val amount = amountField(r.amount.fold("")(_.abs.bigDecimal.toPlainString))
+    val description = descriptionField(r.action.descriptionOpt.getOrElse(""))
+    def categoryWithId(id: Option[UUID]) =
+      for {
+        name <- r.categoryName
+        categoryId <- id
+      } yield ExistingSelections.existingCategory(name, categoryId)
+
+    r.action.kind match {
+      case ImportRuleActionKind.SetMerchant =>
+        val merchant = for {
+          name <- r.merchantName
+          merchantId <- r.action.merchantIdOpt
+        } yield ExistingSelections.existingMerchant(name, merchantId)
+        SetMerchant(
+          pattern = pattern,
+          amount = amount,
+          description = description,
+          merchant = requiredMerchant(merchant),
+          category = optionalCategory(
+            categoryWithId(r.action.overrideCategoryIdOpt).fold(ValidationResult.Valid("", None))(asOptional)
+          )
+        )
+      case ImportRuleActionKind.SetCategory =>
+        SetCategory(
+          pattern = pattern,
+          amount = amount,
+          description = description,
+          category = requiredCategory(categoryWithId(r.action.categoryIdOpt))
+        )
+      case ImportRuleActionKind.Ignore =>
+        Ignore(pattern, amount)
+    }
+  }
 
   /** Switches the active variant, carrying over the fields the kinds share: pattern and amount (all kinds), and the
     * description and category selection (shared by SetMerchant and SetCategory). The category just moves between its
@@ -195,15 +251,15 @@ object BankRowRuleFormData {
           current.pattern,
           current.amount,
           description,
-          requiredMerchant,
-          optionalCategory(input = categoryInput, selection = categorySelection)
+          requiredMerchant(None),
+          optionalCategory(ValidationResult.Valid(categoryInput, categorySelection))
         )
       case ImportRuleActionKind.SetCategory =>
         SetCategory(
           current.pattern,
           current.amount,
           description,
-          requiredCategory(input = categoryInput, selection = categorySelection)
+          requiredCategory(validSelection(categoryInput, categorySelection))
         )
       case ImportRuleActionKind.Ignore =>
         Ignore(current.pattern, current.amount)

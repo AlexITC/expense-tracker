@@ -5,12 +5,15 @@ import com.olvind.mui.csstype.mod.Property.FlexDirection
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
+import net.wiringbits.forms.ExpenseFormData
 import net.wiringbits.core.SafeHooks
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.expenses.{CreateExpense, GetExpenses, MergeDetailsSource, MergeExpenses, UpdateExpense}
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.models.User
+import net.wiringbits.ui.components.inputs.{AmountInput, DateInput}
+import net.wiringbits.ui.forms.{ExpLocalDate, PositiveBigDecimal, SubmitHooks}
 import net.wiringbits.utils.ExpenseDuplicateDetector
 import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Shape}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -18,6 +21,7 @@ import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.Container
 import net.wiringbits.webapp.utils.slinkyUtils.core.GenericHooks
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.useHistory
+import net.wiringbits.webapp.common.validators.ValidationResult
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
@@ -295,12 +299,8 @@ object ExpenseList {
     implicit val ec: ExecutionContext = props.ctx.executionContext
     val history = useHistory()
 
-    val (newAmount, setNewAmount) = Hooks.useState("")
-    val (newDate, setNewDate) = Hooks.useState("")
-    val (newTime, setNewTime) = Hooks.useState("")
-    val (newMerchantId, setNewMerchantId) = Hooks.useState("")
-    val (newNotes, setNewNotes) = Hooks.useState("")
-    val (newSplits, setNewSplits) = Hooks.useState[List[(String, String)]](Nil)
+    val (createFormData, setCreateFormData) = Hooks.useState(ExpenseFormData.initial)
+    val createSubmit = SubmitHooks.useSubmit()
 
     val (error, setError) = Hooks.useState("")
     val (showCreateForm, setShowCreateForm) = Hooks.useState(false)
@@ -311,13 +311,8 @@ object ExpenseList {
 
     val (deletedIds, setDeletedIds) = Hooks.useState[Set[UUID]](Set.empty)
     val (pendingDeleteId, setPendingDeleteId) = Hooks.useState[Option[UUID]](None)
-    val (editingId, setEditingId) = Hooks.useState[Option[UUID]](None)
-    val (editAmount, setEditAmount) = Hooks.useState("")
-    val (editDate, setEditDate) = Hooks.useState("")
-    val (editTime, setEditTime) = Hooks.useState("")
-    val (editMerchantId, setEditMerchantId) = Hooks.useState("")
-    val (editNotes, setEditNotes) = Hooks.useState("")
-    val (editSplits, setEditSplits) = Hooks.useState[List[(String, String)]](Nil)
+    val (editing, setEditing) = Hooks.useState[Option[(UUID, ExpenseFormData)]](None)
+    val editSubmit = SubmitHooks.useSubmit()
     val (hoveredId, setHoveredId) = Hooks.useState[Option[UUID]](None)
     val (mergedReceipts, setMergedReceipts) = Hooks.useState[Map[UUID, UUID]](Map.empty)
     val (dismissed, setDismissed) = Hooks.useState[Set[String]](Set.empty)
@@ -328,30 +323,49 @@ object ExpenseList {
     val (showBulkMergeDialog, setShowBulkMergeDialog) = Hooks.useState(false)
     val (bulkMerging, setBulkMerging) = Hooks.useState(false)
 
-    def handleCreate(): Unit = {
-      (Try(BigDecimal(newAmount)).toOption, Try(LocalDate.parse(newDate)).toOption) match {
-        case (None, _) => setError("Invalid amount")
-        case (_, None) => setError("Invalid date (use YYYY-MM-DD)")
-        case (Some(amount), Some(date)) =>
-          val time = if (newTime.isEmpty) None else Try(LocalTime.parse(newTime)).toOption
-          val merchantId = if (newMerchantId.isEmpty) None else Try(UUID.fromString(newMerchantId)).toOption
-          val notes = Option(newNotes.trim).filter(_.nonEmpty)
-          ExpenseFormSplits.createSplits(amount, newSplits, props.merchants.data, newMerchantId) match {
-            case Left(msg) => setError(msg)
-            case Right(splits) =>
-              props.ctx.api.client
-                .createExpense(CreateExpense.Request(amount, date, time, merchantId, notes, splits))
-                .onComplete {
-                  case Success(_) =>
-                    setNewAmount(""); setNewDate(""); setNewTime(""); setNewMerchantId("")
-                    setNewNotes(""); setNewSplits(Nil); setError("")
-                    setShowCreateForm(false)
-                    props.onRefresh()
-                  case Failure(ex) => setError(ex.getMessage)
-                }
+    def parseTime(time: String): Option[LocalTime] =
+      if (time.isEmpty) None else Try(LocalTime.parse(time)).toOption
+
+    def parseMerchantId(merchantId: String): Option[UUID] =
+      if (merchantId.isEmpty) None else Try(UUID.fromString(merchantId)).toOption
+
+    def save[S](
+        formData: ExpenseFormData,
+        submit: SubmitHooks.Control,
+        splits: ExpenseFormData.Resolved => Either[String, S],
+        send: (ExpenseFormData.Resolved, S) => Future[Unit]
+    )(onSaved: () => Unit): Unit =
+      formData.submitRequest match {
+        case None =>
+          submit.fail(formData.formValidationErrors.headOption.getOrElse("Please fix the highlighted fields"))
+        case Some(resolved) =>
+          splits(resolved) match {
+            case Left(msg) => submit.fail(msg)
+            case Right(validSplits) =>
+              submit.begin()
+              send(resolved, validSplits).onComplete {
+                case Success(_) => onSaved(); props.onRefresh()
+                case Failure(ex) => submit.fail(ex.getMessage)
+              }
           }
       }
-    }
+
+    def handleCreate(): Unit =
+      save(
+        createFormData,
+        createSubmit,
+        r => ExpenseFormSplits.createSplits(r.amount, r.splits, props.merchants.data, r.merchantId),
+        (r, splits) =>
+          props.ctx.api.client
+            .createExpense(
+              CreateExpense.Request(r.amount, r.date, parseTime(r.time), parseMerchantId(r.merchantId), r.notes, splits)
+            )
+            .map(_ => ())
+      ) { () =>
+        createSubmit.reset()
+        setCreateFormData(ExpenseFormData.initial)
+        setShowCreateForm(false)
+      }
 
     def handleDelete(expenseId: UUID): Unit =
       props.ctx.api.client
@@ -394,38 +408,93 @@ object ExpenseList {
         }
     }
 
-    def handleUpdate(expenseId: UUID): Unit = {
-      (Try(BigDecimal(editAmount)).toOption, Try(LocalDate.parse(editDate)).toOption) match {
-        case (None, _) => setError("Invalid amount")
-        case (_, None) => setError("Invalid date (use YYYY-MM-DD)")
-        case (Some(amount), Some(date)) =>
-          val time = if (editTime.isEmpty) None else Try(LocalTime.parse(editTime)).toOption
-          val merchantId = if (editMerchantId.isEmpty) None else Try(UUID.fromString(editMerchantId)).toOption
-          val notes = Option(editNotes.trim).filter(_.nonEmpty)
-          updateSplits(amount, editSplits) match {
-            case Left(msg) => setError(msg)
-            case Right(splits) =>
-              props.ctx.api.client
-                .updateExpense(
-                  expenseId,
-                  UpdateExpense.Request(amount, date, time, merchantId, notes, splits)
-                )
-                .onComplete {
-                  case Success(_) =>
-                    setEditingId(None); setEditAmount(""); setEditDate(""); setEditTime("")
-                    setEditMerchantId(""); setEditNotes(""); setEditSplits(Nil); setError("")
-                    props.onRefresh()
-                  case Failure(ex) => setError(ex.getMessage)
-                }
-          }
+    def handleUpdate(expenseId: UUID, formData: ExpenseFormData): Unit =
+      save(
+        formData,
+        editSubmit,
+        r => updateSplits(r.amount, r.splits),
+        (r, splits) =>
+          props.ctx.api.client
+            .updateExpense(
+              expenseId,
+              UpdateExpense.Request(r.amount, r.date, parseTime(r.time), parseMerchantId(r.merchantId), r.notes, splits)
+            )
+            .map(_ => ())
+      ) { () =>
+        editSubmit.reset()
+        setEditing(None)
       }
+
+    def cancelEdit(): Unit = {
+      editSubmit.reset()
+      setEditing(None)
     }
 
-    def splitRemainder(amountStr: String, splits: List[(String, String)]): BigDecimal = {
-      val total = Try(BigDecimal(amountStr)).getOrElse(BigDecimal(0))
-      val used = splits.flatMap { case (_, amt) => Try(BigDecimal(amt)).toOption }.sum
+    type Update = (ExpenseFormData => ExpenseFormData) => Unit
+
+    val updateCreate: Update = f => setCreateFormData(cur => f(cur))
+    val updateEdit: Update = f => setEditing(cur => cur.map { case (id, fd) => (id, f(fd)) })
+
+    def splitRemainder(formData: ExpenseFormData): BigDecimal = {
+      val total = formData.amount.valueOpt.map(_.value).getOrElse(BigDecimal(0))
+      val used = formData.splits.flatMap { case (_, amt) => Try(BigDecimal(amt)).toOption }.sum
       total - used
     }
+
+    def submitError(submit: SubmitHooks.Control): ReactElement =
+      submit.error match {
+        case Some(msg) => mui.Typography(msg).color("error")
+        case None => Fragment()
+      }
+
+    /** Amount, date, time, merchant and notes inputs, shared by the create and the edit form. */
+    def formFields(
+        formData: ExpenseFormData,
+        disabled: Boolean,
+        update: Update,
+        autoFocusAmount: Boolean = false
+    ): Seq[ReactElement] = Seq(
+      mui.Box.sx(new CSSPropertiesUtils { width = "140px" })(
+        AmountInput.component(
+          AmountInput.Props(
+            field = formData.amount,
+            disabled = disabled,
+            autoFocus = autoFocusAmount,
+            onChange = (value: ValidationResult[PositiveBigDecimal]) =>
+              update(cur => cur.copy(amount = cur.amount.updated(value)))
+          )
+        )
+      ),
+      mui.Box.sx(new CSSPropertiesUtils { width = "170px" })(
+        DateInput.component(
+          DateInput.Props(
+            field = formData.date,
+            disabled = disabled,
+            onChange =
+              (value: ValidationResult[ExpLocalDate]) => update(cur => cur.copy(date = cur.date.updated(value)))
+          )
+        )
+      ),
+      mui.TextField
+        .outlined()
+        .label("Time (HH:MM, optional)")
+        .value(formData.time)
+        .disabled(disabled)
+        .onChange { e =>
+          val value = e.target.asInstanceOf[dom.HTMLInputElement].value
+          update(_.copy(time = value))
+        },
+      merchantOptions(formData.merchantId, id => update(_.copy(merchantId = id))),
+      mui.TextField
+        .outlined()
+        .label("Notes (optional)")
+        .value(formData.notes)
+        .disabled(disabled)
+        .onChange { e =>
+          val value = e.target.asInstanceOf[dom.HTMLInputElement].value
+          update(_.copy(notes = value))
+        }
+    )
 
     def merchantOptions(selectedId: String, setId: String => Unit): ReactElement = {
       val none = mui.MenuItem.normal()("(none)").value("").withKey("none").build
@@ -487,15 +556,13 @@ object ExpenseList {
         .build
     }
 
-    def splitsSection(
-        splits: List[(String, String)],
-        setSplits: List[(String, String)] => Unit,
-        amountStr: String
-    ): ReactElement = {
+    def splitsSection(formData: ExpenseFormData, update: Update): ReactElement = {
+      val splits = formData.splits
+      val setSplits: List[(String, String)] => Unit = newSplits => update(_.copy(splits = newSplits))
       val rows = splits.zipWithIndex.map { case ((catId, amt), i) =>
         splitRow(catId = catId, amt = amt, i, splits, setSplits)
       }
-      val rem = splitRemainder(amountStr, splits)
+      val rem = splitRemainder(formData)
       Container(
         flexDirection = FlexDirection.column,
         child = Fragment(
@@ -704,32 +771,22 @@ object ExpenseList {
                   flexDirection = FlexDirection.row,
                   alignItems = Container.Alignment.center,
                   child = Fragment(
-                    mui.TextField
-                      .outlined()
-                      .label("Amount")
-                      .value(newAmount)
-                      .onChange(e => setNewAmount(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-                    mui.TextField
-                      .outlined()
-                      .label("Date (YYYY-MM-DD)")
-                      .value(newDate)
-                      .onChange(e => setNewDate(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-                    mui.TextField
-                      .outlined()
-                      .label("Time (HH:MM, optional)")
-                      .value(newTime)
-                      .onChange(e => setNewTime(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-                    merchantOptions(newMerchantId, setNewMerchantId),
-                    mui.TextField
-                      .outlined()
-                      .label("Notes (optional)")
-                      .value(newNotes)
-                      .onChange(e => setNewNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-                    mui.Button.normal()("Add").variant("contained").`type`("submit"),
-                    mui.Button.normal()("Cancel").onClick(_ => setShowCreateForm(false))
+                    Fragment(formFields(createFormData, createSubmit.isSubmitting, updateCreate)*),
+                    mui.Button
+                      .normal()("Add")
+                      .variant("contained")
+                      .disabled(createSubmit.buttonDisabled(createFormData.isValid))
+                      .`type`("submit"),
+                    mui.Button
+                      .normal()("Cancel")
+                      .onClick { _ =>
+                        createSubmit.reset()
+                        setShowCreateForm(false)
+                      }
                   )
                 ),
-                splitsSection(newSplits, setNewSplits, newAmount)
+                splitsSection(createFormData, updateCreate),
+                submitError(createSubmit)
               )
             )
           )
@@ -784,7 +841,7 @@ object ExpenseList {
         .build
 
       val rows: List[ReactElement] = dayExpenses.map { e =>
-        val isEditing = editingId.contains(e.id)
+        val editingForm = editing.collect { case (id, fd) if id == e.id => fd }
         val isHovered = hoveredId.contains(e.id)
         val firstCat = e.splits.headOption.flatMap(s => props.categories.data.find(_.id == s.categoryId))
         val hasReceipt = e.receiptIds.nonEmpty
@@ -937,13 +994,8 @@ object ExpenseList {
               width = "100%"
             })
             .onClick { _ =>
-              setEditingId(Some(e.id))
-              setEditAmount(e.amount.toString)
-              setEditDate(e.date.toString)
-              setEditTime(e.time.map(_.toString).getOrElse(""))
-              setEditMerchantId(e.merchantId.map(_.toString).getOrElse(""))
-              setEditNotes(e.notes.getOrElse(""))
-              setEditSplits(e.splits.map(s => (s.categoryId.toString, s.amount.toString)))
+              editSubmit.reset()
+              setEditing(Some((e.id, ExpenseFormData.fromExpense(e))))
             }
             .onMouseEnter(_ => setHoveredId(Some(e.id)))
             .onMouseLeave(_ => setHoveredId(None))(
@@ -954,12 +1006,12 @@ object ExpenseList {
               kebabCell
             )
 
-        val editRow: ReactElement =
+        def editRow(editForm: ExpenseFormData): ReactElement =
           form(
             onSubmit := { ev =>
-              ev.preventDefault(); handleUpdate(e.id)
+              ev.preventDefault(); handleUpdate(e.id, editForm)
             },
-            onKeyDown := { ev => if (ev.key == "Escape") setEditingId(None) }
+            onKeyDown := { ev => if (ev.key == "Escape") cancelEdit() }
           )(
             Container(
               flexDirection = FlexDirection.column,
@@ -968,33 +1020,23 @@ object ExpenseList {
                   flexDirection = FlexDirection.row,
                   alignItems = Container.Alignment.center,
                   child = Fragment(
-                    mui.TextField
-                      .outlined()
-                      .autoFocus(true)
-                      .label("Amount")
-                      .value(editAmount)
-                      .onChange(e => setEditAmount(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-                    mui.TextField
-                      .outlined()
-                      .label("Date (YYYY-MM-DD)")
-                      .value(editDate)
-                      .onChange(e => setEditDate(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-                    mui.TextField
-                      .outlined()
-                      .label("Time (HH:MM, optional)")
-                      .value(editTime)
-                      .onChange(e => setEditTime(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-                    merchantOptions(editMerchantId, setEditMerchantId),
-                    mui.TextField
-                      .outlined()
-                      .label("Notes (optional)")
-                      .value(editNotes)
-                      .onChange(e => setEditNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-                    mui.Button.normal()("Save").`type`("submit"),
-                    mui.Button.normal()("Cancel").onClick(_ => setEditingId(None))
+                    Fragment(
+                      formFields(
+                        editForm,
+                        disabled = editSubmit.isSubmitting,
+                        update = updateEdit,
+                        autoFocusAmount = true
+                      )*
+                    ),
+                    mui.Button
+                      .normal()("Save")
+                      .disabled(editSubmit.buttonDisabled(editForm.isValid))
+                      .`type`("submit"),
+                    mui.Button.normal()("Cancel").onClick(_ => cancelEdit())
                   )
                 ),
-                splitsSection(editSplits, setEditSplits, editAmount)
+                splitsSection(editForm, updateEdit),
+                submitError(editSubmit)
               )
             )
           )
@@ -1002,7 +1044,7 @@ object ExpenseList {
         mui.Box
           .sx(new CSSPropertiesUtils {
             borderBottom = "1px solid var(--lc-border)"
-          })(if (isEditing) editRow else displayRow)
+          })(editingForm.fold(displayRow)(editRow))
           .withKey(e.id.toString)
           .build
       }

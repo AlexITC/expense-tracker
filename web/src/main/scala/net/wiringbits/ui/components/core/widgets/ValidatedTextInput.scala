@@ -14,7 +14,8 @@ abstract class ValidatedTextInput[T: TextValidator] {
       field: FormField[T],
       disabled: Boolean = false,
       onChange: ValidationResult[T] => Unit,
-      margin: "dense" = "dense"
+      margin: "dense" = "dense",
+      autoFocus: Boolean = false
   )
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
@@ -35,6 +36,7 @@ abstract class ValidatedTextInput[T: TextValidator] {
       .required(props.field.required)
       .fullWidth(true)
       .disabled(props.disabled)
+      .autoFocus(props.autoFocus)
       .margin(props.margin)
       .error(hasError)
       .helperText(helperText)

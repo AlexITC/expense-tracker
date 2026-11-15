@@ -6,6 +6,7 @@ import net.wiringbits.common.models.{CategoryName, MerchantName}
 import net.wiringbits.ui.components.core.widgets.{ExpValidatedAutocompleteInput, ValidatedTextInput}
 import net.wiringbits.ui.forms.{
   ExistingOrNewValue,
+  ExpLocalDate,
   ExpRuleAmount,
   ExpRuleDescription,
   ExpRulePattern,
@@ -18,6 +19,10 @@ import java.util.UUID
   * autocompletes, built on the same stack as the existing text inputs in [[inputs]].
   */
 object PositiveBigDecimalInput extends ValidatedTextInput[Option[PositiveBigDecimal]]
+
+object AmountInput extends ValidatedTextInput[PositiveBigDecimal]
+
+object DateInput extends ValidatedTextInput[ExpLocalDate]
 
 object RulePatternInput extends ValidatedTextInput[ExpRulePattern]
 
@@ -47,4 +52,12 @@ object OptionalCategoryAutocompleteInput
       CategoryName,
       UUID,
       Option[ExistingOrNewValue[CategoryName, UUID]]
+    ](optionLabel = _.name, optionId = _.id)
+
+object OptionalMerchantAutocompleteInput
+    extends ExpValidatedAutocompleteInput[
+      GetMerchants.Response.Merchant,
+      MerchantName,
+      UUID,
+      Option[ExistingOrNewValue[MerchantName, UUID]]
     ](optionLabel = _.name, optionId = _.id)

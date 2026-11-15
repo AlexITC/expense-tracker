@@ -92,16 +92,13 @@ class BulkMerchantSetupPageSpec extends AnyWordSpec with ReactTestDom {
       ): ReactElement
     )
 
-  private def clickAssign(): Unit =
-    act {
-      container
-        .querySelectorAll("button")
-        .toList
-        .find(_.textContent == "Assign")
-        .getOrElse(fail("Assign button not found"))
-        .asInstanceOf[dom.html.Element]
-        .click()
-    }
+  private def assignButton(): dom.html.Button =
+    container
+      .querySelectorAll("button")
+      .toList
+      .find(_.textContent == "Assign")
+      .getOrElse(fail("Assign button not found"))
+      .asInstanceOf[dom.html.Button]
 
   "findUnmatchedGroups" should {
     val otherRow = sampleRows.head.copy(id = UUID.randomUUID(), description = "UNKNOWN SHOP 42")
@@ -155,17 +152,15 @@ class BulkMerchantSetupPageSpec extends AnyWordSpec with ReactTestDom {
       }
     }
 
-    // The validation error is rendered from the submit lifecycle's error; no API call is made on this path.
-    "show 'Merchant name is required' when Assign is clicked with an empty merchant" in {
+    // Assign stays disabled until both fields are valid, so no API call can be made with missing input.
+    "disable Assign when the merchant is empty" in {
       renderRow("", Nil, Nil, Nil)
-      clickAssign()
-      container.textContent must include("Merchant name is required")
+      assignButton().disabled must be(true)
     }
 
-    "show 'Category is required' when Assign is clicked with only the merchant filled" in {
+    "disable Assign when only the merchant is filled" in {
       renderRow("CARNICERIA EL RISCU (GIJON)", sampleRows, Nil, Nil)
-      clickAssign()
-      container.textContent must include("Category is required")
+      assignButton().disabled must be(true)
     }
   }
 }
