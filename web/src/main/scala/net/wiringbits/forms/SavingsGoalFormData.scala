@@ -29,13 +29,13 @@ object SavingsGoalFormData {
   private val NameLabel = "Goal name"
   private val TargetLabel = "Target amount (optional)"
 
-  def initial(name: Option[SavingsGoalName], targetAmount: Option[BigDecimal]): SavingsGoalFormData =
+  def initial(name: Option[String], targetAmount: Option[BigDecimal]): SavingsGoalFormData =
     SavingsGoalFormData(
       name = new FormField(
         label = NameLabel,
         name = "name",
         required = true,
-        value = name.map(x => ValidationResult.Valid(x.string, x))
+        value = name.map(SavingsGoalName.validate)
       ),
       targetAmount = new FormField(
         label = TargetLabel,

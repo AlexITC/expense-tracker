@@ -3,7 +3,7 @@ package net.wiringbits.ui.components.core.widgets
 import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
 import com.olvind.mui.muiMaterial.components as mui
 import com.olvind.mui.muiMaterial.textFieldTextFieldMod.OutlinedTextFieldProps
-import net.wiringbits.ui.forms.ExpResolvedOrNew
+import net.wiringbits.ui.forms.ExpEntityRef
 import net.wiringbits.webapp.common.validators.{TextValidator, ValidationResult}
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 import net.wiringbits.webapp.utils.slinkyUtils.forms.FormField
@@ -13,30 +13,35 @@ import slinky.core.facade.ReactElement
 import java.util.UUID
 import scala.scalajs.js
 
-/** The autocomplete analogue of [[ValidatedTextInput]].
+/** The select/create analogue of [[ValidatedTextInput]].
   *
-  * The field holds an [[ExpResolvedOrNew]]: selecting an option yields `Existing(id)`, typing a new value is validated
-  * live through the primitive's `TextValidator` into `Create(value)` (or an inline error), and a blank input is
-  * `Empty`. The freeSolo combobox UX is preserved, and nothing is parsed at submit: the form reads an already-valid
-  * `Create(value)` straight from the field.
+  * The field holds `Option[ExpEntityRef[T]]`: blank is `None`, typing validates the text live through the primitive's
+  * `TextValidator` into `Some(ExpEntityRef(value, id = None))`, and picking an option sets the same shape with the
+  * resolved `id`. Editing after a pick clears the `id`. So the name is always validated like any text field, the id
+  * rides alongside when it came from an existing row, and nothing is parsed at submit.
   */
 abstract class ExpValidatedAutocompleteInput[Opt, T: TextValidator] {
   private val validator = implicitly[TextValidator[T]]
 
+  type Value = Option[ExpEntityRef[T]]
+
   case class Props(
-      field: FormField[ExpResolvedOrNew[T]],
+      field: FormField[Value],
       options: Seq[Opt],
       label: String,
       getOptionLabel: js.Any => String,
       selectExisting: js.Any => Option[(UUID, String)],
-      onChange: ValidationResult[ExpResolvedOrNew[T]] => Unit,
+      onChange: ValidationResult[Value] => Unit,
       disabled: Boolean = false,
       fullWidth: Boolean = true
   )
 
-  private def validateText(text: String): ValidationResult[ExpResolvedOrNew[T]] =
-    if (text.trim.isEmpty) ValidationResult.Valid(text, ExpResolvedOrNew.Empty)
-    else validator(text).map(ExpResolvedOrNew.Create(_))
+  private def validateText(text: String): ValidationResult[Value] =
+    if (text.trim.isEmpty) ValidationResult.Valid(text, None)
+    else validator(text).map(value => Some(ExpEntityRef(value = value, id = None)))
+
+  private def selected(id: UUID, name: String): ValidationResult[Value] =
+    validator(name).map(value => Some(ExpEntityRef(value = value, id = Some(id))))
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     val helperText = props.field.value.flatMap(_.errorMessage).getOrElse("")
@@ -60,11 +65,11 @@ abstract class ExpValidatedAutocompleteInput[Opt, T: TextValidator] {
       getOptionLabel = props.getOptionLabel,
       onSelect = value =>
         props.selectExisting(value) match {
-          case Some((id, label)) => props.onChange(ValidationResult.Valid(label, ExpResolvedOrNew.Existing(id)))
+          case Some((id, name)) => props.onChange(selected(id = id, name = name))
           case None => ()
         },
-      // A "reset" input event fires right after a selection with the picked label; re-validating it would turn the
-      // Existing(id) back into a Create(name), so only a real user edit re-validates.
+      // A "reset" input event fires right after a selection with the picked label; re-validating it would drop the
+      // resolved id, so only a real user edit re-validates (and clears the id).
       onInput = (text, reason) => if (reason != "reset") props.onChange(validateText(text)),
       disabled = props.disabled,
       fullWidth = props.fullWidth

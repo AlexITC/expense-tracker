@@ -5,7 +5,6 @@ import net.wiringbits.AppContext
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.savings.*
-import net.wiringbits.common.models.SavingsGoalName
 import net.wiringbits.forms.SavingsGoalFormData
 import net.wiringbits.ui.components.inputs.{ExpPositiveAmountInput, SavingsGoalNameInput}
 import net.wiringbits.ui.forms.SubmitHooks
@@ -289,7 +288,7 @@ object SavingsGoalList {
                   setEditingGoalId(Some(goal.id))
                   setEditForm(_ =>
                     SavingsGoalFormData.initial(
-                      name = Some(SavingsGoalName.trusted(goal.name)),
+                      name = Some(goal.name),
                       targetAmount = goal.targetAmount
                     )
                   )

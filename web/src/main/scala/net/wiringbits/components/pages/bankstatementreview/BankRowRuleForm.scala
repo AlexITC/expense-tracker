@@ -17,7 +17,7 @@ import net.wiringbits.api.models.merchants.{
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.forms.BankRowRuleFormData
 import net.wiringbits.ui.components.inputs.{ExpCategoryAutocompleteInput, ExpMerchantAutocompleteInput}
-import net.wiringbits.ui.forms.{ExpResolvedOrNew, SubmitHooks}
+import net.wiringbits.ui.forms.{ExpEntityRef, SubmitHooks}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
@@ -117,11 +117,11 @@ object BankRowRuleForm {
     // Resolving a selection to an id is a side effect kept out of the form model: an existing selection is already an
     // id, a new one is matched against the loaded rows by name and only created when it is genuinely new. The created
     // value is an already-valid primitive from the field, so nothing is parsed here.
-    def resolveCategory(selection: ExpResolvedOrNew[CategoryName]): Future[Option[UUID]] =
+    def resolveCategory(selection: Option[ExpEntityRef[CategoryName]]): Future[Option[UUID]] =
       selection match {
-        case ExpResolvedOrNew.Empty => Future.successful(None)
-        case ExpResolvedOrNew.Existing(id) => Future.successful(Some(id))
-        case ExpResolvedOrNew.Create(name) =>
+        case None => Future.successful(None)
+        case Some(ExpEntityRef(_, Some(id))) => Future.successful(Some(id))
+        case Some(ExpEntityRef(name, None)) =>
           props.categories.find(_.name.equalsIgnoreCase(name.string)) match {
             case Some(existing) => Future.successful(Some(existing.id))
             case None =>
@@ -132,19 +132,18 @@ object BankRowRuleForm {
       }
 
     def resolveMerchant(
-        selection: ExpResolvedOrNew[MerchantName],
+        selection: ExpEntityRef[MerchantName],
         categoryId: Option[UUID]
     ): Future[(UUID, Option[GetMerchants.Response.Merchant])] =
-      selection match {
-        case ExpResolvedOrNew.Existing(id) => Future.successful((id, None))
-        case ExpResolvedOrNew.Empty => Future.failed(new IllegalStateException("Merchant is required"))
-        case ExpResolvedOrNew.Create(name) =>
-          props.merchants.find(_.name.equalsIgnoreCase(name.string)) match {
+      selection.id match {
+        case Some(id) => Future.successful((id, None))
+        case None =>
+          props.merchants.find(_.name.equalsIgnoreCase(selection.value.string)) match {
             case Some(existing) => Future.successful((existing.id, None))
             case None =>
               props.ctx.api.client
                 .createMerchant(
-                  CreateMerchant.Request(name = name, notes = None, categoryId = categoryId, taxId = None)
+                  CreateMerchant.Request(name = selection.value, notes = None, categoryId = categoryId, taxId = None)
                 )
                 .map { resp =>
                   val created = GetMerchants.Response.Merchant(
@@ -181,15 +180,15 @@ object BankRowRuleForm {
             case ImportRuleActionKind.SetMerchant =>
               formData.merchant.valueOpt match {
                 case None => submit.fail(formData.merchant.errorMsg.getOrElse("Invalid merchant"))
-                case Some(ExpResolvedOrNew.Empty) => submit.fail("Merchant is required")
-                case Some(merchantSelection) =>
+                case Some(None) => submit.fail("Merchant is required")
+                case Some(Some(merchantRef)) =>
                   formData.category.valueOpt match {
                     case None => submit.fail(formData.category.errorMsg.getOrElse("Invalid category"))
                     case Some(categorySelection) =>
                       submit.begin()
                       resolveCategory(categorySelection)
                         .flatMap { categoryId =>
-                          resolveMerchant(merchantSelection, categoryId).flatMap { case (mid, created) =>
+                          resolveMerchant(merchantRef, categoryId).flatMap { case (mid, created) =>
                             saveRule(merchantId = Some(mid), categoryId = categoryId).map(rule => (rule, created))
                           }
                         }
@@ -203,10 +202,10 @@ object BankRowRuleForm {
             case ImportRuleActionKind.SetCategory =>
               formData.category.valueOpt match {
                 case None => submit.fail(formData.category.errorMsg.getOrElse("Invalid category"))
-                case Some(ExpResolvedOrNew.Empty) => submit.fail("Category is required")
-                case Some(categorySelection) =>
+                case Some(None) => submit.fail("Category is required")
+                case Some(categoryRef @ Some(_)) =>
                   submit.begin()
-                  resolveCategory(categorySelection)
+                  resolveCategory(categoryRef)
                     .flatMap {
                       case None => Future.failed(new IllegalArgumentException("Category is required"))
                       case Some(cid) => saveRule(merchantId = None, categoryId = Some(cid))
