@@ -17,7 +17,10 @@ class SubscriptionsController @Inject() (
     getSubscriptionsAction: GetSubscriptionsAction,
     createSubscriptionAction: CreateSubscriptionAction,
     updateSubscriptionAction: UpdateSubscriptionAction,
-    deleteSubscriptionAction: DeleteSubscriptionAction
+    deleteSubscriptionAction: DeleteSubscriptionAction,
+    changeSubscriptionPriceAction: ChangeSubscriptionPriceAction,
+    cancelSubscriptionAction: CancelSubscriptionAction,
+    resumeSubscriptionAction: ResumeSubscriptionAction
 )(implicit ec: ExecutionContext) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
@@ -63,12 +66,57 @@ class SubscriptionsController @Inject() (
     } yield Right(response)
   }
 
+  private def changeSubscriptionPrice(
+      subscriptionId: UUID,
+      request: ChangeSubscriptionPrice.Request,
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, ChangeSubscriptionPrice.Response]] = handleRequest {
+    for {
+      userId <- userIdF
+      _ = logger.info(
+        s"Change subscription price: userId=$userId, subscriptionId=$subscriptionId, effectiveFrom=${request.effectiveFrom}"
+      )
+      response <- changeSubscriptionPriceAction(subscriptionId = subscriptionId, userId = userId, request)
+    } yield Right(response)
+  }
+
+  private def cancelSubscription(
+      subscriptionId: UUID,
+      request: CancelSubscription.Request,
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, CancelSubscription.Response]] = handleRequest {
+    for {
+      userId <- userIdF
+      _ = logger.info(
+        s"Cancel subscription: userId=$userId, subscriptionId=$subscriptionId, effectiveTo=${request.effectiveTo}"
+      )
+      response <- cancelSubscriptionAction(subscriptionId = subscriptionId, userId = userId, request)
+    } yield Right(response)
+  }
+
+  private def resumeSubscription(
+      subscriptionId: UUID,
+      request: ResumeSubscription.Request,
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, ResumeSubscription.Response]] = handleRequest {
+    for {
+      userId <- userIdF
+      _ = logger.info(
+        s"Resume subscription: userId=$userId, subscriptionId=$subscriptionId, effectiveFrom=${request.effectiveFrom}"
+      )
+      response <- resumeSubscriptionAction(subscriptionId = subscriptionId, userId = userId, request)
+    } yield Right(response)
+  }
+
   def routes: List[ServerEndpoint[PekkoStreams & WebSockets, Future]] = {
     List(
       SubscriptionsEndpoints.getSubscriptions.serverLogic(getSubscriptions),
       SubscriptionsEndpoints.createSubscription.serverLogic(createSubscription),
       SubscriptionsEndpoints.updateSubscription.serverLogic(updateSubscription),
-      SubscriptionsEndpoints.deleteSubscription.serverLogic(deleteSubscription)
+      SubscriptionsEndpoints.deleteSubscription.serverLogic(deleteSubscription),
+      SubscriptionsEndpoints.changeSubscriptionPrice.serverLogic(changeSubscriptionPrice),
+      SubscriptionsEndpoints.cancelSubscription.serverLogic(cancelSubscription),
+      SubscriptionsEndpoints.resumeSubscription.serverLogic(resumeSubscription)
     )
   }
 }

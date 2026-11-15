@@ -1,13 +1,20 @@
 package net.wiringbits.repositories
 
-import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod}
+import io.scalaland.chimney.dsl.*
+import net.wiringbits.api.models.subscriptions.{
+  SubscriptionCadence,
+  SubscriptionPaymentMethod,
+  SubscriptionTerm as ApiSubscriptionTerm
+}
+import net.wiringbits.api.utils.SubscriptionTerms
 import net.wiringbits.executors.DatabaseExecutionContext
 import net.wiringbits.repositories.daos.{CategoryDAO, SubscriptionDAO, SubscriptionTermDAO}
 import net.wiringbits.repositories.models.{Subscription, SubscriptionTerm}
 import net.wiringbits.repositories.support.ConstraintViolations
 import play.api.db.Database
 
-import java.time.Clock
+import java.sql.Connection
+import java.time.{Clock, LocalDate}
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.Future
@@ -86,6 +93,88 @@ class SubscriptionsRepository @Inject() (database: Database)(implicit
         )
       }
     }
+  }
+
+  def changePrice(
+      id: UUID,
+      userId: UUID,
+      newTermId: UUID,
+      effectiveFrom: LocalDate,
+      amountMin: Option[BigDecimal],
+      amountMax: Option[BigDecimal]
+  ): Future[Unit] = Future {
+    database.withTransaction { implicit conn =>
+      changeTerms(id = id, userId = userId) { terms =>
+        SubscriptionTerms.priceChange(
+          terms,
+          newTermId = newTermId,
+          effectiveFrom = effectiveFrom,
+          amountMin = amountMin,
+          amountMax = amountMax
+        )
+      }
+    }
+  }
+
+  def cancel(id: UUID, userId: UUID, effectiveTo: LocalDate): Future[Unit] = Future {
+    database.withTransaction { implicit conn =>
+      changeTerms(id = id, userId = userId)(terms => SubscriptionTerms.cancel(terms, effectiveTo = effectiveTo))
+    }
+  }
+
+  def resume(
+      id: UUID,
+      userId: UUID,
+      newTermId: UUID,
+      effectiveFrom: LocalDate,
+      amountMin: Option[BigDecimal],
+      amountMax: Option[BigDecimal]
+  ): Future[Unit] = Future {
+    database.withTransaction { implicit conn =>
+      changeTerms(id = id, userId = userId) { terms =>
+        SubscriptionTerms.resume(
+          terms,
+          newTermId = newTermId,
+          effectiveFrom = effectiveFrom,
+          amountMin = amountMin,
+          amountMax = amountMax
+        )
+      }
+    }
+  }
+
+  // Plans against the terms read under the subscription row lock, so concurrent changes cannot interleave.
+  private def changeTerms(id: UUID, userId: UUID)(
+      plan: List[ApiSubscriptionTerm] => Either[String, SubscriptionTerms.Plan]
+  )(implicit conn: Connection): Unit = {
+    if (SubscriptionDAO.lockForUpdate(id = id, userId = userId).isEmpty)
+      throw new RuntimeException("Subscription not found")
+    val terms = SubscriptionTermDAO
+      .forSubscription(subscriptionId = id, userId = userId)
+      .map(_.transformInto[ApiSubscriptionTerm])
+    val planned = plan(terms).fold(error => throw new RuntimeException(error), identity)
+    val now = clock.instant()
+    planned.close.foreach { close =>
+      SubscriptionTermDAO.close(
+        termId = close.termId,
+        subscriptionId = id,
+        userId = userId,
+        effectiveTo = close.effectiveTo,
+        updatedAt = now
+      )
+    }
+    planned.open.foreach { term =>
+      SubscriptionTermDAO.create(
+        term
+          .into[SubscriptionTerm]
+          .withFieldConst(_.userId, userId)
+          .withFieldConst(_.subscriptionId, id)
+          .withFieldConst(_.createdAt, now)
+          .withFieldConst(_.updatedAt, now)
+          .transform
+      )
+    }
+    SubscriptionDAO.touch(id = id, userId = userId, updatedAt = now)
   }
 
   def delete(id: UUID, userId: UUID): Future[Unit] = Future {

@@ -406,6 +406,24 @@ class ApiClient(config: ApiClient.Config)(implicit
   def deleteSubscription(subscriptionId: UUID): Future[DeleteSubscription.Response] =
     handleRequest(SubscriptionsEndpoints.deleteSubscription, (subscriptionId, dummyUserId))
 
+  def changeSubscriptionPrice(
+      subscriptionId: UUID,
+      request: ChangeSubscriptionPrice.Request
+  ): Future[ChangeSubscriptionPrice.Response] =
+    handleRequest(SubscriptionsEndpoints.changeSubscriptionPrice, (subscriptionId, request, dummyUserId))
+
+  def cancelSubscription(
+      subscriptionId: UUID,
+      request: CancelSubscription.Request
+  ): Future[CancelSubscription.Response] =
+    handleRequest(SubscriptionsEndpoints.cancelSubscription, (subscriptionId, request, dummyUserId))
+
+  def resumeSubscription(
+      subscriptionId: UUID,
+      request: ResumeSubscription.Request
+  ): Future[ResumeSubscription.Response] =
+    handleRequest(SubscriptionsEndpoints.resumeSubscription, (subscriptionId, request, dummyUserId))
+
   def aiExtractBankStatement(
       request: AiExtractBankStatement.Request
   ): Future[AiExtractBankStatement.Response] =

@@ -46,6 +46,16 @@ object SubscriptionDAO {
           AND user_id = ${userId.toString}::UUID
         """.as(subscriptionParser.singleOpt)
 
+  // Row lock that serialises term changes on one subscription until the surrounding transaction ends.
+  def lockForUpdate(id: UUID, userId: UUID)(implicit conn: Connection): Option[Subscription] =
+    SQL"""
+        SELECT id, user_id, name, cadence, interval_days, payment_method, category_id, created_at, updated_at
+        FROM subscription
+        WHERE id = ${id.toString}::UUID
+          AND user_id = ${userId.toString}::UUID
+        FOR UPDATE
+        """.as(subscriptionParser.singleOpt)
+
   def count(userId: UUID)(implicit conn: Connection): Long =
     SQL"""
         SELECT COUNT(*)
@@ -71,6 +81,16 @@ object SubscriptionDAO {
             payment_method = ${paymentMethod.entryName},
             category_id = ${categoryId.map(_.toString)}::UUID,
             updated_at = $updatedAt
+        WHERE id = ${id.toString}::UUID
+          AND user_id = ${userId.toString}::UUID
+        """.executeUpdate()
+    if (updated == 0) throw new RuntimeException("Subscription not found")
+  }
+
+  def touch(id: UUID, userId: UUID, updatedAt: Instant)(implicit conn: Connection): Unit = {
+    val updated = SQL"""
+        UPDATE subscription
+        SET updated_at = $updatedAt
         WHERE id = ${id.toString}::UUID
           AND user_id = ${userId.toString}::UUID
         """.executeUpdate()

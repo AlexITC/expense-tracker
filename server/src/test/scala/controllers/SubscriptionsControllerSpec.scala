@@ -31,6 +31,9 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
   private val createAction = mock[CreateSubscriptionAction]
   private val updateAction = mock[UpdateSubscriptionAction]
   private val deleteAction = mock[DeleteSubscriptionAction]
+  private val changePriceAction = mock[ChangeSubscriptionPriceAction]
+  private val cancelAction = mock[CancelSubscriptionAction]
+  private val resumeAction = mock[ResumeSubscriptionAction]
 
   override def guiceApplicationBuilder(container: PostgreSQLContainer): GuiceApplicationBuilder =
     super
@@ -42,12 +45,16 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
         inject.bind[GetSubscriptionsAction].to(getAction),
         inject.bind[CreateSubscriptionAction].to(createAction),
         inject.bind[UpdateSubscriptionAction].to(updateAction),
-        inject.bind[DeleteSubscriptionAction].to(deleteAction)
+        inject.bind[DeleteSubscriptionAction].to(deleteAction),
+        inject.bind[ChangeSubscriptionPriceAction].to(changePriceAction),
+        inject.bind[CancelSubscriptionAction].to(cancelAction),
+        inject.bind[ResumeSubscriptionAction].to(resumeAction)
       )
 
   private val unauthorizedError = "Unauthorized: Invalid or missing authentication"
 
-  private def resetActions(): Unit = reset(getAction, createAction, updateAction, deleteAction)
+  private def resetActions(): Unit =
+    reset(getAction, createAction, updateAction, deleteAction, changePriceAction, cancelAction, resumeAction)
 
   private val createRequest = CreateSubscription.Request(
     name = SubscriptionName.trusted("Streaming"),
@@ -66,6 +73,20 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
     intervalDays = None,
     paymentMethod = SubscriptionPaymentMethod.DirectDebit,
     categoryId = None
+  )
+
+  private val changePriceRequest = ChangeSubscriptionPrice.Request(
+    effectiveFrom = LocalDate.of(2026, 4, 1),
+    amountMin = Some(BigDecimal("10.99")),
+    amountMax = Some(BigDecimal("13.50"))
+  )
+
+  private val cancelRequest = CancelSubscription.Request(effectiveTo = LocalDate.of(2026, 5, 1))
+
+  private val resumeRequest = ResumeSubscription.Request(
+    effectiveFrom = LocalDate.of(2026, 6, 1),
+    amountMin = None,
+    amountMax = None
   )
 
   "GET /subscriptions" should {
@@ -227,6 +248,98 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
         .thenReturn(Future.failed(new RuntimeException("boom")))
 
       client.deleteSubscription(subscriptionId).expectError must be("boom")
+    }
+  }
+
+  "POST /subscriptions/:id/price-change" should {
+    "reject unauthenticated requests without invoking the action" in withApiClient { client =>
+      resetActions()
+
+      client.changeSubscriptionPrice(UUID.randomUUID(), changePriceRequest).expectError must be(unauthorizedError)
+      verifyNoInteractions(changePriceAction)
+    }
+
+    "pass the path id, session user and decoded request to the action" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      when(changePriceAction.apply(eqTo(subscriptionId), eqTo(userId), eqTo(changePriceRequest)))
+        .thenReturn(Future.successful(ChangeSubscriptionPrice.Response()))
+
+      client.changeSubscriptionPrice(subscriptionId, changePriceRequest).futureValue must be(
+        ChangeSubscriptionPrice.Response()
+      )
+      verify(changePriceAction).apply(eqTo(subscriptionId), eqTo(userId), eqTo(changePriceRequest))
+    }
+
+    "encode an action failure as the error message" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      when(changePriceAction.apply(eqTo(subscriptionId), eqTo(userId), eqTo(changePriceRequest)))
+        .thenReturn(Future.failed(new RuntimeException("boom")))
+
+      client.changeSubscriptionPrice(subscriptionId, changePriceRequest).expectError must be("boom")
+    }
+  }
+
+  "POST /subscriptions/:id/cancel" should {
+    "reject unauthenticated requests without invoking the action" in withApiClient { client =>
+      resetActions()
+
+      client.cancelSubscription(UUID.randomUUID(), cancelRequest).expectError must be(unauthorizedError)
+      verifyNoInteractions(cancelAction)
+    }
+
+    "pass the path id, session user and decoded request to the action" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      when(cancelAction.apply(eqTo(subscriptionId), eqTo(userId), eqTo(cancelRequest)))
+        .thenReturn(Future.successful(CancelSubscription.Response()))
+
+      client.cancelSubscription(subscriptionId, cancelRequest).futureValue must be(CancelSubscription.Response())
+      verify(cancelAction).apply(eqTo(subscriptionId), eqTo(userId), eqTo(cancelRequest))
+    }
+
+    "encode an action failure as the error message" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      when(cancelAction.apply(eqTo(subscriptionId), eqTo(userId), eqTo(cancelRequest)))
+        .thenReturn(Future.failed(new RuntimeException("boom")))
+
+      client.cancelSubscription(subscriptionId, cancelRequest).expectError must be("boom")
+    }
+  }
+
+  "POST /subscriptions/:id/resume" should {
+    "reject unauthenticated requests without invoking the action" in withApiClient { client =>
+      resetActions()
+
+      client.resumeSubscription(UUID.randomUUID(), resumeRequest).expectError must be(unauthorizedError)
+      verifyNoInteractions(resumeAction)
+    }
+
+    "pass the path id, session user and decoded request to the action" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      when(resumeAction.apply(eqTo(subscriptionId), eqTo(userId), eqTo(resumeRequest)))
+        .thenReturn(Future.successful(ResumeSubscription.Response()))
+
+      client.resumeSubscription(subscriptionId, resumeRequest).futureValue must be(ResumeSubscription.Response())
+      verify(resumeAction).apply(eqTo(subscriptionId), eqTo(userId), eqTo(resumeRequest))
+    }
+
+    "encode an action failure as the error message" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      when(resumeAction.apply(eqTo(subscriptionId), eqTo(userId), eqTo(resumeRequest)))
+        .thenReturn(Future.failed(new RuntimeException("boom")))
+
+      client.resumeSubscription(subscriptionId, resumeRequest).expectError must be("boom")
     }
   }
 }

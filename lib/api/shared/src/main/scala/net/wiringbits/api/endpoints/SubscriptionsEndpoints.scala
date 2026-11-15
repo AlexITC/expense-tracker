@@ -59,6 +59,62 @@ object SubscriptionsEndpoints {
       .errorOut(oneOf(HttpErrors.badRequest))
       .summary("Delete a subscription")
 
+  def changeSubscriptionPrice(implicit authHandler: ServerRequest => Future[UUID]): Endpoint[
+    Unit,
+    (UUID, ChangeSubscriptionPrice.Request, Future[UUID]),
+    ErrorResponse,
+    ChangeSubscriptionPrice.Response,
+    Any
+  ] =
+    baseEndpoint.post
+      .in(path[UUID]("subscriptionId"))
+      .in("price-change")
+      .in(jsonBody[ChangeSubscriptionPrice.Request])
+      .in(userAuth)
+      .out(jsonBody[ChangeSubscriptionPrice.Response])
+      .errorOut(oneOf(HttpErrors.badRequest))
+      .summary("Change a subscription's price from a date")
+
+  def cancelSubscription(implicit authHandler: ServerRequest => Future[UUID]): Endpoint[
+    Unit,
+    (UUID, CancelSubscription.Request, Future[UUID]),
+    ErrorResponse,
+    CancelSubscription.Response,
+    Any
+  ] =
+    baseEndpoint.post
+      .in(path[UUID]("subscriptionId"))
+      .in("cancel")
+      .in(jsonBody[CancelSubscription.Request])
+      .in(userAuth)
+      .out(jsonBody[CancelSubscription.Response])
+      .errorOut(oneOf(HttpErrors.badRequest))
+      .summary("Cancel a subscription from a date")
+
+  def resumeSubscription(implicit authHandler: ServerRequest => Future[UUID]): Endpoint[
+    Unit,
+    (UUID, ResumeSubscription.Request, Future[UUID]),
+    ErrorResponse,
+    ResumeSubscription.Response,
+    Any
+  ] =
+    baseEndpoint.post
+      .in(path[UUID]("subscriptionId"))
+      .in("resume")
+      .in(jsonBody[ResumeSubscription.Request])
+      .in(userAuth)
+      .out(jsonBody[ResumeSubscription.Response])
+      .errorOut(oneOf(HttpErrors.badRequest))
+      .summary("Resume a cancelled subscription from a date")
+
   def routes(implicit authHandler: ServerRequest => Future[UUID]): List[AnyEndpoint] =
-    List(getSubscriptions, createSubscription, updateSubscription, deleteSubscription)
+    List(
+      getSubscriptions,
+      createSubscription,
+      updateSubscription,
+      deleteSubscription,
+      changeSubscriptionPrice,
+      cancelSubscription,
+      resumeSubscription
+    )
 }

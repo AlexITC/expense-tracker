@@ -34,7 +34,8 @@ object SubscriptionValidator {
       case (_, None) => Right(())
     }
 
-  private def validateAmountRange(amountMin: Option[BigDecimal], amountMax: Option[BigDecimal]): Either[String, Unit] =
+  /** Validates one amount range: both bounds or neither, each a positive NUMERIC(12,2), and min ≤ max. */
+  def validateAmountRange(amountMin: Option[BigDecimal], amountMax: Option[BigDecimal]): Either[String, Unit] =
     (amountMin, amountMax) match {
       case (None, None) => Right(())
       case (Some(min), Some(max)) =>
