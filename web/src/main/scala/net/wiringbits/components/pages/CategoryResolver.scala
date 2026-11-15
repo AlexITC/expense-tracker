@@ -3,6 +3,7 @@ package net.wiringbits.components.pages
 import net.wiringbits.api.ApiClient
 import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
 import net.wiringbits.common.models.CategoryName
+import net.wiringbits.ui.forms.ExistingOrNewValue
 
 import java.time.Instant
 import java.util.UUID
@@ -37,5 +38,34 @@ object CategoryResolver {
                 )
               )
         }
+    }
+
+  /** Resolves a validated select/create selection to a category id: the picked id, else an existing category by
+    * case-insensitive name, else a newly created one. The name is already a validated [[CategoryName]], so nothing is
+    * parsed here.
+    */
+  private[pages] def findOrCreateCategory(
+      client: ApiClient,
+      categories: List[GetCategories.Response.Category],
+      selection: ExistingOrNewValue[CategoryName, UUID]
+  )(implicit ec: ExecutionContext): Future[UUID] =
+    selection.id match {
+      case Some(id) => Future.successful(id)
+      case None =>
+        categories.find(_.name.equalsIgnoreCase(selection.value.string)) match {
+          case Some(existing) => Future.successful(existing.id)
+          case None =>
+            client.createCategory(CreateCategory.Request(name = selection.value, description = None)).map(_.id)
+        }
+    }
+
+  private[pages] def findOrCreateCategoryOpt(
+      client: ApiClient,
+      categories: List[GetCategories.Response.Category],
+      selection: Option[ExistingOrNewValue[CategoryName, UUID]]
+  )(implicit ec: ExecutionContext): Future[Option[UUID]] =
+    selection match {
+      case None => Future.successful(None)
+      case Some(ref) => findOrCreateCategory(client, categories, ref).map(Some(_))
     }
 }
