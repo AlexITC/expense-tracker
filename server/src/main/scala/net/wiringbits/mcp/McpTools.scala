@@ -7,6 +7,7 @@ object McpTools {
   val ListExpenses = "list_expenses"
   val ListCategories = "list_categories"
   val ListBankStatementRows = "list_bank_statement_rows"
+  val ListSubscriptions = "list_subscriptions"
 
   private val noArgsSchema: JsObject = Json.obj("type" -> "object", "additionalProperties" -> false)
 
@@ -38,6 +39,18 @@ object McpTools {
           "when the user excluded the row). Unlike list_expenses, this reflects actual bank activity and is the " +
           "source of truth for real spend. Complete history, no server-side filtering — filter and aggregate " +
           "yourself."),
+        "inputSchema" -> noArgsSchema
+      ),
+      Json.obj(
+        "name" -> ListSubscriptions,
+        "title" -> "List subscriptions",
+        "description" -> ("Returns every subscription of the authenticated user: name, cadence (plus intervalDays " +
+          "or intervalMonths when the cadence needs one), payment method, optional description, optional " +
+          "merchantId (as in list_expenses) and optional categoryId (as in list_categories). Each subscription " +
+          "lists its terms (effectiveFrom, optional effectiveTo which is EXCLUSIVE, and an optional amountMin / " +
+          "amountMax range); when no term is open (every term has an effectiveTo) the subscription is cancelled. " +
+          "Each subscription also lists its extra charges. Complete list, no server-side filtering — filter and " +
+          "aggregate yourself."),
         "inputSchema" -> noArgsSchema
       )
     )
