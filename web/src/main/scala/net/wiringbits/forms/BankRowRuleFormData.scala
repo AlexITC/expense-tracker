@@ -58,9 +58,6 @@ object BankRowRuleFormData {
     override def actionKind: ImportRuleActionKind = ImportRuleActionKind.SetMerchant
     override def fields: List[FormField[?]] = List(pattern, amount, description, merchant, category)
 
-    override def formValidationErrors: List[String] =
-      List(fieldsError).flatten ++ Option.when(merchant.valueOpt.isEmpty)("Merchant is required")
-
     override def submitRequest: Option[Resolved] =
       for {
         p <- pattern.valueOpt
@@ -88,9 +85,6 @@ object BankRowRuleFormData {
   ) extends BankRowRuleFormData {
     override def actionKind: ImportRuleActionKind = ImportRuleActionKind.SetCategory
     override def fields: List[FormField[?]] = List(pattern, amount, description, category)
-
-    override def formValidationErrors: List[String] =
-      List(fieldsError).flatten ++ Option.when(category.valueOpt.isEmpty)("Category is required")
 
     override def submitRequest: Option[Resolved] =
       for {

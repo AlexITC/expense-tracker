@@ -254,7 +254,7 @@ object BankRowRuleForm {
             .normal()(if (submit.isSubmitting) "Saving…" else "Save rule")
             .size("small")
             .variant("contained")
-            .disabled(submit.isSubmitting)
+            .disabled(submit.buttonDisabled(formData.isValid))
             .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
             .`type`("submit")
             .build: ReactElement),
