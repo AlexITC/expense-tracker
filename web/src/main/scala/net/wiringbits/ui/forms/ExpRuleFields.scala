@@ -4,8 +4,6 @@ import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.webapp.common.models.WrappedString
 import net.wiringbits.webapp.common.validators.{TextValidator, ValidationResult}
 
-import scala.util.Try
-
 /** Validated primitives for the import-rule form's free-text fields, so pattern/amount/description are validated live
   * in their `FormField`s instead of parsed at submit. The limits come from the shared [[ImportRuleMatcher]] so the
   * frontend and the server stay in step; the per-field checks mirror its (private) validators. In production these
@@ -54,34 +52,13 @@ object ExpRuleDescription extends WrappedString.Companion[ExpRuleDescription] {
 
 class ExpRuleAmount private (val value: BigDecimal) extends ExpWrappedBigDecimal
 
-object ExpRuleAmount extends ExpWrappedBigDecimal.Companion[ExpRuleAmount] {
-  override def validate(string: String): ValidationResult[ExpRuleAmount] =
-    Try(BigDecimal(string.trim)).toOption match {
-      case None => ValidationResult.Invalid(input = string, error = "Amount must be a number, e.g. 12.50")
-      case Some(amount) if amount.signum < 0 =>
-        ValidationResult.Invalid(input = string, error = "Rule amount must be a positive value")
-      case Some(amount) if amount.signum == 0 =>
-        ValidationResult.Invalid(input = string, error = "Rule amount must not be zero")
-      case Some(amount) if amount.scale > ImportRuleMatcher.MaxAmountScale =>
-        ValidationResult.Invalid(
-          input = string,
-          error = s"Rule amount must have at most ${ImportRuleMatcher.MaxAmountScale} decimal places"
-        )
-      case Some(amount) if amount.precision - amount.scale > ImportRuleMatcher.MaxAmountIntegerDigits =>
-        ValidationResult.Invalid(
-          input = string,
-          error = s"Rule amount must have at most ${ImportRuleMatcher.MaxAmountIntegerDigits} integer digits"
-        )
-      case Some(amount) => ValidationResult.Valid(string, new ExpRuleAmount(amount))
-    }
-
-  override def trusted(value: BigDecimal): ExpRuleAmount = new ExpRuleAmount(value)
-
-  given optionalValidator: TextValidator[Option[ExpRuleAmount]] = (string: String) =>
-    if (string.trim.isEmpty) ValidationResult.Valid(string, None)
-    else
-      validate(string) match {
-        case ValidationResult.Valid(input, value) => ValidationResult.Valid(input, Some(value))
-        case ValidationResult.Invalid(input, error) => ValidationResult.Invalid(input = input, error = error)
-      }
+/** A positive amount bounded to the rule column's NUMERIC(12,2) shape, i.e. a [[PositiveBigDecimal]] with the rule
+  * caps. Only the bounds differ from any other positive amount, so it just fixes them.
+  */
+object ExpRuleAmount
+    extends PositiveBigDecimalCompanion[ExpRuleAmount](
+      maxIntegerDigits = Some(ImportRuleMatcher.MaxAmountIntegerDigits),
+      maxDecimals = Some(ImportRuleMatcher.MaxAmountScale)
+    ) {
+  override protected def make(value: BigDecimal): ExpRuleAmount = new ExpRuleAmount(value)
 }

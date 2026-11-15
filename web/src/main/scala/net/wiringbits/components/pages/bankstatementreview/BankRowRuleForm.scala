@@ -1,5 +1,4 @@
 package net.wiringbits.components.pages.bankstatementreview
-import net.wiringbits.components.pages.AutocompleteLabels
 
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
@@ -16,11 +15,11 @@ import net.wiringbits.api.models.merchants.{
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.forms.BankRowRuleFormData
 import net.wiringbits.ui.components.inputs.{
-  ExpCategoryAutocompleteInput,
-  ExpMerchantAutocompleteInput,
-  ExpRuleAmountInput,
-  ExpRuleDescriptionInput,
-  ExpRulePatternInput
+  CategoryAutocompleteInput,
+  MerchantAutocompleteInput,
+  RuleAmountInput,
+  RuleDescriptionInput,
+  RulePatternInput
 }
 import net.wiringbits.ui.forms.{ExpRuleAmount, ExpRuleDescription, ExpRulePattern, ExistingOrNewValue, SubmitHooks}
 import net.wiringbits.webapp.common.validators.ValidationResult
@@ -197,35 +196,29 @@ object BankRowRuleForm {
       }
 
     def patternInput: ReactElement =
-      ExpRulePatternInput.component(
-        ExpRulePatternInput.Props(field = formData.pattern, disabled = submit.isSubmitting, onChange = updatePattern)
+      RulePatternInput.component(
+        RulePatternInput.Props(field = formData.pattern, disabled = submit.isSubmitting, onChange = updatePattern)
       )
 
     def amountInput: ReactElement =
-      ExpRuleAmountInput.component(
-        ExpRuleAmountInput.Props(field = formData.amount, disabled = submit.isSubmitting, onChange = updateAmount)
+      RuleAmountInput.component(
+        RuleAmountInput.Props(field = formData.amount, disabled = submit.isSubmitting, onChange = updateAmount)
       )
 
     def descriptionInput(field: FormField[Option[ExpRuleDescription]]): ReactElement =
-      (ExpRuleDescriptionInput
+      (RuleDescriptionInput
         .component(
-          ExpRuleDescriptionInput.Props(field = field, disabled = submit.isSubmitting, onChange = updateDescription)
+          RuleDescriptionInput.Props(field = field, disabled = submit.isSubmitting, onChange = updateDescription)
         )
         .withKey("description"): ReactElement)
 
     def merchantAutocomplete(field: FormField[Option[ExistingOrNewValue[MerchantName, UUID]]]): ReactElement =
-      (ExpMerchantAutocompleteInput
+      (MerchantAutocompleteInput
         .component(
-          ExpMerchantAutocompleteInput.Props(
+          MerchantAutocompleteInput.Props(
             field = field,
             options = props.merchants,
             label = "Merchant",
-            getOptionLabel = AutocompleteLabels.merchantOptionLabel,
-            selectExisting = value =>
-              (value: Any) match {
-                case m: GetMerchants.Response.Merchant => Some((m.id, m.name))
-                case _ => None
-              },
             onChange = updateMerchant,
             disabled = submit.isSubmitting,
             fullWidth = false
@@ -234,18 +227,12 @@ object BankRowRuleForm {
         .withKey("merchant"): ReactElement)
 
     def categoryAutocomplete(field: FormField[Option[ExistingOrNewValue[CategoryName, UUID]]]): ReactElement =
-      (ExpCategoryAutocompleteInput
+      (CategoryAutocompleteInput
         .component(
-          ExpCategoryAutocompleteInput.Props(
+          CategoryAutocompleteInput.Props(
             field = field,
             options = props.categories,
             label = "Category",
-            getOptionLabel = AutocompleteLabels.categoryOptionLabel,
-            selectExisting = value =>
-              (value: Any) match {
-                case c: GetCategories.Response.Category => Some((c.id, c.name))
-                case _ => None
-              },
             onChange = updateCategory,
             disabled = submit.isSubmitting,
             fullWidth = false

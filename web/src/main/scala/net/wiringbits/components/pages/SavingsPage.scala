@@ -6,7 +6,7 @@ import net.wiringbits.components.widgets.Loader
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.savings.*
 import net.wiringbits.forms.SavingsGoalFormData
-import net.wiringbits.ui.components.inputs.{ExpPositiveAmountInput, SavingsGoalNameInput}
+import net.wiringbits.ui.components.inputs.{PositiveBigDecimalInput, SavingsGoalNameInput}
 import net.wiringbits.ui.forms.SubmitHooks
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -171,8 +171,8 @@ object SavingsGoalList {
             onChange = value => setCreateForm(cur => cur.copy(name = cur.name.updated(value)))
           )
         ),
-        ExpPositiveAmountInput.component(
-          ExpPositiveAmountInput.Props(
+        PositiveBigDecimalInput.component(
+          PositiveBigDecimalInput.Props(
             field = createForm.targetAmount,
             disabled = createSubmit.isSubmitting,
             onChange = value => setCreateForm(cur => cur.copy(targetAmount = cur.targetAmount.updated(value)))
@@ -219,8 +219,8 @@ object SavingsGoalList {
                   onChange = value => setEditForm(cur => cur.copy(name = cur.name.updated(value)))
                 )
               ),
-              ExpPositiveAmountInput.component(
-                ExpPositiveAmountInput.Props(
+              PositiveBigDecimalInput.component(
+                PositiveBigDecimalInput.Props(
                   field = editForm.targetAmount,
                   disabled = editSubmit.isSubmitting,
                   onChange = value => setEditForm(cur => cur.copy(targetAmount = cur.targetAmount.updated(value)))

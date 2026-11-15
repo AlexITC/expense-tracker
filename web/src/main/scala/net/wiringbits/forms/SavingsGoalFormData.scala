@@ -2,12 +2,12 @@ package net.wiringbits.forms
 
 import net.wiringbits.api.models.savings.{CreateSavingsGoal, UpdateSavingsGoal}
 import net.wiringbits.common.models.SavingsGoalName
-import net.wiringbits.ui.forms.ExpPositiveAmount
+import net.wiringbits.ui.forms.PositiveBigDecimal
 import net.wiringbits.webapp.utils.slinkyUtils.forms.{FormData, FormField}
 
 case class SavingsGoalFormData(
     name: FormField[SavingsGoalName],
-    targetAmount: FormField[Option[ExpPositiveAmount]]
+    targetAmount: FormField[Option[PositiveBigDecimal]]
 ) extends FormData[CreateSavingsGoal.Request] {
   override def fields: List[FormField[?]] = List(name, targetAmount)
 
@@ -40,7 +40,7 @@ object SavingsGoalFormData {
         label = TargetLabel,
         name = "targetAmount",
         required = false,
-        value = Some(ExpPositiveAmount.optionalValidator(targetAmount.map(_.toString).getOrElse("")))
+        value = Some(PositiveBigDecimal.optionalValidator(targetAmount.map(_.toString).getOrElse("")))
       )
     )
 }

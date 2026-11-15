@@ -16,20 +16,26 @@ import scala.scalajs.js
   *
   * The field holds `Option[ExistingOrNewValue[T, Id]]`: blank is `None`, typing validates the text live through the
   * primitive's `TextValidator` into `Some(ExistingOrNewValue(value, id = None))`, and picking an option sets the same
-  * shape with the resolved `id`. Editing after a pick clears the `id`. So the name is always validated like any text
-  * field, the id rides alongside when it came from an existing row, and nothing is parsed at submit.
+  * shape with the resolved `id`. Editing after a pick clears the `id`, so the name is always validated like any text
+  * field and nothing is parsed at submit.
+  *
+  * A concrete input provides the option's label and id, and how to narrow the raw value MUI hands back (a selected
+  * option, or a freeSolo typed `String`) to an option. All the `js.*` interop stays inside this component; its `Props`
+  * and those hooks are plain Scala.
   */
 abstract class ExpValidatedAutocompleteInput[Opt, T: TextValidator, Id] {
   private val validator = implicitly[TextValidator[T]]
 
   type Value = Option[ExistingOrNewValue[T, Id]]
 
+  protected def asOption(value: Any): Option[Opt]
+  protected def optionLabel(option: Opt): String
+  protected def optionId(option: Opt): Id
+
   case class Props(
       field: FormField[Value],
       options: Seq[Opt],
       label: String,
-      getOptionLabel: js.Any => String,
-      selectExisting: js.Any => Option[(Id, String)],
       onChange: ValidationResult[Value] => Unit,
       disabled: Boolean = false,
       fullWidth: Boolean = true
@@ -39,8 +45,8 @@ abstract class ExpValidatedAutocompleteInput[Opt, T: TextValidator, Id] {
     if (text.trim.isEmpty) ValidationResult.Valid(text, None)
     else validator(text).map(value => Some(ExistingOrNewValue(value = value, id = None)))
 
-  private def selected(id: Id, name: String): ValidationResult[Value] =
-    validator(name).map(value => Some(ExistingOrNewValue(value = value, id = Some(id))))
+  private def selectedOption(option: Opt): ValidationResult[Value] =
+    validator(optionLabel(option)).map(value => Some(ExistingOrNewValue(value = value, id = Some(optionId(option)))))
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     val helperText = props.field.value.flatMap(_.errorMessage).getOrElse("")
@@ -61,12 +67,12 @@ abstract class ExpValidatedAutocompleteInput[Opt, T: TextValidator, Id] {
       options = props.options,
       renderInput = renderInput,
       inputValue = inputValue,
-      getOptionLabel = props.getOptionLabel,
-      onSelect = value =>
-        props.selectExisting(value) match {
-          case Some((id, name)) => props.onChange(selected(id = id, name = name))
-          case None => ()
+      getOptionLabel = raw =>
+        (raw: Any) match {
+          case text: String => text
+          case other => asOption(other).map(optionLabel).getOrElse("")
         },
+      onSelect = raw => asOption(raw).foreach(option => props.onChange(selectedOption(option))),
       // A "reset" input event fires right after a selection with the picked label; re-validating it would drop the
       // resolved id, so only a real user edit re-validates (and clears the id).
       onInput = (text, reason) => if (reason != "reset") props.onChange(validateText(text)),
@@ -74,6 +80,6 @@ abstract class ExpValidatedAutocompleteInput[Opt, T: TextValidator, Id] {
       fullWidth = props.fullWidth
     )
 
-    (mui.Autocomplete.withProps(acProps).withKey("ac"): ReactElement)
+    (mui.Autocomplete.withProps(acProps).withKey(props.field.name): ReactElement)
   }
 }
