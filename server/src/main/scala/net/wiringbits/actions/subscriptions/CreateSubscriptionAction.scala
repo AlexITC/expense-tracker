@@ -6,7 +6,7 @@ import net.wiringbits.api.models.subscriptions.CreateSubscription
 import net.wiringbits.api.utils.SubscriptionValidator
 import net.wiringbits.config.SubscriptionsConfig
 import net.wiringbits.repositories.SubscriptionsRepository
-import net.wiringbits.repositories.models.Subscription
+import net.wiringbits.repositories.models.{Subscription, SubscriptionTerm}
 
 import java.time.Clock
 import java.util.UUID
@@ -23,11 +23,23 @@ class CreateSubscriptionAction @Inject() (
       _ <- validateFields(request)
       _ <- ensureBelowLimit(userId)
       now = clock.instant()
-      create = request
-        .into[Subscription.Create]
+      subscriptionId = UuidCreator.getTimeOrderedEpoch()
+      firstTerm = request
+        .into[SubscriptionTerm]
         .withFieldConst(_.id, UuidCreator.getTimeOrderedEpoch())
         .withFieldConst(_.userId, userId)
+        .withFieldConst(_.subscriptionId, subscriptionId)
+        .withFieldComputed(_.effectiveFrom, _.startDate)
+        .withFieldConst(_.effectiveTo, None)
+        .withFieldConst(_.createdAt, now)
+        .withFieldConst(_.updatedAt, now)
+        .transform
+      create = request
+        .into[Subscription.Create]
+        .withFieldConst(_.id, subscriptionId)
+        .withFieldConst(_.userId, userId)
         .withFieldComputed(_.name, _.name.string)
+        .withFieldConst(_.firstTerm, firstTerm)
         .withFieldConst(_.createdAt, now)
         .withFieldConst(_.updatedAt, now)
         .transform

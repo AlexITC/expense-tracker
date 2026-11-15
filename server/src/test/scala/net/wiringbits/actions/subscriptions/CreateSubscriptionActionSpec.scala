@@ -4,6 +4,7 @@ import net.wiringbits.api.models.subscriptions.{CreateSubscription, Subscription
 import net.wiringbits.common.models.SubscriptionName
 import net.wiringbits.config.SubscriptionsConfig
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
+import org.scalatest.LoneElement.*
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
@@ -62,11 +63,14 @@ class CreateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       stored.name must be(req.name.string)
       stored.cadence must be(SubscriptionCadence.Yearly)
       stored.intervalDays must be(None)
-      stored.amountMin must be(Some(BigDecimal("9.99")))
-      stored.amountMax must be(Some(BigDecimal("9.99")))
       stored.paymentMethod must be(SubscriptionPaymentMethod.CardPortal)
       stored.categoryId must be(Some(category.id))
-      stored.startDate must be(LocalDate.of(2024, 3, 1))
+      val term =
+        repositories.subscriptions.terms(subscriptionId = response.id, userId = user.id).futureValue.loneElement
+      term.effectiveFrom must be(LocalDate.of(2024, 3, 1))
+      term.effectiveTo must be(None)
+      term.amountMin must be(Some(BigDecimal("9.99")))
+      term.amountMax must be(Some(BigDecimal("9.99")))
     }
 
     "store a subscription with an amount range" in withRepositories() { implicit repositories =>
@@ -75,9 +79,10 @@ class CreateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
 
       val response = newAction().apply(user.id, req).futureValue
 
-      val stored = repositories.subscriptions.find(id = response.id, userId = user.id).futureValue.value
-      stored.amountMin must be(Some(BigDecimal("10.00")))
-      stored.amountMax must be(Some(BigDecimal("25.50")))
+      val term =
+        repositories.subscriptions.terms(subscriptionId = response.id, userId = user.id).futureValue.loneElement
+      term.amountMin must be(Some(BigDecimal("10.00")))
+      term.amountMax must be(Some(BigDecimal("25.50")))
     }
 
     "store a subscription with an unknown amount" in withRepositories() { implicit repositories =>
@@ -85,9 +90,10 @@ class CreateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
 
       val response = newAction().apply(user.id, request()).futureValue
 
-      val stored = repositories.subscriptions.find(id = response.id, userId = user.id).futureValue.value
-      stored.amountMin must be(None)
-      stored.amountMax must be(None)
+      val term =
+        repositories.subscriptions.terms(subscriptionId = response.id, userId = user.id).futureValue.loneElement
+      term.amountMin must be(None)
+      term.amountMax must be(None)
     }
 
     "store an every-n-days cadence with its interval" in withRepositories() { implicit repositories =>

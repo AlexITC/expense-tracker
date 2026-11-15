@@ -3,9 +3,14 @@ package net.wiringbits.components.pages.subscriptions
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.categories.GetCategories
-import net.wiringbits.api.models.subscriptions.{GetSubscriptions, SubscriptionCadence, SubscriptionPaymentMethod}
+import net.wiringbits.api.models.subscriptions.{
+  GetSubscriptions,
+  SubscriptionCadence,
+  SubscriptionPaymentMethod,
+  SubscriptionTerm
+}
 import net.wiringbits.components.widgets.Loader
-import net.wiringbits.forms.{AmountMode, SubscriptionFormData}
+import net.wiringbits.forms.{AmountMode, CreateSubscriptionFormData, SubscriptionFormData}
 import net.wiringbits.models.User
 import net.wiringbits.ui.components.inputs.{
   DateInput,
@@ -76,7 +81,7 @@ object SubscriptionList {
 
   private val NameLabel = "Subscription name"
 
-  private def emptyForm: SubscriptionFormData = SubscriptionFormData.initial(NameLabel)
+  private def emptyForm: CreateSubscriptionFormData = CreateSubscriptionFormData.initial(NameLabel)
 
   private val cardStyle = new CSSPropertiesUtils {
     border = "1px solid var(--lc-border)"
@@ -108,7 +113,7 @@ object SubscriptionList {
     // Validation errors stay hidden until the user edits the create form, so a fresh form isn't shown as invalid
     val (createTouched, setCreateTouched) = Hooks.useState(false)
     val (editingId, setEditingId) = Hooks.useState[Option[UUID]](None)
-    val (editFormData, setEditFormData) = Hooks.useState(StatefulFormData(emptyForm))
+    val (editFormData, setEditFormData) = Hooks.useState(StatefulFormData(emptyForm.details))
     val createControl = SubmitHooks.useSubmit()
     val editControl = SubmitHooks.useSubmit()
     val deleteControl = SubmitHooks.useSubmit()
@@ -117,7 +122,7 @@ object SubscriptionList {
     val categoryOptions: Seq[(String, String)] = props.categories.data.map(c => c.id.toString -> c.name)
     val today = LocalDate.now()
 
-    def onCreateDataChanged(f: SubscriptionFormData => SubscriptionFormData): Unit = {
+    def onCreateDataChanged(f: CreateSubscriptionFormData => CreateSubscriptionFormData): Unit = {
       createControl.clearError()
       setCreateTouched(true)
       setCreateFormData(cur => cur.filling.copy(data = f(cur.data)))
@@ -147,7 +152,7 @@ object SubscriptionList {
 
     def handleUpdate(subscriptionId: UUID)(e: SyntheticEvent[?, dom.Event]): Unit = {
       e.preventDefault()
-      editFormData.data.updateRequest.foreach { request =>
+      editFormData.data.submitRequest.foreach { request =>
         editControl.begin()
         props.ctx.api.client
           .updateSubscription(subscriptionId, request)
@@ -244,33 +249,6 @@ object SubscriptionList {
         case SubscriptionCadence.Monthly | SubscriptionCadence.Yearly => Seq.empty
       }
 
-      val amountFields: Seq[ReactElement] = data.amountMode match {
-        case AmountMode.Exact =>
-          Seq(
-            amountInput(
-              key = "exact-amount",
-              field = data.exactAmount,
-              disabled = disabled,
-              onChange = value => update(x => x.copy(exactAmount = x.exactAmount.updated(value)))
-            )
-          )
-        case AmountMode.Range =>
-          Seq(
-            amountInput(
-              key = "min-amount",
-              field = data.minAmount,
-              disabled = disabled,
-              onChange = value => update(x => x.copy(minAmount = x.minAmount.updated(value)))
-            ),
-            amountInput(
-              key = "max-amount",
-              field = data.maxAmount,
-              disabled = disabled,
-              onChange = value => update(x => x.copy(maxAmount = x.maxAmount.updated(value)))
-            )
-          )
-      }
-
       Seq[ReactElement](
         fieldBox(key = "name", boxMinWidth = "240px")(
           SubscriptionNameInput.component(
@@ -292,15 +270,6 @@ object SubscriptionList {
         )
       ) ++ intervalField ++ Seq[ReactElement](
         selectField(
-          key = "amount-mode",
-          label = "Amount",
-          value = data.amountMode.toString,
-          disabled = disabled,
-          options = AmountMode.values.toSeq.map(m => m.toString -> m.toString),
-          onChange = v => update(_.copy(amountMode = AmountMode.valueOf(v)))
-        )
-      ) ++ amountFields ++ Seq[ReactElement](
-        selectField(
           key = "payment-method",
           label = "Payment method",
           value = data.paymentMethod.entryName,
@@ -319,7 +288,53 @@ object SubscriptionList {
               onChange = value => update(x => x.copy(categoryId = x.categoryId.updated(value)))
             )
           )
-        ),
+        )
+      )
+    }
+
+    // The amount and start date set the first term, so only the create form has them.
+    def firstTermFields(
+        data: CreateSubscriptionFormData,
+        disabled: Boolean,
+        update: (CreateSubscriptionFormData => CreateSubscriptionFormData) => Unit
+    ): Seq[ReactElement] = {
+      val amountFields: Seq[ReactElement] = data.amountMode match {
+        case AmountMode.Exact =>
+          Seq[ReactElement](
+            amountInput(
+              key = "exact-amount",
+              field = data.exactAmount,
+              disabled = disabled,
+              onChange = value => update(x => x.copy(exactAmount = x.exactAmount.updated(value)))
+            )
+          )
+        case AmountMode.Range =>
+          Seq[ReactElement](
+            amountInput(
+              key = "min-amount",
+              field = data.minAmount,
+              disabled = disabled,
+              onChange = value => update(x => x.copy(minAmount = x.minAmount.updated(value)))
+            ),
+            amountInput(
+              key = "max-amount",
+              field = data.maxAmount,
+              disabled = disabled,
+              onChange = value => update(x => x.copy(maxAmount = x.maxAmount.updated(value)))
+            )
+          )
+      }
+
+      Seq[ReactElement](
+        selectField(
+          key = "amount-mode",
+          label = "Amount",
+          value = data.amountMode.toString,
+          disabled = disabled,
+          options = AmountMode.values.toSeq.map(m => m.toString -> m.toString),
+          onChange = v => update(_.copy(amountMode = AmountMode.valueOf(v)))
+        )
+      ) ++ amountFields ++ Seq[ReactElement](
         fieldBox(key = "start-date", boxMinWidth = "200px")(
           DateInput.component(
             DateInput.Props(
@@ -356,7 +371,13 @@ object SubscriptionList {
           alignItems = "center"
           gap = "12px"
         })(
-          Fragment(formFields(createFormData.data, createControl.inputDisabled, onCreateDataChanged)*),
+          Fragment(
+            formFields(
+              createFormData.data.details,
+              createControl.inputDisabled,
+              f => onCreateDataChanged(x => x.copy(details = f(x.details)))
+            ) ++ firstTermFields(createFormData.data, createControl.inputDisabled, onCreateDataChanged)*
+          ),
           errorText(
             "error",
             createFormData.firstValidationError.filter(_ => createTouched).orElse(createControl.error)
@@ -396,16 +417,19 @@ object SubscriptionList {
         )
       )
 
-    def details(s: GetSubscriptions.Response.Subscription): String =
+    def details(s: GetSubscriptions.Response.Subscription, term: Option[SubscriptionTerm]): String =
       List(
         Some(SubscriptionStatusLogic.cadenceLabel(s.cadence, s.intervalDays)),
-        Some(SubscriptionStatusLogic.amountLabel(amountMin = s.amountMin, amountMax = s.amountMax)).filter(_.nonEmpty),
+        term
+          .map(t => SubscriptionStatusLogic.amountLabel(amountMin = t.amountMin, amountMax = t.amountMax))
+          .filter(_.nonEmpty),
         Some(SubscriptionStatusLogic.paymentMethodLabel(s.paymentMethod)),
         s.categoryId.flatMap(categoryNames.get),
-        Some(s"Since ${s.startDate}")
+        term.map(t => s"Since ${t.effectiveFrom}")
       ).flatten.mkString(" · ")
 
-    def summary(s: GetSubscriptions.Response.Subscription): ReactElement =
+    def summary(s: GetSubscriptions.Response.Subscription): ReactElement = {
+      val term = SubscriptionStatusLogic.currentTerm(s.terms, today)
       mui.Box.sx(new CSSPropertiesUtils {
         display = "flex"
         alignItems = "center"
@@ -417,12 +441,21 @@ object SubscriptionList {
             mui
               .Typography(s.name)
               .sx(new CSSPropertiesUtils { fontSize = "14px"; fontWeight = "600"; color = "var(--lc-text)" }),
-            SubscriptionStatusLogic
-              .status(startDate = s.startDate, cadence = s.cadence, intervalDays = s.intervalDays, today = today)
-              .fold(_ => Fragment(), statusChip)
+            term
+              .flatMap(t =>
+                SubscriptionStatusLogic
+                  .status(
+                    startDate = t.effectiveFrom,
+                    cadence = s.cadence,
+                    intervalDays = s.intervalDays,
+                    today = today
+                  )
+                  .toOption
+              )
+              .fold[ReactElement](Fragment())(statusChip)
           ),
           mui
-            .Typography(details(s))
+            .Typography(details(s, term))
             .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" })
         ),
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px" })(
@@ -439,6 +472,7 @@ object SubscriptionList {
             .onClick(_ => handleDelete(s.id))
         )
       )
+    }
 
     val items: Seq[ReactElement] = props.subscriptions.data.map { s =>
       val content = if (editingId.contains(s.id)) editForm(s.id) else summary(s)

@@ -5,6 +5,7 @@ import net.wiringbits.api.models.subscriptions.{
   GetSubscriptions,
   SubscriptionCadence,
   SubscriptionPaymentMethod,
+  SubscriptionTerm,
   UpdateSubscription
 }
 import net.wiringbits.common.models.SubscriptionName
@@ -19,21 +20,33 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
 
   private val categoryId = UUID.randomUUID()
 
-  private val initialForm = SubscriptionFormData.initial(nameLabel = "Name")
+  private val initialForm = CreateSubscriptionFormData.initial(nameLabel = "Name")
 
   extension (form: SubscriptionFormData) {
-    private def withName(raw: String) = form.copy(name = form.name.updated(SubscriptionName.validate(raw)))
-    private def withExact(raw: String) =
-      form.copy(exactAmount = form.exactAmount.updated(SubscriptionAmount.optionalValidator(raw)))
-    private def withMin(raw: String) =
-      form.copy(minAmount = form.minAmount.updated(SubscriptionAmount.optionalValidator(raw)))
-    private def withMax(raw: String) =
-      form.copy(maxAmount = form.maxAmount.updated(SubscriptionAmount.optionalValidator(raw)))
-    private def withInterval(raw: String) =
+    private def withName(raw: String): SubscriptionFormData =
+      form.copy(name = form.name.updated(SubscriptionName.validate(raw)))
+    private def withInterval(raw: String): SubscriptionFormData =
       form.copy(intervalDays = form.intervalDays.updated(SubscriptionIntervalDays.validate(raw)))
-    private def withStartDate(raw: String) =
+    private def withCategory(raw: String): SubscriptionFormData =
+      form.copy(categoryId = form.categoryId.updated(ExpOptionalId.validate(raw)))
+  }
+
+  extension (form: CreateSubscriptionFormData) {
+    private def withDetails(f: SubscriptionFormData => SubscriptionFormData): CreateSubscriptionFormData =
+      form.copy(details = f(form.details))
+    private def withName(raw: String): CreateSubscriptionFormData = form.withDetails(_.withName(raw))
+    private def withInterval(raw: String): CreateSubscriptionFormData = form.withDetails(_.withInterval(raw))
+    private def withCategory(raw: String): CreateSubscriptionFormData = form.withDetails(_.withCategory(raw))
+    private def withCadence(cadence: SubscriptionCadence): CreateSubscriptionFormData =
+      form.withDetails(_.copy(cadence = cadence))
+    private def withExact(raw: String): CreateSubscriptionFormData =
+      form.copy(exactAmount = form.exactAmount.updated(SubscriptionAmount.optionalValidator(raw)))
+    private def withMin(raw: String): CreateSubscriptionFormData =
+      form.copy(minAmount = form.minAmount.updated(SubscriptionAmount.optionalValidator(raw)))
+    private def withMax(raw: String): CreateSubscriptionFormData =
+      form.copy(maxAmount = form.maxAmount.updated(SubscriptionAmount.optionalValidator(raw)))
+    private def withStartDate(raw: String): CreateSubscriptionFormData =
       form.copy(startDate = form.startDate.updated(ExpLocalDate.validate(raw)))
-    private def withCategory(raw: String) = form.copy(categoryId = form.categoryId.updated(ExpOptionalId.validate(raw)))
   }
 
   private val validForm = initialForm.withName("Streaming").withExact("12.50").withStartDate("2026-01-15")
@@ -51,13 +64,12 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
 
   private val rangeForm = validForm.copy(amountMode = AmountMode.Range).withMin("10").withMax("25.00")
 
-  private val everyNDaysForm = validForm.copy(cadence = SubscriptionCadence.EveryNDays)
+  private val everyNDaysForm = validForm.withCadence(SubscriptionCadence.EveryNDays)
 
-  private def assertBlocked(form: SubscriptionFormData) = {
+  private def assertBlocked(form: CreateSubscriptionFormData) = {
     form.isValid must be(false)
     form.formValidationErrors must not be empty
     form.submitRequest must be(None)
-    form.updateRequest must be(None)
   }
 
   "fields" should {
@@ -65,8 +77,8 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       initialForm.fields.map(_.name) must be(
         List(
           "subscription-create-name",
-          "subscription-create-exact-amount",
           "subscription-create-category",
+          "subscription-create-exact-amount",
           "subscription-create-start-date"
         )
       )
@@ -74,7 +86,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
 
     "list the interval only for an every-N-days cadence" in {
       everyNDaysForm.fields.map(_.name) must contain("subscription-create-interval")
-      validForm.copy(cadence = SubscriptionCadence.Yearly).fields.map(_.name) must not contain
+      validForm.withCadence(SubscriptionCadence.Yearly).fields.map(_.name) must not contain
         "subscription-create-interval"
     }
 
@@ -129,7 +141,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     }
 
     "return None when the name is untouched" in {
-      assertBlocked(validForm.copy(name = initialForm.name))
+      assertBlocked(validForm.withDetails(_.copy(name = initialForm.details.name)))
     }
 
     "return None when the start date is untouched" in {
@@ -171,73 +183,70 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     }
   }
 
-  "updateRequest" should {
-    "mirror submitRequest" in {
-      rangeForm.updateRequest must be(
+  "fromSubscription" should {
+    val subscription = GetSubscriptions.Response.Subscription(
+      id = UUID.randomUUID(),
+      name = s"Gym ${UUID.randomUUID()}",
+      cadence = SubscriptionCadence.EveryNDays,
+      intervalDays = Some(28),
+      paymentMethod = SubscriptionPaymentMethod.CardPortal,
+      categoryId = Some(categoryId),
+      terms = List(
+        SubscriptionTerm(
+          id = UUID.randomUUID(),
+          effectiveFrom = LocalDate.parse("2026-02-01"),
+          effectiveTo = None,
+          amountMin = Some(BigDecimal("40.00")),
+          amountMax = Some(BigDecimal("40.00"))
+        )
+      ),
+      createdAt = Instant.parse("2026-02-01T10:00:00Z")
+    )
+
+    val editForm = SubscriptionFormData.fromSubscription(nameLabel = "Name", subscription = subscription)
+
+    val expectedUpdate = UpdateSubscription.Request(
+      name = SubscriptionName.trusted(subscription.name),
+      cadence = subscription.cadence,
+      intervalDays = subscription.intervalDays,
+      paymentMethod = subscription.paymentMethod,
+      categoryId = subscription.categoryId
+    )
+
+    "list only the subscription's own inputs" in {
+      editForm.fields.map(_.name) must be(
+        List("subscription-edit-name", "subscription-edit-interval", "subscription-edit-category")
+      )
+    }
+
+    "round-trip into an update request" in {
+      editForm.categoryId.inputValue must be(categoryId.toString)
+      editForm.isValid must be(true)
+      editForm.submitRequest must be(Some(expectedUpdate))
+    }
+
+    "apply edits to the update request" in {
+      val edited = editForm.withName("Pool").copy(cadence = SubscriptionCadence.Yearly).withCategory("")
+      edited.submitRequest must be(
         Some(
-          UpdateSubscription.Request(
-            name = SubscriptionName.trusted("Streaming"),
-            cadence = SubscriptionCadence.Monthly,
+          expectedUpdate.copy(
+            name = SubscriptionName.trusted("Pool"),
+            cadence = SubscriptionCadence.Yearly,
             intervalDays = None,
-            amountMin = Some(BigDecimal("10")),
-            amountMax = Some(BigDecimal("25.00")),
-            paymentMethod = SubscriptionPaymentMethod.DirectDebit,
-            categoryId = None,
-            startDate = LocalDate.parse("2026-01-15")
+            categoryId = None
           )
         )
       )
     }
-  }
 
-  "fromSubscription" should {
-    def subscription(amountMin: Option[BigDecimal], amountMax: Option[BigDecimal]) =
-      GetSubscriptions.Response.Subscription(
-        id = UUID.randomUUID(),
-        name = s"Gym ${UUID.randomUUID()}",
-        cadence = SubscriptionCadence.EveryNDays,
-        intervalDays = Some(28),
-        amountMin = amountMin,
-        amountMax = amountMax,
-        paymentMethod = SubscriptionPaymentMethod.CardPortal,
-        categoryId = Some(categoryId),
-        startDate = LocalDate.parse("2026-02-01"),
-        createdAt = Instant.parse("2026-02-01T10:00:00Z")
-      )
-
-    def roundTrip(s: GetSubscriptions.Response.Subscription) =
-      SubscriptionFormData.fromSubscription(nameLabel = "Name", subscription = s)
-
-    def expectedUpdate(s: GetSubscriptions.Response.Subscription) = UpdateSubscription.Request(
-      name = SubscriptionName.trusted(s.name),
-      cadence = s.cadence,
-      intervalDays = s.intervalDays,
-      amountMin = s.amountMin,
-      amountMax = s.amountMax,
-      paymentMethod = s.paymentMethod,
-      categoryId = s.categoryId,
-      startDate = s.startDate
-    )
-
-    "pick exact mode when min equals max and round-trip" in {
-      val s = subscription(Some(BigDecimal("40.00")), Some(BigDecimal("40.00")))
-      val form = roundTrip(s)
-      form.amountMode must be(AmountMode.Exact)
-      form.exactAmount.inputValue must be("40.00")
-      form.categoryId.inputValue must be(categoryId.toString)
-      form.updateRequest must be(Some(expectedUpdate(s)))
+    "block an every-N-days cadence without a valid interval" in {
+      val form = editForm.withInterval("0")
+      form.isValid must be(false)
+      form.submitRequest must be(None)
     }
 
-    "pick range mode when min differs from max and round-trip" in {
-      val s = subscription(Some(BigDecimal("30.00")), Some(BigDecimal("45.00")))
-      val form = roundTrip(s)
-      form.amountMode must be(AmountMode.Range)
-      form.updateRequest must be(Some(expectedUpdate(s)))
-    }
-
-    "round-trip an unknown amount" in {
-      val s = subscription(None, None)
-      roundTrip(s).updateRequest must be(Some(expectedUpdate(s)))
+    "block an invalid name" in {
+      editForm.withName(" ").submitRequest must be(None)
     }
   }
 }

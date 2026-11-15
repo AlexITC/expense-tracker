@@ -1,10 +1,11 @@
 package net.wiringbits.components.pages.subscriptions
 
-import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod}
+import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod, SubscriptionTerm}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
 import java.time.LocalDate
+import java.util.UUID
 
 class SubscriptionStatusLogicSpec extends AnyWordSpec {
 
@@ -148,6 +149,36 @@ class SubscriptionStatusLogicSpec extends AnyWordSpec {
       SubscriptionStatusLogic.paymentMethodLabel(SubscriptionPaymentMethod.ManualTransfer) must be("Manual transfer")
       SubscriptionStatusLogic.paymentMethodLabel(SubscriptionPaymentMethod.CardPortal) must be("Card portal")
       SubscriptionStatusLogic.paymentMethodLabel(SubscriptionPaymentMethod.Cash) must be("Cash")
+    }
+  }
+
+  "currentTerm" should {
+    def term(from: String, to: Option[String]) =
+      SubscriptionTerm(
+        id = UUID.randomUUID(),
+        effectiveFrom = date(from),
+        effectiveTo = to.map(date),
+        amountMin = None,
+        amountMax = None
+      )
+
+    val closed = term("2026-01-01", Some("2026-03-01"))
+    val open = term("2026-03-01", None)
+
+    "pick the term whose range covers today" in {
+      SubscriptionStatusLogic.currentTerm(List(closed, open), date("2026-02-15")) must be(Some(closed))
+    }
+
+    "treat the end date as exclusive" in {
+      SubscriptionStatusLogic.currentTerm(List(closed, open), date("2026-03-01")) must be(Some(open))
+    }
+
+    "fall back to the open term when it starts in the future" in {
+      SubscriptionStatusLogic.currentTerm(List(open), date("2026-02-01")) must be(Some(open))
+    }
+
+    "return None when every term has ended" in {
+      SubscriptionStatusLogic.currentTerm(List(closed), date("2026-04-01")) must be(None)
     }
   }
 }

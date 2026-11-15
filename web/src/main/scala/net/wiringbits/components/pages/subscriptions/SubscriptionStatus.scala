@@ -1,6 +1,6 @@
 package net.wiringbits.components.pages.subscriptions
 
-import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod}
+import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod, SubscriptionTerm}
 
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -19,6 +19,14 @@ enum SubscriptionStatusError(val message: String) {
 }
 
 object SubscriptionStatusLogic {
+
+  /** The term whose half-open range [effectiveFrom, effectiveTo) covers `today`, otherwise the open term (which then
+    * starts in the future). None when every term has ended.
+    */
+  def currentTerm(terms: List[SubscriptionTerm], today: LocalDate): Option[SubscriptionTerm] =
+    terms
+      .find(t => !t.effectiveFrom.isAfter(today) && t.effectiveTo.forall(today.isBefore))
+      .orElse(terms.find(_.effectiveTo.isEmpty))
 
   /** The most recent charge date on or before `today`, or the start date when it is still in the future.
     *

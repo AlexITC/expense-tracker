@@ -12,6 +12,7 @@ import java.util.UUID
 object CreateSubscription {
   // name is a validated primitive: its length limit and messages live in SubscriptionName and are enforced at
   // decode by its Format, so this model carries no separate caps.
+  // startDate, amountMin and amountMax describe the subscription's first term, which starts open.
   case class Request(
       name: SubscriptionName,
       cadence: SubscriptionCadence,

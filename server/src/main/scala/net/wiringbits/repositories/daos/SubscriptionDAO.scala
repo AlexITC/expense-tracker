@@ -4,7 +4,7 @@ import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, Subscriptio
 import net.wiringbits.repositories.models.Subscription
 
 import java.sql.Connection
-import java.time.{Instant, LocalDate}
+import java.time.Instant
 import java.util.UUID
 
 object SubscriptionDAO {
@@ -14,8 +14,7 @@ object SubscriptionDAO {
   def create(subscription: Subscription.Create)(implicit conn: Connection): Unit = {
     val _ = SQL"""
         INSERT INTO subscription (
-          id, user_id, name, cadence, interval_days, amount_min, amount_max, payment_method, category_id,
-          start_date, created_at, updated_at
+          id, user_id, name, cadence, interval_days, payment_method, category_id, created_at, updated_at
         )
         VALUES (
           ${subscription.id.toString}::UUID,
@@ -23,11 +22,8 @@ object SubscriptionDAO {
           ${subscription.name},
           ${subscription.cadence.entryName},
           ${subscription.intervalDays},
-          ${subscription.amountMin},
-          ${subscription.amountMax},
           ${subscription.paymentMethod.entryName},
           ${subscription.categoryId.map(_.toString)}::UUID,
-          ${subscription.startDate},
           ${subscription.createdAt},
           ${subscription.updatedAt}
         )
@@ -36,8 +32,7 @@ object SubscriptionDAO {
 
   def all(userId: UUID)(implicit conn: Connection): List[Subscription] =
     SQL"""
-        SELECT id, user_id, name, cadence, interval_days, amount_min, amount_max, payment_method, category_id,
-               start_date, created_at, updated_at
+        SELECT id, user_id, name, cadence, interval_days, payment_method, category_id, created_at, updated_at
         FROM subscription
         WHERE user_id = ${userId.toString}::UUID
         ORDER BY name
@@ -45,8 +40,7 @@ object SubscriptionDAO {
 
   def find(id: UUID, userId: UUID)(implicit conn: Connection): Option[Subscription] =
     SQL"""
-        SELECT id, user_id, name, cadence, interval_days, amount_min, amount_max, payment_method, category_id,
-               start_date, created_at, updated_at
+        SELECT id, user_id, name, cadence, interval_days, payment_method, category_id, created_at, updated_at
         FROM subscription
         WHERE id = ${id.toString}::UUID
           AND user_id = ${userId.toString}::UUID
@@ -65,11 +59,8 @@ object SubscriptionDAO {
       name: String,
       cadence: SubscriptionCadence,
       intervalDays: Option[Int],
-      amountMin: Option[BigDecimal],
-      amountMax: Option[BigDecimal],
       paymentMethod: SubscriptionPaymentMethod,
       categoryId: Option[UUID],
-      startDate: LocalDate,
       updatedAt: Instant
   )(implicit conn: Connection): Unit = {
     val updated = SQL"""
@@ -77,11 +68,8 @@ object SubscriptionDAO {
         SET name = $name,
             cadence = ${cadence.entryName},
             interval_days = $intervalDays,
-            amount_min = $amountMin,
-            amount_max = $amountMax,
             payment_method = ${paymentMethod.entryName},
             category_id = ${categoryId.map(_.toString)}::UUID,
-            start_date = $startDate,
             updated_at = $updatedAt
         WHERE id = ${id.toString}::UUID
           AND user_id = ${userId.toString}::UUID

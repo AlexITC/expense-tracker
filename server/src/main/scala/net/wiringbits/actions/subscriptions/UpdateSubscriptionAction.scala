@@ -25,22 +25,14 @@ class UpdateSubscriptionAction @Inject() (subscriptionsRepository: Subscriptions
         name = request.name.string,
         cadence = request.cadence,
         intervalDays = request.intervalDays,
-        amountMin = request.amountMin,
-        amountMax = request.amountMax,
         paymentMethod = request.paymentMethod,
-        categoryId = request.categoryId,
-        startDate = request.startDate
+        categoryId = request.categoryId
       )
     } yield UpdateSubscription.Response()
   }
 
   private def validateFields(request: UpdateSubscription.Request): Future[Unit] =
     SubscriptionValidator
-      .validate(
-        request.cadence,
-        request.intervalDays,
-        amountMin = request.amountMin,
-        amountMax = request.amountMax
-      )
+      .validateCadence(request.cadence, request.intervalDays)
       .fold(error => Future.failed(new RuntimeException(error)), _ => Future.unit)
 }

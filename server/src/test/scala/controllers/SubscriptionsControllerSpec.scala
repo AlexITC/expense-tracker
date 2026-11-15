@@ -64,11 +64,8 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
     name = SubscriptionName.trusted("Gym"),
     cadence = SubscriptionCadence.Yearly,
     intervalDays = None,
-    amountMin = Some(BigDecimal("300")),
-    amountMax = None,
     paymentMethod = SubscriptionPaymentMethod.DirectDebit,
-    categoryId = None,
-    startDate = LocalDate.of(2026, 1, 1)
+    categoryId = None
   )
 
   "GET /subscriptions" should {
@@ -89,11 +86,24 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
             name = "Streaming",
             cadence = SubscriptionCadence.EveryNDays,
             intervalDays = Some(28),
-            amountMin = Some(BigDecimal("9.99")),
-            amountMax = Some(BigDecimal("12.50")),
             paymentMethod = SubscriptionPaymentMethod.CardPortal,
             categoryId = Some(UUID.randomUUID()),
-            startDate = LocalDate.of(2026, 3, 15),
+            terms = List(
+              SubscriptionTerm(
+                id = UUID.randomUUID(),
+                effectiveFrom = LocalDate.of(2025, 3, 15),
+                effectiveTo = Some(LocalDate.of(2026, 3, 15)),
+                amountMin = Some(BigDecimal("8.99")),
+                amountMax = Some(BigDecimal("8.99"))
+              ),
+              SubscriptionTerm(
+                id = UUID.randomUUID(),
+                effectiveFrom = LocalDate.of(2026, 3, 15),
+                effectiveTo = None,
+                amountMin = Some(BigDecimal("9.99")),
+                amountMax = Some(BigDecimal("12.50"))
+              )
+            ),
             createdAt = Instant.parse("2026-03-15T10:00:00Z")
           ),
           GetSubscriptions.Response.Subscription(
@@ -101,11 +111,17 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
             name = "Water",
             cadence = SubscriptionCadence.Monthly,
             intervalDays = None,
-            amountMin = None,
-            amountMax = None,
             paymentMethod = SubscriptionPaymentMethod.Cash,
             categoryId = None,
-            startDate = LocalDate.of(2026, 2, 1),
+            terms = List(
+              SubscriptionTerm(
+                id = UUID.randomUUID(),
+                effectiveFrom = LocalDate.of(2026, 2, 1),
+                effectiveTo = None,
+                amountMin = None,
+                amountMax = None
+              )
+            ),
             createdAt = Instant.parse("2026-02-01T08:30:00Z")
           )
         )

@@ -394,11 +394,21 @@ package object daos {
       "name",
       "cadence",
       "interval_days",
-      "amount_min",
-      "amount_max",
       "payment_method",
       "category_id",
-      "start_date",
+      "created_at",
+      "updated_at"
+    )
+
+  val subscriptionTermParser: RowParser[SubscriptionTerm] =
+    Macro.parser[SubscriptionTerm](
+      "id",
+      "user_id",
+      "subscription_id",
+      "effective_from",
+      "effective_to",
+      "amount_min",
+      "amount_max",
       "created_at",
       "updated_at"
     )

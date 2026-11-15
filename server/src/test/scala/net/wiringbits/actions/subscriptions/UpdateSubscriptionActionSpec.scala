@@ -22,28 +22,28 @@ class UpdateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       name: String = uniqueName("Mobile"),
       cadence: SubscriptionCadence = SubscriptionCadence.EveryNDays,
       intervalDays: Option[Int] = Some(30),
-      amountMin: Option[BigDecimal] = Some(BigDecimal("20.00")),
-      amountMax: Option[BigDecimal] = Some(BigDecimal("25.00")),
       paymentMethod: SubscriptionPaymentMethod = SubscriptionPaymentMethod.Cash,
-      categoryId: Option[UUID] = None,
-      startDate: LocalDate = LocalDate.of(2024, 2, 1)
+      categoryId: Option[UUID] = None
   ): UpdateSubscription.Request =
     UpdateSubscription.Request(
       name = SubscriptionName.trusted(name),
       cadence = cadence,
       intervalDays = intervalDays,
-      amountMin = amountMin,
-      amountMax = amountMax,
       paymentMethod = paymentMethod,
-      categoryId = categoryId,
-      startDate = startDate
+      categoryId = categoryId
     )
 
   "apply" should {
     "update every field" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val category = createCategory(user.id, name = uniqueName("Category")).futureValue
-      val existing = createSubscription(user.id, name = uniqueName("Phone")).futureValue
+      val existing = createSubscription(
+        user.id,
+        name = uniqueName("Phone"),
+        amountMin = Some(BigDecimal("20.00")),
+        amountMax = Some(BigDecimal("25.00")),
+        startDate = LocalDate.of(2024, 2, 1)
+      ).futureValue
       val req = request(categoryId = Some(category.id))
 
       newAction().apply(subscriptionId = existing.id, userId = user.id, req).futureValue
@@ -52,11 +52,25 @@ class UpdateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       stored.name must be(req.name.string)
       stored.cadence must be(SubscriptionCadence.EveryNDays)
       stored.intervalDays must be(Some(30))
-      stored.amountMin must be(Some(BigDecimal("20.00")))
-      stored.amountMax must be(Some(BigDecimal("25.00")))
       stored.paymentMethod must be(SubscriptionPaymentMethod.Cash)
       stored.categoryId must be(Some(category.id))
-      stored.startDate must be(LocalDate.of(2024, 2, 1))
+    }
+
+    "leave the terms unchanged" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val existing = createSubscription(
+        user.id,
+        name = uniqueName("Phone"),
+        amountMin = Some(BigDecimal("20.00")),
+        amountMax = Some(BigDecimal("25.00")),
+        startDate = LocalDate.of(2024, 2, 1)
+      ).futureValue
+
+      newAction().apply(subscriptionId = existing.id, userId = user.id, request()).futureValue
+
+      repositories.subscriptions.terms(subscriptionId = existing.id, userId = user.id).futureValue must be(
+        List(existing.firstTerm)
+      )
     }
 
     "reject a name already used by a sibling" in withRepositories() { implicit repositories =>
@@ -77,10 +91,10 @@ class UpdateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       val existing = createSubscription(user.id, name = uniqueName("Phone")).futureValue
 
       val error = newAction()
-        .apply(subscriptionId = existing.id, userId = user.id, request(amountMin = Some(BigDecimal("30.00"))))
+        .apply(subscriptionId = existing.id, userId = user.id, request(intervalDays = None))
         .failed
         .futureValue
-      error.getMessage must be("Minimum amount must not be greater than the maximum amount")
+      error.getMessage must be("Interval days is required for an every-N-days cadence")
       repositories.subscriptions.find(id = existing.id, userId = user.id).futureValue.value.name must be(existing.name)
     }
 

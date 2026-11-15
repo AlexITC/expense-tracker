@@ -6,7 +6,7 @@ import net.wiringbits.common.models.{Email, Name}
 import net.wiringbits.core.RepositoryComponents
 import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
-import net.wiringbits.repositories.daos.{BackgroundJobDAO, BankStatementDAO, BankStatementRowDAO}
+import net.wiringbits.repositories.daos.{BackgroundJobDAO, BankStatementDAO, BankStatementRowDAO, SubscriptionTermDAO}
 import net.wiringbits.apis.{JevClient, TelegramApi}
 import net.wiringbits.config.{JevConfig, TelegramConfig}
 import net.wiringbits.models.JevApiKey
@@ -27,6 +27,7 @@ import net.wiringbits.repositories.models.{
   SavingsAllocation,
   SavingsGoal,
   Subscription,
+  SubscriptionTerm,
   TextractCache,
   TextractJob,
   User,
@@ -259,18 +260,28 @@ trait RepositoryUtils {
       categoryId: Option[UUID] = None,
       startDate: LocalDate = LocalDate.of(2024, 1, 15)
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[Subscription.Create] = {
-    val now = Instant.now()
+    // Postgres stores microseconds, so truncate to let specs compare the returned term with what was stored.
+    val now = Instant.now().truncatedTo(ChronoUnit.MICROS)
+    val subscriptionId = UUID.randomUUID()
     val createRequest = Subscription.Create(
-      id = UUID.randomUUID(),
+      id = subscriptionId,
       userId = userId,
       name = name,
       cadence = cadence,
       intervalDays = intervalDays,
-      amountMin = amountMin,
-      amountMax = amountMax,
       paymentMethod = paymentMethod,
       categoryId = categoryId,
-      startDate = startDate,
+      firstTerm = SubscriptionTerm(
+        id = UUID.randomUUID(),
+        userId = userId,
+        subscriptionId = subscriptionId,
+        effectiveFrom = startDate,
+        effectiveTo = None,
+        amountMin = amountMin,
+        amountMax = amountMax,
+        createdAt = now,
+        updatedAt = now
+      ),
       createdAt = now,
       updatedAt = now
     )
@@ -278,6 +289,16 @@ trait RepositoryUtils {
       _ <- repository.subscriptions.create(createRequest)
     } yield createRequest
   }
+
+  /** Insert a subscription term directly via the DAO, so specs can set up an arbitrary term history. */
+  def insertSubscriptionTerm(
+      term: SubscriptionTerm
+  )(using repositories: RepositoryComponents, ec: ExecutionContext): Future[Unit] =
+    Future {
+      repositories.database.withConnection { implicit conn =>
+        SubscriptionTermDAO.create(term)
+      }
+    }
 
   def createSavingsAllocation(
       userId: UUID,

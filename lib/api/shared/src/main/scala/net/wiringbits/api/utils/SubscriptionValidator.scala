@@ -9,6 +9,9 @@ object SubscriptionValidator {
   val MaxAmountScale: Int = 2
   val MaxAmountIntegerDigits: Int = 10
 
+  // Caps the term history of one subscription so a single row cannot grow unbounded.
+  val MaxTermsPerSubscription: Int = 200
+
   /** Validates the subscription fields that depend on each other; shared so the frontend can check the same rules. */
   def validate(
       cadence: SubscriptionCadence,
@@ -17,11 +20,12 @@ object SubscriptionValidator {
       amountMax: Option[BigDecimal]
   ): Either[String, Unit] =
     for {
-      _ <- validateInterval(cadence, intervalDays)
+      _ <- validateCadence(cadence, intervalDays)
       _ <- validateAmountRange(amountMin = amountMin, amountMax = amountMax)
     } yield ()
 
-  private def validateInterval(cadence: SubscriptionCadence, intervalDays: Option[Int]): Either[String, Unit] =
+  /** Validates the cadence and its interval alone, for edits that do not touch the amounts. */
+  def validateCadence(cadence: SubscriptionCadence, intervalDays: Option[Int]): Either[String, Unit] =
     (cadence, intervalDays) match {
       case (SubscriptionCadence.EveryNDays, None) => Left("Interval days is required for an every-N-days cadence")
       case (SubscriptionCadence.EveryNDays, Some(d)) if d <= 0 => Left("Interval days must be greater than zero")
