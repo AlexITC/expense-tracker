@@ -3,12 +3,17 @@ package net.wiringbits.ui.components.inputs
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.common.models.{CategoryName, MerchantName}
-import net.wiringbits.ui.components.core.widgets.{ExpValidatedAutocompleteInput, ValidatedTextInput}
+import net.wiringbits.ui.components.core.widgets.{
+  ExpValidatedAutocompleteInput,
+  ValidatedSelectInput,
+  ValidatedTextInput
+}
 import net.wiringbits.ui.forms.{
   ExistingOrNewValue,
   ExpLocalDate,
   ExpLocalTime,
   ExpNotes,
+  ExpOptionalId,
   ExpRuleAmount,
   ExpRuleDescription,
   ExpRulePattern,
@@ -33,6 +38,8 @@ object OptionalTimeInput extends ValidatedTextInput[Option[ExpLocalTime]]
 object NotesInput extends ValidatedTextInput[ExpNotes]
 
 object OptionalNotesInput extends ValidatedTextInput[Option[ExpNotes]]
+
+object OptionalIdSelectInput extends ValidatedSelectInput[Option[UUID]](using ExpOptionalId.validator)
 
 object RulePatternInput extends ValidatedTextInput[ExpRulePattern]
 
