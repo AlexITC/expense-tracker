@@ -168,16 +168,23 @@ object BankRowRuleFormData {
       category = optionalCategory
     )
 
-  /** Switches the active variant, carrying the pattern and amount the user already typed and resetting the
-    * kind-specific fields.
+  /** Switches the active variant, carrying over the fields the kinds share: pattern and amount (all kinds) and the
+    * description (the rule's note, shared by SetMerchant and SetCategory). The kind-specific merchant/category
+    * selections are reset.
     */
-  def changeKind(current: BankRowRuleFormData, kind: ImportRuleActionKind): BankRowRuleFormData =
+  def changeKind(current: BankRowRuleFormData, kind: ImportRuleActionKind): BankRowRuleFormData = {
+    val description = current match {
+      case fd: SetMerchant => fd.description
+      case fd: SetCategory => fd.description
+      case _: Ignore => descriptionField("")
+    }
     kind match {
       case ImportRuleActionKind.SetMerchant =>
-        SetMerchant(current.pattern, current.amount, descriptionField(""), requiredMerchant, optionalCategory)
+        SetMerchant(current.pattern, current.amount, description, requiredMerchant, optionalCategory)
       case ImportRuleActionKind.SetCategory =>
-        SetCategory(current.pattern, current.amount, descriptionField(""), requiredCategory)
+        SetCategory(current.pattern, current.amount, description, requiredCategory)
       case ImportRuleActionKind.Ignore =>
         Ignore(current.pattern, current.amount)
     }
+  }
 }
