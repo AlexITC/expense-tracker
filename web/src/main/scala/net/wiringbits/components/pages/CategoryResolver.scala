@@ -49,13 +49,33 @@ object CategoryResolver {
       categories: List[GetCategories.Response.Category],
       selection: ExistingOrNewValue[CategoryName, UUID]
   )(implicit ec: ExecutionContext): Future[UUID] =
+    findOrCreateCategoryReturningCreated(client, categories, selection).map(_._1)
+
+  /** Like [[findOrCreateCategory]], also returning the newly created category (if any) so the caller can add it to its
+    * list.
+    */
+  private[pages] def findOrCreateCategoryReturningCreated(
+      client: ApiClient,
+      categories: List[GetCategories.Response.Category],
+      selection: ExistingOrNewValue[CategoryName, UUID]
+  )(implicit ec: ExecutionContext): Future[(UUID, Option[GetCategories.Response.Category])] =
     selection.id match {
-      case Some(id) => Future.successful(id)
+      case Some(id) => Future.successful((id, None))
       case None =>
         categories.find(_.name.equalsIgnoreCase(selection.value.string)) match {
-          case Some(existing) => Future.successful(existing.id)
+          case Some(existing) => Future.successful((existing.id, None))
           case None =>
-            client.createCategory(CreateCategory.Request(name = selection.value, description = None)).map(_.id)
+            client
+              .createCategory(CreateCategory.Request(name = selection.value, description = None))
+              .map(r =>
+                (
+                  r.id,
+                  Some(
+                    GetCategories.Response
+                      .Category(id = r.id, name = r.name, createdAt = Instant.now(), description = None)
+                  )
+                )
+              )
         }
     }
 

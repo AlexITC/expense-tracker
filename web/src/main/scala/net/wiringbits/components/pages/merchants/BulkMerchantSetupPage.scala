@@ -1,39 +1,32 @@
 package net.wiringbits.components.pages.merchants
 
-import net.wiringbits.common.models.MerchantName
-import net.wiringbits.components.pages.{AutocompleteLabels, CategoryResolver}
+import net.wiringbits.common.models.{CategoryName, MerchantName}
+import net.wiringbits.components.pages.{CategoryResolver, MerchantResolver}
 
-import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.{AutocompleteProps, AutocompleteRenderInputParams}
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.GetAllRows
 import net.wiringbits.api.models.categories.GetCategories
-import net.wiringbits.api.models.merchants.{
-  CreateImportRule,
-  CreateMerchant,
-  GetImportRules,
-  GetMerchants,
-  ImportRuleAction
-}
+import net.wiringbits.api.models.merchants.{CreateImportRule, GetImportRules, GetMerchants, ImportRuleAction}
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.core.SafeHooks
 import net.wiringbits.models.User
-import net.wiringbits.ui.forms.SubmitHooks
+import net.wiringbits.forms.BulkMerchantSetupFormData
+import net.wiringbits.ui.components.inputs.{CategoryAutocompleteInput, MerchantAutocompleteInput}
+import net.wiringbits.ui.forms.{ExistingOrNewValue, SubmitHooks}
+import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.compat.{MuiCompat, RouterCompat}
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.useHistory
 import org.scalajs.dom.URLSearchParams
 import org.scalajs.dom
-import slinky.core.facade.{Fragment, Hooks, ReactElement}
+import slinky.core.facade.{Fragment, Hooks}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 
-import java.time.Instant
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
-import scala.scalajs.js
-import scala.scalajs.js.JSConverters.*
 import scala.util.{Failure, Success}
 
 object BulkMerchantSetupPage {
@@ -232,116 +225,71 @@ object DescriptionRow {
       ) => Unit
   )
 
-  private def renderTextField(label: String)(params: AutocompleteRenderInputParams): ReactElement =
-    (mui.TextField.outlined
-      .withProps(MuiCompat.textFieldProps(params, label, size = Some("small")))
-      .withKey("tf"): ReactElement)
-
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
     val (expanded, setExpanded) = Hooks.useState(false)
-    val (merchantInput, setMerchantInput) = Hooks.useState(props.description)
-    val (merchantIdOpt, setMerchantIdOpt) = Hooks.useState[Option[UUID]](None)
-    val (categoryInput, setCategoryInput) = Hooks.useState("")
-    val (categoryIdOpt, setCategoryIdOpt) = Hooks.useState[Option[UUID]](None)
+    val (formData, setFormData) = Hooks.useState(BulkMerchantSetupFormData.initial(props.description))
     val submit = SubmitHooks.useSubmit()
     val saving = submit.isSubmitting
 
-    def handleAssign(): Unit = {
-      val merchantName = merchantInput.trim
-      val catName = categoryInput.trim
-      if (merchantName.isEmpty) {
-        submit.fail("Merchant name is required")
-      } else if (catName.isEmpty) {
-        submit.fail("Category is required")
-      } else {
-        submit.begin()
+    def handleAssign(): Unit =
+      formData.submitRequest match {
+        case None =>
+          submit.fail(formData.formValidationErrors.headOption.getOrElse("Please fix the highlighted fields"))
+        case Some(BulkMerchantSetupFormData.Resolved(merchant, category)) =>
+          submit.begin()
+          val merchantName = merchant.value.string
 
-        val fResult: Future[Unit] = for {
-          (resolvedCategoryId, newCategoryOpt) <- CategoryResolver.resolveOrCreateCategory(
-            props.ctx.api.client,
-            props.categories,
-            categoryIdOpt,
-            catName
-          )
+          val fResult: Future[Unit] = for {
+            (resolvedCategoryId, newCategoryOpt) <- CategoryResolver.findOrCreateCategoryReturningCreated(
+              props.ctx.api.client,
+              props.categories,
+              category
+            )
 
-          merchantResult <- merchantIdOpt match {
-            case Some(id) =>
-              Future.successful((id, None: Option[GetMerchants.Response.Merchant]))
-            case None =>
-              props.merchants.find(_.name.equalsIgnoreCase(merchantName)) match {
-                case Some(existing) =>
-                  Future.successful((existing.id, None: Option[GetMerchants.Response.Merchant]))
-                case None =>
-                  MerchantName
-                    .parse(merchantName)
-                    .fold(
-                      error => Future.failed[CreateMerchant.Response](new RuntimeException(error)),
-                      validName =>
-                        props.ctx.api.client
-                          .createMerchant(
-                            CreateMerchant.Request(
-                              name = validName,
-                              notes = None,
-                              categoryId = Some(resolvedCategoryId),
-                              taxId = None
-                            )
-                          )
+            (resolvedMerchantId, newMerchantOpt) <- MerchantResolver.findOrCreateMerchant(
+              props.ctx.api.client,
+              props.merchants,
+              merchant,
+              Some(resolvedCategoryId)
+            )
+
+            ruleResp <- props.ctx.api.client.createImportRule(
+              CreateImportRule.Request(
+                action = ImportRuleAction.SetMerchant(resolvedMerchantId, categoryId = None, description = None),
+                pattern = props.description,
+                amount = None
+              )
+            )
+
+            _ <-
+              if (merchantName != props.description)
+                props.ctx.api.client
+                  .createImportRule(
+                    CreateImportRule.Request(
+                      action = ImportRuleAction.SetMerchant(resolvedMerchantId, categoryId = None, description = None),
+                      pattern = merchantName,
+                      amount = None
                     )
-                    .map { r =>
-                      val m = GetMerchants.Response.Merchant(
-                        id = r.id,
-                        name = r.name,
-                        notes = None,
-                        categoryId = Some(resolvedCategoryId),
-                        taxId = None,
-                        reviewed = false,
-                        createdAt = Instant.now()
-                      )
-                      (r.id, Some(m))
-                    }
-              }
-          }
-
-          (resolvedMerchantId, newMerchantOpt) = merchantResult
-
-          ruleResp <- props.ctx.api.client.createImportRule(
-            CreateImportRule.Request(
+                  )
+                  .recover { case _ => ruleResp }
+              else Future.successful(ruleResp)
+          } yield {
+            val rule = ImportRuleMatcher.Rule(
+              id = ruleResp.id,
               action = ImportRuleAction.SetMerchant(resolvedMerchantId, categoryId = None, description = None),
               pattern = props.description,
               amount = None
             )
-          )
+            props.onDone(rule, newMerchantOpt, newCategoryOpt)
+          }
 
-          _ <-
-            if (merchantName != props.description)
-              props.ctx.api.client
-                .createImportRule(
-                  CreateImportRule.Request(
-                    action = ImportRuleAction.SetMerchant(resolvedMerchantId, categoryId = None, description = None),
-                    pattern = merchantName,
-                    amount = None
-                  )
-                )
-                .recover { case _ => ruleResp }
-            else Future.successful(ruleResp)
-        } yield {
-          val rule = ImportRuleMatcher.Rule(
-            id = ruleResp.id,
-            action = ImportRuleAction.SetMerchant(resolvedMerchantId, categoryId = None, description = None),
-            pattern = props.description,
-            amount = None
-          )
-          props.onDone(rule, newMerchantOpt, newCategoryOpt)
-        }
-
-        fResult.onComplete {
-          case Success(_) => submit.reset()
-          case Failure(ex) => submit.fail(ex.getMessage)
-        }
+          fResult.onComplete {
+            case Success(_) => submit.reset()
+            case Failure(ex) => submit.fail(ex.getMessage)
+          }
       }
-    }
 
     def handleIgnore(): Unit = {
       submit.begin()
@@ -368,54 +316,11 @@ object DescriptionRow {
         }
     }
 
-    val merchantAcProps = AutocompleteProps[GetMerchants.Response.Merchant, Boolean, Boolean, Boolean, "div"](
-      options = props.merchants.toJSArray,
-      renderInput = renderTextField("Merchant")
-    )
-    val merchantDyn = merchantAcProps.asInstanceOf[js.Dynamic]
-    merchantDyn.freeSolo = true
-    merchantDyn.size = "small"
-    merchantDyn.disabled = saving
-    merchantDyn.inputValue = merchantInput
-    merchantDyn.getOptionLabel = (opt: js.Any) => AutocompleteLabels.merchantOptionLabel(opt)
-    merchantDyn.sx = new CSSPropertiesUtils { minWidth = "160px" }
-    merchantDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
-      (value: Any) match {
-        case m: GetMerchants.Response.Merchant =>
-          setMerchantIdOpt(Some(m.id))
-          m.categoryId.foreach { cid =>
-            setCategoryIdOpt(Some(cid))
-            props.categories.find(_.id == cid).foreach(c => setCategoryInput(c.name))
-          }
-        case _ => ()
-      }
-    merchantDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
-      setMerchantInput(text)
-      if (rsn != "reset") setMerchantIdOpt(None)
-    }
+    def updateMerchant(value: ValidationResult[ExistingOrNewValue[MerchantName, UUID]]): Unit =
+      setFormData(cur => cur.selectMerchant(value, props.merchants, props.categories))
 
-    val categoryAcProps = AutocompleteProps[GetCategories.Response.Category, Boolean, Boolean, Boolean, "div"](
-      options = props.categories.toJSArray,
-      renderInput = renderTextField("Category *")
-    )
-    val categoryDyn = categoryAcProps.asInstanceOf[js.Dynamic]
-    categoryDyn.freeSolo = true
-    categoryDyn.size = "small"
-    categoryDyn.disabled = saving
-    categoryDyn.inputValue = categoryInput
-    categoryDyn.getOptionLabel = (opt: js.Any) => AutocompleteLabels.categoryOptionLabel(opt)
-    categoryDyn.sx = new CSSPropertiesUtils { minWidth = "140px" }
-    categoryDyn.onChange = (_: js.Any, value: js.Any, _: js.Any, _: js.Any) =>
-      (value: Any) match {
-        case c: GetCategories.Response.Category => setCategoryIdOpt(Some(c.id))
-        case _ => ()
-      }
-    categoryDyn.onInputChange = (_: js.Any, value: js.Any, reason: js.Any) => {
-      val (text, rsn) = MuiCompat.autocompleteInputChange(value = value, reason = reason)
-      setCategoryInput(text)
-      if (rsn != "reset") setCategoryIdOpt(None)
-    }
+    def updateCategory(value: ValidationResult[ExistingOrNewValue[CategoryName, UUID]]): Unit =
+      setFormData(cur => cur.copy(category = cur.category.updated(value)))
 
     mui.Box.sx(new CSSPropertiesUtils {
       border = "1px solid var(--lc-border)"; borderRadius = "8px"; padding = "12px 16px"
@@ -470,13 +375,37 @@ object DescriptionRow {
           mui.Box.sx(new CSSPropertiesUtils {
             display = "flex"; gap = "8px"; alignItems = "flex-start"; flexWrap = "wrap"
           })(
-            (mui.Autocomplete.withProps(merchantAcProps).withKey("m"): ReactElement),
-            (mui.Autocomplete.withProps(categoryAcProps).withKey("c"): ReactElement),
+            mui.Box
+              .sx(new CSSPropertiesUtils { minWidth = "160px" })(
+                MerchantAutocompleteInput.component(
+                  MerchantAutocompleteInput.Props(
+                    field = formData.merchant,
+                    options = props.merchants,
+                    label = "Merchant",
+                    onChange = updateMerchant,
+                    disabled = saving
+                  )
+                )
+              )
+              .withKey("m"),
+            mui.Box
+              .sx(new CSSPropertiesUtils { minWidth = "140px" })(
+                CategoryAutocompleteInput.component(
+                  CategoryAutocompleteInput.Props(
+                    field = formData.category,
+                    options = props.categories,
+                    label = "Category",
+                    onChange = updateCategory,
+                    disabled = saving
+                  )
+                )
+              )
+              .withKey("c"),
             mui.Button
               .normal()(if (saving) "Saving…" else "Assign")
               .size("small")
               .variant("contained")
-              .disabled(saving)
+              .disabled(submit.buttonDisabled(formData.isValid))
               .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)"; minWidth = "80px" })
               .onClick(_ => handleAssign()),
             mui.Button
