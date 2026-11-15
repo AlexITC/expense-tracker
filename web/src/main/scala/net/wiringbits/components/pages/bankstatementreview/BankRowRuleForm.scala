@@ -16,9 +16,12 @@ import net.wiringbits.api.models.merchants.{
   ImportRuleActionKind
 }
 import net.wiringbits.api.utils.ImportRuleMatcher
-import net.wiringbits.ui.forms.SubmitHooks
+import net.wiringbits.ui.components.inputs.ExpMerchantAutocompleteInput
+import net.wiringbits.ui.forms.{ExpResolvedOrNew, SubmitHooks}
+import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
+import net.wiringbits.webapp.utils.slinkyUtils.forms.FormField
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
@@ -99,8 +102,14 @@ object BankRowRuleForm {
     val (amountText, setAmountText) = Hooks.useState(props.row.amount.abs.bigDecimal.toPlainString)
     val (description, setDescription) =
       Hooks.useState(props.row.description.trim.take(ImportRuleMatcher.MaxDescriptionLength))
-    val (merchantInput, setMerchantInput) = Hooks.useState("")
-    val (merchantIdOpt, setMerchantIdOpt) = Hooks.useState[Option[UUID]](None)
+    val (merchantField, setMerchantField) = Hooks.useState(
+      new FormField[ExpResolvedOrNew[MerchantName]](
+        label = "Merchant",
+        name = "merchant",
+        required = true,
+        value = Some(ValidationResult.Valid("", ExpResolvedOrNew.Empty))
+      )
+    )
     val (categoryInput, setCategoryInput) = Hooks.useState("")
     val (categoryIdOpt, setCategoryIdOpt) = Hooks.useState[Option[UUID]](None)
     val submit = SubmitHooks.useSubmit()
@@ -142,10 +151,11 @@ object BankRowRuleForm {
               }
 
             case ImportRuleActionKind.SetMerchant =>
-              val merchantName = merchantInput.trim
-              if (merchantName.isEmpty) {
-                submit.fail("Merchant is required")
-              } else {
+              // The merchant field already holds a validated selection: an existing id, a valid new name to create, or
+              // empty. The create path feeds an already-valid MerchantName to the API, so nothing is parsed here.
+              def proceed(
+                  resolveMerchant: Option[UUID] => Future[(UUID, Option[GetMerchants.Response.Merchant])]
+              ): Unit = {
                 submit.begin()
                 val catName = categoryInput.trim
                 val fCategoryIdOpt: Future[Option[UUID]] =
@@ -153,43 +163,7 @@ object BankRowRuleForm {
                   else resolveCategoryId(catName).map(Some(_))
                 fCategoryIdOpt
                   .flatMap { resolvedCatId =>
-                    val fMerchantAndNew: Future[(UUID, Option[GetMerchants.Response.Merchant])] =
-                      merchantIdOpt match {
-                        case Some(id) => Future.successful((id, None))
-                        case None =>
-                          props.merchants.find(_.name.equalsIgnoreCase(merchantName)) match {
-                            case Some(existing) => Future.successful((existing.id, None))
-                            case None =>
-                              MerchantName
-                                .parse(merchantName)
-                                .fold(
-                                  error => Future.failed[CreateMerchant.Response](new RuntimeException(error)),
-                                  validName =>
-                                    props.ctx.api.client
-                                      .createMerchant(
-                                        CreateMerchant.Request(
-                                          name = validName,
-                                          notes = None,
-                                          categoryId = resolvedCatId,
-                                          taxId = None
-                                        )
-                                      )
-                                )
-                                .map { resp =>
-                                  val newM = GetMerchants.Response.Merchant(
-                                    id = resp.id,
-                                    name = resp.name,
-                                    notes = None,
-                                    categoryId = resolvedCatId,
-                                    taxId = None,
-                                    reviewed = false,
-                                    createdAt = Instant.now()
-                                  )
-                                  (resp.id, Some(newM))
-                                }
-                          }
-                      }
-                    fMerchantAndNew.flatMap { case (mid, newMerchantOpt) =>
+                    resolveMerchant(resolvedCatId).flatMap { case (mid, newMerchantOpt) =>
                       saveRule(merchantId = Some(mid), categoryId = resolvedCatId).map(rule => (rule, newMerchantOpt))
                     }
                   }
@@ -197,6 +171,40 @@ object BankRowRuleForm {
                     case Success((rule, newMerchantOpt)) => props.onSuccess(rule, newMerchantOpt)
                     case Failure(ex) => submit.fail(ex.getMessage)
                   }
+              }
+
+              merchantField.valueOpt match {
+                case None => submit.fail(merchantField.errorMsg.getOrElse("Invalid merchant"))
+                case Some(ExpResolvedOrNew.Empty) => submit.fail("Merchant is required")
+                case Some(ExpResolvedOrNew.Existing(id)) => proceed(_ => Future.successful((id, None)))
+                case Some(ExpResolvedOrNew.Create(name)) =>
+                  proceed(resolvedCatId =>
+                    props.merchants.find(_.name.equalsIgnoreCase(name.string)) match {
+                      case Some(existing) => Future.successful((existing.id, None))
+                      case None =>
+                        props.ctx.api.client
+                          .createMerchant(
+                            CreateMerchant.Request(
+                              name = name,
+                              notes = None,
+                              categoryId = resolvedCatId,
+                              taxId = None
+                            )
+                          )
+                          .map { resp =>
+                            val newM = GetMerchants.Response.Merchant(
+                              id = resp.id,
+                              name = resp.name,
+                              notes = None,
+                              categoryId = resolvedCatId,
+                              taxId = None,
+                              reviewed = false,
+                              createdAt = Instant.now()
+                            )
+                            (resp.id, Some(newM))
+                          }
+                    }
+                  )
               }
 
             case ImportRuleActionKind.SetCategory =>
@@ -216,23 +224,25 @@ object BankRowRuleForm {
       }
     }
 
-    val acProps = MuiCompat.freeSoloAutocompleteProps(
-      options = props.merchants,
-      renderInput = renderTextField("Merchant"),
-      inputValue = merchantInput,
-      getOptionLabel = AutocompleteLabels.merchantOptionLabel,
-      onSelect = value =>
-        (value: Any) match {
-          case m: GetMerchants.Response.Merchant => setMerchantIdOpt(Some(m.id)); setMerchantInput(m.name)
-          case _ => ()
-        },
-      onInput = (text, rsn) => {
-        setMerchantInput(text)
-        if (rsn != "reset") setMerchantIdOpt(None)
-      },
-      disabled = submit.isSubmitting,
-      fullWidth = false
-    )
+    def merchantAutocomplete: ReactElement =
+      (ExpMerchantAutocompleteInput
+        .component(
+          ExpMerchantAutocompleteInput.Props(
+            field = merchantField,
+            options = props.merchants,
+            label = "Merchant",
+            getOptionLabel = AutocompleteLabels.merchantOptionLabel,
+            selectExisting = value =>
+              (value: Any) match {
+                case m: GetMerchants.Response.Merchant => Some((m.id, m.name))
+                case _ => None
+              },
+            onChange = v => setMerchantField(_.updated(v)),
+            disabled = submit.isSubmitting,
+            fullWidth = false
+          )
+        )
+        .withKey("m"): ReactElement)
 
     val catAcProps = MuiCompat.freeSoloAutocompleteProps(
       options = props.categories,
@@ -313,7 +323,7 @@ object BankRowRuleForm {
         action match {
           case ImportRuleActionKind.SetMerchant =>
             Fragment(
-              (mui.Autocomplete.withProps(acProps).withKey("m"): ReactElement),
+              merchantAutocomplete,
               (mui.Autocomplete.withProps(catAcProps).withKey("c"): ReactElement),
               descriptionField
             )

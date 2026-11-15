@@ -7,7 +7,7 @@ import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.savings.*
 import net.wiringbits.common.models.SavingsGoalName
 import net.wiringbits.forms.SavingsGoalFormData
-import net.wiringbits.ui.components.inputs.SavingsGoalNameInput
+import net.wiringbits.ui.components.inputs.{ExpPositiveAmountInput, SavingsGoalNameInput}
 import net.wiringbits.ui.forms.SubmitHooks
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -106,11 +106,11 @@ object SavingsGoalList {
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
-    val (createForm, setCreateForm) = Hooks.useState(SavingsGoalFormData.initial(name = None, targetAmount = ""))
+    val (createForm, setCreateForm) = Hooks.useState(SavingsGoalFormData.initial(name = None, targetAmount = None))
     val createSubmit = SubmitHooks.useSubmit()
     val (error, setError) = Hooks.useState("")
     val (editingGoalId, setEditingGoalId) = Hooks.useState[Option[UUID]](None)
-    val (editForm, setEditForm) = Hooks.useState(SavingsGoalFormData.initial(name = None, targetAmount = ""))
+    val (editForm, setEditForm) = Hooks.useState(SavingsGoalFormData.initial(name = None, targetAmount = None))
     val editSubmit = SubmitHooks.useSubmit()
 
     def handleCreateGoal(): Unit =
@@ -121,7 +121,7 @@ object SavingsGoalList {
           .onComplete {
             case Success(_) =>
               createSubmit.succeed()
-              setCreateForm(SavingsGoalFormData.initial(name = None, targetAmount = ""))
+              setCreateForm(SavingsGoalFormData.initial(name = None, targetAmount = None))
               props.onRefresh()
             case Failure(ex) => createSubmit.fail(ex.getMessage)
           }
@@ -151,8 +151,6 @@ object SavingsGoalList {
           case Failure(ex) => setError(ex.getMessage)
         }
 
-    val createTargetError = createForm.parsedTarget.collect { case Left(message) => message }
-
     val createGoalForm: ReactElement = form(onSubmit := { e =>
       e.preventDefault()
       handleCreateGoal()
@@ -174,18 +172,13 @@ object SavingsGoalList {
             onChange = value => setCreateForm(cur => cur.copy(name = cur.name.updated(value)))
           )
         ),
-        mui.TextField
-          .outlined()
-          .label("Target amount (optional)")
-          .value(createForm.targetAmount)
-          .size("small")
-          .disabled(createSubmit.isSubmitting)
-          .error(createTargetError.isDefined)
-          .helperText(createTargetError.getOrElse(""))
-          .onChange(e => {
-            val value = e.target.asInstanceOf[dom.HTMLInputElement].value
-            setCreateForm(cur => cur.copy(targetAmount = value))
-          }),
+        ExpPositiveAmountInput.component(
+          ExpPositiveAmountInput.Props(
+            field = createForm.targetAmount,
+            disabled = createSubmit.isSubmitting,
+            onChange = value => setCreateForm(cur => cur.copy(targetAmount = cur.targetAmount.updated(value)))
+          )
+        ),
         createSubmit.error match {
           case Some(message) =>
             mui
@@ -213,7 +206,6 @@ object SavingsGoalList {
 
       val goalContent: ReactElement =
         if (isEditing) {
-          val editTargetError = editForm.parsedTarget.collect { case Left(message) => message }
           form(onSubmit := { e =>
             e.preventDefault()
             handleUpdateGoal(goal.id)
@@ -228,18 +220,13 @@ object SavingsGoalList {
                   onChange = value => setEditForm(cur => cur.copy(name = cur.name.updated(value)))
                 )
               ),
-              mui.TextField
-                .outlined()
-                .label("Target (optional)")
-                .value(editForm.targetAmount)
-                .size("small")
-                .disabled(editSubmit.isSubmitting)
-                .error(editTargetError.isDefined)
-                .helperText(editTargetError.getOrElse(""))
-                .onChange(e => {
-                  val value = e.target.asInstanceOf[dom.HTMLInputElement].value
-                  setEditForm(cur => cur.copy(targetAmount = value))
-                }),
+              ExpPositiveAmountInput.component(
+                ExpPositiveAmountInput.Props(
+                  field = editForm.targetAmount,
+                  disabled = editSubmit.isSubmitting,
+                  onChange = value => setEditForm(cur => cur.copy(targetAmount = cur.targetAmount.updated(value)))
+                )
+              ),
               editSubmit.error match {
                 case Some(message) =>
                   mui
@@ -303,7 +290,7 @@ object SavingsGoalList {
                   setEditForm(_ =>
                     SavingsGoalFormData.initial(
                       name = Some(SavingsGoalName.trusted(goal.name)),
-                      targetAmount = goal.targetAmount.map(_.toString).getOrElse("")
+                      targetAmount = goal.targetAmount
                     )
                   )
                   editSubmit.reset()
