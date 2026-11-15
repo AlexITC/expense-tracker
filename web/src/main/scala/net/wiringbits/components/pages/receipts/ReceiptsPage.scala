@@ -15,9 +15,13 @@ import net.wiringbits.api.models.bankstatements.GetAllRows
 import net.wiringbits.api.models.merchants.{GetImportRules, ImportRuleAction}
 import net.wiringbits.api.models.receipts.{ConfirmReceipt, GetReceipt, GetReceipts, LinkReceiptToExpense}
 import net.wiringbits.api.utils.ImportRuleMatcher
-import net.wiringbits.components.pages.receipts.ReceiptsLogic.{BatchState, ConfirmForm, ReceiptMode}
+import net.wiringbits.components.pages.receipts.ReceiptsLogic.{BatchState, ReceiptMode}
+import net.wiringbits.forms.ReceiptConfirmFormData
 import net.wiringbits.models.User
+import net.wiringbits.ui.components.inputs.{AmountInput, DateInput}
+import net.wiringbits.ui.forms.{ExpLocalDate, PositiveBigDecimal, SubmitHooks}
 import net.wiringbits.utils.ReceiptFileViewer
+import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
@@ -28,7 +32,7 @@ import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 import slinky.web.html.{alt, checked, form, iframe, img, input, multiple, onChange, onSubmit, sandbox, src, `type`}
 
-import java.time.{Instant, LocalDate, LocalTime}
+import java.time.{Instant, LocalTime}
 import java.util.UUID
 import scala.concurrent.ExecutionContext
 import scala.scalajs.js
@@ -137,7 +141,8 @@ object ReceiptList {
 
     // selected receipt, plus its create-expense form or link picker
     val (mode, setMode) = Hooks.useState[ReceiptMode](ReceiptMode.Viewing(None))
-    def updateForm(f: ConfirmForm => ConfirmForm): Unit = setMode(_.withForm(f))
+    def updateForm(f: ReceiptConfirmFormData => ReceiptConfirmFormData): Unit = setMode(_.withForm(f))
+    val confirmSubmit = SubmitHooks.useSubmit()
 
     // link-existing state
     val (expenseList, setExpenseList) = Hooks.useState[List[GetExpenses.Response.Expense]](Nil)
@@ -341,25 +346,24 @@ object ReceiptList {
           case Failure(ex) => setError(ex.getMessage)
         }
 
-    def handleConfirm(receiptId: UUID, form: ConfirmForm): Unit =
-      (Try(BigDecimal(form.amount)).toOption, Try(LocalDate.parse(form.date)).toOption) match {
-        case (None, _) => setError("Invalid amount")
-        case (_, None) => setError("Invalid date (use YYYY-MM-DD)")
-        case (Some(amount), Some(date)) =>
-          val formSplits = form.splits.map { case (catId, _, amt) => (catId, amt) }
-          ExpenseFormSplits.createSplits(amount, formSplits, props.merchants.data, form.merchantId) match {
-            case Left(msg) => setError(msg)
-            case Right(splits) => confirm(receiptId, form, amount, date, splits)
+    def handleConfirm(receiptId: UUID, form: ReceiptConfirmFormData): Unit =
+      form.submitRequest match {
+        case None =>
+          confirmSubmit.fail(form.formValidationErrors.headOption.getOrElse("Please fix the highlighted fields"))
+        case Some(resolved) =>
+          val formSplits = resolved.splits.map { case (catId, _, amt) => (catId, amt) }
+          ExpenseFormSplits.createSplits(resolved.amount, formSplits, props.merchants.data, resolved.merchantId) match {
+            case Left(msg) => confirmSubmit.fail(msg)
+            case Right(splits) => confirm(receiptId, resolved, splits)
           }
       }
 
     def confirm(
         receiptId: UUID,
-        form: ConfirmForm,
-        amount: BigDecimal,
-        date: LocalDate,
+        form: ReceiptConfirmFormData.Resolved,
         splits: List[CreateExpense.Split]
     ): Unit = {
+      confirmSubmit.begin()
       val time = if (form.time.isEmpty) None else Try(LocalTime.parse(form.time)).toOption
       val merchantId = if (form.merchantId.isEmpty) None else Try(UUID.fromString(form.merchantId)).toOption
       val notes = Option(form.notes.trim).filter(_.nonEmpty)
@@ -368,8 +372,8 @@ object ReceiptList {
           receiptId,
           ConfirmReceipt
             .Request(
-              Some(amount),
-              Some(date),
+              Some(form.amount),
+              Some(form.date),
               time,
               merchantId = merchantId,
               notes = notes,
@@ -380,6 +384,7 @@ object ReceiptList {
         )
         .onComplete {
           case Success(_) =>
+            confirmSubmit.succeed()
             setMode(_.confirmed(receiptId))
             setError("")
             showToast("Expense created")
@@ -388,7 +393,7 @@ object ReceiptList {
                 setLocalReceipts(cur => cur.map(r => if (r.id == updated.id) toListReceipt(updated) else r))
               case Failure(_) => ()
             }
-          case Failure(ex) => setError(ex.getMessage)
+          case Failure(ex) => confirmSubmit.fail(ex.getMessage)
         }
     }
 
@@ -903,8 +908,8 @@ object ReceiptList {
           val rowSuggestStyling = new CSSPropertiesUtils { fontSize = "0.8em"; color = "#555" }
           val rowSelectedStyling =
             new CSSPropertiesUtils { fontSize = "0.8em"; color = "var(--lc-link)"; fontWeight = "bold" }
-          val receiptAmt = Try(BigDecimal(cf.amount)).toOption
-          val receiptDate = if (cf.date.isEmpty) None else Some(cf.date)
+          val receiptAmt = cf.amount.valueOpt.map(_.value)
+          val receiptDate = cf.date.valueOpt.map(_.value)
           val receiptMerchant = Option(cf.merchantId)
             .filter(_.nonEmpty)
             .flatMap(id => Try(java.util.UUID.fromString(id)).toOption)
@@ -913,7 +918,7 @@ object ReceiptList {
           val rankedRows = rowList
             .map { row =>
               val amtMatch = if (receiptAmt.exists(_ == row.amount.abs)) 4 else 0
-              val dateMatch = if (receiptDate.exists(_ == row.date.toString)) 2 else 0
+              val dateMatch = if (receiptDate.contains(row.date)) 2 else 0
               val descMatch = receiptMerchant match {
                 case Some(mn) if row.description.toLowerCase.contains(mn) => 1
                 case _ => 0
@@ -933,23 +938,22 @@ object ReceiptList {
                   flexDirection = FlexDirection.row,
                   alignItems = Container.Alignment.center,
                   child = Fragment(
-                    mui.TextField
-                      .outlined()
-                      .autoFocus(true)
-                      .label("Amount")
-                      .value(cf.amount)
-                      .onChange { e =>
-                        val v = e.target.asInstanceOf[dom.HTMLInputElement].value
-                        updateForm(_.copy(amount = v))
-                      },
-                    mui.TextField
-                      .outlined()
-                      .label("Date (YYYY-MM-DD)")
-                      .value(cf.date)
-                      .onChange { e =>
-                        val v = e.target.asInstanceOf[dom.HTMLInputElement].value
-                        updateForm(_.copy(date = v))
-                      },
+                    AmountInput.component(
+                      AmountInput.Props(
+                        field = cf.amount,
+                        disabled = confirmSubmit.inputDisabled,
+                        onChange = (value: ValidationResult[PositiveBigDecimal]) =>
+                          updateForm(cur => cur.copy(amount = cur.amount.updated(value)))
+                      )
+                    ),
+                    DateInput.component(
+                      DateInput.Props(
+                        field = cf.date,
+                        disabled = confirmSubmit.inputDisabled,
+                        onChange = (value: ValidationResult[ExpLocalDate]) =>
+                          updateForm(cur => cur.copy(date = cur.date.updated(value)))
+                      )
+                    ),
                     mui.TextField
                       .outlined()
                       .label("Time (HH:MM, optional)")
@@ -970,13 +974,15 @@ object ReceiptList {
                     mui.Button
                       .normal()("Save")
                       .variant("contained")
+                      .disabled(confirmSubmit.buttonDisabled(cf.isValid))
                       .onClick(_ => handleConfirm(r.id, cf)),
                     mui.Button
                       .normal()("Cancel")
                       .onClick(_ => setMode(ReceiptMode.Viewing(Some(r.id))))
                   )
                 ),
-                splitsSection(cf.splits, s => updateForm(_.copy(splits = s)), cf.amount),
+                confirmSubmit.error.map(msg => mui.Typography(msg).color("error"): ReactElement),
+                splitsSection(cf.splits, s => updateForm(_.copy(splits = s)), cf.amount.inputValue),
                 if (rankedRows.nonEmpty)
                   Container(
                     flexDirection = FlexDirection.column,
@@ -1038,10 +1044,12 @@ object ReceiptList {
                     .variant("contained")
                     .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
                     .onClick { _ =>
+                      confirmSubmit.reset()
                       setMode(
                         ReceiptMode.Confirming(
                           r.id,
-                          ConfirmForm.fromReceipt(r, props.merchants.data, props.categories.data, effectiveRuleList)
+                          ReceiptConfirmFormData
+                            .fromReceipt(r, props.merchants.data, props.categories.data, effectiveRuleList)
                         )
                       )
                       props.ctx.api.client.getAllBankStatementRows.onComplete {
