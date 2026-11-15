@@ -13,30 +13,72 @@ import slinky.core.facade.ReactElement
 import scala.reflect.ClassTag
 import scala.scalajs.js
 
+/** How a select/create field's value `V` is built from a selection, and what a blank field means. A required field (`V
+  * \= ExistingOrNewValue[T, Id]`) treats blank as invalid; an optional one (`V = Option[ExistingOrNewValue[T, Id]]`)
+  * treats blank as a valid `None`. This is the select/create analogue of `TextValidator.optionValidator`.
+  */
+trait SelectionShape[T, Id, V] {
+  def blank(input: String): ValidationResult[V]
+  def present(input: String, value: ExistingOrNewValue[T, Id]): ValidationResult[V]
+}
+
+object SelectionShape {
+  given required[T, Id]: SelectionShape[T, Id, ExistingOrNewValue[T, Id]] with {
+    def blank(input: String): ValidationResult[ExistingOrNewValue[T, Id]] =
+      ValidationResult.Invalid(input = input, error = "Select an existing entry or type a new one")
+    def present(input: String, value: ExistingOrNewValue[T, Id]): ValidationResult[ExistingOrNewValue[T, Id]] =
+      ValidationResult.Valid(input, value)
+  }
+
+  given optional[T, Id]: SelectionShape[T, Id, Option[ExistingOrNewValue[T, Id]]] with {
+    def blank(input: String): ValidationResult[Option[ExistingOrNewValue[T, Id]]] =
+      ValidationResult.Valid(input, None)
+    def present(
+        input: String,
+        value: ExistingOrNewValue[T, Id]
+    ): ValidationResult[Option[ExistingOrNewValue[T, Id]]] =
+      ValidationResult.Valid(input, Some(value))
+  }
+}
+
 /** The select/create analogue of [[ValidatedTextInput]].
   *
-  * The field holds `Option[ExistingOrNewValue[T, Id]]`: blank is `None`, typing validates the text live through the
-  * primitive's `TextValidator` into `Some(ExistingOrNewValue(value, id = None))`, and picking an option sets the same
-  * shape with the resolved `id`. Editing after a pick clears the `id`, so the name is always validated like any text
-  * field and nothing is parsed at submit.
+  * Typing validates the text live through the primitive's `TextValidator`, picking an option sets the same shape with
+  * the resolved `id`, and editing after a pick clears the `id`. The field's value type `V` is chosen by the
+  * [[SelectionShape]] in scope: `ExistingOrNewValue[T, Id]` for a required field, `Option[...]` for an optional one.
   *
   * An input is created with functions for the option's label and id. Narrowing the raw value MUI hands back (a selected
   * option, or a freeSolo typed `String`) is done here with the `Opt` `ClassTag`, since the erased type parameter cannot
   * be matched directly. All the `js.*` interop stays inside this component; its `Props` are plain Scala.
   */
-class ExpValidatedAutocompleteInput[Opt: ClassTag, T: TextValidator, Id](
+class ExpValidatedAutocompleteInput[Opt: ClassTag, T: TextValidator, Id, V](
     optionLabel: Opt => String,
     optionId: Opt => Id
-) {
+)(using shape: SelectionShape[T, Id, V]) {
   private val validator = implicitly[TextValidator[T]]
   private val optionTag = implicitly[ClassTag[Opt]]
 
-  type Value = Option[ExistingOrNewValue[T, Id]]
+  type Value = V
 
   private def asOption(value: Any): Option[Opt] =
     value match {
       case optionTag(option) => Some(option)
       case _ => None
+    }
+
+  private def validateText(text: String): ValidationResult[Value] =
+    if (text.trim.isEmpty) shape.blank(text)
+    else
+      validator(text) match {
+        case ValidationResult.Valid(input, value) => shape.present(input, ExistingOrNewValue(value = value, id = None))
+        case ValidationResult.Invalid(input, error) => ValidationResult.Invalid(input = input, error = error)
+      }
+
+  private def selectedOption(option: Opt): ValidationResult[Value] =
+    validator(optionLabel(option)) match {
+      case ValidationResult.Valid(input, value) =>
+        shape.present(input, ExistingOrNewValue(value = value, id = Some(optionId(option))))
+      case ValidationResult.Invalid(input, error) => ValidationResult.Invalid(input = input, error = error)
     }
 
   case class Props(
@@ -47,13 +89,6 @@ class ExpValidatedAutocompleteInput[Opt: ClassTag, T: TextValidator, Id](
       disabled: Boolean = false,
       fullWidth: Boolean = true
   )
-
-  private def validateText(text: String): ValidationResult[Value] =
-    if (text.trim.isEmpty) ValidationResult.Valid(text, None)
-    else validator(text).map(value => Some(ExistingOrNewValue(value = value, id = None)))
-
-  private def selectedOption(option: Opt): ValidationResult[Value] =
-    validator(optionLabel(option)).map(value => Some(ExistingOrNewValue(value = value, id = Some(optionId(option)))))
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     val helperText = props.field.value.flatMap(_.errorMessage).getOrElse("")

@@ -4,7 +4,13 @@ import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.common.models.{CategoryName, MerchantName}
 import net.wiringbits.ui.components.core.widgets.{ExpValidatedAutocompleteInput, ValidatedTextInput}
-import net.wiringbits.ui.forms.{ExpRuleAmount, ExpRuleDescription, ExpRulePattern, PositiveBigDecimal}
+import net.wiringbits.ui.forms.{
+  ExistingOrNewValue,
+  ExpRuleAmount,
+  ExpRuleDescription,
+  ExpRulePattern,
+  PositiveBigDecimal
+}
 
 import java.util.UUID
 
@@ -20,13 +26,25 @@ object RuleAmountInput extends ValidatedTextInput[Option[ExpRuleAmount]]
 object RuleDescriptionInput extends ValidatedTextInput[Option[ExpRuleDescription]]
 
 object MerchantAutocompleteInput
-    extends ExpValidatedAutocompleteInput[GetMerchants.Response.Merchant, MerchantName, UUID](
-      optionLabel = _.name,
-      optionId = _.id
-    )
+    extends ExpValidatedAutocompleteInput[
+      GetMerchants.Response.Merchant,
+      MerchantName,
+      UUID,
+      ExistingOrNewValue[MerchantName, UUID]
+    ](optionLabel = _.name, optionId = _.id)
 
 object CategoryAutocompleteInput
-    extends ExpValidatedAutocompleteInput[GetCategories.Response.Category, CategoryName, UUID](
-      optionLabel = _.name,
-      optionId = _.id
-    )
+    extends ExpValidatedAutocompleteInput[
+      GetCategories.Response.Category,
+      CategoryName,
+      UUID,
+      ExistingOrNewValue[CategoryName, UUID]
+    ](optionLabel = _.name, optionId = _.id)
+
+object OptionalCategoryAutocompleteInput
+    extends ExpValidatedAutocompleteInput[
+      GetCategories.Response.Category,
+      CategoryName,
+      UUID,
+      Option[ExistingOrNewValue[CategoryName, UUID]]
+    ](optionLabel = _.name, optionId = _.id)

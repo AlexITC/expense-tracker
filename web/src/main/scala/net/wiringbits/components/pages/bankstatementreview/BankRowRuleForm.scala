@@ -12,6 +12,7 @@ import net.wiringbits.forms.BankRowRuleFormData
 import net.wiringbits.ui.components.inputs.{
   CategoryAutocompleteInput,
   MerchantAutocompleteInput,
+  OptionalCategoryAutocompleteInput,
   RuleAmountInput,
   RuleDescriptionInput,
   RulePatternInput
@@ -49,7 +50,7 @@ object BankRowRuleForm {
       BankRowRuleFormData.initial(
         patternSeed = props.row.description,
         amountSeed = props.row.amount.abs.bigDecimal.toPlainString,
-        descriptionSeed = props.row.description.trim.take(ImportRuleMatcher.MaxDescriptionLength)
+        descriptionSeed = props.row.description
       )
     )
     val submit = SubmitHooks.useSubmit()
@@ -121,15 +122,20 @@ object BankRowRuleForm {
         case other => other
       }
 
-    def updateMerchant(value: ValidationResult[Option[ExistingOrNewValue[MerchantName, UUID]]]): Unit =
+    def updateMerchant(value: ValidationResult[ExistingOrNewValue[MerchantName, UUID]]): Unit =
       setFormData {
         case fd: BankRowRuleFormData.SetMerchant => fd.copy(merchant = fd.merchant.updated(value))
         case other => other
       }
 
-    def updateCategory(value: ValidationResult[Option[ExistingOrNewValue[CategoryName, UUID]]]): Unit =
+    def updateMerchantCategory(value: ValidationResult[Option[ExistingOrNewValue[CategoryName, UUID]]]): Unit =
       setFormData {
         case fd: BankRowRuleFormData.SetMerchant => fd.copy(category = fd.category.updated(value))
+        case other => other
+      }
+
+    def updateCategory(value: ValidationResult[ExistingOrNewValue[CategoryName, UUID]]): Unit =
+      setFormData {
         case fd: BankRowRuleFormData.SetCategory => fd.copy(category = fd.category.updated(value))
         case other => other
       }
@@ -161,7 +167,7 @@ object BankRowRuleForm {
         )
         .withKey("description"): ReactElement)
 
-    def merchantAutocomplete(field: FormField[Option[ExistingOrNewValue[MerchantName, UUID]]]): ReactElement =
+    def merchantAutocomplete(field: FormField[ExistingOrNewValue[MerchantName, UUID]]): ReactElement =
       (MerchantAutocompleteInput
         .component(
           MerchantAutocompleteInput.Props(
@@ -175,7 +181,21 @@ object BankRowRuleForm {
         )
         .withKey("merchant"): ReactElement)
 
-    def categoryAutocomplete(field: FormField[Option[ExistingOrNewValue[CategoryName, UUID]]]): ReactElement =
+    def optionalCategoryAutocomplete(field: FormField[Option[ExistingOrNewValue[CategoryName, UUID]]]): ReactElement =
+      (OptionalCategoryAutocompleteInput
+        .component(
+          OptionalCategoryAutocompleteInput.Props(
+            field = field,
+            options = props.categories,
+            label = "Category (optional)",
+            onChange = updateMerchantCategory,
+            disabled = submit.isSubmitting,
+            fullWidth = false
+          )
+        )
+        .withKey("category"): ReactElement)
+
+    def requiredCategoryAutocomplete(field: FormField[ExistingOrNewValue[CategoryName, UUID]]): ReactElement =
       (CategoryAutocompleteInput
         .component(
           CategoryAutocompleteInput.Props(
@@ -191,9 +211,13 @@ object BankRowRuleForm {
 
     val actionFields: ReactElement = formData match {
       case fd: BankRowRuleFormData.SetMerchant =>
-        Fragment(merchantAutocomplete(fd.merchant), categoryAutocomplete(fd.category), descriptionInput(fd.description))
+        Fragment(
+          merchantAutocomplete(fd.merchant),
+          optionalCategoryAutocomplete(fd.category),
+          descriptionInput(fd.description)
+        )
       case fd: BankRowRuleFormData.SetCategory =>
-        Fragment(categoryAutocomplete(fd.category), descriptionInput(fd.description))
+        Fragment(requiredCategoryAutocomplete(fd.category), descriptionInput(fd.description))
       case _: BankRowRuleFormData.Ignore => Fragment()
     }
 
