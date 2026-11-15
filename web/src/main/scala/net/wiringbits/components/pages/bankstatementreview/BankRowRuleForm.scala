@@ -1,6 +1,5 @@
 package net.wiringbits.components.pages.bankstatementreview
 import net.wiringbits.components.pages.AutocompleteLabels
-import net.wiringbits.components.pages.importrules.ImportRuleList
 
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
@@ -16,9 +15,17 @@ import net.wiringbits.api.models.merchants.{
 }
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.forms.BankRowRuleFormData
-import net.wiringbits.ui.components.inputs.{ExpCategoryAutocompleteInput, ExpMerchantAutocompleteInput}
-import net.wiringbits.ui.forms.{ExpSelection, SubmitHooks}
+import net.wiringbits.ui.components.inputs.{
+  ExpCategoryAutocompleteInput,
+  ExpMerchantAutocompleteInput,
+  ExpRuleAmountInput,
+  ExpRuleDescriptionInput,
+  ExpRulePatternInput
+}
+import net.wiringbits.ui.forms.{ExpRuleAmount, ExpRuleDescription, ExpRulePattern, ExpSelection, SubmitHooks}
+import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
+import net.wiringbits.webapp.utils.slinkyUtils.forms.FormField
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
@@ -42,93 +49,47 @@ object BankRowRuleForm {
       onCancel: () => Unit
   )
 
-  /** Parses and validates the free-text inputs with the same checks as the server, before any merchant/category is
-    * resolved or created. Ignore rules carry no description, so the field is dropped for them.
-    */
-  def checkInputs(
-      kind: ImportRuleActionKind,
-      pattern: String,
-      amountText: String,
-      description: String
-  ): Either[String, ImportRuleList.RuleInputs] = {
-    val descriptionOpt =
-      if (kind == ImportRuleActionKind.Ignore) None
-      else Option(description.trim).filter(_.nonEmpty)
-    for {
-      amount <- ImportRuleList.parseAmount(amountText)
-      _ <- ImportRuleMatcher.validateFields(pattern.trim, amount, descriptionOpt)
-    } yield ImportRuleList.RuleInputs(amount, descriptionOpt)
-  }
-
-  /** Builds the create request once the merchant/category ids are known. For set-merchant, `categoryId` is the optional
-    * override of the merchant's default category; for set-category it is the required target.
-    */
-  def buildRequest(
-      kind: ImportRuleActionKind,
-      pattern: String,
-      amountText: String,
-      merchantId: Option[UUID],
-      categoryId: Option[UUID],
-      description: String
-  ): Either[String, CreateImportRule.Request] =
-    for {
-      inputs <- checkInputs(kind, pattern = pattern, amountText = amountText, description = description)
-      action <- kind match {
-        case ImportRuleActionKind.SetMerchant =>
-          merchantId
-            .map(mid => ImportRuleAction.SetMerchant(mid, categoryId = categoryId, description = inputs.description))
-            .toRight("Merchant is required")
-        case ImportRuleActionKind.SetCategory =>
-          categoryId
-            .map(cid => ImportRuleAction.SetCategory(cid, description = inputs.description))
-            .toRight("Category is required")
-        case ImportRuleActionKind.Ignore => Right(ImportRuleAction.Ignore)
-      }
-    } yield CreateImportRule.Request(action, pattern.trim, inputs.amount)
-
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
 
     val (formData, setFormData) = Hooks.useState(
       BankRowRuleFormData.initial(
-        pattern = props.row.description,
-        amountText = props.row.amount.abs.bigDecimal.toPlainString,
-        description = props.row.description.trim.take(ImportRuleMatcher.MaxDescriptionLength)
+        patternSeed = props.row.description,
+        amountSeed = props.row.amount.abs.bigDecimal.toPlainString,
+        descriptionSeed = props.row.description.trim.take(ImportRuleMatcher.MaxDescriptionLength)
       )
     )
     val submit = SubmitHooks.useSubmit()
 
-    def saveRule(merchantId: Option[UUID], categoryId: Option[UUID]): Future[ImportRuleMatcher.Rule] =
-      buildRequest(
-        formData.actionKind,
-        pattern = formData.pattern,
-        amountText = formData.amountText,
-        merchantId = merchantId,
-        categoryId = categoryId,
-        description = formData.description
-      ) match {
-        case Left(err) => Future.failed(new IllegalArgumentException(err))
-        case Right(req) =>
-          props.ctx.api.client
-            .createImportRule(req)
-            .map(resp => ImportRuleMatcher.Rule(resp.id, req.action, req.pattern, req.amount))
-      }
+    def saveRule(
+        action: ImportRuleAction,
+        pattern: String,
+        amount: Option[BigDecimal]
+    ): Future[ImportRuleMatcher.Rule] =
+      props.ctx.api.client
+        .createImportRule(CreateImportRule.Request(action, pattern.trim, amount))
+        .map(resp => ImportRuleMatcher.Rule(resp.id, action, pattern.trim, amount))
 
-    // Resolving a selection to an id is a side effect kept out of the form model: an existing selection is already an
-    // id, a new one is matched against the loaded rows by name and only created when it is genuinely new. The created
-    // value is an already-valid primitive from the field, so nothing is parsed here.
-    def resolveCategory(selection: Option[ExpSelection[CategoryName, UUID]]): Future[Option[UUID]] =
-      selection match {
-        case None => Future.successful(None)
-        case Some(ExpSelection(_, Some(id))) => Future.successful(Some(id))
-        case Some(ExpSelection(name, None)) =>
-          props.categories.find(_.name.equalsIgnoreCase(name.string)) match {
-            case Some(existing) => Future.successful(Some(existing.id))
+    // Resolving a selection to an id is the component's side effect: an existing selection already carries the id, a
+    // new one is matched against the loaded rows by name and only created when it is genuinely new. The name is an
+    // already-valid primitive from the field, so nothing is parsed here.
+    def resolveCategory(selection: ExpSelection[CategoryName, UUID]): Future[UUID] =
+      selection.id match {
+        case Some(id) => Future.successful(id)
+        case None =>
+          props.categories.find(_.name.equalsIgnoreCase(selection.value.string)) match {
+            case Some(existing) => Future.successful(existing.id)
             case None =>
               props.ctx.api.client
-                .createCategory(CreateCategory.Request(name = name, description = None))
-                .map(resp => Some(resp.id))
+                .createCategory(CreateCategory.Request(name = selection.value, description = None))
+                .map(_.id)
           }
+      }
+
+    def resolveCategoryOpt(selection: Option[ExpSelection[CategoryName, UUID]]): Future[Option[UUID]] =
+      selection match {
+        case None => Future.successful(None)
+        case Some(ref) => resolveCategory(ref).map(Some(_))
       }
 
     def resolveMerchant(
@@ -161,102 +122,69 @@ object BankRowRuleForm {
       }
 
     def handleSave(): Unit =
-      checkInputs(
-        formData.actionKind,
-        pattern = formData.pattern,
-        amountText = formData.amountText,
-        description = formData.description
-      ) match {
-        case Left(err) => submit.fail(err)
-        case Right(_) =>
-          formData.actionKind match {
-            case ImportRuleActionKind.Ignore =>
-              submit.begin()
-              saveRule(merchantId = None, categoryId = None).onComplete {
-                case Success(rule) => props.onSuccess(rule, None)
-                case Failure(ex) => submit.fail(ex.getMessage)
+      formData.submitRequest match {
+        case None =>
+          submit.fail(formData.formValidationErrors.headOption.getOrElse("Please fix the highlighted fields"))
+        case Some(resolved) =>
+          submit.begin()
+          val result: Future[(ImportRuleMatcher.Rule, Option[GetMerchants.Response.Merchant])] = resolved match {
+            case BankRowRuleFormData.Resolved.Ignore(pattern, amount) =>
+              saveRule(ImportRuleAction.Ignore, pattern, amount).map(rule => (rule, None))
+
+            case BankRowRuleFormData.Resolved.SetCategory(pattern, amount, description, categorySelection) =>
+              resolveCategory(categorySelection).flatMap { categoryId =>
+                saveRule(ImportRuleAction.SetCategory(categoryId, description = description), pattern, amount)
+                  .map(rule => (rule, None))
               }
 
-            case ImportRuleActionKind.SetMerchant =>
-              formData.merchant.valueOpt match {
-                case None => submit.fail(formData.merchant.errorMsg.getOrElse("Invalid merchant"))
-                case Some(None) => submit.fail("Merchant is required")
-                case Some(Some(merchantRef)) =>
-                  formData.category.valueOpt match {
-                    case None => submit.fail(formData.category.errorMsg.getOrElse("Invalid category"))
-                    case Some(categorySelection) =>
-                      submit.begin()
-                      resolveCategory(categorySelection)
-                        .flatMap { categoryId =>
-                          resolveMerchant(merchantRef, categoryId).flatMap { case (mid, created) =>
-                            saveRule(merchantId = Some(mid), categoryId = categoryId).map(rule => (rule, created))
-                          }
-                        }
-                        .onComplete {
-                          case Success((rule, created)) => props.onSuccess(rule, created)
-                          case Failure(ex) => submit.fail(ex.getMessage)
-                        }
-                  }
+            case BankRowRuleFormData.Resolved.SetMerchant(
+                  pattern,
+                  amount,
+                  description,
+                  merchantSelection,
+                  categorySelection
+                ) =>
+              resolveCategoryOpt(categorySelection).flatMap { categoryId =>
+                resolveMerchant(merchantSelection, categoryId).flatMap { case (merchantId, created) =>
+                  saveRule(
+                    ImportRuleAction.SetMerchant(merchantId, categoryId = categoryId, description = description),
+                    pattern,
+                    amount
+                  ).map(rule => (rule, created))
+                }
               }
-
-            case ImportRuleActionKind.SetCategory =>
-              formData.category.valueOpt match {
-                case None => submit.fail(formData.category.errorMsg.getOrElse("Invalid category"))
-                case Some(None) => submit.fail("Category is required")
-                case Some(categoryRef @ Some(_)) =>
-                  submit.begin()
-                  resolveCategory(categoryRef)
-                    .flatMap {
-                      case None => Future.failed(new IllegalArgumentException("Category is required"))
-                      case Some(cid) => saveRule(merchantId = None, categoryId = Some(cid))
-                    }
-                    .onComplete {
-                      case Success(rule) => props.onSuccess(rule, None)
-                      case Failure(ex) => submit.fail(ex.getMessage)
-                    }
-              }
+          }
+          result.onComplete {
+            case Success((rule, created)) => props.onSuccess(rule, created)
+            case Failure(ex) => submit.fail(ex.getMessage)
           }
       }
 
-    def merchantAutocomplete: ReactElement =
-      (ExpMerchantAutocompleteInput
-        .component(
-          ExpMerchantAutocompleteInput.Props(
-            field = formData.merchant,
-            options = props.merchants,
-            label = "Merchant",
-            getOptionLabel = AutocompleteLabels.merchantOptionLabel,
-            selectExisting = value =>
-              (value: Any) match {
-                case m: GetMerchants.Response.Merchant => Some((m.id, m.name))
-                case _ => None
-              },
-            onChange = v => setFormData(cur => cur.copy(merchant = cur.merchant.updated(v))),
-            disabled = submit.isSubmitting,
-            fullWidth = false
-          )
-        )
-        .withKey("m"): ReactElement)
+    def updatePattern(value: ValidationResult[ExpRulePattern]): Unit =
+      setFormData(cur => cur.withPattern(cur.pattern.updated(value)))
 
-    def categoryAutocomplete: ReactElement =
-      (ExpCategoryAutocompleteInput
-        .component(
-          ExpCategoryAutocompleteInput.Props(
-            field = formData.category,
-            options = props.categories,
-            label = "Category",
-            getOptionLabel = AutocompleteLabels.categoryOptionLabel,
-            selectExisting = value =>
-              (value: Any) match {
-                case c: GetCategories.Response.Category => Some((c.id, c.name))
-                case _ => None
-              },
-            onChange = v => setFormData(cur => cur.copy(category = cur.category.updated(v))),
-            disabled = submit.isSubmitting,
-            fullWidth = false
-          )
-        )
-        .withKey("c"): ReactElement)
+    def updateAmount(value: ValidationResult[Option[ExpRuleAmount]]): Unit =
+      setFormData(cur => cur.withAmount(cur.amount.updated(value)))
+
+    def updateDescription(value: ValidationResult[Option[ExpRuleDescription]]): Unit =
+      setFormData {
+        case fd: BankRowRuleFormData.SetMerchant => fd.copy(description = fd.description.updated(value))
+        case fd: BankRowRuleFormData.SetCategory => fd.copy(description = fd.description.updated(value))
+        case other => other
+      }
+
+    def updateMerchant(value: ValidationResult[Option[ExpSelection[MerchantName, UUID]]]): Unit =
+      setFormData {
+        case fd: BankRowRuleFormData.SetMerchant => fd.copy(merchant = fd.merchant.updated(value))
+        case other => other
+      }
+
+    def updateCategory(value: ValidationResult[Option[ExpSelection[CategoryName, UUID]]]): Unit =
+      setFormData {
+        case fd: BankRowRuleFormData.SetMerchant => fd.copy(category = fd.category.updated(value))
+        case fd: BankRowRuleFormData.SetCategory => fd.copy(category = fd.category.updated(value))
+        case other => other
+      }
 
     val actionItems =
       Seq(ImportRuleActionKind.SetMerchant, ImportRuleActionKind.SetCategory, ImportRuleActionKind.Ignore).map { a =>
@@ -268,16 +196,70 @@ object BankRowRuleForm {
         mui.MenuItem.normal()(label).value(a.entryName).withKey(a.entryName).build
       }
 
-    def descriptionField: ReactElement =
-      mui.TextField
-        .outlined()
-        .label("Description")
-        .size("small")
-        .value(formData.description)
-        .disabled(submit.isSubmitting)
-        .helperText("Used as the notes of the created record; leave blank to use the row description")
-        .onChange(e => setFormData(cur => cur.copy(description = e.target.asInstanceOf[dom.HTMLInputElement].value)))
-        .withKey("d")
+    def patternInput: ReactElement =
+      ExpRulePatternInput.component(
+        ExpRulePatternInput.Props(field = formData.pattern, disabled = submit.isSubmitting, onChange = updatePattern)
+      )
+
+    def amountInput: ReactElement =
+      ExpRuleAmountInput.component(
+        ExpRuleAmountInput.Props(field = formData.amount, disabled = submit.isSubmitting, onChange = updateAmount)
+      )
+
+    def descriptionInput(field: FormField[Option[ExpRuleDescription]]): ReactElement =
+      (ExpRuleDescriptionInput
+        .component(
+          ExpRuleDescriptionInput.Props(field = field, disabled = submit.isSubmitting, onChange = updateDescription)
+        )
+        .withKey("description"): ReactElement)
+
+    def merchantAutocomplete(field: FormField[Option[ExpSelection[MerchantName, UUID]]]): ReactElement =
+      (ExpMerchantAutocompleteInput
+        .component(
+          ExpMerchantAutocompleteInput.Props(
+            field = field,
+            options = props.merchants,
+            label = "Merchant",
+            getOptionLabel = AutocompleteLabels.merchantOptionLabel,
+            selectExisting = value =>
+              (value: Any) match {
+                case m: GetMerchants.Response.Merchant => Some((m.id, m.name))
+                case _ => None
+              },
+            onChange = updateMerchant,
+            disabled = submit.isSubmitting,
+            fullWidth = false
+          )
+        )
+        .withKey("merchant"): ReactElement)
+
+    def categoryAutocomplete(field: FormField[Option[ExpSelection[CategoryName, UUID]]]): ReactElement =
+      (ExpCategoryAutocompleteInput
+        .component(
+          ExpCategoryAutocompleteInput.Props(
+            field = field,
+            options = props.categories,
+            label = "Category",
+            getOptionLabel = AutocompleteLabels.categoryOptionLabel,
+            selectExisting = value =>
+              (value: Any) match {
+                case c: GetCategories.Response.Category => Some((c.id, c.name))
+                case _ => None
+              },
+            onChange = updateCategory,
+            disabled = submit.isSubmitting,
+            fullWidth = false
+          )
+        )
+        .withKey("category"): ReactElement)
+
+    val actionFields: ReactElement = formData match {
+      case fd: BankRowRuleFormData.SetMerchant =>
+        Fragment(merchantAutocomplete(fd.merchant), categoryAutocomplete(fd.category), descriptionInput(fd.description))
+      case fd: BankRowRuleFormData.SetCategory =>
+        Fragment(categoryAutocomplete(fd.category), descriptionInput(fd.description))
+      case _: BankRowRuleFormData.Ignore => Fragment()
+    }
 
     form(onSubmit := { e =>
       e.preventDefault()
@@ -299,34 +281,14 @@ object BankRowRuleForm {
           .disabled(submit.isSubmitting)
           .onChange(e =>
             setFormData(cur =>
-              cur.copy(actionKind =
-                ImportRuleActionKind.fromEntryName(e.target.asInstanceOf[dom.HTMLInputElement].value)
-              )
+              BankRowRuleFormData
+                .changeKind(cur, ImportRuleActionKind.fromEntryName(e.target.asInstanceOf[dom.HTMLInputElement].value))
             )
           )
           .sx(new CSSPropertiesUtils { minWidth = "160px"; alignSelf = "flex-start" })(actionItems*),
-        mui.TextField
-          .outlined()
-          .label("Pattern")
-          .size("small")
-          .value(formData.pattern)
-          .disabled(submit.isSubmitting)
-          .onChange(e => setFormData(cur => cur.copy(pattern = e.target.asInstanceOf[dom.HTMLInputElement].value))),
-        mui.TextField
-          .outlined()
-          .label("Amount")
-          .size("small")
-          .value(formData.amountText)
-          .disabled(submit.isSubmitting)
-          .helperText("Rows with this amount (either sign) match; leave blank to match any amount")
-          .onChange(e => setFormData(cur => cur.copy(amountText = e.target.asInstanceOf[dom.HTMLInputElement].value))),
-        formData.actionKind match {
-          case ImportRuleActionKind.SetMerchant =>
-            Fragment(merchantAutocomplete, categoryAutocomplete, descriptionField)
-          case ImportRuleActionKind.SetCategory =>
-            Fragment(categoryAutocomplete, descriptionField)
-          case ImportRuleActionKind.Ignore => Fragment()
-        },
+        patternInput,
+        amountInput,
+        actionFields,
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
           (mui.Button
             .normal()(if (submit.isSubmitting) "Saving…" else "Save rule")

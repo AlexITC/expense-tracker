@@ -4,7 +4,7 @@ import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.common.models.{CategoryName, MerchantName}
 import net.wiringbits.ui.components.core.widgets.{ExpValidatedAutocompleteInput, ValidatedTextInput}
-import net.wiringbits.ui.forms.ExpPositiveAmount
+import net.wiringbits.ui.forms.{ExpPositiveAmount, ExpRuleAmount, ExpRuleDescription, ExpRulePattern}
 
 import java.util.UUID
 
@@ -12,6 +12,12 @@ import java.util.UUID
   * built on the same stack as the existing text inputs in [[inputs]].
   */
 object ExpPositiveAmountInput extends ValidatedTextInput[Option[ExpPositiveAmount]]
+
+object ExpRulePatternInput extends ValidatedTextInput[ExpRulePattern]
+
+object ExpRuleAmountInput extends ValidatedTextInput[Option[ExpRuleAmount]]
+
+object ExpRuleDescriptionInput extends ValidatedTextInput[Option[ExpRuleDescription]]
 
 object ExpMerchantAutocompleteInput
     extends ExpValidatedAutocompleteInput[GetMerchants.Response.Merchant, MerchantName, UUID]
