@@ -4,42 +4,58 @@ import net.wiringbits.api.models.bankstatements.GetBankStatement
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.common.models.{CategoryName, MerchantName}
-import net.wiringbits.ui.forms.{ExistingOrNewValue, ExistingSelections, ExpLocalDate, PositiveBigDecimal}
+import net.wiringbits.ui.forms.{
+  ExistingOrNewValue,
+  ExistingSelections,
+  ExpLocalDate,
+  ExpNotes,
+  ExpRulePattern,
+  PositiveBigDecimal
+}
 import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.forms.{FormData, FormField}
 
 import java.time.LocalDate
 import java.util.UUID
 
-/** The "new expense" form of a bank statement row: a required positive amount, date and category, free-text notes, an
-  * optional merchant, plus the rule/receipt choices. Resolving or creating the selections stays a side effect of the
-  * component.
+/** The "new expense" form of a bank statement row: a required positive amount, date and category, optional validated
+  * notes, an optional merchant, plus the rule/receipt choices. Resolving or creating the selections stays a side effect
+  * of the component.
+  *
+  * The rule pattern is optional (blank means no rule) and validated live, but it only gates the form, and only
+  * resolves, while its input is on screen (`rulePatternShown`, derived by the component from the merchant alias / the
+  * active category-rule opt-in): a row description too short or too long to be a pattern must not block an expense when
+  * no rule input is shown, and a hidden pattern never creates a rule.
   */
 case class BankRowExpenseFormData(
     amount: FormField[PositiveBigDecimal],
     date: FormField[ExpLocalDate],
-    notes: String,
+    notes: FormField[Option[ExpNotes]],
     merchant: FormField[Option[ExistingOrNewValue[MerchantName, UUID]]],
     category: FormField[ExistingOrNewValue[CategoryName, UUID]],
-    rulePattern: String,
+    rulePattern: FormField[Option[ExpRulePattern]],
     categoryRuleOptIn: Boolean,
-    receiptId: Option[UUID]
+    receiptId: Option[UUID],
+    rulePatternShown: Boolean = false
 ) extends FormData[BankRowExpenseFormData.Resolved] {
-  override def fields: List[FormField[?]] = List(amount, date, merchant, category)
+  override def fields: List[FormField[?]] = List(amount, date, notes, merchant, category) ++
+    Option.when(rulePatternShown)(rulePattern)
 
   override def submitRequest: Option[BankRowExpenseFormData.Resolved] =
     for {
       a <- amount.valueOpt
       d <- date.valueOpt
+      n <- notes.valueOpt
       m <- merchant.valueOpt
       c <- category.valueOpt
+      p <- if (rulePatternShown) rulePattern.valueOpt else Some(None)
     } yield BankRowExpenseFormData.Resolved(
       amount = a.value,
       date = d.value,
-      notes = Some(notes).filter(_.nonEmpty),
+      notes = n.map(_.string),
       merchant = m,
       category = c,
-      rulePattern = rulePattern,
+      rulePattern = p.map(_.string),
       categoryRuleOptIn = categoryRuleOptIn,
       receiptId = receiptId
     )
@@ -115,7 +131,7 @@ object BankRowExpenseFormData {
       notes: Option[String],
       merchant: Option[ExistingOrNewValue[MerchantName, UUID]],
       category: ExistingOrNewValue[CategoryName, UUID],
-      rulePattern: String,
+      rulePattern: Option[String],
       categoryRuleOptIn: Boolean,
       receiptId: Option[UUID]
   )
@@ -155,7 +171,12 @@ object BankRowExpenseFormData {
         required = true,
         value = Some(ExpLocalDate.validate(row.date.toString))
       ),
-      notes = notes,
+      notes = new FormField(
+        label = "Notes",
+        name = "notes",
+        required = false,
+        value = Some(ExpNotes.optionalValidator(notes))
+      ),
       merchant = new FormField(
         label = "Merchant",
         name = "merchant",
@@ -168,7 +189,12 @@ object BankRowExpenseFormData {
         required = true,
         value = initialCategory.map(ExistingSelections.category)
       ),
-      rulePattern = row.description,
+      rulePattern = new FormField(
+        label = "Rule pattern",
+        name = "rulePattern",
+        required = false,
+        value = Some(ExpRulePattern.optionalValidator(row.description))
+      ),
       categoryRuleOptIn = false,
       receiptId = None
     )

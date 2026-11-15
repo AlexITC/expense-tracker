@@ -16,13 +16,14 @@ import net.wiringbits.ui.components.inputs.{
   AmountInput,
   CategoryAutocompleteInput,
   DateInput,
-  OptionalMerchantAutocompleteInput
+  OptionalMerchantAutocompleteInput,
+  OptionalNotesInput,
+  OptionalRulePatternInput
 }
-import net.wiringbits.ui.forms.{ExistingOrNewValue, ExpLocalDate, PositiveBigDecimal, SubmitHooks}
+import net.wiringbits.ui.forms.{ExistingOrNewValue, ExpLocalDate, ExpRulePattern, PositiveBigDecimal, SubmitHooks}
 import net.wiringbits.utils.ReceiptFileViewer
 import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
-import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 import slinky.web.html.{form, label, onSubmit}
@@ -126,16 +127,19 @@ object BankRowCreateExpenseForm {
         else RuleHint.NeedsAlias
     }
 
-  /** The alias pattern worth storing: blank means no rule, an alias too short to ever match is useless, and an alias
-    * equal to the merchant name (once normalized) is redundant because merchant names already match implicitly.
+  /** The alias pattern worth storing: no pattern means no rule, an alias too short to ever match is useless, and an
+    * alias equal to the merchant name (once normalized) is redundant because merchant names already match implicitly.
     */
-  def aliasToCreate(pattern: String, merchantName: String): Option[String] = {
-    val trimmed = pattern.trim
-    val normalized = ImportRuleMatcher.normalize(trimmed)
-    Option.when(
-      normalized.length >= ImportRuleMatcher.MinPatternLength && normalized != ImportRuleMatcher.normalize(merchantName)
-    )(trimmed)
-  }
+  def aliasToCreate(pattern: Option[String], merchantName: String): Option[String] =
+    pattern.flatMap { p =>
+      val trimmed = p.trim
+      val normalized = ImportRuleMatcher.normalize(trimmed)
+      Option.when(
+        normalized.length >= ImportRuleMatcher.MinPatternLength && normalized != ImportRuleMatcher.normalize(
+          merchantName
+        )
+      )(trimmed)
+    }
 
   /** The SetCategory rule pattern to store after confirming a row with a category but no merchant: only when the user
     * opted in and no explicit rule already covers the row, subject to the same length check as merchant aliases.
@@ -145,7 +149,7 @@ object BankRowCreateExpenseForm {
       merchantName: String,
       categoryIdOpt: Option[UUID],
       optIn: Boolean,
-      pattern: String
+      pattern: Option[String]
   ): Option[String] =
     if (optIn && merchantName.isEmpty && categoryIdOpt.isDefined && hint == RuleHint.NeedsAlias)
       aliasToCreate(pattern = pattern, merchantName = "")
@@ -158,7 +162,7 @@ object BankRowCreateExpenseForm {
       initialSelection(props.row, props.ruleList, props.merchants, props.categories, props.aiSuggestion)
     val initCategory = initCategoryIdOpt.flatMap(cid => props.categories.find(_.id == cid))
 
-    val (formData, setFormData) = Hooks.useState {
+    val (storedFormData, setFormData) = Hooks.useState {
       val initVerdict = rowVerdict(props.row, props.ruleList, props.merchants)
       BankRowExpenseFormData.initial(
         row = props.row,
@@ -175,13 +179,20 @@ object BankRowCreateExpenseForm {
     // Set once the expense exists but its alias rule failed: the form stays open only to show that error.
     val (savedExpenseId, setSavedExpenseId) = Hooks.useState[Option[UUID]](None)
 
-    val merchantIdOpt = formData.merchantIdOpt
+    val merchantIdOpt = storedFormData.merchantIdOpt
     val merchantName =
-      formData.merchant.valueOpt.flatten.map(_.value.string).getOrElse(formData.merchant.inputValue.trim)
-    val categoryIdOpt = formData.category.valueOpt.flatMap(_.id)
-    val categoryInput = formData.category.inputValue.trim
+      storedFormData.merchant.valueOpt.flatten
+        .map(_.value.string)
+        .getOrElse(storedFormData.merchant.inputValue.trim)
+    val categoryIdOpt = storedFormData.category.valueOpt.flatMap(_.id)
+    val categoryInput = storedFormData.category.inputValue.trim
     val hint = ruleHint(props.row, props.ruleList, merchantName)
     val showCategoryRuleOption = merchantName.isEmpty && categoryInput.nonEmpty && hint == RuleHint.NeedsAlias
+    // The pattern only validates/resolves while its input is on screen: the merchant alias, or the active opt-in.
+    val formData = storedFormData.copy(rulePatternShown =
+      (merchantName.nonEmpty && hint == RuleHint.NeedsAlias) ||
+        (showCategoryRuleOption && storedFormData.categoryRuleOptIn)
+    )
 
     // A suggestion can arrive (via polling) after the form was opened blank; apply it only while the
     // merchant/category fields are still untouched so user edits are never overwritten.
@@ -336,8 +347,8 @@ object BankRowCreateExpenseForm {
     def updateCategory(value: ValidationResult[ExistingOrNewValue[CategoryName, UUID]]): Unit =
       setFormData(cur => cur.copy(category = cur.category.updated(value)))
 
-    def updateRulePattern(text: String): Unit =
-      setFormData(cur => cur.copy(rulePattern = text))
+    def updateRulePattern(value: ValidationResult[Option[ExpRulePattern]]): Unit =
+      setFormData(cur => cur.copy(rulePattern = cur.rulePattern.updated(value)))
 
     val rankedReceipts = rankReceipts(receipts)
     val receiptSuggestStyling = new CSSPropertiesUtils { fontSize = "0.8em"; color = "#555" }
@@ -351,6 +362,18 @@ object BankRowCreateExpenseForm {
       decidedReceiptIds
     )
     val hintStyling = new CSSPropertiesUtils { fontSize = "13px"; color = "var(--lc-text-2)" }
+
+    def rulePatternInput(hintText: String): ReactElement =
+      Fragment(
+        OptionalRulePatternInput.component(
+          OptionalRulePatternInput.Props(
+            field = formData.rulePattern,
+            disabled = submit.isSubmitting,
+            onChange = updateRulePattern
+          )
+        ),
+        mui.Typography(hintText).sx(hintStyling)
+      )
 
     form(onSubmit := { e =>
       e.preventDefault()
@@ -377,16 +400,14 @@ object BankRowCreateExpenseForm {
             )
           )
         ),
-        mui.TextField
-          .outlined()
-          .label("Notes")
-          .size("small")
-          .value(formData.notes)
-          .disabled(submit.isSubmitting)
-          .onChange { e =>
-            val text = e.target.asInstanceOf[dom.HTMLInputElement].value
-            setFormData(cur => cur.copy(notes = text))
-          },
+        (OptionalNotesInput
+          .component(
+            OptionalNotesInput.Props(
+              field = formData.notes,
+              disabled = submit.isSubmitting,
+              onChange = v => setFormData(cur => cur.copy(notes = cur.notes.updated(v)))
+            )
+          ): ReactElement),
         (OptionalMerchantAutocompleteInput
           .component(
             OptionalMerchantAutocompleteInput.Props(
@@ -421,13 +442,7 @@ object BankRowCreateExpenseForm {
                 .Typography(s"Future rows matching \"$merchantName\" are matched automatically")
                 .sx(hintStyling)
             case RuleHint.NeedsAlias =>
-              mui.TextField
-                .outlined()
-                .label("Rule pattern")
-                .size("small")
-                .value(formData.rulePattern)
-                .helperText("Future rows containing this text get this merchant. Leave blank for no rule.")
-                .onChange(e => updateRulePattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
+              rulePatternInput("Future rows containing this text get this merchant. Leave blank for no rule.")
           },
         if (showCategoryRuleOption)
           mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "8px" })(
@@ -441,13 +456,7 @@ object BankRowCreateExpenseForm {
               )
             ),
             if (formData.categoryRuleOptIn)
-              mui.TextField
-                .outlined()
-                .label("Rule pattern")
-                .size("small")
-                .value(formData.rulePattern)
-                .helperText("Future rows containing this text get this category.")
-                .onChange(e => updateRulePattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
+              rulePatternInput("Future rows containing this text get this category. Leave blank for no rule.")
             else Fragment()
           )
         else Fragment(),

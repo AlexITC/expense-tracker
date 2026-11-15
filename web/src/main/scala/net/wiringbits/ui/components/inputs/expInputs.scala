@@ -43,6 +43,8 @@ object OptionalIdSelectInput extends ValidatedSelectInput[Option[UUID]](using Ex
 
 object RulePatternInput extends ValidatedTextInput[ExpRulePattern]
 
+object OptionalRulePatternInput extends ValidatedTextInput[Option[ExpRulePattern]]
+
 object RuleAmountInput extends ValidatedTextInput[Option[ExpRuleAmount]]
 
 object RuleDescriptionInput extends ValidatedTextInput[Option[ExpRuleDescription]]
