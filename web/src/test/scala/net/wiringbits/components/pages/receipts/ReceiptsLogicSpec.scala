@@ -5,7 +5,9 @@ import net.wiringbits.api.models.documents.DocumentStatus
 import net.wiringbits.api.models.merchants.{GetMerchants, ImportRuleAction}
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.ImportRuleMatcher
+import net.wiringbits.common.models.MerchantName
 import net.wiringbits.forms.ReceiptConfirmFormData
+import net.wiringbits.ui.forms.ExistingOrNewValue
 import net.wiringbits.components.pages.receipts.ReceiptsLogic.{BatchState, ReceiptMode, ResolvedMerchant}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
@@ -96,10 +98,10 @@ class ReceiptsLogicSpec extends AnyWordSpec {
     }
 
     "edit the form only while confirming" in {
-      ReceiptMode.Confirming(id, form).withForm(_.copy(notes = "x")) mustBe
-        ReceiptMode.Confirming(id, form.copy(notes = "x"))
-      ReceiptMode.Viewing(Some(id)).withForm(_.copy(notes = "x")) mustBe ReceiptMode.Viewing(Some(id))
-      ReceiptMode.Linking(id).withForm(_.copy(notes = "x")) mustBe ReceiptMode.Linking(id)
+      ReceiptMode.Confirming(id, form).withForm(_.copy(rowId = Some(id))) mustBe
+        ReceiptMode.Confirming(id, form.copy(rowId = Some(id)))
+      ReceiptMode.Viewing(Some(id)).withForm(_.copy(rowId = Some(id))) mustBe ReceiptMode.Viewing(Some(id))
+      ReceiptMode.Linking(id).withForm(_.copy(rowId = Some(id))) mustBe ReceiptMode.Linking(id)
     }
 
     "return to viewing when the confirmed receipt is still being confirmed" in {
@@ -192,6 +194,30 @@ class ReceiptsLogicSpec extends AnyWordSpec {
     "give a batch-confirmed expense no notes for a tax-id match" in {
       val resolved = ReceiptsLogic.resolveMerchant(receipt(taxId = Some("TAX1")), merchants, List(overrideRule))
       ReceiptsLogic.batchNotes(resolved) mustBe None
+    }
+  }
+
+  "knownMerchantId" should {
+    val acme =
+      GetMerchants.Response.Merchant(UUID.randomUUID(), "Acme", None, None, None, reviewed = true, Instant.EPOCH)
+    val merchants = List(acme)
+    def selection(name: String, id: Option[UUID]) = Some(ExistingOrNewValue(MerchantName.trusted(name), id))
+
+    "use the picked id" in {
+      val picked = UUID.randomUUID()
+      ReceiptsLogic.knownMerchantId(selection("Acme", Some(picked)), merchants) mustBe Some(picked)
+    }
+
+    "match a typed name to an existing merchant ignoring case" in {
+      ReceiptsLogic.knownMerchantId(selection("aCME", None), merchants) mustBe Some(acme.id)
+    }
+
+    "be None for a new name with no match" in {
+      ReceiptsLogic.knownMerchantId(selection("New shop", None), merchants) mustBe None
+    }
+
+    "be None for a blank selection" in {
+      ReceiptsLogic.knownMerchantId(None, merchants) mustBe None
     }
   }
 
