@@ -3,7 +3,7 @@ package net.wiringbits.forms
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.common.models.{CategoryName, MerchantName}
-import net.wiringbits.ui.forms.{ExistingOrNewValue, ExistingSelections}
+import net.wiringbits.ui.forms.{ExistingOrNewValue, ExistingSelections, ExpNotes}
 import net.wiringbits.webapp.common.validators.ValidationResult
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
@@ -37,7 +37,7 @@ class BulkExpenseFormDataSpec extends AnyWordSpec {
     }
 
     "resolve a category-only form with no merchant and blank notes as None" in {
-      withFood.copy(notes = "   ").submitRequest must be(
+      withFood.copy(notes = withFood.notes.updated(ExpNotes.optionalValidator("   "))).submitRequest must be(
         Some(BulkExpenseFormData.Resolved(merchant = None, category = foodSelection, notes = None))
       )
     }
@@ -45,7 +45,7 @@ class BulkExpenseFormDataSpec extends AnyWordSpec {
     "resolve the merchant and trimmed notes" in {
       val form = withFood.copy(
         merchant = withFood.merchant.updated(ValidationResult.Valid("Store", Some(storeSelection))),
-        notes = " monthly "
+        notes = withFood.notes.updated(ExpNotes.optionalValidator(" monthly "))
       )
       form.isValid must be(true)
       form.submitRequest must be(
@@ -61,6 +61,12 @@ class BulkExpenseFormDataSpec extends AnyWordSpec {
 
     "be None for an invalid typed category name" in {
       val form = blank.copy(category = blank.category.updated(ExistingSelections.newCategory("x" * 500)))
+      form.isValid must be(false)
+      form.submitRequest must be(None)
+    }
+
+    "be None for over-limit notes" in {
+      val form = withFood.copy(notes = withFood.notes.updated(ExpNotes.optionalValidator("x" * 501)))
       form.isValid must be(false)
       form.submitRequest must be(None)
     }

@@ -11,7 +11,11 @@ import net.wiringbits.components.widgets.Loader
 import net.wiringbits.core.SafeHooks
 import net.wiringbits.forms.BulkExpenseFormData
 import net.wiringbits.models.User
-import net.wiringbits.ui.components.inputs.{CategoryAutocompleteInput, OptionalMerchantAutocompleteInput}
+import net.wiringbits.ui.components.inputs.{
+  CategoryAutocompleteInput,
+  OptionalMerchantAutocompleteInput,
+  OptionalNotesInput
+}
 import net.wiringbits.ui.forms.{ExistingOrNewValue, SubmitHooks}
 import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -466,16 +470,14 @@ object BulkExpenseCreationContent {
                   disabled = saving
                 )
               ): ReactElement),
-            mui.TextField
-              .outlined()
-              .label("Notes (applied to all)")
-              .size("small")
-              .value(formData.notes)
-              .disabled(saving)
-              .onChange { e =>
-                val text = e.target.asInstanceOf[dom.HTMLInputElement].value
-                setFormData(cur => cur.copy(notes = text))
-              },
+            (OptionalNotesInput
+              .component(
+                OptionalNotesInput.Props(
+                  field = formData.notes,
+                  disabled = saving,
+                  onChange = v => setFormData(cur => cur.copy(notes = cur.notes.updated(v)))
+                )
+              ): ReactElement),
             mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
               mui.Button
                 .normal()(if (saving) "Processing…" else s"Import ${effectiveSelected.size} selected")
