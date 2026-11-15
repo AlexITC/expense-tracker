@@ -202,7 +202,7 @@ class SubscriptionsRepository @Inject() (database: Database)(implicit
   }
 
   def earliestExpenseDateForMerchant(userId: UUID, merchantId: UUID): Future[Option[LocalDate]] = Future {
-    database.withConnection { implicit conn =>
+    database.withTransaction { implicit conn =>
       if (MerchantDAO.find(id = merchantId, userId = userId).isEmpty)
         throw new RuntimeException("Merchant not found")
       ExpenseDAO.earliestDateForMerchant(userId = userId, merchantId = merchantId)
