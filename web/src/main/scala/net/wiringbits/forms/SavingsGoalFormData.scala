@@ -3,7 +3,6 @@ package net.wiringbits.forms
 import net.wiringbits.api.models.savings.{CreateSavingsGoal, UpdateSavingsGoal}
 import net.wiringbits.common.models.SavingsGoalName
 import net.wiringbits.ui.forms.ExpPositiveAmount
-import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.forms.{FormData, FormField}
 
 case class SavingsGoalFormData(
@@ -41,10 +40,7 @@ object SavingsGoalFormData {
         label = TargetLabel,
         name = "targetAmount",
         required = false,
-        value = Some(targetAmount match {
-          case Some(amount) => ValidationResult.Valid(amount.toString, Some(ExpPositiveAmount.trusted(amount)))
-          case None => ValidationResult.Valid("", None)
-        })
+        value = Some(ExpPositiveAmount.optionalValidator(targetAmount.map(_.toString).getOrElse("")))
       )
     )
 }

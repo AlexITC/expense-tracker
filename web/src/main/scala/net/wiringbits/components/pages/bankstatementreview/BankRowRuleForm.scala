@@ -17,7 +17,7 @@ import net.wiringbits.api.models.merchants.{
 import net.wiringbits.api.utils.ImportRuleMatcher
 import net.wiringbits.forms.BankRowRuleFormData
 import net.wiringbits.ui.components.inputs.{ExpCategoryAutocompleteInput, ExpMerchantAutocompleteInput}
-import net.wiringbits.ui.forms.{ExpEntityRef, SubmitHooks}
+import net.wiringbits.ui.forms.{ExpSelection, SubmitHooks}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
@@ -117,11 +117,11 @@ object BankRowRuleForm {
     // Resolving a selection to an id is a side effect kept out of the form model: an existing selection is already an
     // id, a new one is matched against the loaded rows by name and only created when it is genuinely new. The created
     // value is an already-valid primitive from the field, so nothing is parsed here.
-    def resolveCategory(selection: Option[ExpEntityRef[CategoryName]]): Future[Option[UUID]] =
+    def resolveCategory(selection: Option[ExpSelection[CategoryName, UUID]]): Future[Option[UUID]] =
       selection match {
         case None => Future.successful(None)
-        case Some(ExpEntityRef(_, Some(id))) => Future.successful(Some(id))
-        case Some(ExpEntityRef(name, None)) =>
+        case Some(ExpSelection(_, Some(id))) => Future.successful(Some(id))
+        case Some(ExpSelection(name, None)) =>
           props.categories.find(_.name.equalsIgnoreCase(name.string)) match {
             case Some(existing) => Future.successful(Some(existing.id))
             case None =>
@@ -132,7 +132,7 @@ object BankRowRuleForm {
       }
 
     def resolveMerchant(
-        selection: ExpEntityRef[MerchantName],
+        selection: ExpSelection[MerchantName, UUID],
         categoryId: Option[UUID]
     ): Future[(UUID, Option[GetMerchants.Response.Merchant])] =
       selection.id match {
