@@ -220,28 +220,6 @@ class BankRowCreateExpenseFormSpec extends AnyWordSpec {
     }
   }
 
-  "isPristine" should {
-    "be true for the untouched blank form" in {
-      BankRowCreateExpenseForm.isPristine(row, None, row.description, None, "") mustBe true
-    }
-
-    "be false once a merchant is selected" in {
-      BankRowCreateExpenseForm.isPristine(row, Some(oxxo.id), row.description, None, "") mustBe false
-    }
-
-    "be false once the merchant text is edited" in {
-      BankRowCreateExpenseForm.isPristine(row, None, "OXXO", None, "") mustBe false
-    }
-
-    "be false once a category is selected" in {
-      BankRowCreateExpenseForm.isPristine(row, None, row.description, Some(groceries.id), "") mustBe false
-    }
-
-    "be false once the category text is edited" in {
-      BankRowCreateExpenseForm.isPristine(row, None, row.description, None, "Gro") mustBe false
-    }
-  }
-
   "ruleHint" should {
     "return CoveredByRule when an explicit rule matches, even if the name also matches" in {
       val aliasRule =

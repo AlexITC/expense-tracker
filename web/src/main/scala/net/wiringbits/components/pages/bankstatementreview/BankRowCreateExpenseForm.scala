@@ -1,38 +1,38 @@
 package net.wiringbits.components.pages.bankstatementreview
 
-import net.wiringbits.common.models.MerchantName
-import net.wiringbits.components.pages.{AutocompleteLabels, CategoryResolver}
+import net.wiringbits.common.models.{CategoryName, MerchantName}
+import net.wiringbits.components.pages.{AutocompleteLabels, CategoryResolver, MerchantResolver}
 
-import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, CreateExpenseFromRow, GetBankStatement}
 import net.wiringbits.api.models.categories.GetCategories
-import net.wiringbits.api.models.merchants.{CreateImportRule, CreateMerchant, GetMerchants, ImportRuleAction}
+import net.wiringbits.api.models.merchants.{CreateImportRule, GetMerchants, ImportRuleAction}
 import net.wiringbits.api.models.receipts.GetReceipts
 import net.wiringbits.api.utils.{ImportRuleMatcher, RowRuleVerdict}
 import net.wiringbits.core.SafeHooks
-import net.wiringbits.ui.forms.SubmitHooks
+import net.wiringbits.forms.BankRowExpenseFormData
+import net.wiringbits.ui.components.inputs.{
+  AmountInput,
+  CategoryAutocompleteInput,
+  DateInput,
+  OptionalMerchantAutocompleteInput
+}
+import net.wiringbits.ui.forms.{ExistingOrNewValue, ExpLocalDate, PositiveBigDecimal, SubmitHooks}
 import net.wiringbits.utils.ReceiptFileViewer
+import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
-import net.wiringbits.webapp.utils.slinkyUtils.compat.MuiCompat
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 import slinky.web.html.{form, label, onSubmit}
 
-import java.time.{Instant, LocalDate}
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success}
 
 object BankRowCreateExpenseForm {
   def apply(props: Props): KeyAddingStage = component(props)
-
-  private def renderTextField(label: String)(params: AutocompleteRenderInputParams): ReactElement =
-    (mui.TextField.outlined
-      .withProps(MuiCompat.textFieldProps(params, label, size = Some("small")))
-      .withKey("tf"): ReactElement)
 
   case class Props(
       stmtId: UUID,
@@ -104,16 +104,6 @@ object BankRowCreateExpenseForm {
   def initialNotes(row: GetBankStatement.StatementRowData, verdict: RowRuleVerdict.Verdict): String =
     RowRuleVerdict.notes(verdict, row.description)
 
-  /** Whether the merchant/category fields still hold the values a blank form starts with (no rule/AI prefill). */
-  def isPristine(
-      row: GetBankStatement.StatementRowData,
-      merchantIdOpt: Option[UUID],
-      merchantInput: String,
-      categoryIdOpt: Option[UUID],
-      categoryInput: String
-  ): Boolean =
-    merchantIdOpt.isEmpty && merchantInput == row.description && categoryIdOpt.isEmpty && categoryInput.isEmpty
-
   enum RuleHint {
     case CoveredByRule(pattern: String)
     case MatchesByName
@@ -166,26 +156,18 @@ object BankRowCreateExpenseForm {
 
     val (initMerchant, initCategoryIdOpt) =
       initialSelection(props.row, props.ruleList, props.merchants, props.categories, props.aiSuggestion)
+    val initCategory = initCategoryIdOpt.flatMap(cid => props.categories.find(_.id == cid))
 
-    val initVerdict = rowVerdict(props.row, props.ruleList, props.merchants)
-    val initMerchantName = initMerchant.map(_.name).getOrElse(initialMerchantInput(props.row, initVerdict))
-    val initMerchantIdOpt = initMerchant.map(_.id)
-    val initCategoryName =
-      initCategoryIdOpt.flatMap(cid => props.categories.find(_.id == cid)).map(_.name).getOrElse("")
-
-    val (amount, setAmount) = Hooks.useState(props.row.amount.abs.toString)
-    val (date, setDate) = Hooks.useState(props.row.date.toString)
-    val (notes, setNotes) = Hooks.useState(initialNotes(props.row, initVerdict))
-
-    val (merchantInput, setMerchantInput) = Hooks.useState(initMerchantName)
-    val (merchantIdOpt, setMerchantIdOpt) = Hooks.useState[Option[UUID]](initMerchantIdOpt)
-
-    val (categoryInput, setCategoryInput) = Hooks.useState(initCategoryName)
-    val (categoryIdOpt, setCategoryIdOpt) = Hooks.useState[Option[UUID]](initCategoryIdOpt)
-
-    val (rulePattern, setRulePattern) = Hooks.useState(props.row.description)
-    val (categoryRuleOptIn, setCategoryRuleOptIn) = Hooks.useState(false)
-    val (receiptId, setReceiptId) = Hooks.useState[Option[UUID]](None)
+    val (formData, setFormData) = Hooks.useState {
+      val initVerdict = rowVerdict(props.row, props.ruleList, props.merchants)
+      BankRowExpenseFormData.initial(
+        row = props.row,
+        initialMerchant = initMerchant,
+        merchantInput = initialMerchantInput(props.row, initVerdict),
+        initialCategory = initCategory,
+        notes = initialNotes(props.row, initVerdict)
+      )
+    }
     val (receipts, setReceipts) = Hooks.useState[List[GetReceipts.Response.Receipt]](Nil)
     // Receipts whose merchant offer the user already accepted or declined.
     val (decidedReceiptIds, setDecidedReceiptIds) = Hooks.useState[Set[UUID]](Set.empty)
@@ -193,32 +175,19 @@ object BankRowCreateExpenseForm {
     // Set once the expense exists but its alias rule failed: the form stays open only to show that error.
     val (savedExpenseId, setSavedExpenseId) = Hooks.useState[Option[UUID]](None)
 
-    val merchantName = merchantInput.trim
+    val merchantIdOpt = formData.merchantIdOpt
+    val merchantName =
+      formData.merchant.valueOpt.flatten.map(_.value.string).getOrElse(formData.merchant.inputValue.trim)
+    val categoryIdOpt = formData.category.valueOpt.flatMap(_.id)
+    val categoryInput = formData.category.inputValue.trim
     val hint = ruleHint(props.row, props.ruleList, merchantName)
-    val showCategoryRuleOption = merchantName.isEmpty && categoryInput.trim.nonEmpty && hint == RuleHint.NeedsAlias
+    val showCategoryRuleOption = merchantName.isEmpty && categoryInput.nonEmpty && hint == RuleHint.NeedsAlias
 
     // A suggestion can arrive (via polling) after the form was opened blank; apply it only while the
     // merchant/category fields are still untouched so user edits are never overwritten.
     val aiSuggestionKey = props.aiSuggestion.map(s => s"${s.merchantId}|${s.categoryId}").getOrElse("")
     SafeHooks.useEffect(aiSuggestionKey)(() => {
-      if (
-        isPristine(
-          props.row,
-          merchantIdOpt = merchantIdOpt,
-          merchantInput = merchantInput,
-          categoryIdOpt = categoryIdOpt,
-          categoryInput = categoryInput
-        )
-      ) {
-        initMerchant.foreach { m =>
-          setMerchantInput(m.name)
-          setMerchantIdOpt(Some(m.id))
-        }
-        initCategoryIdOpt.foreach { cid =>
-          setCategoryIdOpt(Some(cid))
-          setCategoryInput(initCategoryName)
-        }
-      }
+      setFormData(cur => if (cur.isPristine(props.row)) cur.applySuggestion(initMerchant, initCategory) else cur)
     })
 
     SafeHooks.useEffect()(() => {
@@ -228,15 +197,6 @@ object BankRowCreateExpenseForm {
       }
       ()
     })
-
-    def selectMerchant(m: GetMerchants.Response.Merchant): Unit = {
-      setMerchantInput(m.name)
-      setMerchantIdOpt(Some(m.id))
-      m.categoryId.foreach { cid =>
-        setCategoryIdOpt(Some(cid))
-        props.categories.find(_.id == cid).foreach(c => setCategoryInput(c.name))
-      }
-    }
 
     def rankReceipts(receipts: List[GetReceipts.Response.Receipt]): List[(GetReceipts.Response.Receipt, Int)] = {
       val rowDesc = props.row.description.toLowerCase
@@ -270,69 +230,35 @@ object BankRowCreateExpenseForm {
     }
 
     def handleSubmit(): Unit =
-      (Try(BigDecimal(amount)).toOption, Try(LocalDate.parse(date)).toOption) match {
-        case (None, _) => submit.fail("Invalid amount")
-        case (_, None) => submit.fail("Invalid date")
-        case _ if categoryInput.trim.isEmpty => submit.fail("Choose a category")
-        case (Some(amt), Some(dt)) =>
+      formData.submitRequest match {
+        case None =>
+          submit.fail(formData.formValidationErrors.headOption.getOrElse("Please fix the highlighted fields"))
+        case Some(resolved) =>
           submit.begin()
-          val categoryName = categoryInput.trim
 
-          val fExpense: Future[(UUID, Option[UUID], Option[UUID])] = for {
+          val fExpense: Future[(UUID, Option[UUID], UUID)] = for {
             resolvedCategoryId <- CategoryResolver
-              .resolveOrCreateCategory(props.ctx.api.client, props.categories, categoryIdOpt, categoryName)
-              .map { case (id, _) => Some(id) }
-
-            resolvedMerchantId <- merchantName match {
-              case "" => Future.successful[Option[UUID]](None)
-              case _ =>
-                merchantIdOpt match {
-                  case Some(id) => Future.successful(Some(id))
-                  case None =>
-                    MerchantName
-                      .parse(merchantName)
-                      .fold(
-                        error => Future.failed[CreateMerchant.Response](new RuntimeException(error)),
-                        validName =>
-                          props.ctx.api.client
-                            .createMerchant(
-                              CreateMerchant.Request(
-                                name = validName,
-                                notes = None,
-                                categoryId = resolvedCategoryId,
-                                taxId = None
-                              )
-                            )
-                      )
-                      .map { r =>
-                        val m = GetMerchants.Response.Merchant(
-                          id = r.id,
-                          name = r.name,
-                          notes = None,
-                          categoryId = resolvedCategoryId,
-                          taxId = None,
-                          reviewed = false,
-                          createdAt = Instant.now()
-                        )
-                        props.onNewEntities(None, Some(m))
-                        // A retry after a later failure must reuse this merchant instead of creating another one.
-                        setMerchantIdOpt(Some(r.id))
-                        Some(r.id)
-                      }
-                }
+              .findOrCreateCategory(props.ctx.api.client, props.categories, resolved.category)
+            merchantResult <- MerchantResolver.findOrCreateMerchantOpt(
+              props.ctx.api.client,
+              props.merchants,
+              resolved.merchant,
+              Some(resolvedCategoryId)
+            )
+            resolvedMerchantId = merchantResult.map(_._1)
+            _ = merchantResult.flatMap(_._2).foreach { m =>
+              props.onNewEntities(None, Some(m))
+              // A retry after a later failure must reuse this merchant instead of creating another one.
+              setFormData(_.withResolvedMerchant(m.id))
             }
-
-            splits = resolvedCategoryId
-              .map(catId => List(CreateExpenseFromRow.Split(catId, amt)))
-              .getOrElse(Nil)
             req = CreateExpenseFromRow.Request(
-              amount = amt,
-              date = dt,
+              amount = resolved.amount,
+              date = resolved.date,
               time = None,
               merchantId = resolvedMerchantId,
-              notes = Some(notes).filter(_.nonEmpty),
-              splits = splits,
-              receiptId = receiptId
+              notes = resolved.notes,
+              splits = List(CreateExpenseFromRow.Split(resolvedCategoryId, resolved.amount)),
+              receiptId = resolved.receiptId
             )
             resp <- props.ctx.api.client.createExpenseFromRow(bankStatementId = props.stmtId, rowId = props.row.id, req)
           } yield (resp.expenseId, resolvedMerchantId, resolvedCategoryId)
@@ -341,18 +267,19 @@ object BankRowCreateExpenseForm {
             case Failure(ex) => submit.fail(ex.getMessage)
             case Success((expenseId, resolvedMerchantId, resolvedCategoryId)) =>
               val aliasOpt =
-                if (hint == RuleHint.NeedsAlias) aliasToCreate(pattern = rulePattern, merchantName = merchantName)
+                if (hint == RuleHint.NeedsAlias)
+                  aliasToCreate(pattern = resolved.rulePattern, merchantName = merchantName)
                 else None
               val categoryRuleOpt =
                 categoryRuleToCreate(
                   hint,
                   merchantName = merchantName,
-                  resolvedCategoryId,
-                  categoryRuleOptIn,
-                  pattern = rulePattern
+                  Some(resolvedCategoryId),
+                  resolved.categoryRuleOptIn,
+                  pattern = resolved.rulePattern
                 )
-              val ruleRequestOpt = (resolvedMerchantId, aliasOpt, resolvedCategoryId, categoryRuleOpt) match {
-                case (Some(mid), Some(alias), _, _) =>
+              val ruleRequestOpt = (resolvedMerchantId, aliasOpt, categoryRuleOpt) match {
+                case (Some(mid), Some(alias), _) =>
                   Some(
                     CreateImportRule.Request(
                       action = ImportRuleAction.SetMerchant(mid, categoryId = None, description = None),
@@ -360,10 +287,10 @@ object BankRowCreateExpenseForm {
                       amount = None
                     )
                   )
-                case (None, _, Some(catId), Some(pattern)) =>
+                case (None, _, Some(pattern)) =>
                   Some(
                     CreateImportRule.Request(
-                      action = ImportRuleAction.SetCategory(catId, description = None),
+                      action = ImportRuleAction.SetCategory(resolvedCategoryId, description = None),
                       pattern = pattern,
                       amount = None
                     )
@@ -397,41 +324,20 @@ object BankRowCreateExpenseForm {
           }
       }
 
-    val merchantAcProps = MuiCompat.freeSoloAutocompleteProps(
-      options = props.merchants,
-      renderInput = renderTextField("Merchant"),
-      inputValue = merchantInput,
-      getOptionLabel = AutocompleteLabels.merchantOptionLabel,
-      onSelect = value =>
-        (value: Any) match {
-          case m: GetMerchants.Response.Merchant => selectMerchant(m)
-          case _ => ()
-        },
-      onInput = (text, rsn) => {
-        setMerchantInput(text)
-        if (rsn != "reset") setMerchantIdOpt(None)
-      },
-      disabled = submit.isSubmitting,
-      fullWidth = true
-    )
+    def updateAmount(value: ValidationResult[PositiveBigDecimal]): Unit =
+      setFormData(cur => cur.copy(amount = cur.amount.updated(value)))
 
-    val categoryAcProps = MuiCompat.freeSoloAutocompleteProps(
-      options = props.categories,
-      renderInput = renderTextField("Category"),
-      inputValue = categoryInput,
-      getOptionLabel = AutocompleteLabels.categoryOptionLabel,
-      onSelect = value =>
-        (value: Any) match {
-          case c: GetCategories.Response.Category => setCategoryIdOpt(Some(c.id)); setCategoryInput(c.name)
-          case _ => ()
-        },
-      onInput = (text, rsn) => {
-        setCategoryInput(text)
-        if (rsn != "reset") setCategoryIdOpt(None)
-      },
-      disabled = submit.isSubmitting,
-      fullWidth = true
-    )
+    def updateDate(value: ValidationResult[ExpLocalDate]): Unit =
+      setFormData(cur => cur.copy(date = cur.date.updated(value)))
+
+    def updateMerchant(value: ValidationResult[Option[ExistingOrNewValue[MerchantName, UUID]]]): Unit =
+      setFormData(cur => cur.selectMerchant(value, props.merchants, props.categories))
+
+    def updateCategory(value: ValidationResult[ExistingOrNewValue[CategoryName, UUID]]): Unit =
+      setFormData(cur => cur.copy(category = cur.category.updated(value)))
+
+    def updateRulePattern(text: String): Unit =
+      setFormData(cur => cur.copy(rulePattern = text))
 
     val rankedReceipts = rankReceipts(receipts)
     val receiptSuggestStyling = new CSSPropertiesUtils { fontSize = "0.8em"; color = "#555" }
@@ -439,7 +345,7 @@ object BankRowCreateExpenseForm {
       fontSize = "0.8em"; color = "var(--lc-link)"; fontWeight = "bold"
     }
     val offer = BankStatementReviewLogic.receiptOffer(
-      receipts.find(r => receiptId.contains(r.id)),
+      receipts.find(r => formData.receiptId.contains(r.id)),
       merchantIdOpt,
       props.merchants,
       decidedReceiptIds
@@ -460,32 +366,47 @@ object BankRowCreateExpenseForm {
           case None => Fragment()
         },
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "12px" })(
-          mui.TextField
-            .outlined()
-            .label("Amount")
-            .size("small")
-            .value(amount)
-            .disabled(submit.isSubmitting)
-            .onChange(e => setAmount(e.target.asInstanceOf[dom.HTMLInputElement].value))
-            .sx(new CSSPropertiesUtils { flex = "1" }),
-          mui.TextField
-            .outlined()
-            .label("Date")
-            .size("small")
-            .value(date)
-            .disabled(submit.isSubmitting)
-            .onChange(e => setDate(e.target.asInstanceOf[dom.HTMLInputElement].value))
-            .sx(new CSSPropertiesUtils { flex = "1" })
+          mui.Box.sx(new CSSPropertiesUtils { flex = "1" })(
+            AmountInput.component(
+              AmountInput.Props(field = formData.amount, disabled = submit.isSubmitting, onChange = updateAmount)
+            )
+          ),
+          mui.Box.sx(new CSSPropertiesUtils { flex = "1" })(
+            DateInput.component(
+              DateInput.Props(field = formData.date, disabled = submit.isSubmitting, onChange = updateDate)
+            )
+          )
         ),
         mui.TextField
           .outlined()
           .label("Notes")
           .size("small")
-          .value(notes)
+          .value(formData.notes)
           .disabled(submit.isSubmitting)
-          .onChange(e => setNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
-        (mui.Autocomplete.withProps(merchantAcProps).withKey("merchant"): ReactElement),
-        (mui.Autocomplete.withProps(categoryAcProps).withKey("category"): ReactElement),
+          .onChange { e =>
+            val text = e.target.asInstanceOf[dom.HTMLInputElement].value
+            setFormData(cur => cur.copy(notes = text))
+          },
+        (OptionalMerchantAutocompleteInput
+          .component(
+            OptionalMerchantAutocompleteInput.Props(
+              field = formData.merchant,
+              options = props.merchants,
+              label = "Merchant",
+              onChange = updateMerchant,
+              disabled = submit.isSubmitting
+            )
+          ): ReactElement),
+        (CategoryAutocompleteInput
+          .component(
+            CategoryAutocompleteInput.Props(
+              field = formData.category,
+              options = props.categories,
+              label = "Category",
+              onChange = updateCategory,
+              disabled = submit.isSubmitting
+            )
+          ): ReactElement),
         AutocompleteLabels
           .categoryDescription(props.categories, categoryIdOpt)
           .map(d => mui.Typography(d).sx(hintStyling): ReactElement)
@@ -504,29 +425,29 @@ object BankRowCreateExpenseForm {
                 .outlined()
                 .label("Rule pattern")
                 .size("small")
-                .value(rulePattern)
+                .value(formData.rulePattern)
                 .helperText("Future rows containing this text get this merchant. Leave blank for no rule.")
-                .onChange(e => setRulePattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
+                .onChange(e => updateRulePattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
           },
         if (showCategoryRuleOption)
           mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "8px" })(
             label(
               mui.Box.sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; cursor = "pointer" })(
                 mui.Checkbox
-                  .checked(categoryRuleOptIn)
+                  .checked(formData.categoryRuleOptIn)
                   .size("small")
-                  .onChange((_, checked) => setCategoryRuleOptIn(checked)),
-                mui.Typography(s"Also categorize similar rows as ${categoryInput.trim}").sx(hintStyling)
+                  .onChange((_, checked) => setFormData(cur => cur.copy(categoryRuleOptIn = checked))),
+                mui.Typography(s"Also categorize similar rows as $categoryInput").sx(hintStyling)
               )
             ),
-            if (categoryRuleOptIn)
+            if (formData.categoryRuleOptIn)
               mui.TextField
                 .outlined()
                 .label("Rule pattern")
                 .size("small")
-                .value(rulePattern)
+                .value(formData.rulePattern)
                 .helperText("Future rows containing this text get this category.")
-                .onChange(e => setRulePattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
+                .onChange(e => updateRulePattern(e.target.asInstanceOf[dom.HTMLInputElement].value))
             else Fragment()
           )
         else Fragment(),
@@ -535,7 +456,7 @@ object BankRowCreateExpenseForm {
             mui.Typography("Attach receipt (optional):").sx(receiptSuggestStyling),
             Fragment(
               rankedReceipts.take(5).map { case (r, _) =>
-                val isSelected = receiptId.contains(r.id)
+                val isSelected = formData.receiptId.contains(r.id)
                 val label =
                   s"${r.documentFilename} | ${r.amount.getOrElse("")} | ${r.date.getOrElse("")} | ${r.merchantName
                       .getOrElse("-")}"
@@ -543,9 +464,15 @@ object BankRowCreateExpenseForm {
                   .sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; gap = "8px" })(
                     mui.Typography(label).sx(if (isSelected) receiptSelectedStyling else receiptSuggestStyling),
                     if (isSelected)
-                      mui.Button.normal()("Deselect").size("small").onClick(_ => setReceiptId(None))
+                      mui.Button
+                        .normal()("Deselect")
+                        .size("small")
+                        .onClick(_ => setFormData(cur => cur.copy(receiptId = None)))
                     else
-                      mui.Button.normal()("Attach").size("small").onClick(_ => setReceiptId(Some(r.id))),
+                      mui.Button
+                        .normal()("Attach")
+                        .size("small")
+                        .onClick(_ => setFormData(cur => cur.copy(receiptId = Some(r.id)))),
                     mui.Button
                       .normal()("View")
                       .size("small")
@@ -570,12 +497,7 @@ object BankRowCreateExpenseForm {
                 .normal()("Use receipt")
                 .size("small")
                 .onClick { _ =>
-                  selectMerchant(o.merchant)
-                  // The category follows the receipt's merchant: without a default, the previous one is cleared.
-                  if (o.categoryId.isEmpty) {
-                    setCategoryIdOpt(None)
-                    setCategoryInput("")
-                  }
+                  setFormData(cur => cur.useReceiptMerchant(o.merchant, o.categoryId, props.categories))
                   setDecidedReceiptIds(decidedReceiptIds + o.receiptId)
                 },
               mui.Button
@@ -596,7 +518,7 @@ object BankRowCreateExpenseForm {
                 .normal()(if (submit.isSubmitting) "Saving…" else "Save")
                 .variant("contained")
                 .size("small")
-                .disabled(submit.isSubmitting)
+                .disabled(submit.buttonDisabled(formData.isValid))
                 .`type`("submit")
                 .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
               mui.Button.normal()("Cancel").size("small").disabled(submit.isSubmitting).onClick(_ => props.onCancel())
