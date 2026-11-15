@@ -13,12 +13,12 @@ import net.wiringbits.ui.components.inputs.{
   AmountInput,
   DateInput,
   OptionalCategoryAutocompleteInput,
-  OptionalMerchantAutocompleteInput
+  OptionalMerchantAutocompleteInput,
+  OptionalNotesInput
 }
 import net.wiringbits.ui.forms.{ExistingOrNewValue, ExpLocalDate, PositiveBigDecimal, SubmitHooks}
 import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
-import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
 import slinky.web.html.{form, onSubmit}
@@ -146,16 +146,14 @@ object BankRowCreateRefundForm {
             )
           )
         ),
-        mui.TextField
-          .outlined()
-          .label("Notes")
-          .size("small")
-          .value(formData.notes)
-          .disabled(submit.isSubmitting)
-          .onChange { e =>
-            val text = e.target.asInstanceOf[dom.HTMLInputElement].value
-            setFormData(cur => cur.copy(notes = text))
-          },
+        (OptionalNotesInput
+          .component(
+            OptionalNotesInput.Props(
+              field = formData.notes,
+              disabled = submit.isSubmitting,
+              onChange = v => setFormData(cur => cur.copy(notes = cur.notes.updated(v)))
+            )
+          ): ReactElement),
         (OptionalMerchantAutocompleteInput
           .component(
             OptionalMerchantAutocompleteInput.Props(

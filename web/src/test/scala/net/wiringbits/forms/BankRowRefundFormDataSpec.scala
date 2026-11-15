@@ -4,7 +4,7 @@ import net.wiringbits.api.models.bankstatements.GetBankStatement
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.common.models.{CategoryName, MerchantName}
-import net.wiringbits.ui.forms.{ExistingOrNewValue, ExpLocalDate, PositiveBigDecimal}
+import net.wiringbits.ui.forms.{ExistingOrNewValue, ExpLocalDate, ExpNotes, PositiveBigDecimal}
 import net.wiringbits.webapp.common.validators.ValidationResult
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
@@ -69,7 +69,15 @@ class BankRowRefundFormDataSpec extends AnyWordSpec {
 
     "resolve blank notes to None" in {
       blank.submitRequest.map(_.notes) must be(Some(None))
-      blank.copy(notes = "   ").submitRequest.map(_.notes) must be(Some(None))
+      BankRowRefundFormData.initial(row, None, None, notes = "   ").submitRequest.map(_.notes) must be(Some(None))
+    }
+
+    "keep an over-limit notes seed as-is and block submit" in {
+      val seed = "x" * (ExpNotes.MaxLength + 1)
+      val form = BankRowRefundFormData.initial(row, None, None, notes = seed)
+      form.notes.inputValue must be(seed)
+      form.isValid must be(false)
+      form.submitRequest must be(None)
     }
   }
 
