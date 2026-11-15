@@ -30,6 +30,7 @@ trait RepositorySpec extends AnyWordSpec with PostgresSpec {
     val receipts = new ReceiptRepository(db)(using Executors.databaseEC, clock)
     val refunds = new RefundsRepository(db)(using Executors.databaseEC, clock)
     val savings = new SavingsRepository(db)(using Executors.databaseEC, clock)
+    val subscriptions = new SubscriptionsRepository(db)(using Executors.databaseEC, clock)
     val textractJobs = new TextractJobRepository(db)(using Executors.databaseEC, clock)
     val telegram = new TelegramRepository(db)(using Executors.databaseEC)
     val telegramReceipt = new TelegramReceiptRepository(db)(using Executors.databaseEC)
@@ -53,6 +54,7 @@ trait RepositorySpec extends AnyWordSpec with PostgresSpec {
         receipts,
         refunds,
         savings,
+        subscriptions,
         textractJobs,
         telegram,
         telegramReceipt,

@@ -20,6 +20,7 @@ case class RepositoryComponents(
     receipts: ReceiptRepository,
     refunds: RefundsRepository,
     savings: SavingsRepository,
+    subscriptions: SubscriptionsRepository,
     textractJobs: TextractJobRepository,
     telegram: TelegramRepository,
     telegramReceipt: TelegramReceiptRepository,

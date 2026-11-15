@@ -1,6 +1,7 @@
 package utils
 
 import net.wiringbits.api.models.merchants.{ImportRuleAction, ImportRuleActionKind}
+import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod}
 import net.wiringbits.common.models.{Email, Name}
 import net.wiringbits.core.RepositoryComponents
 import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
@@ -25,6 +26,7 @@ import net.wiringbits.repositories.models.{
   Refund,
   SavingsAllocation,
   SavingsGoal,
+  Subscription,
   TextractCache,
   TextractJob,
   User,
@@ -243,6 +245,37 @@ trait RepositoryUtils {
     )
     for {
       _ <- repository.savings.createGoal(createRequest)
+    } yield createRequest
+  }
+
+  def createSubscription(
+      userId: UUID,
+      name: String = "Test Subscription",
+      cadence: SubscriptionCadence = SubscriptionCadence.Monthly,
+      intervalDays: Option[Int] = None,
+      amountMin: Option[BigDecimal] = None,
+      amountMax: Option[BigDecimal] = None,
+      paymentMethod: SubscriptionPaymentMethod = SubscriptionPaymentMethod.DirectDebit,
+      categoryId: Option[UUID] = None,
+      startDate: LocalDate = LocalDate.of(2024, 1, 15)
+  )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[Subscription.Create] = {
+    val now = Instant.now()
+    val createRequest = Subscription.Create(
+      id = UUID.randomUUID(),
+      userId = userId,
+      name = name,
+      cadence = cadence,
+      intervalDays = intervalDays,
+      amountMin = amountMin,
+      amountMax = amountMax,
+      paymentMethod = paymentMethod,
+      categoryId = categoryId,
+      startDate = startDate,
+      createdAt = now,
+      updatedAt = now
+    )
+    for {
+      _ <- repository.subscriptions.create(createRequest)
     } yield createRequest
   }
 

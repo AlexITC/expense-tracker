@@ -13,6 +13,7 @@ import net.wiringbits.api.models.merchants.*
 import net.wiringbits.api.models.receipts.*
 import net.wiringbits.api.models.refunds.*
 import net.wiringbits.api.models.savings.*
+import net.wiringbits.api.models.subscriptions.*
 import net.wiringbits.api.models.users.*
 import play.api.libs.json.{Json, Reads}
 import sttp.client3.*
@@ -389,6 +390,21 @@ class ApiClient(config: ApiClient.Config)(implicit
 
   def getSavingsEstimate(merchantId: UUID): Future[GetSavingsEstimate.Response] =
     handleRequest(SavingsEndpoints.getEstimate, (merchantId, dummyUserId))
+
+  def getSubscriptions: Future[GetSubscriptions.Response] =
+    handleRequest(SubscriptionsEndpoints.getSubscriptions, dummyUserId)
+
+  def createSubscription(request: CreateSubscription.Request): Future[CreateSubscription.Response] =
+    handleRequest(SubscriptionsEndpoints.createSubscription, (request, dummyUserId))
+
+  def updateSubscription(
+      subscriptionId: UUID,
+      request: UpdateSubscription.Request
+  ): Future[UpdateSubscription.Response] =
+    handleRequest(SubscriptionsEndpoints.updateSubscription, (subscriptionId, request, dummyUserId))
+
+  def deleteSubscription(subscriptionId: UUID): Future[DeleteSubscription.Response] =
+    handleRequest(SubscriptionsEndpoints.deleteSubscription, (subscriptionId, dummyUserId))
 
   def aiExtractBankStatement(
       request: AiExtractBankStatement.Request

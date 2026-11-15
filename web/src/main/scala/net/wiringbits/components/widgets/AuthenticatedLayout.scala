@@ -45,6 +45,7 @@ object AuthenticatedLayout {
       )
     ),
     NavGroup("Goals", List(NavItem(path = "/savings", label = "Savings"))),
+    NavGroup("Subscriptions", List(NavItem(path = "/subscriptions", label = "Subscriptions"))),
     NavGroup(
       "Analyse",
       List(NavItem(path = "/reports", label = "Reports"), NavItem(path = "/charts", label = "Charts"))
