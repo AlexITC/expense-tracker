@@ -56,6 +56,7 @@ class GetSubscriptionsActionSpec extends RepositorySpec with RepositoryUtils {
         amountMax = Some(BigDecimal("15.50")),
         paymentMethod = SubscriptionPaymentMethod.ManualTransfer,
         categoryId = Some(category.id),
+        description = Some("Family plan"),
         startDate = LocalDate.of(2024, 4, 10)
       ).futureValue
 
@@ -66,6 +67,7 @@ class GetSubscriptionsActionSpec extends RepositorySpec with RepositoryUtils {
       item.intervalMonths must be(None)
       item.paymentMethod must be(SubscriptionPaymentMethod.ManualTransfer)
       item.categoryId must be(Some(category.id))
+      item.description must be(Some("Family plan"))
       item.terms must be(
         List(
           SubscriptionTerm(

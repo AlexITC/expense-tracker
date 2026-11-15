@@ -39,6 +39,8 @@ class CreateSubscriptionAction @Inject() (
         .withFieldConst(_.id, subscriptionId)
         .withFieldConst(_.userId, userId)
         .withFieldComputed(_.name, _.name.string)
+        // A present-but-empty description means "no description"; the primitive already trimmed it at decode.
+        .withFieldComputed(_.description, _.description.map(_.string).filter(_.nonEmpty))
         .withFieldConst(_.firstTerm, firstTerm)
         .withFieldConst(_.createdAt, now)
         .withFieldConst(_.updatedAt, now)

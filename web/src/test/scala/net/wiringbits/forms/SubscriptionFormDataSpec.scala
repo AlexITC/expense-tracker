@@ -8,11 +8,12 @@ import net.wiringbits.api.models.subscriptions.{
   SubscriptionTerm,
   UpdateSubscription
 }
-import net.wiringbits.common.models.SubscriptionName
+import net.wiringbits.common.models.{SubscriptionDescription, SubscriptionName}
 import net.wiringbits.ui.forms.{
   ExpLocalDate,
   ExpOptionalId,
   SubscriptionAmount,
+  SubscriptionDescriptionValidator,
   SubscriptionIntervalDays,
   SubscriptionIntervalMonths
 }
@@ -37,6 +38,8 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       form.copy(intervalMonths = form.intervalMonths.updated(SubscriptionIntervalMonths.validate(raw)))
     private def withCategory(raw: String): SubscriptionFormData =
       form.copy(categoryId = form.categoryId.updated(ExpOptionalId.validate(raw)))
+    private def withDescription(raw: String): SubscriptionFormData =
+      form.copy(description = form.description.updated(SubscriptionDescriptionValidator.optionalValidator(raw)))
   }
 
   extension (form: CreateSubscriptionFormData) {
@@ -47,6 +50,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     private def withIntervalMonths(raw: String): CreateSubscriptionFormData =
       form.withDetails(_.withIntervalMonths(raw))
     private def withCategory(raw: String): CreateSubscriptionFormData = form.withDetails(_.withCategory(raw))
+    private def withDescription(raw: String): CreateSubscriptionFormData = form.withDetails(_.withDescription(raw))
     private def withCadence(cadence: SubscriptionCadence): CreateSubscriptionFormData =
       form.withDetails(_.copy(cadence = cadence))
     private def withAmounts(f: SubscriptionAmountFields => SubscriptionAmountFields): CreateSubscriptionFormData =
@@ -73,6 +77,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     amountMax = Some(BigDecimal("12.50")),
     paymentMethod = SubscriptionPaymentMethod.DirectDebit,
     categoryId = None,
+    description = None,
     startDate = LocalDate.parse("2026-01-15")
   )
 
@@ -94,6 +99,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
         List(
           "subscription-create-name",
           "subscription-create-category",
+          "subscription-create-description",
           "subscription-create-exact-amount",
           "subscription-create-start-date"
         )
@@ -201,6 +207,22 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
     "return None when the category is not a valid id" in {
       assertBlocked(validForm.withCategory("not-an-id"))
     }
+
+    "include the trimmed description" in {
+      validForm.withDescription("  Family plan ").submitRequest must be(
+        Some(expectedRequest.copy(description = Some(SubscriptionDescription.trusted("Family plan"))))
+      )
+    }
+
+    "send no description when it is blank" in {
+      val form = validForm.withDescription("   ")
+      form.isValid must be(true)
+      form.submitRequest must be(Some(expectedRequest))
+    }
+
+    "return None when the description is over 500 characters" in {
+      assertBlocked(validForm.withDescription("a" * 501))
+    }
   }
 
   "fromSubscription" should {
@@ -212,6 +234,7 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       intervalMonths = None,
       paymentMethod = SubscriptionPaymentMethod.CardPortal,
       categoryId = Some(categoryId),
+      description = Some("Family plan"),
       terms = List(
         SubscriptionTerm(
           id = UUID.randomUUID(),
@@ -232,30 +255,39 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       intervalDays = subscription.intervalDays,
       intervalMonths = subscription.intervalMonths,
       paymentMethod = subscription.paymentMethod,
-      categoryId = subscription.categoryId
+      categoryId = subscription.categoryId,
+      description = Some(SubscriptionDescription.trusted("Family plan"))
     )
 
     "list only the subscription's own inputs" in {
       editForm.fields.map(_.name) must be(
-        List("subscription-edit-name", "subscription-edit-interval", "subscription-edit-category")
+        List(
+          "subscription-edit-name",
+          "subscription-edit-interval",
+          "subscription-edit-category",
+          "subscription-edit-description"
+        )
       )
     }
 
     "round-trip into an update request" in {
       editForm.categoryId.inputValue must be(categoryId.toString)
+      editForm.description.inputValue must be("Family plan")
       editForm.isValid must be(true)
       editForm.submitRequest must be(Some(expectedUpdate))
     }
 
     "apply edits to the update request" in {
-      val edited = editForm.withName("Pool").copy(cadence = SubscriptionCadence.Yearly).withCategory("")
+      val edited =
+        editForm.withName("Pool").copy(cadence = SubscriptionCadence.Yearly).withCategory("").withDescription("")
       edited.submitRequest must be(
         Some(
           expectedUpdate.copy(
             name = SubscriptionName.trusted("Pool"),
             cadence = SubscriptionCadence.Yearly,
             intervalDays = None,
-            categoryId = None
+            categoryId = None,
+            description = None
           )
         )
       )
@@ -275,7 +307,12 @@ class SubscriptionFormDataSpec extends AnyWordSpec {
       )
       val form = SubscriptionFormData.fromSubscription(nameLabel = "Name", subscription = quarterly)
       form.fields.map(_.name) must be(
-        List("subscription-edit-name", "subscription-edit-interval-months", "subscription-edit-category")
+        List(
+          "subscription-edit-name",
+          "subscription-edit-interval-months",
+          "subscription-edit-category",
+          "subscription-edit-description"
+        )
       )
       form.intervalMonths.inputValue must be("3")
       form.submitRequest must be(

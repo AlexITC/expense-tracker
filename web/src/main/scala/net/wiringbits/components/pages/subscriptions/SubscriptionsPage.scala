@@ -24,6 +24,7 @@ import net.wiringbits.ui.components.inputs.{
   DateInput,
   OptionalIdSelectInput,
   SubscriptionAmountInput,
+  SubscriptionDescriptionInput,
   SubscriptionIntervalDaysInput,
   SubscriptionIntervalMonthsInput,
   SubscriptionNameInput
@@ -359,6 +360,15 @@ object SubscriptionList {
               onChange = value => update(x => x.copy(categoryId = x.categoryId.updated(value)))
             )
           )
+        ),
+        fieldBox(key = "description", boxMinWidth = "240px")(
+          SubscriptionDescriptionInput.component(
+            SubscriptionDescriptionInput.Props(
+              field = data.description,
+              disabled = disabled,
+              onChange = value => update(x => x.copy(description = x.description.updated(value)))
+            )
+          )
         )
       )
     }
@@ -587,7 +597,8 @@ object SubscriptionList {
           .map(t => SubscriptionStatusLogic.amountLabel(amountMin = t.amountMin, amountMax = t.amountMax))
           .filter(_.nonEmpty),
         Some(SubscriptionStatusLogic.paymentMethodLabel(s.paymentMethod)),
-        s.categoryId.flatMap(categoryNames.get)
+        s.categoryId.flatMap(categoryNames.get),
+        s.description
       ).flatten.mkString(" · ")
 
     // Terms are half-open, so a closed term's end is the first date it no longer applies.

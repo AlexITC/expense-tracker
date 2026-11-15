@@ -194,7 +194,8 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
           intervalDays = Some(30),
           intervalMonths = None,
           paymentMethod = SubscriptionPaymentMethod.Cash,
-          categoryId = None
+          categoryId = None,
+          description = Some("Family plan")
         )
         .futureValue
 
@@ -204,6 +205,7 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
       stored.intervalDays must be(Some(30))
       stored.paymentMethod must be(SubscriptionPaymentMethod.Cash)
       stored.categoryId must be(None)
+      stored.description must be(Some("Family plan"))
       stored.updatedAt must be(fixedInstant)
     }
 
@@ -215,7 +217,8 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
         name = uniqueName("Water"),
         cadence = SubscriptionCadence.EveryNDays,
         intervalDays = Some(45),
-        categoryId = Some(category.id)
+        categoryId = Some(category.id),
+        description = Some("Family plan")
       ).futureValue
 
       repositories.subscriptions
@@ -227,7 +230,8 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
           intervalDays = None,
           intervalMonths = None,
           paymentMethod = request.paymentMethod,
-          categoryId = None
+          categoryId = None,
+          description = None
         )
         .futureValue
 
@@ -235,6 +239,7 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
       stored.cadence must be(SubscriptionCadence.Monthly)
       stored.intervalDays must be(None)
       stored.categoryId must be(None)
+      stored.description must be(None)
     }
 
     "reject a category owned by another user" in withRepositories() { implicit repositories =>
@@ -252,7 +257,8 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
           intervalDays = request.intervalDays,
           intervalMonths = request.intervalMonths,
           paymentMethod = request.paymentMethod,
-          categoryId = Some(foreignCategory.id)
+          categoryId = Some(foreignCategory.id),
+          description = None
         )
         .failed
         .futureValue
@@ -273,7 +279,8 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
           intervalDays = request.intervalDays,
           intervalMonths = request.intervalMonths,
           paymentMethod = request.paymentMethod,
-          categoryId = request.categoryId
+          categoryId = request.categoryId,
+          description = None
         )
         .failed
         .futureValue
@@ -294,7 +301,8 @@ class SubscriptionsRepositorySpec extends RepositorySpec with RepositoryUtils {
           intervalDays = request.intervalDays,
           intervalMonths = request.intervalMonths,
           paymentMethod = request.paymentMethod,
-          categoryId = None
+          categoryId = None,
+          description = None
         )
         .failed
         .futureValue

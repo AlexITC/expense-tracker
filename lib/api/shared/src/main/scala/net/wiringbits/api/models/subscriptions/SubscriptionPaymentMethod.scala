@@ -9,6 +9,7 @@ enum SubscriptionPaymentMethod(val entryName: String) {
   case ManualTransfer extends SubscriptionPaymentMethod("ManualTransfer")
   case CardPortal extends SubscriptionPaymentMethod("CardPortal")
   case Cash extends SubscriptionPaymentMethod("Cash")
+  case CardAutoCharge extends SubscriptionPaymentMethod("CardAutoCharge")
 }
 
 object SubscriptionPaymentMethod {

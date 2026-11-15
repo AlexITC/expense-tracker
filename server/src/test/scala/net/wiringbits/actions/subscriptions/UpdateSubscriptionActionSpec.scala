@@ -1,7 +1,7 @@
 package net.wiringbits.actions.subscriptions
 
 import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod, UpdateSubscription}
-import net.wiringbits.common.models.SubscriptionName
+import net.wiringbits.common.models.{SubscriptionDescription, SubscriptionName}
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
@@ -24,7 +24,8 @@ class UpdateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       intervalDays: Option[Int] = Some(30),
       intervalMonths: Option[Int] = None,
       paymentMethod: SubscriptionPaymentMethod = SubscriptionPaymentMethod.Cash,
-      categoryId: Option[UUID] = None
+      categoryId: Option[UUID] = None,
+      description: Option[String] = None
   ): UpdateSubscription.Request =
     UpdateSubscription.Request(
       name = SubscriptionName.trusted(name),
@@ -32,7 +33,9 @@ class UpdateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       intervalDays = intervalDays,
       intervalMonths = intervalMonths,
       paymentMethod = paymentMethod,
-      categoryId = categoryId
+      categoryId = categoryId,
+      // Validated like the decoder does, so surrounding whitespace is trimmed before the action sees it.
+      description = description.map(SubscriptionDescription.validate(_).toOption.value)
     )
 
   "apply" should {
@@ -46,7 +49,7 @@ class UpdateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
         amountMax = Some(BigDecimal("25.00")),
         startDate = LocalDate.of(2024, 2, 1)
       ).futureValue
-      val req = request(categoryId = Some(category.id))
+      val req = request(categoryId = Some(category.id), description = Some("Family plan"))
 
       newAction().apply(subscriptionId = existing.id, userId = user.id, req).futureValue
 
@@ -57,6 +60,38 @@ class UpdateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       stored.intervalMonths must be(None)
       stored.paymentMethod must be(SubscriptionPaymentMethod.Cash)
       stored.categoryId must be(Some(category.id))
+      stored.description must be(Some("Family plan"))
+    }
+
+    "edit the description" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val existing = createSubscription(user.id, name = uniqueName("Phone"), description = Some("Old note")).futureValue
+
+      newAction()
+        .apply(subscriptionId = existing.id, userId = user.id, request(description = Some(" New note ")))
+        .futureValue
+
+      repositories.subscriptions.find(id = existing.id, userId = user.id).futureValue.value.description must be(
+        Some("New note")
+      )
+    }
+
+    "clear the description" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val existing = createSubscription(user.id, name = uniqueName("Phone"), description = Some("Old note")).futureValue
+
+      newAction().apply(subscriptionId = existing.id, userId = user.id, request(description = None)).futureValue
+
+      repositories.subscriptions.find(id = existing.id, userId = user.id).futureValue.value.description must be(None)
+    }
+
+    "store a blank description as none" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val existing = createSubscription(user.id, name = uniqueName("Phone"), description = Some("Old note")).futureValue
+
+      newAction().apply(subscriptionId = existing.id, userId = user.id, request(description = Some("   "))).futureValue
+
+      repositories.subscriptions.find(id = existing.id, userId = user.id).futureValue.value.description must be(None)
     }
 
     "leave the terms unchanged" in withRepositories() { implicit repositories =>

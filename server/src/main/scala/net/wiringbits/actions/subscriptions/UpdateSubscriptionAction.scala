@@ -27,7 +27,9 @@ class UpdateSubscriptionAction @Inject() (subscriptionsRepository: Subscriptions
         intervalDays = request.intervalDays,
         intervalMonths = request.intervalMonths,
         paymentMethod = request.paymentMethod,
-        categoryId = request.categoryId
+        categoryId = request.categoryId,
+        // A present-but-empty description means "no description"; the primitive already trimmed it at decode.
+        description = request.description.map(_.string).filter(_.nonEmpty)
       )
     } yield UpdateSubscription.Response()
   }

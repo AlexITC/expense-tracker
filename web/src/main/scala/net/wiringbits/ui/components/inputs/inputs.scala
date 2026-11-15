@@ -8,9 +8,11 @@ import net.wiringbits.common.models.{
   Name,
   Password,
   SavingsGoalName,
+  SubscriptionDescription,
   SubscriptionName
 }
 import net.wiringbits.ui.components.core.widgets.ValidatedTextInput
+import net.wiringbits.ui.forms.SubscriptionDescriptionValidator.optionalValidator
 
 package object inputs {
   object NameInput extends ValidatedTextInput[Name]
@@ -20,5 +22,6 @@ package object inputs {
   object CategoryDescriptionInput extends ValidatedTextInput[CategoryDescription]
   object SavingsGoalNameInput extends ValidatedTextInput[SavingsGoalName]
   object SubscriptionNameInput extends ValidatedTextInput[SubscriptionName]
+  object SubscriptionDescriptionInput extends ValidatedTextInput[Option[SubscriptionDescription]]
   object MerchantNameInput extends ValidatedTextInput[MerchantName]
 }

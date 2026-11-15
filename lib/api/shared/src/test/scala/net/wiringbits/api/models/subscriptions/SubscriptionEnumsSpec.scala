@@ -34,7 +34,7 @@ class SubscriptionEnumsSpec extends AnyWordSpec with Matchers {
   "SubscriptionPaymentMethod" should {
     "use the spec entry names" in {
       SubscriptionPaymentMethod.values.map(_.entryName).toList mustBe
-        List("DirectDebit", "ManualTransfer", "CardPortal", "Cash")
+        List("DirectDebit", "ManualTransfer", "CardPortal", "Cash", "CardAutoCharge")
     }
 
     "resolve every value from its entry name" in {

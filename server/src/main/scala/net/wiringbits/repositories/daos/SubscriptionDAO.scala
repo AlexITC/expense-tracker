@@ -14,7 +14,7 @@ object SubscriptionDAO {
   def create(subscription: Subscription.Create)(implicit conn: Connection): Unit = {
     val _ = SQL"""
         INSERT INTO subscription (
-          id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, created_at, updated_at
+          id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, description, created_at, updated_at
         )
         VALUES (
           ${subscription.id.toString}::UUID,
@@ -25,6 +25,7 @@ object SubscriptionDAO {
           ${subscription.intervalMonths},
           ${subscription.paymentMethod.entryName},
           ${subscription.categoryId.map(_.toString)}::UUID,
+          ${subscription.description},
           ${subscription.createdAt},
           ${subscription.updatedAt}
         )
@@ -33,7 +34,7 @@ object SubscriptionDAO {
 
   def all(userId: UUID)(implicit conn: Connection): List[Subscription] =
     SQL"""
-        SELECT id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, created_at, updated_at
+        SELECT id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, description, created_at, updated_at
         FROM subscription
         WHERE user_id = ${userId.toString}::UUID
         ORDER BY name
@@ -41,7 +42,7 @@ object SubscriptionDAO {
 
   def find(id: UUID, userId: UUID)(implicit conn: Connection): Option[Subscription] =
     SQL"""
-        SELECT id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, created_at, updated_at
+        SELECT id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, description, created_at, updated_at
         FROM subscription
         WHERE id = ${id.toString}::UUID
           AND user_id = ${userId.toString}::UUID
@@ -50,7 +51,7 @@ object SubscriptionDAO {
   // Row lock that serialises term changes on one subscription until the surrounding transaction ends.
   def lockForUpdate(id: UUID, userId: UUID)(implicit conn: Connection): Option[Subscription] =
     SQL"""
-        SELECT id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, created_at, updated_at
+        SELECT id, user_id, name, cadence, interval_days, interval_months, payment_method, category_id, description, created_at, updated_at
         FROM subscription
         WHERE id = ${id.toString}::UUID
           AND user_id = ${userId.toString}::UUID
@@ -73,6 +74,7 @@ object SubscriptionDAO {
       intervalMonths: Option[Int],
       paymentMethod: SubscriptionPaymentMethod,
       categoryId: Option[UUID],
+      description: Option[String],
       updatedAt: Instant
   )(implicit conn: Connection): Unit = {
     val updated = SQL"""
@@ -83,6 +85,7 @@ object SubscriptionDAO {
             interval_months = $intervalMonths,
             payment_method = ${paymentMethod.entryName},
             category_id = ${categoryId.map(_.toString)}::UUID,
+            description = $description,
             updated_at = $updatedAt
         WHERE id = ${id.toString}::UUID
           AND user_id = ${userId.toString}::UUID

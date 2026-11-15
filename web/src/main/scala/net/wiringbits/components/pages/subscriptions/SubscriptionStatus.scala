@@ -162,6 +162,7 @@ object SubscriptionStatusLogic {
       case SubscriptionPaymentMethod.ManualTransfer => "Manual transfer"
       case SubscriptionPaymentMethod.CardPortal => "Card portal"
       case SubscriptionPaymentMethod.Cash => "Cash"
+      case SubscriptionPaymentMethod.CardAutoCharge => "Automatic card charge"
     }
 
   // `ChronoUnit.between` can undercount when the start day-of-month is clamped (31 Jan -> 28 Feb counts as 0 months),

@@ -1,7 +1,7 @@
 package net.wiringbits.actions.subscriptions
 
 import net.wiringbits.api.models.subscriptions.{CreateSubscription, SubscriptionCadence, SubscriptionPaymentMethod}
-import net.wiringbits.common.models.SubscriptionName
+import net.wiringbits.common.models.{SubscriptionDescription, SubscriptionName}
 import net.wiringbits.config.SubscriptionsConfig
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
 import org.scalatest.LoneElement.*
@@ -32,6 +32,7 @@ class CreateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       amountMax: Option[BigDecimal] = None,
       paymentMethod: SubscriptionPaymentMethod = SubscriptionPaymentMethod.DirectDebit,
       categoryId: Option[UUID] = None,
+      description: Option[String] = None,
       startDate: LocalDate = LocalDate.of(2024, 1, 15)
   ): CreateSubscription.Request =
     CreateSubscription.Request(
@@ -43,10 +44,30 @@ class CreateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
       amountMax = amountMax,
       paymentMethod = paymentMethod,
       categoryId = categoryId,
+      // Validated like the decoder does, so surrounding whitespace is trimmed before the action sees it.
+      description = description.map(SubscriptionDescription.validate(_).toOption.value),
       startDate = startDate
     )
 
   "apply" should {
+    "store the trimmed description" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+
+      val response = newAction().apply(user.id, request(description = Some("  Family plan  "))).futureValue
+
+      repositories.subscriptions.find(id = response.id, userId = user.id).futureValue.value.description must be(
+        Some("Family plan")
+      )
+    }
+
+    "store a blank description as none" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+
+      val response = newAction().apply(user.id, request(description = Some("   "))).futureValue
+
+      repositories.subscriptions.find(id = response.id, userId = user.id).futureValue.value.description must be(None)
+    }
+
     "store a subscription with an exact amount" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val category = createCategory(user.id, name = uniqueName("Category")).futureValue

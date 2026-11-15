@@ -8,11 +8,12 @@ import net.wiringbits.api.models.subscriptions.{
   UpdateSubscription
 }
 import net.wiringbits.api.utils.SubscriptionValidator
-import net.wiringbits.common.models.SubscriptionName
+import net.wiringbits.common.models.{SubscriptionDescription, SubscriptionName}
 import net.wiringbits.ui.forms.{
   ExpLocalDate,
   ExpOptionalId,
   SubscriptionAmount,
+  SubscriptionDescriptionValidator,
   SubscriptionIntervalDays,
   SubscriptionIntervalMonths
 }
@@ -97,7 +98,8 @@ case class SubscriptionFormData(
     intervalDays: FormField[SubscriptionIntervalDays],
     intervalMonths: FormField[SubscriptionIntervalMonths],
     paymentMethod: SubscriptionPaymentMethod,
-    categoryId: FormField[Option[UUID]]
+    categoryId: FormField[Option[UUID]],
+    description: FormField[Option[SubscriptionDescription]]
 ) extends FormData[UpdateSubscription.Request] {
 
   override def fields: List[FormField[?]] = {
@@ -106,7 +108,7 @@ case class SubscriptionFormData(
       case SubscriptionCadence.EveryNMonths => List(intervalMonths)
       case SubscriptionCadence.Monthly | SubscriptionCadence.Yearly => Nil
     }
-    List(name) ++ intervalFields ++ List(categoryId)
+    List(name) ++ intervalFields ++ List(categoryId, description)
   }
 
   override def formValidationErrors: List[String] = {
@@ -128,13 +130,15 @@ case class SubscriptionFormData(
         validName <- name.valueOpt
         intervals <- resolvedIntervals
         category <- categoryId.valueOpt
+        validDescription <- description.valueOpt
       } yield UpdateSubscription.Request(
         name = validName,
         cadence = cadence,
         intervalDays = intervals.days,
         intervalMonths = intervals.months,
         paymentMethod = paymentMethod,
-        categoryId = category
+        categoryId = category,
+        description = validDescription
       )
 
   // Each interval only applies to its own cadence; for other cadences the (hidden) input is ignored.
@@ -188,6 +192,7 @@ case class CreateSubscriptionFormData(
         intervals <- details.resolvedIntervals
         (min, max) <- amounts.resolved
         category <- details.categoryId.valueOpt
+        validDescription <- details.description.valueOpt
         start <- startDate.valueOpt
       } yield CreateSubscription.Request(
         name = validName,
@@ -198,6 +203,7 @@ case class CreateSubscriptionFormData(
         amountMax = max,
         paymentMethod = details.paymentMethod,
         categoryId = category,
+        description = validDescription,
         startDate = start.value
       )
 }
@@ -212,7 +218,8 @@ object SubscriptionFormData {
       intervalDays: Option[String],
       intervalMonths: Option[String],
       paymentMethod: SubscriptionPaymentMethod,
-      categoryId: String
+      categoryId: String,
+      description: String
   ): SubscriptionFormData =
     SubscriptionFormData(
       name = new FormField(
@@ -240,6 +247,12 @@ object SubscriptionFormData {
         name = s"$prefix-category",
         required = false,
         value = Some(ExpOptionalId.validate(categoryId))
+      ),
+      description = new FormField(
+        label = "Description (optional)",
+        name = s"$prefix-description",
+        required = false,
+        value = Some(SubscriptionDescriptionValidator.optionalValidator(description))
       )
     )
 
@@ -255,7 +268,8 @@ object SubscriptionFormData {
       intervalDays = subscription.intervalDays.map(_.toString),
       intervalMonths = subscription.intervalMonths.map(_.toString),
       paymentMethod = subscription.paymentMethod,
-      categoryId = subscription.categoryId.fold("")(_.toString)
+      categoryId = subscription.categoryId.fold("")(_.toString),
+      description = subscription.description.getOrElse("")
     )
 }
 
@@ -273,7 +287,8 @@ object CreateSubscriptionFormData {
         intervalDays = None,
         intervalMonths = None,
         paymentMethod = SubscriptionPaymentMethod.DirectDebit,
-        categoryId = ""
+        categoryId = "",
+        description = ""
       ),
       amounts = SubscriptionAmountFields.initial(Prefix),
       startDate = new FormField(

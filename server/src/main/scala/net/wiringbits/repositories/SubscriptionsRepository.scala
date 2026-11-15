@@ -74,7 +74,8 @@ class SubscriptionsRepository @Inject() (database: Database)(implicit
       intervalDays: Option[Int],
       intervalMonths: Option[Int],
       paymentMethod: SubscriptionPaymentMethod,
-      categoryId: Option[UUID]
+      categoryId: Option[UUID],
+      description: Option[String]
   ): Future[Unit] = Future {
     ConstraintViolations.translating(
       "subscription_user_id_name_unique" -> "A subscription with that name already exists"
@@ -91,6 +92,7 @@ class SubscriptionsRepository @Inject() (database: Database)(implicit
           intervalMonths = intervalMonths,
           paymentMethod = paymentMethod,
           categoryId = categoryId,
+          description = description,
           updatedAt = clock.instant()
         )
       }

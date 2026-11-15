@@ -36,3 +36,4 @@ ALTER TABLE subscription
 
 -- The interval of an every-N-months cadence, set only when cadence is EveryNMonths (like interval_days for EveryNDays).
 ALTER TABLE subscription ADD COLUMN interval_months INT NULL;
+ALTER TABLE subscription ADD COLUMN description TEXT NULL;

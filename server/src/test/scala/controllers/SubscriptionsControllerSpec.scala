@@ -6,7 +6,7 @@ import net.wiringbits.actions.subscriptions.*
 import net.wiringbits.api.models.subscriptions.*
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
-import net.wiringbits.common.models.{Captcha, SubscriptionName}
+import net.wiringbits.common.models.{Captcha, SubscriptionDescription, SubscriptionName}
 import net.wiringbits.util.TokenGenerator
 import org.mockito.ArgumentMatchers.{any, eq as eqTo}
 import org.mockito.Mockito.*
@@ -65,6 +65,7 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
     amountMax = Some(BigDecimal("12.50")),
     paymentMethod = SubscriptionPaymentMethod.CardPortal,
     categoryId = Some(UUID.randomUUID()),
+    description = Some(SubscriptionDescription.trusted("Family plan")),
     startDate = LocalDate.of(2026, 3, 15)
   )
 
@@ -74,7 +75,8 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
     intervalDays = None,
     intervalMonths = None,
     paymentMethod = SubscriptionPaymentMethod.DirectDebit,
-    categoryId = None
+    categoryId = None,
+    description = None
   )
 
   private val changePriceRequest = ChangeSubscriptionPrice.Request(
@@ -112,6 +114,7 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
             intervalMonths = None,
             paymentMethod = SubscriptionPaymentMethod.CardPortal,
             categoryId = Some(UUID.randomUUID()),
+            description = Some("Family plan"),
             terms = List(
               SubscriptionTerm(
                 id = UUID.randomUUID(),
@@ -138,6 +141,7 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
             intervalMonths = None,
             paymentMethod = SubscriptionPaymentMethod.Cash,
             categoryId = None,
+            description = None,
             terms = List(
               SubscriptionTerm(
                 id = UUID.randomUUID(),

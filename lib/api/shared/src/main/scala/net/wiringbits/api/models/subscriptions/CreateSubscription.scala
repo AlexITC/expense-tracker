@@ -2,7 +2,7 @@ package net.wiringbits.api.models.subscriptions
 
 import net.wiringbits.api.models.*
 import net.wiringbits.api.models.wrappedStringSchema
-import net.wiringbits.common.models.SubscriptionName
+import net.wiringbits.common.models.{SubscriptionDescription, SubscriptionName}
 import play.api.libs.json.{Format, Json}
 import sttp.tapir.Schema
 
@@ -10,8 +10,8 @@ import java.time.LocalDate
 import java.util.UUID
 
 object CreateSubscription {
-  // name is a validated primitive: its length limit and messages live in SubscriptionName and are enforced at
-  // decode by its Format, so this model carries no separate caps.
+  // name and description are validated primitives: their length limits and messages live in SubscriptionName and
+  // SubscriptionDescription and are enforced at decode by their Format, so this model carries no separate caps.
   // startDate, amountMin and amountMax describe the subscription's first term, which starts open.
   case class Request(
       name: SubscriptionName,
@@ -22,6 +22,7 @@ object CreateSubscription {
       amountMax: Option[BigDecimal],
       paymentMethod: SubscriptionPaymentMethod,
       categoryId: Option[UUID],
+      description: Option[SubscriptionDescription],
       startDate: LocalDate
   )
   case class Response(id: UUID)

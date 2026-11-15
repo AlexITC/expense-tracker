@@ -259,6 +259,7 @@ trait RepositoryUtils {
       amountMax: Option[BigDecimal] = None,
       paymentMethod: SubscriptionPaymentMethod = SubscriptionPaymentMethod.DirectDebit,
       categoryId: Option[UUID] = None,
+      description: Option[String] = None,
       startDate: LocalDate = LocalDate.of(2024, 1, 15)
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[Subscription.Create] = {
     // Postgres stores microseconds, so truncate to let specs compare the returned term with what was stored.
@@ -273,6 +274,7 @@ trait RepositoryUtils {
       intervalMonths = intervalMonths,
       paymentMethod = paymentMethod,
       categoryId = categoryId,
+      description = description,
       firstTerm = SubscriptionTerm(
         id = UUID.randomUUID(),
         userId = userId,

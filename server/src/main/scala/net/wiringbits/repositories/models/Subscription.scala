@@ -14,6 +14,7 @@ case class Subscription(
     intervalMonths: Option[Int],
     paymentMethod: SubscriptionPaymentMethod,
     categoryId: Option[UUID],
+    description: Option[String],
     createdAt: Instant,
     updatedAt: Instant
 )
@@ -28,6 +29,7 @@ object Subscription {
       intervalMonths: Option[Int],
       paymentMethod: SubscriptionPaymentMethod,
       categoryId: Option[UUID],
+      description: Option[String],
       firstTerm: SubscriptionTerm,
       createdAt: Instant,
       updatedAt: Instant
