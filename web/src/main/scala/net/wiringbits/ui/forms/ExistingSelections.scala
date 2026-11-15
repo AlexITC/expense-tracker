@@ -30,6 +30,20 @@ object ExistingSelections {
   def newCategory(text: String): ValidationResult[ExistingOrNewValue[CategoryName, UUID]] =
     withId(CategoryName.validate(text), None)
 
+  /** The default category id of the given existing merchant, if it has one. */
+  def defaultCategoryId(merchantId: Option[UUID], merchants: List[GetMerchants.Response.Merchant]): Option[UUID] =
+    merchantId.flatMap(id => merchants.find(_.id == id)).flatMap(_.categoryId)
+
+  /** The default category of the picked merchant: only an existing merchant (one with an id) whose default category is
+    * still in the list yields one.
+    */
+  def defaultCategory(
+      selection: Option[ExistingOrNewValue[MerchantName, UUID]],
+      merchants: List[GetMerchants.Response.Merchant],
+      categories: List[GetCategories.Response.Category]
+  ): Option[GetCategories.Response.Category] =
+    defaultCategoryId(selection.flatMap(_.id), merchants).flatMap(id => categories.find(_.id == id))
+
   private def withId[T](result: ValidationResult[T], id: Option[UUID]): ValidationResult[ExistingOrNewValue[T, UUID]] =
     result match {
       case ValidationResult.Valid(input, value) => ValidationResult.Valid(input, ExistingOrNewValue(value, id))

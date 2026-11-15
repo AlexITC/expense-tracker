@@ -59,4 +59,42 @@ class ExistingSelectionsSpec extends AnyWordSpec {
       ExistingSelections.newCategory("Food").toOption.map(s => (s.value.string, s.id)) must be(Some(("Food", None)))
     }
   }
+
+  "defaultCategory" should {
+    val food = category("Food")
+    val store = merchant("Store").copy(categoryId = Some(food.id))
+    def picked(m: GetMerchants.Response.Merchant) = Some(ExistingOrNewValue(MerchantName.trusted(m.name), Some(m.id)))
+
+    "return the default category of an existing merchant" in {
+      ExistingSelections.defaultCategory(picked(store), List(store), List(food)) must be(Some(food))
+    }
+
+    "return none for a new merchant without an id" in {
+      val typed = Some(ExistingOrNewValue[MerchantName, UUID](MerchantName.trusted("Store"), None))
+      ExistingSelections.defaultCategory(typed, List(store), List(food)) must be(None)
+    }
+
+    "return none when the merchant has no default category" in {
+      val shop = merchant("Shop")
+      ExistingSelections.defaultCategory(picked(shop), List(shop), List(food)) must be(None)
+    }
+
+    "return none when the default category is not in the list" in {
+      ExistingSelections.defaultCategory(picked(store), List(store), Nil) must be(None)
+    }
+
+    "return none when nothing is picked" in {
+      ExistingSelections.defaultCategory(None, List(store), List(food)) must be(None)
+    }
+  }
+
+  "defaultCategoryId" should {
+    "return the default category id of a known merchant, or none" in {
+      val foodId = UUID.randomUUID()
+      val store = merchant("Store").copy(categoryId = Some(foodId))
+      ExistingSelections.defaultCategoryId(Some(store.id), List(store)) must be(Some(foodId))
+      ExistingSelections.defaultCategoryId(Some(UUID.randomUUID()), List(store)) must be(None)
+      ExistingSelections.defaultCategoryId(None, List(store)) must be(None)
+    }
+  }
 }

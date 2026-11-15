@@ -2,7 +2,7 @@ package net.wiringbits.forms
 
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.refunds.GetRefunds
-import net.wiringbits.ui.forms.{ExpLocalDate, PositiveBigDecimal}
+import net.wiringbits.ui.forms.{ExistingSelections, ExpLocalDate, PositiveBigDecimal}
 import net.wiringbits.webapp.utils.slinkyUtils.forms.{FormData, FormField}
 
 import java.time.LocalDate
@@ -36,7 +36,7 @@ case class RefundFormData(
   def withMerchant(id: Option[UUID], merchants: List[GetMerchants.Response.Merchant]): RefundFormData =
     copy(
       merchantId = id,
-      categoryId = id.flatMap(mid => merchants.find(_.id == mid)).flatMap(_.categoryId)
+      categoryId = ExistingSelections.defaultCategoryId(id, merchants)
     )
 }
 

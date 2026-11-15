@@ -32,13 +32,7 @@ case class BulkMerchantSetupFormData(
       merchants: List[GetMerchants.Response.Merchant],
       categories: List[GetCategories.Response.Category]
   ): BulkMerchantSetupFormData = {
-    val defaultCategory = for {
-      selection <- value.toOption
-      merchantId <- selection.id
-      picked <- merchants.find(_.id == merchantId)
-      categoryId <- picked.categoryId
-      c <- categories.find(_.id == categoryId)
-    } yield c
+    val defaultCategory = ExistingSelections.defaultCategory(value.toOption, merchants, categories)
     copy(
       merchant = merchant.updated(value),
       category = defaultCategory.fold(category)(c => category.updated(ExistingSelections.category(c)))

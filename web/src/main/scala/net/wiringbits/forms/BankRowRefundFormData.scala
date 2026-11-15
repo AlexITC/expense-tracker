@@ -45,13 +45,7 @@ case class BankRowRefundFormData(
       merchants: List[GetMerchants.Response.Merchant],
       categories: List[GetCategories.Response.Category]
   ): BankRowRefundFormData = {
-    val defaultCategory = for {
-      selection <- value.toOption.flatten
-      merchantId <- selection.id
-      picked <- merchants.find(_.id == merchantId)
-      categoryId <- picked.categoryId
-      c <- categories.find(_.id == categoryId)
-    } yield c
+    val defaultCategory = ExistingSelections.defaultCategory(value.toOption.flatten, merchants, categories)
     copy(
       merchant = merchant.updated(value),
       category = defaultCategory.fold(category)(c =>
