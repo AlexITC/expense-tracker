@@ -1,17 +1,19 @@
 package net.wiringbits.components.pages.expenses
-import net.wiringbits.components.pages.AutocompleteLabels
 
-import com.olvind.mui.muiMaterial.autocompleteAutocompleteMod.AutocompleteRenderInputParams
 import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{CreateExpenseFromRow, GetAllRows}
-import net.wiringbits.api.models.categories.{CreateCategory, GetCategories}
+import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.common.models.{CategoryName, MerchantName}
-import net.wiringbits.api.models.merchants.{CreateMerchant, GetMerchants}
+import net.wiringbits.api.models.merchants.GetMerchants
+import net.wiringbits.components.pages.{CategoryResolver, MerchantResolver}
 import net.wiringbits.components.widgets.Loader
 import net.wiringbits.core.SafeHooks
+import net.wiringbits.forms.BulkExpenseFormData
 import net.wiringbits.models.User
-import net.wiringbits.ui.forms.SubmitHooks
+import net.wiringbits.ui.components.inputs.{CategoryAutocompleteInput, OptionalMerchantAutocompleteInput}
+import net.wiringbits.ui.forms.{ExistingOrNewValue, SubmitHooks}
+import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.compat.{MuiCompat, RouterCompat}
@@ -36,20 +38,14 @@ object BulkExpenseCreationPage {
 
   private[pages] def normalize(s: String): String = s.toLowerCase.trim
 
-  /** Why the bulk import can't start, if anything: no rows selected or no category chosen. */
-  private[pages] def importError(selectedIds: List[UUID], categoryInput: String): Option[String] =
+  /** Why the bulk import can't start, if anything: no rows selected. */
+  private[pages] def importError(selectedIds: List[UUID]): Option[String] =
     if (selectedIds.isEmpty) Some("No rows selected")
-    else if (categoryInput.trim.isEmpty) Some("Choose a category")
     else None
 
   /** Every bulk-created expense is fully allocated to the chosen category. */
   private[pages] def rowSplits(catId: UUID, rowAmount: BigDecimal): List[CreateExpenseFromRow.Split] =
     List(CreateExpenseFromRow.Split(catId, rowAmount.abs))
-
-  private[pages] def renderTextField(label: String)(params: AutocompleteRenderInputParams): ReactElement =
-    (mui.TextField.outlined
-      .withProps(MuiCompat.textFieldProps(params, label, size = Some("small")))
-      .withKey("tf"): ReactElement)
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
@@ -71,7 +67,7 @@ object BulkExpenseCreationPage {
 }
 
 object BulkExpenseCreationContent {
-  import BulkExpenseCreationPage.{PageSize, importError, normalize, renderTextField, rowSplits}
+  import BulkExpenseCreationPage.{PageSize, importError, normalize, rowSplits}
 
   def apply(
       ctx: AppContext,
@@ -110,11 +106,7 @@ object BulkExpenseCreationContent {
     // Screen 2
     val (descFilter, setDescFilter) = Hooks.useState(descParam.getOrElse(""))
     val (selectedIds, setSelectedIds) = Hooks.useState[Set[UUID]](Set.empty)
-    val (merchantInput, setMerchantInput) = Hooks.useState("")
-    val (merchantIdOpt, setMerchantIdOpt) = Hooks.useState[Option[UUID]](None)
-    val (categoryInput, setCategoryInput) = Hooks.useState("")
-    val (categoryIdOpt, setCategoryIdOpt) = Hooks.useState[Option[UUID]](None)
-    val (notes, setNotes) = Hooks.useState("")
+    val (formData, setFormData) = Hooks.useState(BulkExpenseFormData.initial)
     val submit = SubmitHooks.useSubmit()
     val saving = submit.isSubmitting
 
@@ -132,11 +124,7 @@ object BulkExpenseCreationContent {
         else Set.empty[UUID]
       setSelectedIds(initIds)
       submit.clearError()
-      setNotes("")
-      setMerchantInput("")
-      setMerchantIdOpt(None)
-      setCategoryInput("")
-      setCategoryIdOpt(None)
+      setFormData(BulkExpenseFormData.initial)
     })
 
     val unprocessed = allRows.filter(r => r.amount < 0 && r.expenseId.isEmpty && r.ignoredAt.isEmpty)
@@ -147,87 +135,58 @@ object BulkExpenseCreationContent {
 
     val effectiveSelected = selectedIds.intersect(filteredRows.map(_.id).toSet)
 
-    def resolveCatId(): Future[Option[UUID]] = categoryInput.trim match {
-      case "" => Future.successful(None)
-      case catName =>
-        categoryIdOpt match {
-          case Some(id) => Future.successful(Some(id))
-          case None =>
-            categories.find(_.name.equalsIgnoreCase(catName)) match {
-              case Some(c) => Future.successful(Some(c.id))
-              case None =>
-                props.ctx.api.client
-                  .createCategory(CreateCategory.Request(name = CategoryName.trusted(catName), description = None))
-                  .map(r => Some(r.id))
-            }
-        }
-    }
+    def updateMerchant(value: ValidationResult[Option[ExistingOrNewValue[MerchantName, UUID]]]): Unit =
+      setFormData(cur => cur.selectMerchant(value, merchants, categories))
 
-    def resolveMerchantId(catIdOpt: Option[UUID]): Future[Option[UUID]] = merchantInput.trim match {
-      case "" => Future.successful(None)
-      case merchantName =>
-        merchantIdOpt match {
-          case Some(id) => Future.successful(Some(id))
-          case None =>
-            merchants.find(_.name.equalsIgnoreCase(merchantName)) match {
-              case Some(m) => Future.successful(Some(m.id))
-              case None =>
-                MerchantName
-                  .parse(merchantName)
-                  .fold(
-                    error => Future.failed[CreateMerchant.Response](new RuntimeException(error)),
-                    validName =>
-                      props.ctx.api.client
-                        .createMerchant(
-                          CreateMerchant.Request(validName, notes = None, catIdOpt, taxId = None)
-                        )
-                  )
-                  .map(_.id)
-                  .map(Some(_))
-            }
-        }
-    }
+    def updateCategory(value: ValidationResult[ExistingOrNewValue[CategoryName, UUID]]): Unit =
+      setFormData(cur => cur.copy(category = cur.category.updated(value)))
 
     def handleImport(): Unit = {
       val ids = effectiveSelected.toList
-      importError(ids, categoryInput).fold {
-        submit.begin()
-        val notesVal = notes.trim
+      (importError(ids), formData.submitRequest) match {
+        case (Some(msg), _) => submit.fail(msg)
+        case (None, None) =>
+          submit.fail(formData.formValidationErrors.headOption.getOrElse("Please fix the form errors"))
+        case (None, Some(resolved)) => importRows(ids, resolved)
+      }
+    }
 
-        (for {
-          catIdOpt <- resolveCatId()
-          catId = catIdOpt.getOrElse(throw new RuntimeException("Choose a category"))
-          midOpt <- resolveMerchantId(Some(catId))
-          processed <- ids.foldLeft(Future.successful(List.empty[UUID])) { (accF, rowId) =>
-            accF.flatMap { acc =>
-              filteredRows.find(_.id == rowId) match {
-                case None => Future.successful(acc)
-                case Some(row) =>
-                  val req = CreateExpenseFromRow.Request(
-                    amount = row.amount.abs,
-                    date = row.date,
-                    time = None,
-                    merchantId = midOpt,
-                    notes = Some(notesVal).filter(_.nonEmpty),
-                    splits = rowSplits(catId, row.amount),
-                    receiptId = None
-                  )
-                  props.ctx.api.client
-                    .createExpenseFromRow(bankStatementId = row.bankStatementId, rowId = rowId, req)
-                    .map(_ => acc :+ rowId)
-              }
+    def importRows(ids: List[UUID], resolved: BulkExpenseFormData.Resolved): Unit = {
+      submit.begin()
+      val client = props.ctx.api.client
+
+      (for {
+        catId <- CategoryResolver.findOrCreateCategory(client, categories, resolved.category)
+        merchantOpt <- MerchantResolver.findOrCreateMerchantOpt(client, merchants, resolved.merchant, Some(catId))
+        processed <- ids.foldLeft(Future.successful(List.empty[UUID])) { (accF, rowId) =>
+          accF.flatMap { acc =>
+            filteredRows.find(_.id == rowId) match {
+              case None => Future.successful(acc)
+              case Some(row) =>
+                val req = CreateExpenseFromRow.Request(
+                  amount = row.amount.abs,
+                  date = row.date,
+                  time = None,
+                  merchantId = merchantOpt.map(_._1),
+                  notes = resolved.notes,
+                  splits = rowSplits(catId, row.amount),
+                  receiptId = None
+                )
+                client
+                  .createExpenseFromRow(bankStatementId = row.bankStatementId, rowId = rowId, req)
+                  .map(_ => acc :+ rowId)
             }
           }
-        } yield processed).onComplete {
-          case Success(processed) =>
-            val done = processed.toSet
-            setAllRows(cur => cur.map(r => if (done.contains(r.id)) r.copy(expenseId = Some(UUID.randomUUID())) else r))
-            setSelectedIds(Set.empty)
-            submit.reset()
-          case Failure(ex) =>
-            submit.fail(ex.getMessage)
         }
-      }(msg => submit.fail(msg))
+      } yield processed).onComplete {
+        case Success(processed) =>
+          val done = processed.toSet
+          setAllRows(cur => cur.map(r => if (done.contains(r.id)) r.copy(expenseId = Some(UUID.randomUUID())) else r))
+          setSelectedIds(Set.empty)
+          submit.reset()
+        case Failure(ex) =>
+          submit.fail(ex.getMessage)
+      }
     }
 
     def handleIgnore(): Unit = {
@@ -259,48 +218,6 @@ object BulkExpenseCreationContent {
           }
       }
     }
-
-    val merchantAcProps = MuiCompat.freeSoloAutocompleteProps(
-      options = merchants,
-      renderInput = renderTextField("Merchant (optional)"),
-      inputValue = merchantInput,
-      getOptionLabel = AutocompleteLabels.merchantOptionLabel,
-      onSelect = value =>
-        (value: Any) match {
-          case m: GetMerchants.Response.Merchant =>
-            setMerchantIdOpt(Some(m.id))
-            setMerchantInput(m.name)
-            m.categoryId.foreach { cid =>
-              setCategoryIdOpt(Some(cid))
-              categories.find(_.id == cid).foreach(c => setCategoryInput(c.name))
-            }
-          case _ => ()
-        },
-      onInput = (text, rsn) => {
-        setMerchantInput(text)
-        if (rsn != "reset") setMerchantIdOpt(None)
-      },
-      disabled = saving,
-      fullWidth = false
-    )
-
-    val categoryAcProps = MuiCompat.freeSoloAutocompleteProps(
-      options = categories,
-      renderInput = renderTextField("Category"),
-      inputValue = categoryInput,
-      getOptionLabel = AutocompleteLabels.categoryOptionLabel,
-      onSelect = value =>
-        (value: Any) match {
-          case c: GetCategories.Response.Category => setCategoryIdOpt(Some(c.id)); setCategoryInput(c.name)
-          case _ => ()
-        },
-      onInput = (text, rsn) => {
-        setCategoryInput(text)
-        if (rsn != "reset") setCategoryIdOpt(None)
-      },
-      disabled = saving,
-      fullWidth = false
-    )
 
     val hcell = new CSSPropertiesUtils {
       fontWeight = "700"; fontSize = "11px"; letterSpacing = "0.06em"
@@ -529,21 +446,42 @@ object BulkExpenseCreationContent {
                 mui.Typography(msg).sx(new CSSPropertiesUtils { color = "var(--lc-error)"; fontSize = "13px" })
               case None => Fragment()
             },
-            (mui.Autocomplete.withProps(merchantAcProps).withKey("m"): ReactElement),
-            (mui.Autocomplete.withProps(categoryAcProps).withKey("c"): ReactElement),
+            (OptionalMerchantAutocompleteInput
+              .component(
+                OptionalMerchantAutocompleteInput.Props(
+                  field = formData.merchant,
+                  options = merchants,
+                  label = "Merchant (optional)",
+                  onChange = updateMerchant,
+                  disabled = saving
+                )
+              ): ReactElement),
+            (CategoryAutocompleteInput
+              .component(
+                CategoryAutocompleteInput.Props(
+                  field = formData.category,
+                  options = categories,
+                  label = "Category",
+                  onChange = updateCategory,
+                  disabled = saving
+                )
+              ): ReactElement),
             mui.TextField
               .outlined()
               .label("Notes (applied to all)")
               .size("small")
-              .value(notes)
+              .value(formData.notes)
               .disabled(saving)
-              .onChange(e => setNotes(e.target.asInstanceOf[dom.HTMLInputElement].value)),
+              .onChange { e =>
+                val text = e.target.asInstanceOf[dom.HTMLInputElement].value
+                setFormData(cur => cur.copy(notes = text))
+              },
             mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "8px" })(
               mui.Button
                 .normal()(if (saving) "Processing…" else s"Import ${effectiveSelected.size} selected")
                 .size("small")
                 .variant("contained")
-                .disabled(saving || effectiveSelected.isEmpty)
+                .disabled(submit.buttonDisabled(formData.isValid) || effectiveSelected.isEmpty)
                 .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
                 .onClick(_ => handleImport()),
               mui.Button
