@@ -49,4 +49,18 @@ class ExpNotesSpec extends AnyWordSpec {
       result.errorMessage must be(Some(lengthError))
     }
   }
+
+  "merchantOptionalValidator" should {
+    "treat blank input as no notes" in {
+      ExpNotes.merchantOptionalValidator("   ").toOption must be(Some(None))
+    }
+    "accept exactly MerchantMaxLength characters" in {
+      ExpNotes.merchantOptionalValidator("a" * ExpNotes.MerchantMaxLength).hasError must be(false)
+    }
+    "reject MerchantMaxLength + 1 characters with the merchant length message" in {
+      val result = ExpNotes.merchantOptionalValidator("a" * (ExpNotes.MerchantMaxLength + 1))
+      result.hasError must be(true)
+      result.errorMessage must be(Some(s"Notes must be ${ExpNotes.MerchantMaxLength} characters or less"))
+    }
+  }
 }

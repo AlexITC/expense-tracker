@@ -9,14 +9,21 @@ import net.wiringbits.common.models.CategoryName
 import net.wiringbits.api.models.environmentconfig.GetEnvironmentConfig
 import net.wiringbits.api.models.merchants.{CreateImportRule, GetMerchants, ImportRuleAction}
 import net.wiringbits.forms.MerchantFormData
-import net.wiringbits.ui.components.inputs.MerchantNameInput
-import net.wiringbits.ui.forms.SubmitHooks
+import net.wiringbits.ui.components.inputs.{
+  MerchantNameInput,
+  OptionalIdSelectInput,
+  OptionalMerchantNotesInput,
+  OptionalTaxIdInput
+}
+import net.wiringbits.ui.forms.{ExpOptionalId, SubmitHooks}
 import net.wiringbits.core.SafeHooks
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.Container
 import net.wiringbits.webapp.utils.slinkyUtils.core.GenericHooks
+import net.wiringbits.webapp.utils.slinkyUtils.forms.FormField
+import net.wiringbits.webapp.common.validators.ValidationResult
 import org.scalajs.dom
 import slinky.core.facade.{Fragment, Hooks, ReactElement}
 import slinky.core.{FunctionalComponent, KeyAddingStage}
@@ -97,12 +104,16 @@ object MerchantList {
     val (searchText, setSearchText) = Hooks.useState("")
     val (page, setPage) = Hooks.useState(0)
     val (createForm, setCreateForm) =
-      Hooks.useState(MerchantFormData.initial(name = None, notes = "", categoryId = "", taxId = ""))
+      Hooks.useState(
+        MerchantFormData.blankCreate
+      )
     val createSubmit = SubmitHooks.useSubmit()
     val (error, setError) = Hooks.useState("")
     val (editingId, setEditingId) = Hooks.useState[Option[UUID]](None)
     val (editForm, setEditForm) =
-      Hooks.useState(MerchantFormData.initial(name = None, notes = "", categoryId = "", taxId = ""))
+      Hooks.useState(
+        MerchantFormData.blankEdit
+      )
     val editSubmit = SubmitHooks.useSubmit()
 
     val (createCatOpen, setCreateCatOpen) = Hooks.useState(false)
@@ -117,21 +128,23 @@ object MerchantList {
     val (createRuleEnabled, setCreateRuleEnabled) = Hooks.useState(false)
     val (newRulePattern, setNewRulePattern) = Hooks.useState("")
 
-    def categoryItems = {
-      val none = mui.MenuItem.normal()("(none)").value("").withKey("none").build
-      none +: localCategories.map(c => mui.MenuItem.normal()(c.name).value(c.id.toString).withKey(c.id.toString).build)
-    }
-
-    def categorySelector(value: String, onChange: String => Unit, label: String, forTarget: String) =
+    def categorySelector(
+        field: FormField[Option[UUID]],
+        onChange: ValidationResult[Option[UUID]] => Unit,
+        disabled: Boolean,
+        forTarget: String
+    ) =
       mui.Box.sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; gap = "8px" })(
-        mui.TextField
-          .outlined()
-          .select(true)
-          .label(label)
-          .value(value)
-          .size("small")
-          .onChange(e => onChange(e.target.asInstanceOf[dom.HTMLInputElement].value))
-          .sx(new CSSPropertiesUtils { minWidth = "200px" })(categoryItems*),
+        mui.Box.sx(new CSSPropertiesUtils { minWidth = "200px" })(
+          OptionalIdSelectInput.component(
+            OptionalIdSelectInput.Props(
+              field = field,
+              options = localCategories.map(c => c.id.toString -> c.name),
+              onChange = onChange,
+              disabled = disabled
+            )
+          )
+        ),
         mui.Button
           .normal()("+ Cat")
           .size("small")
@@ -154,8 +167,10 @@ object MerchantList {
               setLocalCategories(cur =>
                 cur :+ GetCategories.Response.Category(resp.id, resp.name, java.time.Instant.now(), None)
               )
-              if (createCatFor == "create") setCreateForm(cur => cur.copy(categoryId = resp.id.toString))
-              else setEditForm(cur => cur.copy(categoryId = resp.id.toString))
+              val selected = ExpOptionalId.validate(resp.id.toString)
+              if (createCatFor == "create")
+                setCreateForm(cur => cur.copy(categoryId = cur.categoryId.updated(selected)))
+              else setEditForm(cur => cur.copy(categoryId = cur.categoryId.updated(selected)))
               setCreateCatOpen(false)
               setNewCatName("")
               setCatModalError("")
@@ -170,7 +185,9 @@ object MerchantList {
           .onComplete {
             case Success(resp) =>
               createSubmit.succeed()
-              setCreateForm(MerchantFormData.initial(name = None, notes = "", categoryId = "", taxId = ""))
+              setCreateForm(
+                MerchantFormData.blankCreate
+              )
               setCreateRuleEnabled(false); setNewRulePattern(""); setError("")
               if (createRuleEnabled && newRulePattern.trim.nonEmpty)
                 props.ctx.api.client
@@ -250,37 +267,31 @@ object MerchantList {
               onChange = value => setCreateForm(cur => cur.copy(name = cur.name.updated(value)))
             )
           ),
-          mui.TextField
-            .outlined()
-            .label("Notes (optional)")
-            .value(createForm.notes)
-            .size("small")
-            .disabled(createSubmit.isSubmitting)
-            .onChange(e => {
-              val value = e.target.asInstanceOf[dom.HTMLInputElement].value
-              setCreateForm(cur => cur.copy(notes = value))
-            }),
-          mui.TextField
-            .outlined()
-            .label("Tax ID (optional)")
-            .value(createForm.taxId)
-            .size("small")
-            .disabled(createSubmit.isSubmitting)
-            .onChange(e => {
-              val value = e.target.asInstanceOf[dom.HTMLInputElement].value
-              setCreateForm(cur => cur.copy(taxId = value))
-            }),
+          OptionalMerchantNotesInput.component(
+            OptionalMerchantNotesInput.Props(
+              field = createForm.notes,
+              disabled = createSubmit.isSubmitting,
+              onChange = v => setCreateForm(cur => cur.copy(notes = cur.notes.updated(v)))
+            )
+          ),
+          OptionalTaxIdInput.component(
+            OptionalTaxIdInput.Props(
+              field = createForm.taxId,
+              disabled = createSubmit.isSubmitting,
+              onChange = v => setCreateForm(cur => cur.copy(taxId = cur.taxId.updated(v)))
+            )
+          ),
           categorySelector(
-            value = createForm.categoryId,
-            value => setCreateForm(cur => cur.copy(categoryId = value)),
-            label = "Default category",
+            field = createForm.categoryId,
+            onChange = v => setCreateForm(cur => cur.copy(categoryId = cur.categoryId.updated(v))),
+            disabled = createSubmit.isSubmitting,
             forTarget = "create"
           ),
           mui.Button
             .normal()("Add")
             .variant("contained")
             .`type`("submit")
-            .disabled(atLimit || createSubmit.buttonDisabled(createForm.submitRequest.isDefined))
+            .disabled(atLimit || createSubmit.buttonDisabled(createForm.isValid))
             .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)"; borderRadius = "8px" })
         ),
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; gap = "12px" })(
@@ -354,30 +365,24 @@ object MerchantList {
                   onChange = value => setEditForm(cur => cur.copy(name = cur.name.updated(value)))
                 )
               ),
-              mui.TextField
-                .outlined()
-                .label("Notes (optional)")
-                .value(editForm.notes)
-                .size("small")
-                .disabled(editSubmit.isSubmitting)
-                .onChange(e => {
-                  val value = e.target.asInstanceOf[dom.HTMLInputElement].value
-                  setEditForm(cur => cur.copy(notes = value))
-                }),
-              mui.TextField
-                .outlined()
-                .label("Tax ID (optional)")
-                .value(editForm.taxId)
-                .size("small")
-                .disabled(editSubmit.isSubmitting)
-                .onChange(e => {
-                  val value = e.target.asInstanceOf[dom.HTMLInputElement].value
-                  setEditForm(cur => cur.copy(taxId = value))
-                }),
+              OptionalMerchantNotesInput.component(
+                OptionalMerchantNotesInput.Props(
+                  field = editForm.notes,
+                  disabled = editSubmit.isSubmitting,
+                  onChange = v => setEditForm(cur => cur.copy(notes = cur.notes.updated(v)))
+                )
+              ),
+              OptionalTaxIdInput.component(
+                OptionalTaxIdInput.Props(
+                  field = editForm.taxId,
+                  disabled = editSubmit.isSubmitting,
+                  onChange = v => setEditForm(cur => cur.copy(taxId = cur.taxId.updated(v)))
+                )
+              ),
               categorySelector(
-                value = editForm.categoryId,
-                value => setEditForm(cur => cur.copy(categoryId = value)),
-                label = "Default category",
+                field = editForm.categoryId,
+                onChange = v => setEditForm(cur => cur.copy(categoryId = cur.categoryId.updated(v))),
+                disabled = editSubmit.isSubmitting,
                 forTarget = "edit"
               ),
               mui.Button
@@ -385,7 +390,7 @@ object MerchantList {
                 .size("small")
                 .variant("contained")
                 .`type`("submit")
-                .disabled(editSubmit.buttonDisabled(editForm.updateRequest.isDefined))
+                .disabled(editSubmit.buttonDisabled(editForm.isValid))
                 .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" }),
               mui.Button
                 .normal()("Cancel")
@@ -473,14 +478,7 @@ object MerchantList {
                 .sx(new CSSPropertiesUtils { color = "var(--lc-text-2)" })
                 .onClick { _ =>
                   setEditingId(Some(m.id))
-                  setEditForm(_ =>
-                    MerchantFormData.initial(
-                      name = Some(m.name),
-                      notes = m.notes.getOrElse(""),
-                      categoryId = m.categoryId.map(_.toString).getOrElse(""),
-                      taxId = m.taxId.getOrElse("")
-                    )
-                  )
+                  setEditForm(_ => MerchantFormData.fromMerchant(m))
                   editSubmit.reset()
                 },
               mui.Button
