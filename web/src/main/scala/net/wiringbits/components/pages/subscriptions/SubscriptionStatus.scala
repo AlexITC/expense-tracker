@@ -8,9 +8,9 @@ import net.wiringbits.api.models.subscriptions.{
   SubscriptionTerm
 }
 
+import net.wiringbits.api.utils.{SubscriptionSchedule, SubscriptionScheduleError}
+
 import java.time.LocalDate
-import java.time.temporal.ChronoUnit
-import scala.annotation.tailrec
 
 enum SubscriptionStatus(val label: String) {
   case Upcoming extends SubscriptionStatus("Upcoming")
@@ -19,24 +19,19 @@ enum SubscriptionStatus(val label: String) {
   case Cancelled extends SubscriptionStatus("Cancelled")
 }
 
-/** Why an expected date cannot be computed for a subscription. */
-enum SubscriptionStatusError(val message: String) {
-  case MissingInterval extends SubscriptionStatusError("Interval days is required for an every-N-days cadence")
-  case NonPositiveInterval extends SubscriptionStatusError("Interval days must be greater than zero")
-  case MissingIntervalMonths
-      extends SubscriptionStatusError("Interval months is required for an every-N-months cadence")
-  case NonPositiveIntervalMonths extends SubscriptionStatusError("Interval months must be greater than zero")
-}
+/** Why an expected date cannot be computed for a subscription; shared with the server-side schedule. */
+type SubscriptionStatusError = SubscriptionScheduleError
+val SubscriptionStatusError: SubscriptionScheduleError.type = SubscriptionScheduleError
 
 object SubscriptionStatusLogic {
 
   /** The term whose half-open range [effectiveFrom, effectiveTo) contains `date`. */
   def coveringTerm(terms: List[SubscriptionTerm], date: LocalDate): Option[SubscriptionTerm] =
-    terms.find(t => !t.effectiveFrom.isAfter(date) && t.effectiveTo.forall(date.isBefore))
+    SubscriptionSchedule.coveringTerm(terms, date)
 
   /** The earliest term starting after `date`. */
   def nextTerm(terms: List[SubscriptionTerm], date: LocalDate): Option[SubscriptionTerm] =
-    terms.filter(_.effectiveFrom.isAfter(date)).minByOption(_.effectiveFrom.toEpochDay)
+    SubscriptionSchedule.nextTerm(terms, date)
 
   /** The term the expected charge belongs to: the one covering `today`, otherwise the next one to start. */
   def expectedTerm(terms: List[SubscriptionTerm], today: LocalDate): Option[SubscriptionTerm] =
@@ -45,15 +40,8 @@ object SubscriptionStatusLogic {
   /** The start of the contiguous run of terms containing `term`. A price change starts an adjacent term and keeps the
     * billing day, so only a gap (a resume after cancelling) starts a new anchor.
     */
-  def cadenceAnchor(terms: List[SubscriptionTerm], term: SubscriptionTerm): LocalDate = {
-    @tailrec
-    def loop(from: LocalDate): LocalDate =
-      terms.find(_.effectiveTo.contains(from)) match {
-        case Some(prev) => loop(prev.effectiveFrom)
-        case None => from
-      }
-    loop(term.effectiveFrom)
-  }
+  def cadenceAnchor(terms: List[SubscriptionTerm], term: SubscriptionTerm): LocalDate =
+    SubscriptionSchedule.cadenceAnchor(terms, term)
 
   /** The expected charge date: the latest occurrence of the cadence anchored on the start of the contiguous run of
     * terms covering `today`; when no term covers `today`, the start of the next term. None when no term covers `today`
@@ -112,30 +100,9 @@ object SubscriptionStatusLogic {
       intervalMonths: Option[Int],
       today: LocalDate
   ): Either[SubscriptionStatusError, LocalDate] =
-    if (anchor.isAfter(today)) Right(anchor)
-    else
-      cadence match {
-        case SubscriptionCadence.Monthly =>
-          Right(latestOnOrBefore(today, ChronoUnit.MONTHS.between(anchor, today), anchor.plusMonths))
-        case SubscriptionCadence.Yearly =>
-          Right(latestOnOrBefore(today, ChronoUnit.YEARS.between(anchor, today), anchor.plusYears))
-        case SubscriptionCadence.EveryNDays =>
-          intervalDays match {
-            case Some(interval) if interval > 0 =>
-              val steps = ChronoUnit.DAYS.between(anchor, today) / interval
-              Right(anchor.plusDays(steps * interval))
-            case Some(_) => Left(SubscriptionStatusError.NonPositiveInterval)
-            case None => Left(SubscriptionStatusError.MissingInterval)
-          }
-        case SubscriptionCadence.EveryNMonths =>
-          intervalMonths match {
-            case Some(n) if n > 0 =>
-              val steps = ChronoUnit.MONTHS.between(anchor, today) / n
-              Right(latestOnOrBefore(today, steps, k => anchor.plusMonths(k * n)))
-            case Some(_) => Left(SubscriptionStatusError.NonPositiveIntervalMonths)
-            case None => Left(SubscriptionStatusError.MissingIntervalMonths)
-          }
-      }
+    SubscriptionSchedule
+      .step(cadence = cadence, intervalDays = intervalDays, intervalMonths = intervalMonths)
+      .map(step => SubscriptionSchedule.latestOccurrence(anchor = anchor, step = step, today = today))
 
   def amountLabel(amountMin: Option[BigDecimal], amountMax: Option[BigDecimal]): String =
     (amountMin, amountMax) match {
@@ -185,13 +152,5 @@ object SubscriptionStatusLogic {
         s"${extraChargeRecurrenceLabel(charge.recurrence).toLowerCase} from ${charge.dueDate}"
     }
     s"${charge.label} ${charge.amount.bigDecimal.toPlainString} $schedule"
-  }
-
-  // `ChronoUnit.between` can undercount when the start day-of-month is clamped (31 Jan -> 28 Feb counts as 0 months),
-  // so step forward while the next occurrence still fits.
-  @tailrec
-  private def latestOnOrBefore(today: LocalDate, steps: Long, occurrence: Long => LocalDate): LocalDate = {
-    val next = occurrence(steps + 1)
-    if (next.isAfter(today)) occurrence(steps) else latestOnOrBefore(today, steps + 1, occurrence)
   }
 }
