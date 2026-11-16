@@ -3,7 +3,7 @@ package net.wiringbits.mcp
 import net.wiringbits.actions.bankstatements.{GetAllRowsAction, GetBankStatementsAction}
 import net.wiringbits.actions.categories.GetCategoriesAction
 import net.wiringbits.actions.expenses.GetExpensesAction
-import net.wiringbits.actions.subscriptions.GetSubscriptionsAction
+import net.wiringbits.actions.subscriptions.{GetSubscriptionReconciliationAction, GetSubscriptionsAction}
 import net.wiringbits.mcp.McpProtocol.*
 import org.slf4j.LoggerFactory
 import play.api.libs.json.{JsObject, JsValue, Json}
@@ -22,7 +22,8 @@ class McpDispatcher @Inject() (
     getCategoriesAction: GetCategoriesAction,
     getBankStatementsAction: GetBankStatementsAction,
     getAllRowsAction: GetAllRowsAction,
-    getSubscriptionsAction: GetSubscriptionsAction
+    getSubscriptionsAction: GetSubscriptionsAction,
+    getSubscriptionReconciliationAction: GetSubscriptionReconciliationAction
 )(implicit ec: ExecutionContext) {
 
   private val logger = LoggerFactory.getLogger(this.getClass)
@@ -57,7 +58,8 @@ class McpDispatcher @Inject() (
             "learn category ids, then list_expenses to fetch the full expense history; filter and aggregate locally. " +
             "For true spend (including activity that never became an expense), use list_bank_statement_rows, whose " +
             "signed amounts come straight from the bank statements. Use list_subscriptions for recurring " +
-            "subscriptions with their price terms and extra charges.")
+            "subscriptions with their price terms and extra charges, and subscription_reconciliation to see which " +
+            "billing cycles were paid, late, retried, missing or upcoming.")
         )
         ok(id, result)
 
@@ -96,6 +98,8 @@ class McpDispatcher @Inject() (
               toolResult(id, grouped)
             case McpTools.ListSubscriptions =>
               toolResult(id, getSubscriptionsAction(userId).map(Json.toJson(_)))
+            case McpTools.SubscriptionReconciliation =>
+              toolResult(id, getSubscriptionReconciliationAction(userId, subscriptionId = None).map(Json.toJson(_)))
             case other => rpcError(id, -32602, s"Unknown tool: $other")
           }
         }

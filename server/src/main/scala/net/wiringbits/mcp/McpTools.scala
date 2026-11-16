@@ -8,6 +8,7 @@ object McpTools {
   val ListCategories = "list_categories"
   val ListBankStatementRows = "list_bank_statement_rows"
   val ListSubscriptions = "list_subscriptions"
+  val SubscriptionReconciliation = "subscription_reconciliation"
 
   private val noArgsSchema: JsObject = Json.obj("type" -> "object", "additionalProperties" -> false)
 
@@ -51,6 +52,23 @@ object McpTools {
           "amountMax range); when no term is open (every term has an effectiveTo) the subscription is cancelled. " +
           "Each subscription also lists its extra charges. Complete list, no server-side filtering — filter and " +
           "aggregate yourself."),
+        "inputSchema" -> noArgsSchema
+      ),
+      Json.obj(
+        "name" -> SubscriptionReconciliation,
+        "title" -> "Subscription reconciliation",
+        "description" -> ("Returns, for every subscription of the authenticated user (subscriptionId as in " +
+          "list_subscriptions), its billing cycles ordered by dueDate plus every manual payment the user logged " +
+          "(id, paidDate, amount, optional note). Each cycle has a dueDate, the termId covering it, that term's " +
+          "optional amountMin / amountMax range, and a status tagged by kind: \"matched\" (one charge paid it: " +
+          "source Expense, BankStatementRow or ManualPayment, id, date, amount, and late = true when the charge " +
+          "date is after the dueDate), \"retried\" (several charge attempts, each with source/id/date/amount, " +
+          "ordered by date), \"missing\" (no charge found and the tolerance window has closed) or \"upcoming\" " +
+          "(no charge found yet, the window is still open). Cycles exist only inside terms, so gaps between terms " +
+          "are never flagged. A charge counts for a cycle when its date is within a server-configured tolerance " +
+          "window of days around the dueDate, and each charge is credited to at most one cycle. Expense ids " +
+          "reference list_expenses and BankStatementRow ids reference list_bank_statement_rows (their amount " +
+          "here is positive, money out). Complete list, no server-side filtering."),
         "inputSchema" -> noArgsSchema
       )
     )
