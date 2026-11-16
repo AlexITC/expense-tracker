@@ -23,7 +23,10 @@ class SubscriptionsController @Inject() (
     resumeSubscriptionAction: ResumeSubscriptionAction,
     getSubscriptionStartDateSuggestionAction: GetSubscriptionStartDateSuggestionAction,
     addSubscriptionExtraChargeAction: AddSubscriptionExtraChargeAction,
-    deleteSubscriptionExtraChargeAction: DeleteSubscriptionExtraChargeAction
+    deleteSubscriptionExtraChargeAction: DeleteSubscriptionExtraChargeAction,
+    getSubscriptionReconciliationAction: GetSubscriptionReconciliationAction,
+    addSubscriptionManualPaymentAction: AddSubscriptionManualPaymentAction,
+    deleteSubscriptionManualPaymentAction: DeleteSubscriptionManualPaymentAction
 )(implicit ec: ExecutionContext) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
@@ -154,9 +157,51 @@ class SubscriptionsController @Inject() (
     } yield Right(response)
   }
 
+  private def getReconciliation(
+      subscriptionId: Option[UUID],
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, GetSubscriptionReconciliation.Response]] = handleRequest {
+    for {
+      userId <- userIdF
+      _ = logger.info(s"Get subscription reconciliation: userId=$userId, subscriptionId=$subscriptionId")
+      response <- getSubscriptionReconciliationAction(userId = userId, subscriptionId = subscriptionId)
+    } yield Right(response)
+  }
+
+  private def addManualPayment(
+      subscriptionId: UUID,
+      request: AddSubscriptionManualPayment.Request,
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, AddSubscriptionManualPayment.Response]] = handleRequest {
+    for {
+      userId <- userIdF
+      _ = logger.info(s"Add subscription manual payment: userId=$userId, subscriptionId=$subscriptionId")
+      response <- addSubscriptionManualPaymentAction(subscriptionId = subscriptionId, userId = userId, request)
+    } yield Right(response)
+  }
+
+  private def deleteManualPayment(
+      subscriptionId: UUID,
+      manualPaymentId: UUID,
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, DeleteSubscriptionManualPayment.Response]] = handleRequest {
+    for {
+      userId <- userIdF
+      _ = logger.info(
+        s"Delete subscription manual payment: userId=$userId, subscriptionId=$subscriptionId, manualPaymentId=$manualPaymentId"
+      )
+      response <- deleteSubscriptionManualPaymentAction(
+        subscriptionId = subscriptionId,
+        manualPaymentId = manualPaymentId,
+        userId = userId
+      )
+    } yield Right(response)
+  }
+
   def routes: List[ServerEndpoint[PekkoStreams & WebSockets, Future]] = {
     List(
       SubscriptionsEndpoints.getSubscriptions.serverLogic(getSubscriptions),
+      SubscriptionsEndpoints.getReconciliation.serverLogic(getReconciliation),
       SubscriptionsEndpoints.createSubscription.serverLogic(createSubscription),
       SubscriptionsEndpoints.updateSubscription.serverLogic(updateSubscription),
       SubscriptionsEndpoints.deleteSubscription.serverLogic(deleteSubscription),
@@ -165,7 +210,9 @@ class SubscriptionsController @Inject() (
       SubscriptionsEndpoints.resumeSubscription.serverLogic(resumeSubscription),
       SubscriptionsEndpoints.getStartDateSuggestion.serverLogic(getStartDateSuggestion),
       SubscriptionsEndpoints.addExtraCharge.serverLogic(addExtraCharge),
-      SubscriptionsEndpoints.deleteExtraCharge.serverLogic(deleteExtraCharge)
+      SubscriptionsEndpoints.deleteExtraCharge.serverLogic(deleteExtraCharge),
+      SubscriptionsEndpoints.addManualPayment.serverLogic(addManualPayment),
+      SubscriptionsEndpoints.deleteManualPayment.serverLogic(deleteManualPayment)
     )
   }
 }
