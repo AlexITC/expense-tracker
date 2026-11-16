@@ -17,6 +17,7 @@ import net.wiringbits.ui.forms.{
   ExpRuleAmount,
   ExpRuleDescription,
   ExpRulePattern,
+  ExpTaxId,
   PositiveBigDecimal,
   SubscriptionAmount,
   SubscriptionIntervalDays,
@@ -41,6 +42,10 @@ object OptionalTimeInput extends ValidatedTextInput[Option[ExpLocalTime]]
 object NotesInput extends ValidatedTextInput[ExpNotes]
 
 object OptionalNotesInput extends ValidatedTextInput[Option[ExpNotes]]
+
+object TaxIdInput extends ValidatedTextInput[ExpTaxId]
+
+object OptionalTaxIdInput extends ValidatedTextInput[Option[ExpTaxId]]
 
 object OptionalIdSelectInput extends ValidatedSelectInput[Option[UUID]](using ExpOptionalId.validator)
 
