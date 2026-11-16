@@ -4,7 +4,7 @@ import net.wiringbits.api.models.*
 import play.api.libs.json.{Format, Json}
 import sttp.tapir.Schema
 
-import java.time.{Instant, LocalDate}
+import java.time.Instant
 import java.util.UUID
 
 object GetSubscriptions {
@@ -16,11 +16,15 @@ object GetSubscriptions {
         name: String,
         cadence: SubscriptionCadence,
         intervalDays: Option[Int],
-        amountMin: Option[BigDecimal],
-        amountMax: Option[BigDecimal],
+        intervalMonths: Option[Int],
         paymentMethod: SubscriptionPaymentMethod,
         categoryId: Option[UUID],
-        startDate: LocalDate,
+        merchantId: Option[UUID],
+        description: Option[String],
+        // Ordered by effectiveFrom; the cadence anchor for expected dates is the covering term's effectiveFrom.
+        terms: List[SubscriptionTerm],
+        // Ordered by dueDate, then id.
+        extraCharges: List[SubscriptionExtraCharge],
         createdAt: Instant
     )
   }

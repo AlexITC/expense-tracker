@@ -3,6 +3,7 @@ package net.wiringbits.mcp
 import net.wiringbits.actions.bankstatements.{GetAllRowsAction, GetBankStatementsAction}
 import net.wiringbits.actions.categories.GetCategoriesAction
 import net.wiringbits.actions.expenses.GetExpensesAction
+import net.wiringbits.actions.subscriptions.GetSubscriptionsAction
 import net.wiringbits.mcp.McpProtocol.*
 import org.slf4j.LoggerFactory
 import play.api.libs.json.{JsObject, JsValue, Json}
@@ -20,7 +21,8 @@ class McpDispatcher @Inject() (
     getExpensesAction: GetExpensesAction,
     getCategoriesAction: GetCategoriesAction,
     getBankStatementsAction: GetBankStatementsAction,
-    getAllRowsAction: GetAllRowsAction
+    getAllRowsAction: GetAllRowsAction,
+    getSubscriptionsAction: GetSubscriptionsAction
 )(implicit ec: ExecutionContext) {
 
   private val logger = LoggerFactory.getLogger(this.getClass)
@@ -54,7 +56,8 @@ class McpDispatcher @Inject() (
           "instructions" -> ("Read-only access to the authenticated user's expense data. Use list_categories to " +
             "learn category ids, then list_expenses to fetch the full expense history; filter and aggregate locally. " +
             "For true spend (including activity that never became an expense), use list_bank_statement_rows, whose " +
-            "signed amounts come straight from the bank statements.")
+            "signed amounts come straight from the bank statements. Use list_subscriptions for recurring " +
+            "subscriptions with their price terms and extra charges.")
         )
         ok(id, result)
 
@@ -91,6 +94,8 @@ class McpDispatcher @Inject() (
                 rows <- getAllRowsAction(userId)
               } yield McpBankStatementRows.grouped(statements, rows)
               toolResult(id, grouped)
+            case McpTools.ListSubscriptions =>
+              toolResult(id, getSubscriptionsAction(userId).map(Json.toJson(_)))
             case other => rpcError(id, -32602, s"Unknown tool: $other")
           }
         }

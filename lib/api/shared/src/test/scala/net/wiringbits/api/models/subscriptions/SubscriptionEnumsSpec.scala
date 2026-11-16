@@ -8,7 +8,7 @@ class SubscriptionEnumsSpec extends AnyWordSpec with Matchers {
 
   "SubscriptionCadence" should {
     "use the spec entry names" in {
-      SubscriptionCadence.values.map(_.entryName).toList mustBe List("Monthly", "Yearly", "EveryNDays")
+      SubscriptionCadence.values.map(_.entryName).toList mustBe List("Monthly", "Yearly", "EveryNDays", "EveryNMonths")
     }
 
     "resolve every value from its entry name" in {
@@ -34,7 +34,7 @@ class SubscriptionEnumsSpec extends AnyWordSpec with Matchers {
   "SubscriptionPaymentMethod" should {
     "use the spec entry names" in {
       SubscriptionPaymentMethod.values.map(_.entryName).toList mustBe
-        List("DirectDebit", "ManualTransfer", "CardPortal", "Cash")
+        List("DirectDebit", "ManualTransfer", "CardPortal", "Cash", "CardAutoCharge")
     }
 
     "resolve every value from its entry name" in {
@@ -56,6 +56,34 @@ class SubscriptionEnumsSpec extends AnyWordSpec with Matchers {
 
     "fail to read an unknown json value" in {
       JsString("Cheque").validate[SubscriptionPaymentMethod].isError mustBe true
+    }
+  }
+
+  "SubscriptionExtraChargeRecurrence" should {
+    "use the spec entry names" in {
+      SubscriptionExtraChargeRecurrence.values.map(_.entryName).toList mustBe List("OneOff", "Monthly", "Yearly")
+    }
+
+    "resolve every value from its entry name" in {
+      SubscriptionExtraChargeRecurrence.values.foreach { r =>
+        SubscriptionExtraChargeRecurrence.fromEntryName(r.entryName) mustBe r
+      }
+    }
+
+    "throw on an unknown entry name" in {
+      intercept[NoSuchElementException](SubscriptionExtraChargeRecurrence.fromEntryName("Weekly")).getMessage must
+        include("Weekly")
+    }
+
+    "round-trip through json" in {
+      SubscriptionExtraChargeRecurrence.values.foreach { r =>
+        Json.toJson(r) mustBe JsString(r.entryName)
+        Json.toJson(r).as[SubscriptionExtraChargeRecurrence] mustBe r
+      }
+    }
+
+    "fail to read an unknown json value" in {
+      JsString("Weekly").validate[SubscriptionExtraChargeRecurrence].isError mustBe true
     }
   }
 }

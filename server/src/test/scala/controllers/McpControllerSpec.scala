@@ -1,12 +1,15 @@
 package controllers
 import net.wiringbits.common.models.CategoryDescription
 import net.wiringbits.common.models.CategoryName
+import net.wiringbits.common.models.{MerchantName, SubscriptionName}
 
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.github.f4b6a3.uuid.UuidCreator
 import controllers.common.PlayPostgresSpec
 import net.wiringbits.api.models.categories.CreateCategory
 import net.wiringbits.api.models.expenses.CreateExpense
+import net.wiringbits.api.models.merchants.CreateMerchant
+import net.wiringbits.api.models.subscriptions.{CreateSubscription, SubscriptionCadence, SubscriptionPaymentMethod}
 import net.wiringbits.repositories.models.BankStatementRow
 import net.wiringbits.services.{BlobStorage, NoOpBlobStorage}
 import net.wiringbits.util.TokenGenerator
@@ -108,7 +111,7 @@ class McpControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUti
       val response = POST("/mcp", rpc("tools/list"), bearer(token))
       status(response) must be(OK)
       val names = (contentAsJson(response) \ "result" \ "tools").as[List[JsValue]].map(t => (t \ "name").as[String])
-      names must contain.allOf("list_expenses", "list_categories", "list_bank_statement_rows")
+      names must contain.allOf("list_expenses", "list_categories", "list_bank_statement_rows", "list_subscriptions")
     }
 
     "group rows under their statement via list_bank_statement_rows" in withApiClient { implicit client =>
@@ -223,6 +226,78 @@ class McpControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUti
           categories.map(c => (c \ "name").as[String]) must be(List("Groceries", "Transport"))
           (categories.head \ "description").as[String] must be("Food for home")
           (categories(1) \ "description").asOpt[String] must be(None)
+        }
+    }
+
+    "return only the authenticated user's subscriptions with terms via list_subscriptions" in withApiClient {
+      implicit clientA =>
+        createVerifyLoginUser(tokenGenerator).futureValue
+        val categoryId = clientA
+          .createCategory(
+            CreateCategory.Request(CategoryName.trusted(s"Cat ${UUID.randomUUID().toString.take(8)}"), None)
+          )
+          .futureValue
+          .id
+        val merchantId = clientA
+          .createMerchant(CreateMerchant.Request(MerchantName.trusted(s"Merchant ${UUID.randomUUID()}"), None, None))
+          .futureValue
+          .id
+        val nameA = s"Mine ${UUID.randomUUID()}"
+        clientA
+          .createSubscription(
+            CreateSubscription.Request(
+              name = SubscriptionName.trusted(nameA),
+              cadence = SubscriptionCadence.Monthly,
+              intervalDays = None,
+              intervalMonths = None,
+              amountMin = Some(BigDecimal("9.99")),
+              amountMax = Some(BigDecimal("9.99")),
+              paymentMethod = SubscriptionPaymentMethod.DirectDebit,
+              categoryId = Some(categoryId),
+              merchantId = Some(merchantId),
+              description = None,
+              startDate = LocalDate.of(2026, 1, 15)
+            )
+          )
+          .futureValue
+        val tokenA = clientA.createMcpToken.futureValue.token.value
+
+        withApiClient { implicit clientB =>
+          createVerifyLoginUser(tokenGenerator).futureValue
+          clientB
+            .createSubscription(
+              CreateSubscription.Request(
+                name = SubscriptionName.trusted(s"Theirs ${UUID.randomUUID()}"),
+                cadence = SubscriptionCadence.Monthly,
+                intervalDays = None,
+                intervalMonths = None,
+                amountMin = None,
+                amountMax = None,
+                paymentMethod = SubscriptionPaymentMethod.DirectDebit,
+                categoryId = None,
+                merchantId = None,
+                description = None,
+                startDate = LocalDate.of(2026, 2, 1)
+              )
+            )
+            .futureValue
+
+          val params = Json.obj("name" -> "list_subscriptions")
+          val response = POST("/mcp", rpc("tools/call", params = params), bearer(tokenA))
+          status(response) must be(OK)
+          (contentAsJson(response) \ "result" \ "isError").as[Boolean] must be(false)
+          val text = ((contentAsJson(response) \ "result" \ "content").as[List[JsValue]].head \ "text").as[String]
+          val subscriptions = (Json.parse(text) \ "data").as[List[JsValue]]
+          subscriptions.map(s => (s \ "name").as[String]) must be(List(nameA))
+          val subscription = subscriptions.head
+          (subscription \ "merchantId").as[UUID] must be(merchantId)
+          (subscription \ "categoryId").as[UUID] must be(categoryId)
+          val terms = (subscription \ "terms").as[List[JsValue]]
+          terms must have size 1
+          (terms.head \ "effectiveFrom").as[LocalDate] must be(LocalDate.of(2026, 1, 15))
+          (terms.head \ "effectiveTo").asOpt[LocalDate] must be(None)
+          (terms.head \ "amountMin").as[BigDecimal] must be(BigDecimal("9.99"))
+          (subscription \ "extraCharges").as[List[JsValue]] must be(List.empty)
         }
     }
 

@@ -1,13 +1,22 @@
 package net.wiringbits.actions.subscriptions
 
-import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod}
+import net.wiringbits.api.models.subscriptions.{
+  AddSubscriptionExtraCharge,
+  SubscriptionCadence,
+  SubscriptionExtraCharge,
+  SubscriptionExtraChargeRecurrence,
+  SubscriptionPaymentMethod,
+  SubscriptionTerm
+}
+import net.wiringbits.common.models.SubscriptionExtraChargeLabel
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
+import net.wiringbits.repositories.models.SubscriptionTerm as Term
 import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
 import utils.RepositoryUtils
 
-import java.time.LocalDate
+import java.time.{Clock, Instant, LocalDate}
 import java.util.UUID
 
 class GetSubscriptionsActionSpec extends RepositorySpec with RepositoryUtils {
@@ -28,9 +37,25 @@ class GetSubscriptionsActionSpec extends RepositorySpec with RepositoryUtils {
       response.data.map(_.name) must be(List(s"$base A", s"$base B"))
     }
 
+    "map an every-n-months interval" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val existing = createSubscription(
+        user.id,
+        name = s"Insurance ${UUID.randomUUID()}",
+        cadence = SubscriptionCadence.EveryNMonths,
+        intervalMonths = Some(3)
+      ).futureValue
+
+      val item = newAction().apply(user.id).futureValue.data.find(_.id == existing.id).value
+      item.cadence must be(SubscriptionCadence.EveryNMonths)
+      item.intervalDays must be(None)
+      item.intervalMonths must be(Some(3))
+    }
+
     "map every stored field" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
       val category = createCategory(user.id, name = s"Category ${UUID.randomUUID()}").futureValue
+      val merchant = createMerchant(user.id, name = s"Merchant ${UUID.randomUUID()}").futureValue
       val existing = createSubscription(
         user.id,
         name = s"Water ${UUID.randomUUID()}",
@@ -40,6 +65,8 @@ class GetSubscriptionsActionSpec extends RepositorySpec with RepositoryUtils {
         amountMax = Some(BigDecimal("15.50")),
         paymentMethod = SubscriptionPaymentMethod.ManualTransfer,
         categoryId = Some(category.id),
+        merchantId = Some(merchant.id),
+        description = Some("Family plan"),
         startDate = LocalDate.of(2024, 4, 10)
       ).futureValue
 
@@ -47,11 +74,103 @@ class GetSubscriptionsActionSpec extends RepositorySpec with RepositoryUtils {
       item.name must be(existing.name)
       item.cadence must be(SubscriptionCadence.EveryNDays)
       item.intervalDays must be(Some(45))
-      item.amountMin must be(Some(BigDecimal("10.00")))
-      item.amountMax must be(Some(BigDecimal("15.50")))
+      item.intervalMonths must be(None)
       item.paymentMethod must be(SubscriptionPaymentMethod.ManualTransfer)
       item.categoryId must be(Some(category.id))
-      item.startDate must be(LocalDate.of(2024, 4, 10))
+      item.merchantId must be(Some(merchant.id))
+      item.description must be(Some("Family plan"))
+      item.terms must be(
+        List(
+          SubscriptionTerm(
+            id = existing.firstTerm.id,
+            effectiveFrom = LocalDate.of(2024, 4, 10),
+            effectiveTo = None,
+            amountMin = Some(BigDecimal("10.00")),
+            amountMax = Some(BigDecimal("15.50"))
+          )
+        )
+      )
+    }
+
+    "return each subscription's terms ordered by effective date" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val other = createUser().futureValue
+      val existing = createSubscription(user.id, name = s"Gym ${UUID.randomUUID()}").futureValue
+      val sibling = createSubscription(user.id, name = s"Pool ${UUID.randomUUID()}").futureValue
+      createSubscription(other.id, name = s"Other ${UUID.randomUUID()}").futureValue
+      val now = Instant.now()
+      def term(from: LocalDate, to: Option[LocalDate], amount: String) = Term(
+        id = UUID.randomUUID(),
+        userId = user.id,
+        subscriptionId = existing.id,
+        effectiveFrom = from,
+        effectiveTo = to,
+        amountMin = Some(BigDecimal(amount)),
+        amountMax = Some(BigDecimal(amount)),
+        createdAt = now,
+        updatedAt = now
+      )
+      // Inserted out of order so the result order comes from the query, not insertion.
+      insertSubscriptionTerm(term(LocalDate.of(2023, 6, 1), Some(LocalDate.of(2023, 9, 1)), "8.00")).futureValue
+      insertSubscriptionTerm(term(LocalDate.of(2023, 1, 1), Some(LocalDate.of(2023, 6, 1)), "7.00")).futureValue
+
+      val response = newAction().apply(user.id).futureValue
+      response.data.map(_.id).toSet must be(Set(existing.id, sibling.id))
+      val item = response.data.find(_.id == existing.id).value
+      item.terms.map(_.effectiveFrom) must be(
+        List(LocalDate.of(2023, 1, 1), LocalDate.of(2023, 6, 1), existing.firstTerm.effectiveFrom)
+      )
+      item.terms.map(_.amountMin) must be(List(Some(BigDecimal("7.00")), Some(BigDecimal("8.00")), None))
+      response.data.find(_.id == sibling.id).value.terms.map(_.id) must be(List(sibling.firstTerm.id))
+    }
+
+    "return each subscription's extra charges ordered by due date" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val other = createUser().futureValue
+      val existing = createSubscription(user.id, name = s"Gym ${UUID.randomUUID()}").futureValue
+      val sibling = createSubscription(user.id, name = s"Pool ${UUID.randomUUID()}").futureValue
+      val foreign = createSubscription(other.id, name = s"Other ${UUID.randomUUID()}").futureValue
+      val addAction =
+        new AddSubscriptionExtraChargeAction(repositories.subscriptions)(using executionContext, Clock.systemUTC())
+      def add(subscriptionId: UUID, userId: UUID, label: String, dueDate: LocalDate) =
+        addAction
+          .apply(
+            subscriptionId,
+            userId,
+            AddSubscriptionExtraCharge.Request(
+              label = SubscriptionExtraChargeLabel.trusted(label),
+              amount = BigDecimal("12.00"),
+              recurrence = SubscriptionExtraChargeRecurrence.Yearly,
+              dueDate = dueDate
+            )
+          )
+          .futureValue
+          .id
+      // Added out of date order so the result order comes from the query, not insertion.
+      val late = add(existing.id, user.id, "Late fee", LocalDate.of(2025, 6, 1))
+      val early = add(existing.id, user.id, "Early fee", LocalDate.of(2025, 3, 1))
+      add(foreign.id, other.id, "Foreign fee", LocalDate.of(2025, 1, 1))
+
+      val response = newAction().apply(user.id).futureValue
+      response.data.find(_.id == existing.id).value.extraCharges must be(
+        List(
+          SubscriptionExtraCharge(
+            id = early,
+            label = "Early fee",
+            amount = BigDecimal("12.00"),
+            recurrence = SubscriptionExtraChargeRecurrence.Yearly,
+            dueDate = LocalDate.of(2025, 3, 1)
+          ),
+          SubscriptionExtraCharge(
+            id = late,
+            label = "Late fee",
+            amount = BigDecimal("12.00"),
+            recurrence = SubscriptionExtraChargeRecurrence.Yearly,
+            dueDate = LocalDate.of(2025, 6, 1)
+          )
+        )
+      )
+      response.data.find(_.id == sibling.id).value.extraCharges must be(List.empty)
     }
   }
 }

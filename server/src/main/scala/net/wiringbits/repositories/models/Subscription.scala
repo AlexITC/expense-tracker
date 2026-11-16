@@ -2,7 +2,7 @@ package net.wiringbits.repositories.models
 
 import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod}
 
-import java.time.{Instant, LocalDate}
+import java.time.Instant
 import java.util.UUID
 
 case class Subscription(
@@ -11,11 +11,11 @@ case class Subscription(
     name: String,
     cadence: SubscriptionCadence,
     intervalDays: Option[Int],
-    amountMin: Option[BigDecimal],
-    amountMax: Option[BigDecimal],
+    intervalMonths: Option[Int],
     paymentMethod: SubscriptionPaymentMethod,
     categoryId: Option[UUID],
-    startDate: LocalDate,
+    merchantId: Option[UUID],
+    description: Option[String],
     createdAt: Instant,
     updatedAt: Instant
 )
@@ -27,12 +27,20 @@ object Subscription {
       name: String,
       cadence: SubscriptionCadence,
       intervalDays: Option[Int],
-      amountMin: Option[BigDecimal],
-      amountMax: Option[BigDecimal],
+      intervalMonths: Option[Int],
       paymentMethod: SubscriptionPaymentMethod,
       categoryId: Option[UUID],
-      startDate: LocalDate,
+      merchantId: Option[UUID],
+      description: Option[String],
+      firstTerm: SubscriptionTerm,
       createdAt: Instant,
       updatedAt: Instant
+  )
+
+  // terms are ordered by effectiveFrom; extraCharges by dueDate, then id.
+  case class WithDetails(
+      subscription: Subscription,
+      terms: List[SubscriptionTerm],
+      extraCharges: List[SubscriptionExtraCharge]
   )
 }

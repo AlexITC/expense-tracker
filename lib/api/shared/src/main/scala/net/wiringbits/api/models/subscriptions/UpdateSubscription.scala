@@ -2,24 +2,24 @@ package net.wiringbits.api.models.subscriptions
 
 import net.wiringbits.api.models.*
 import net.wiringbits.api.models.wrappedStringSchema
-import net.wiringbits.common.models.SubscriptionName
+import net.wiringbits.common.models.{SubscriptionDescription, SubscriptionName}
 import play.api.libs.json.{Format, Json}
 import sttp.tapir.Schema
 
-import java.time.LocalDate
 import java.util.UUID
 
 object UpdateSubscription {
-  // name is a validated primitive enforced at decode by SubscriptionName's Format.
+  // name and description are validated primitives enforced at decode by their Format. Amounts and dates live in the
+  // subscription's terms, which this request does not change.
   case class Request(
       name: SubscriptionName,
       cadence: SubscriptionCadence,
       intervalDays: Option[Int],
-      amountMin: Option[BigDecimal],
-      amountMax: Option[BigDecimal],
+      intervalMonths: Option[Int],
       paymentMethod: SubscriptionPaymentMethod,
       categoryId: Option[UUID],
-      startDate: LocalDate
+      merchantId: Option[UUID],
+      description: Option[SubscriptionDescription]
   )
   case class Response()
 

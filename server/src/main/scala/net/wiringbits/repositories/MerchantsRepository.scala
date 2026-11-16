@@ -3,7 +3,7 @@ import net.wiringbits.repositories.support.ConstraintViolations
 
 import com.github.f4b6a3.uuid.UuidCreator
 import net.wiringbits.executors.DatabaseExecutionContext
-import net.wiringbits.repositories.daos.{CategoryDAO, ExpenseDAO, MerchantDAO, RefundDAO}
+import net.wiringbits.repositories.daos.{CategoryDAO, ExpenseDAO, MerchantDAO, RefundDAO, SubscriptionDAO}
 import net.wiringbits.repositories.models.Merchant
 import play.api.db.Database
 
@@ -127,6 +127,7 @@ class MerchantsRepository @Inject() (database: Database)(implicit
       val now = clock.instant()
       ExpenseDAO.updateMerchantId(pendingId = pendingId, realId = realId, userId = userId, now)
       RefundDAO.updateMerchantId(pendingId = pendingId, realId = realId, userId = userId, now)
+      SubscriptionDAO.updateMerchantId(pendingId = pendingId, realId = realId, userId = userId, now)
       MerchantDAO.findAndDeletePending(pendingId = pendingId, userId = userId)
     }
   }

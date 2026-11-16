@@ -4,7 +4,11 @@ import anorm.*
 import anorm.SqlParser.*
 import anorm.postgresql.*
 import net.wiringbits.api.models.bankstatements.{AiSuggestions, ExtractionInfo}
-import net.wiringbits.api.models.subscriptions.{SubscriptionCadence, SubscriptionPaymentMethod}
+import net.wiringbits.api.models.subscriptions.{
+  SubscriptionCadence,
+  SubscriptionExtraChargeRecurrence,
+  SubscriptionPaymentMethod
+}
 import net.wiringbits.common.models.{Email, Name}
 import net.wiringbits.models.documents.{DocumentClass, DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobStatus, BackgroundJobType}
@@ -394,11 +398,40 @@ package object daos {
       "name",
       "cadence",
       "interval_days",
-      "amount_min",
-      "amount_max",
+      "interval_months",
       "payment_method",
       "category_id",
-      "start_date",
+      "merchant_id",
+      "description",
+      "created_at",
+      "updated_at"
+    )
+
+  implicit val subscriptionExtraChargeRecurrenceColumn: Column[SubscriptionExtraChargeRecurrence] =
+    Column.columnToString.map(SubscriptionExtraChargeRecurrence.fromEntryName)
+
+  val subscriptionExtraChargeParser: RowParser[SubscriptionExtraCharge] =
+    Macro.parser[SubscriptionExtraCharge](
+      "id",
+      "user_id",
+      "subscription_id",
+      "label",
+      "amount",
+      "recurrence",
+      "due_date",
+      "created_at",
+      "updated_at"
+    )
+
+  val subscriptionTermParser: RowParser[SubscriptionTerm] =
+    Macro.parser[SubscriptionTerm](
+      "id",
+      "user_id",
+      "subscription_id",
+      "effective_from",
+      "effective_to",
+      "amount_min",
+      "amount_max",
       "created_at",
       "updated_at"
     )

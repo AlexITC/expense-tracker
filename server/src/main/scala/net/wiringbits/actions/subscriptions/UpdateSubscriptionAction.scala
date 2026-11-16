@@ -25,22 +25,22 @@ class UpdateSubscriptionAction @Inject() (subscriptionsRepository: Subscriptions
         name = request.name.string,
         cadence = request.cadence,
         intervalDays = request.intervalDays,
-        amountMin = request.amountMin,
-        amountMax = request.amountMax,
+        intervalMonths = request.intervalMonths,
         paymentMethod = request.paymentMethod,
         categoryId = request.categoryId,
-        startDate = request.startDate
+        merchantId = request.merchantId,
+        // A present-but-empty description means "no description"; the primitive already trimmed it at decode.
+        description = request.description.map(_.string).filter(_.nonEmpty)
       )
     } yield UpdateSubscription.Response()
   }
 
   private def validateFields(request: UpdateSubscription.Request): Future[Unit] =
     SubscriptionValidator
-      .validate(
-        request.cadence,
-        request.intervalDays,
-        amountMin = request.amountMin,
-        amountMax = request.amountMax
+      .validateCadence(
+        cadence = request.cadence,
+        intervalDays = request.intervalDays,
+        intervalMonths = request.intervalMonths
       )
       .fold(error => Future.failed(new RuntimeException(error)), _ => Future.unit)
 }
