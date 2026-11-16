@@ -2,34 +2,31 @@ package net.wiringbits.forms
 
 import net.wiringbits.api.models.merchants.{CreateMerchant, UpdateMerchant}
 import net.wiringbits.common.models.MerchantName
+import net.wiringbits.ui.forms.{ExpNotes, ExpOptionalId, ExpTaxId}
 import net.wiringbits.webapp.utils.slinkyUtils.forms.{FormData, FormField}
 
 import java.util.UUID
-import scala.util.Try
 
 case class MerchantFormData(
     name: FormField[MerchantName],
-    notes: String,
-    categoryId: String,
-    taxId: String
+    notes: FormField[Option[ExpNotes]],
+    categoryId: FormField[Option[UUID]],
+    taxId: FormField[Option[ExpTaxId]]
 ) extends FormData[CreateMerchant.Request] {
-  override def fields: List[FormField[?]] = List(name)
-
-  override def formValidationErrors: List[String] = List(fieldsError).flatten
-
-  // notes and tax id are optional free text, so a blank field clears them; their length is validated by the action.
-  private def parsedCategoryId: Option[UUID] =
-    if (categoryId.isEmpty) None else Try(UUID.fromString(categoryId)).toOption
+  override def fields: List[FormField[?]] = List(name, notes, categoryId, taxId)
 
   override def submitRequest: Option[CreateMerchant.Request] =
-    name.valueOpt.map { merchantName =>
-      CreateMerchant.Request(
-        name = merchantName,
-        notes = Option(notes.trim).filter(_.nonEmpty),
-        categoryId = parsedCategoryId,
-        taxId = Option(taxId.trim).filter(_.nonEmpty)
-      )
-    }
+    for {
+      n <- name.valueOpt
+      no <- notes.valueOpt
+      c <- categoryId.valueOpt
+      t <- taxId.valueOpt
+    } yield CreateMerchant.Request(
+      name = n,
+      notes = no.map(_.string),
+      categoryId = c,
+      taxId = t.map(_.string)
+    )
 
   def updateRequest: Option[UpdateMerchant.Request] =
     submitRequest.map(request =>
@@ -46,7 +43,14 @@ object MerchantFormData {
 
   private val NameLabel = "Merchant name"
 
-  def initial(name: Option[String], notes: String, categoryId: String, taxId: String): MerchantFormData =
+  // The create and edit forms are on screen together, so `prefix` keeps the new fields' names (and DOM ids) distinct.
+  def initial(
+      prefix: String,
+      name: Option[String],
+      notes: String,
+      categoryId: String,
+      taxId: String
+  ): MerchantFormData =
     MerchantFormData(
       name = new FormField(
         label = NameLabel,
@@ -54,8 +58,23 @@ object MerchantFormData {
         required = true,
         value = name.map(MerchantName.validate)
       ),
-      notes = notes,
-      categoryId = categoryId,
-      taxId = taxId
+      notes = new FormField(
+        label = "Notes (optional)",
+        name = s"$prefix-notes",
+        required = false,
+        value = Some(ExpNotes.optionalValidator(notes))
+      ),
+      categoryId = new FormField(
+        label = "Default category",
+        name = s"$prefix-categoryId",
+        required = false,
+        value = Some(ExpOptionalId.validate(categoryId))
+      ),
+      taxId = new FormField(
+        label = "Tax ID (optional)",
+        name = s"$prefix-taxId",
+        required = false,
+        value = Some(ExpTaxId.optionalValidator(taxId))
+      )
     )
 }
