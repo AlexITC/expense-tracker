@@ -10,7 +10,7 @@ import net.wiringbits.api.models.expenses.GetExpenses
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.refunds.{CreateRefund, GetRefunds, LinkRefundToExpense, UpdateRefund}
 import net.wiringbits.models.User
-import net.wiringbits.ui.components.inputs.{AmountInput, DateInput}
+import net.wiringbits.ui.components.inputs.{AmountInput, DateInput, OptionalIdSelectInput, OptionalNotesInput}
 import net.wiringbits.ui.forms.{ExpLocalDate, PositiveBigDecimal, SubmitHooks}
 import net.wiringbits.webapp.common.validators.ValidationResult
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
@@ -25,7 +25,7 @@ import slinky.web.html.{form, onSubmit}
 import java.util.UUID
 import scala.concurrent.ExecutionContext
 import scala.scalajs.js
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success}
 
 object RefundsPage {
   def apply(ctx: AppContext, user: User): KeyAddingStage =
@@ -213,9 +213,6 @@ object RefundList {
         case None => Fragment()
       }
 
-    def parseId(value: String): Option[UUID] =
-      if (value.isEmpty) None else Try(UUID.fromString(value)).toOption
-
     /** Amount, date, merchant, category and notes inputs, shared by the create and the edit form. */
     def formFields(formData: RefundFormData, disabled: Boolean, update: Update): Seq[ReactElement] = Seq(
       mui.Box.sx(new CSSPropertiesUtils { width = "140px" })(
@@ -238,18 +235,33 @@ object RefundList {
           )
         )
       ),
-      merchantOptions(formData.merchantId, id => update(_.withMerchant(id, props.merchants.data))),
-      categoryOptions(formData.categoryId, id => update(_.copy(categoryId = id))),
-      mui.TextField
-        .outlined()
-        .label("Notes (optional)")
-        .value(formData.notes)
-        .size("small")
-        .disabled(disabled)
-        .onChange { e =>
-          val value = e.target.asInstanceOf[dom.HTMLInputElement].value
-          update(_.copy(notes = value))
-        }
+      mui.Box.sx(new CSSPropertiesUtils { minWidth = "160px" })(
+        OptionalIdSelectInput.component(
+          OptionalIdSelectInput.Props(
+            field = formData.merchantId,
+            options = props.merchants.data.map(m => m.id.toString -> m.name),
+            disabled = disabled,
+            onChange = v => update(_.withMerchant(v, props.merchants.data))
+          )
+        )
+      ),
+      mui.Box.sx(new CSSPropertiesUtils { minWidth = "160px" })(
+        OptionalIdSelectInput.component(
+          OptionalIdSelectInput.Props(
+            field = formData.categoryId,
+            options = props.categories.data.map(c => c.id.toString -> c.name),
+            disabled = disabled,
+            onChange = v => update(cur => cur.copy(categoryId = cur.categoryId.updated(v)))
+          )
+        )
+      ),
+      OptionalNotesInput.component(
+        OptionalNotesInput.Props(
+          field = formData.notes,
+          disabled = disabled,
+          onChange = v => update(cur => cur.copy(notes = cur.notes.updated(v)))
+        )
+      )
     )
 
     def handleLinkToExpense(refundId: UUID, expenseId: UUID): Unit =
@@ -270,36 +282,6 @@ object RefundList {
           case Success(_) => props.onRefresh()
           case Failure(ex) => setError(ex.getMessage)
         }
-
-    def merchantOptions(selectedId: Option[UUID], setId: Option[UUID] => Unit): ReactElement = {
-      val none = mui.MenuItem.normal()("(none)").value("").withKey("none").build
-      val items = none +: props.merchants.data.map(m =>
-        mui.MenuItem.normal()(m.name).value(m.id.toString).withKey(m.id.toString).build
-      )
-      mui.TextField
-        .outlined()
-        .select(true)
-        .label("Merchant (optional)")
-        .value(selectedId.map(_.toString).getOrElse(""))
-        .size("small")
-        .onChange(e => setId(parseId(e.target.asInstanceOf[dom.HTMLInputElement].value)))
-        .sx(new CSSPropertiesUtils { minWidth = "160px" })(items*)
-    }
-
-    def categoryOptions(selectedId: Option[UUID], setId: Option[UUID] => Unit): ReactElement = {
-      val none = mui.MenuItem.normal()("(none)").value("").withKey("none").build
-      val items = none +: props.categories.data.map(c =>
-        mui.MenuItem.normal()(c.name).value(c.id.toString).withKey(c.id.toString).build
-      )
-      mui.TextField
-        .outlined()
-        .select(true)
-        .label("Category (optional)")
-        .value(selectedId.map(_.toString).getOrElse(""))
-        .size("small")
-        .onChange(e => setId(parseId(e.target.asInstanceOf[dom.HTMLInputElement].value)))
-        .sx(new CSSPropertiesUtils { minWidth = "160px" })(items*)
-    }
 
     def renderExpenseLinkPicker(refundId: UUID): ReactElement = {
       val filtered = props.expenses.data.filter { e =>

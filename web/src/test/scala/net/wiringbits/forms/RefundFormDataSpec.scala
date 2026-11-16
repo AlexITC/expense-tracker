@@ -2,7 +2,7 @@ package net.wiringbits.forms
 
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.refunds.GetRefunds
-import net.wiringbits.ui.forms.{ExpLocalDate, PositiveBigDecimal}
+import net.wiringbits.ui.forms.{ExpLocalDate, ExpNotes, ExpOptionalId, PositiveBigDecimal}
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -31,7 +31,11 @@ class RefundFormDataSpec extends AnyWordSpec {
 
   "submitRequest" should {
     "resolve a valid form" in {
-      val form = filled.copy(merchantId = Some(store.id), categoryId = Some(foodId), notes = "  a note ")
+      val form = filled.copy(
+        merchantId = filled.merchantId.updated(ExpOptionalId.validate(store.id.toString)),
+        categoryId = filled.categoryId.updated(ExpOptionalId.validate(foodId.toString)),
+        notes = filled.notes.updated(ExpNotes.optionalValidator("  a note "))
+      )
       form.isValid must be(true)
       form.submitRequest must be(
         Some(
@@ -47,7 +51,9 @@ class RefundFormDataSpec extends AnyWordSpec {
     }
 
     "resolve blank notes to None" in {
-      filled.copy(notes = "   ").submitRequest.map(_.notes) must be(Some(None))
+      filled.copy(notes = filled.notes.updated(ExpNotes.optionalValidator("   "))).submitRequest.map(_.notes) must be(
+        Some(None)
+      )
     }
 
     "be None for a bad amount" in {
@@ -57,6 +63,24 @@ class RefundFormDataSpec extends AnyWordSpec {
 
     "be None for a bad date" in {
       val form = filled.copy(date = filled.date.updated(ExpLocalDate.validate("2026-13-45")))
+      form.isValid must be(false)
+      form.submitRequest must be(None)
+    }
+
+    "be None for a malformed merchant id" in {
+      val form = filled.copy(merchantId = filled.merchantId.updated(ExpOptionalId.validate("not-a-uuid")))
+      form.isValid must be(false)
+      form.submitRequest must be(None)
+    }
+
+    "be None for a malformed category id" in {
+      val form = filled.copy(categoryId = filled.categoryId.updated(ExpOptionalId.validate("not-a-uuid")))
+      form.isValid must be(false)
+      form.submitRequest must be(None)
+    }
+
+    "be None for notes over the limit" in {
+      val form = filled.copy(notes = filled.notes.updated(ExpNotes.optionalValidator("a" * 501)))
       form.isValid must be(false)
       form.submitRequest must be(None)
     }
@@ -79,7 +103,9 @@ class RefundFormDataSpec extends AnyWordSpec {
       val form = RefundFormData.fromRefund(refund)
       form.amount.inputValue must be("7.25")
       form.date.inputValue must be("2026-02-03")
-      form.notes must be("returned")
+      form.notes.inputValue must be("returned")
+      form.merchantId.inputValue must be(store.id.toString)
+      form.categoryId.inputValue must be(foodId.toString)
       form.submitRequest must be(
         Some(
           RefundFormData.Resolved(
@@ -96,21 +122,25 @@ class RefundFormDataSpec extends AnyWordSpec {
 
   "withMerchant" should {
     "set the merchant's default category" in {
-      val form = filled.withMerchant(Some(store.id), List(store, shop))
-      form.merchantId must be(Some(store.id))
-      form.categoryId must be(Some(foodId))
+      val form = filled.withMerchant(ExpOptionalId.validate(store.id.toString), List(store, shop))
+      form.merchantId.valueOpt must be(Some(Some(store.id)))
+      form.categoryId.valueOpt must be(Some(Some(foodId)))
     }
 
     "clear the category for a merchant without a default" in {
-      val form = filled.copy(categoryId = Some(foodId)).withMerchant(Some(shop.id), List(store, shop))
-      form.merchantId must be(Some(shop.id))
-      form.categoryId must be(None)
+      val form = filled
+        .copy(categoryId = filled.categoryId.updated(ExpOptionalId.validate(foodId.toString)))
+        .withMerchant(ExpOptionalId.validate(shop.id.toString), List(store, shop))
+      form.merchantId.valueOpt must be(Some(Some(shop.id)))
+      form.categoryId.valueOpt must be(Some(None))
     }
 
     "clear both when the merchant is unset" in {
-      val form = filled.copy(merchantId = Some(store.id), categoryId = Some(foodId)).withMerchant(None, List(store))
-      form.merchantId must be(None)
-      form.categoryId must be(None)
+      val form = filled
+        .withMerchant(ExpOptionalId.validate(store.id.toString), List(store))
+        .withMerchant(ExpOptionalId.validate(""), List(store))
+      form.merchantId.valueOpt must be(Some(None))
+      form.categoryId.valueOpt must be(Some(None))
     }
   }
 }
