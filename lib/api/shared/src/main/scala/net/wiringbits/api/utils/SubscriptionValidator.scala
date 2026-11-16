@@ -15,6 +15,9 @@ object SubscriptionValidator {
   // Caps the extra charges of one subscription so a single row cannot grow unbounded.
   val MaxExtraChargesPerSubscription: Int = 50
 
+  // Caps the manual payments of one subscription so a single row cannot grow unbounded.
+  val MaxManualPaymentsPerSubscription: Int = 500
+
   // Bounds of an every-N-months cadence: from monthly up to every two years.
   val MinIntervalMonths: Int = 1
   val MaxIntervalMonths: Int = 24
@@ -78,6 +81,10 @@ object SubscriptionValidator {
 
   /** Validates an extra charge amount with the same rules as a term amount. */
   def validateExtraChargeAmount(amount: BigDecimal): Either[String, Unit] =
+    validateAmount("Amount", amount)
+
+  /** Validates a manual payment amount with the same rules as a term amount. */
+  def validateManualPaymentAmount(amount: BigDecimal): Either[String, Unit] =
     validateAmount("Amount", amount)
 
   private def validateAmount(label: String, amount: BigDecimal): Either[String, Unit] =

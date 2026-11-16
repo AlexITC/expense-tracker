@@ -14,9 +14,15 @@ import net.wiringbits.repositories.daos.{
   MerchantDAO,
   SubscriptionDAO,
   SubscriptionExtraChargeDAO,
+  SubscriptionManualPaymentDAO,
   SubscriptionTermDAO
 }
-import net.wiringbits.repositories.models.{Subscription, SubscriptionExtraCharge, SubscriptionTerm}
+import net.wiringbits.repositories.models.{
+  Subscription,
+  SubscriptionExtraCharge,
+  SubscriptionManualPayment,
+  SubscriptionTerm
+}
 import net.wiringbits.repositories.support.ConstraintViolations
 import play.api.db.Database
 
@@ -227,6 +233,33 @@ class SubscriptionsRepository @Inject() (database: Database)(implicit
   def deleteExtraCharge(id: UUID, subscriptionId: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
       SubscriptionExtraChargeDAO.delete(id = id, subscriptionId = subscriptionId, userId = userId)
+    }
+  }
+
+  // Counts under the subscription row lock, so concurrent adds cannot exceed the cap.
+  def addManualPayment(payment: SubscriptionManualPayment, maxPerSubscription: Int): Future[Unit] = Future {
+    database.withTransaction { implicit conn =>
+      if (SubscriptionDAO.lockForUpdate(id = payment.subscriptionId, userId = payment.userId).isEmpty)
+        throw new RuntimeException("Subscription not found")
+      val count = SubscriptionManualPaymentDAO.countForSubscription(
+        subscriptionId = payment.subscriptionId,
+        userId = payment.userId
+      )
+      if (count >= maxPerSubscription)
+        throw new RuntimeException(s"Maximum number of manual payments ($maxPerSubscription) reached")
+      SubscriptionManualPaymentDAO.create(payment)
+    }
+  }
+
+  def deleteManualPayment(id: UUID, subscriptionId: UUID, userId: UUID): Future[Unit] = Future {
+    database.withTransaction { implicit conn =>
+      SubscriptionManualPaymentDAO.delete(id = id, subscriptionId = subscriptionId, userId = userId)
+    }
+  }
+
+  def manualPayments(userId: UUID): Future[List[SubscriptionManualPayment]] = Future {
+    database.withConnection { implicit conn =>
+      SubscriptionManualPaymentDAO.allForUser(userId)
     }
   }
 

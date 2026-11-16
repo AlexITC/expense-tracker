@@ -226,4 +226,28 @@ class SubscriptionValidatorSpec extends AnyWordSpec with Matchers {
         Left("Amount must have at most 10 integer digits")
     }
   }
+
+  "validateManualPaymentAmount" should {
+    "accept a positive amount with up to two decimals and ten integer digits" in {
+      List(BigDecimal("0.01"), BigDecimal("12"), BigDecimal("9999999999.99")).foreach { amount =>
+        SubscriptionValidator.validateManualPaymentAmount(amount) mustBe Right(())
+      }
+    }
+
+    "reject a zero or negative amount" in {
+      List(BigDecimal("0"), BigDecimal("-5.00")).foreach { amount =>
+        SubscriptionValidator.validateManualPaymentAmount(amount) mustBe Left("Amount must be greater than zero")
+      }
+    }
+
+    "reject more than two decimals" in {
+      SubscriptionValidator.validateManualPaymentAmount(BigDecimal("1.234")) mustBe
+        Left("Amount must have at most 2 decimal places")
+    }
+
+    "reject more than ten integer digits" in {
+      SubscriptionValidator.validateManualPaymentAmount(BigDecimal("12345678901")) mustBe
+        Left("Amount must have at most 10 integer digits")
+    }
+  }
 }

@@ -9,7 +9,7 @@ import net.wiringbits.api.models.subscriptions.{
   SubscriptionExtraChargeRecurrence,
   SubscriptionPaymentMethod
 }
-import net.wiringbits.common.models.{Email, Name}
+import net.wiringbits.common.models.{Email, Name, SubscriptionManualPaymentNote}
 import net.wiringbits.models.documents.{DocumentClass, DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.*
@@ -419,6 +419,21 @@ package object daos {
       "amount",
       "recurrence",
       "due_date",
+      "created_at",
+      "updated_at"
+    )
+
+  implicit val subscriptionManualPaymentNoteColumn: Column[SubscriptionManualPaymentNote] =
+    Column.columnToString.map(SubscriptionManualPaymentNote.trusted)
+
+  val subscriptionManualPaymentParser: RowParser[SubscriptionManualPayment] =
+    Macro.parser[SubscriptionManualPayment](
+      "id",
+      "user_id",
+      "subscription_id",
+      "paid_date",
+      "amount",
+      "note",
       "created_at",
       "updated_at"
     )
