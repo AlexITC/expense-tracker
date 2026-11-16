@@ -5,6 +5,7 @@ import net.wiringbits.AppContext
 import net.wiringbits.api.models.categories.GetCategories
 import net.wiringbits.api.models.merchants.GetMerchants
 import net.wiringbits.api.models.subscriptions.{
+  GetSubscriptionReconciliation,
   GetSubscriptions,
   SubscriptionCadence,
   SubscriptionExtraChargeRecurrence,
@@ -22,6 +23,7 @@ import net.wiringbits.forms.{
   SubscriptionCancelFormData,
   SubscriptionExtraChargeFormData,
   SubscriptionFormData,
+  SubscriptionManualPaymentFormData,
   SubscriptionPriceChangeFormData,
   SubscriptionResumeFormData
 }
@@ -36,6 +38,7 @@ import net.wiringbits.ui.components.inputs.{
   SubscriptionExtraChargeLabelInput,
   SubscriptionIntervalDaysInput,
   SubscriptionIntervalMonthsInput,
+  SubscriptionManualPaymentNoteInput,
   SubscriptionNameInput
 }
 import net.wiringbits.ui.forms.{
@@ -82,8 +85,21 @@ object SubscriptionsPage {
             render = categories =>
               AsyncComponent[GetMerchants.Response](
                 fetch = () => props.ctx.api.client.getMerchants,
-                render =
-                  merchants => SubscriptionList(props.ctx, subscriptions, categories, merchants, () => forceRefresh()),
+                render = merchants =>
+                  AsyncComponent[GetSubscriptionReconciliation.Response](
+                    fetch = () => props.ctx.api.client.getSubscriptionReconciliation(None),
+                    render = reconciliation =>
+                      SubscriptionList(
+                        props.ctx,
+                        subscriptions,
+                        categories,
+                        merchants,
+                        reconciliation,
+                        () => forceRefresh()
+                      ),
+                    progressIndicator = () => Loader(props.ctx),
+                    watchedObjects = List(timesRefreshing)
+                  ),
                 progressIndicator = () => Loader(props.ctx),
                 watchedObjects = List(timesRefreshing)
               ),
@@ -105,6 +121,7 @@ private enum SubscriptionEditor {
   case Cancel(subscriptionId: UUID)
   case Resume(subscriptionId: UUID)
   case AddExtraCharge(subscriptionId: UUID)
+  case LogManualPayment(subscriptionId: UUID)
 }
 
 /** The start-date suggestion fetched for the create form's merchant, tagged with that merchant so a response that lands
@@ -122,15 +139,17 @@ object SubscriptionList {
       subscriptions: GetSubscriptions.Response,
       categories: GetCategories.Response,
       merchants: GetMerchants.Response,
+      reconciliation: GetSubscriptionReconciliation.Response,
       onRefresh: () => Unit
   ): KeyAddingStage =
-    component(Props(ctx, subscriptions, categories, merchants, onRefresh))
+    component(Props(ctx, subscriptions, categories, merchants, reconciliation, onRefresh))
 
   case class Props(
       ctx: AppContext,
       subscriptions: GetSubscriptions.Response,
       categories: GetCategories.Response,
       merchants: GetMerchants.Response,
+      reconciliation: GetSubscriptionReconciliation.Response,
       onRefresh: () => Unit
   )
 
@@ -176,6 +195,8 @@ object SubscriptionList {
     val (resumeFormData, setResumeFormData) = Hooks.useState(StatefulFormData(SubscriptionResumeFormData.initial))
     val (extraChargeFormData, setExtraChargeFormData) =
       Hooks.useState(StatefulFormData(SubscriptionExtraChargeFormData.initial))
+    val (manualPaymentFormData, setManualPaymentFormData) =
+      Hooks.useState(StatefulFormData(SubscriptionManualPaymentFormData.initial))
     val createControl = SubmitHooks.useSubmit()
     val (startDateSuggestion, setStartDateSuggestion) =
       Hooks.useState[StartDateSuggestion](StartDateSuggestion.NotRequested)
@@ -187,6 +208,8 @@ object SubscriptionList {
     val categoryNames: Map[UUID, String] = props.categories.data.map(c => c.id -> c.name).toMap
     val categoryOptions: Seq[(String, String)] = props.categories.data.map(c => c.id.toString -> c.name)
     val merchantNames: Map[UUID, String] = props.merchants.data.map(m => m.id -> m.name).toMap
+    val reconciliations: Map[UUID, GetSubscriptionReconciliation.Response.Subscription] =
+      props.reconciliation.data.map(r => r.subscriptionId -> r).toMap
 
     // Picks or creates the selected merchant (a new one takes the subscription's category as its default), then
     // sends the request built with its id. A newly created merchant is reported through `onCreated` before sending,
@@ -228,6 +251,7 @@ object SubscriptionList {
     val onCancelDataChanged = editorUpdater(setCancelFormData)
     val onResumeDataChanged = editorUpdater(setResumeFormData)
     val onExtraChargeDataChanged = editorUpdater(setExtraChargeFormData)
+    val onManualPaymentDataChanged = editorUpdater(setManualPaymentFormData)
 
     def handleCreate(e: SyntheticEvent[?, dom.Event]): Unit = {
       e.preventDefault()
@@ -309,6 +333,18 @@ object SubscriptionList {
         }
     }
 
+    def handleDeleteManualPayment(subscriptionId: UUID, manualPaymentId: UUID): Unit = {
+      deleteControl.begin()
+      props.ctx.api.client
+        .deleteSubscriptionManualPayment(subscriptionId = subscriptionId, manualPaymentId = manualPaymentId)
+        .onComplete {
+          case Success(_) =>
+            deleteControl.reset()
+            props.onRefresh()
+          case Failure(ex) => deleteControl.fail(ex.getMessage)
+        }
+    }
+
     def startEditing(s: GetSubscriptions.Response.Subscription): Unit = {
       editControl.reset()
       setEditFormData(_ =>
@@ -345,6 +381,12 @@ object SubscriptionList {
       editControl.reset()
       setExtraChargeFormData(_ => StatefulFormData(SubscriptionExtraChargeFormData.initial))
       setEditor(_ => SubscriptionEditor.AddExtraCharge(subscriptionId))
+    }
+
+    def startLogManualPayment(subscriptionId: UUID): Unit = {
+      editControl.reset()
+      setManualPaymentFormData(_ => StatefulFormData(SubscriptionManualPaymentFormData.initial))
+      setEditor(_ => SubscriptionEditor.LogManualPayment(subscriptionId))
     }
 
     def selectField(
@@ -787,6 +829,44 @@ object SubscriptionList {
       )
     }
 
+    def manualPaymentForm(subscriptionId: UUID): ReactElement = {
+      val data = manualPaymentFormData.data
+      val disabled = editControl.inputDisabled
+      inlineEditor(
+        inputs = Seq(
+          dateField(
+            key = "paid-date",
+            field = data.paidDate,
+            disabled = disabled,
+            onChange = value => onManualPaymentDataChanged(x => x.copy(paidDate = x.paidDate.updated(value)))
+          ),
+          fieldBox(key = "amount", boxMinWidth = "140px")(
+            RequiredSubscriptionAmountInput.component(
+              RequiredSubscriptionAmountInput.Props(
+                field = data.amount,
+                disabled = disabled,
+                onChange = value => onManualPaymentDataChanged(x => x.copy(amount = x.amount.updated(value)))
+              )
+            )
+          ),
+          fieldBox(key = "note", boxMinWidth = "240px")(
+            SubscriptionManualPaymentNoteInput.component(
+              SubscriptionManualPaymentNoteInput.Props(
+                field = data.note,
+                disabled = disabled,
+                onChange = value => onManualPaymentDataChanged(x => x.copy(note = x.note.updated(value)))
+              )
+            )
+          )
+        ),
+        validationError = manualPaymentFormData.firstValidationError,
+        submitLabel = "Log payment",
+        canSubmit = data.isValid,
+        onFormSubmit =
+          submitEditor(data.submitRequest, props.ctx.api.client.addSubscriptionManualPayment(subscriptionId, _))
+      )
+    }
+
     def details(s: GetSubscriptions.Response.Subscription, term: Option[SubscriptionTerm]): String =
       List(
         Some(
@@ -889,12 +969,22 @@ object SubscriptionList {
             .Typography(details(s, term))
             .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)" }),
           termHistory(s),
-          extraCharges(s)
+          extraCharges(s),
+          reconciliations
+            .get(s.id)
+            .fold[ReactElement](Fragment())(r =>
+              SubscriptionReconciliationView(
+                reconciliation = r,
+                removeDisabled = deleteControl.isSubmitting,
+                onRemoveManualPayment = id => handleDeleteManualPayment(subscriptionId = s.id, manualPaymentId = id)
+              )
+            )
         ),
         mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "4px"; alignSelf = "flex-start" })(
           actionButton(key = "edit", label = "Edit", onClick = () => startEditing(s)),
           Fragment(termActions*),
           actionButton(key = "add-extra-charge", label = "Add extra charge", onClick = () => startAddExtraCharge(s.id)),
+          actionButton(key = "log-payment", label = "Log payment", onClick = () => startLogManualPayment(s.id)),
           mui.Button
             .normal()("Delete")
             .size("small")
@@ -915,6 +1005,7 @@ object SubscriptionList {
         case SubscriptionEditor.Cancel(id) => withEditorFor(id)(cancelForm(s.id))
         case SubscriptionEditor.Resume(id) => withEditorFor(id)(resumeForm(s.id))
         case SubscriptionEditor.AddExtraCharge(id) => withEditorFor(id)(extraChargeForm(s.id))
+        case SubscriptionEditor.LogManualPayment(id) => withEditorFor(id)(manualPaymentForm(s.id))
       }
       mui.Box.sx(cardStyle)(content).withKey(s.id.toString)
     }
