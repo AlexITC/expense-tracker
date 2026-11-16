@@ -83,12 +83,16 @@ object SubscriptionSchedule {
 
   /** The most recent occurrence on or before `today`, or the anchor when it is still in the future. */
   def latestOccurrence(anchor: LocalDate, step: Step, today: LocalDate): LocalDate =
-    if (anchor.isAfter(today)) anchor
+    occurrence(anchor, step, latestIndex(anchor = anchor, step = step, today = today))
+
+  /** The index of [[latestOccurrence]]: 0 when the anchor is still in the future. */
+  private def latestIndex(anchor: LocalDate, step: Step, today: LocalDate): Long =
+    if (anchor.isAfter(today)) 0L
     else
       step match {
-        case Step.Days(n) => occurrence(anchor, step, ChronoUnit.DAYS.between(anchor, today) / n)
+        case Step.Days(n) => ChronoUnit.DAYS.between(anchor, today) / n
         case Step.Months(n) =>
-          latestOnOrBefore(
+          latestIndexOnOrBefore(
             anchor = anchor,
             step = step,
             today = today,
@@ -96,8 +100,13 @@ object SubscriptionSchedule {
           )
       }
 
-  /** Every covered occurrence on or before `today`, plus the first covered occurrence after `today` if any, in date
-    * order. Occurrences exist only inside terms, never in the gaps between them.
+  // Bounds the history `dueDates` expands per run of terms, so an ancient start date with a short cadence cannot
+  // generate an unbounded number of occurrences: a year of a daily cadence, decades of a monthly one.
+  val MaxPastOccurrences: Int = 366
+
+  /** Every covered occurrence on or before `today`, limited to the latest [[MaxPastOccurrences]] of each run of terms,
+    * plus the first covered occurrence after `today` if any, in date order. Occurrences exist only inside terms, never
+    * in the gaps between them.
     */
   def dueDates(
       terms: List[SubscriptionTerm],
@@ -107,14 +116,26 @@ object SubscriptionSchedule {
       today: LocalDate
   ): Either[SubscriptionScheduleError, List[DueDate]] =
     step(cadence = cadence, intervalDays = intervalDays, intervalMonths = intervalMonths).map { step =>
-      // Each contiguous run of terms shares the anchor `cadenceAnchor` gives it. Occurrences are generated up to the
-      // first one after `today` and kept only where a term of the run covers them, so none fall inside gaps.
+      // Each contiguous run of terms shares the anchor `cadenceAnchor` gives it. Occurrences are generated from the
+      // horizon index (computed directly, not by iterating from the anchor) up to the end of the run or the first one
+      // after `today`, and kept only where a term of the run covers them, so none fall inside gaps.
       val all = terms
         .groupBy(cadenceAnchor(terms, _))
         .toList
         .sortBy { case (anchor, _) => anchor.toEpochDay }
         .flatMap { case (anchor, run) =>
-          val (past, future) = Iterator.from(0).map(k => occurrence(anchor, step, k)).span(d => !d.isAfter(today))
+          val runEnd =
+            if (run.exists(_.effectiveTo.isEmpty)) None else run.flatMap(_.effectiveTo).maxByOption(_.toEpochDay)
+          // Count back from the run's last covered day when it ended before today, so a long-ended run keeps its
+          // latest occurrences instead of losing them all.
+          val horizon = runEnd.map(_.minusDays(1)).filter(_.isBefore(today)).getOrElse(today)
+          val firstIndex =
+            math.max(0L, latestIndex(anchor = anchor, step = step, today = horizon) - MaxPastOccurrences + 1)
+          val (past, future) = Iterator
+            .iterate(firstIndex)(_ + 1)
+            .map(k => occurrence(anchor, step, k))
+            .takeWhile(d => runEnd.forall(d.isBefore))
+            .span(d => !d.isAfter(today))
           (past ++ future.take(1)).toList.flatMap(d => coveringTerm(run, d).map(DueDate(d, _)))
         }
       val (past, future) = all.partition(d => !d.date.isAfter(today))
@@ -124,7 +145,7 @@ object SubscriptionSchedule {
   // `ChronoUnit.between` can undercount when the start day-of-month is clamped (31 Jan -> 28 Feb counts as 0 months),
   // so step forward while the next occurrence still fits.
   @tailrec
-  private def latestOnOrBefore(anchor: LocalDate, step: Step, today: LocalDate, k: Long): LocalDate =
-    if (occurrence(anchor, step, k + 1).isAfter(today)) occurrence(anchor, step, k)
-    else latestOnOrBefore(anchor = anchor, step = step, today = today, k = k + 1)
+  private def latestIndexOnOrBefore(anchor: LocalDate, step: Step, today: LocalDate, k: Long): Long =
+    if (occurrence(anchor, step, k + 1).isAfter(today)) k
+    else latestIndexOnOrBefore(anchor = anchor, step = step, today = today, k = k + 1)
 }

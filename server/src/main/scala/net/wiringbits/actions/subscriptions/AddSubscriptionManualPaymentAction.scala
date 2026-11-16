@@ -32,6 +32,8 @@ class AddSubscriptionManualPaymentAction @Inject() (subscriptionsRepository: Sub
         .withFieldConst(_.id, UuidCreator.getTimeOrderedEpoch())
         .withFieldConst(_.userId, userId)
         .withFieldConst(_.subscriptionId, subscriptionId)
+        // The note decodes trimmed, so a blank one arrives as an empty string and means "no note".
+        .withFieldConst(_.note, request.note.filter(_.string.nonEmpty))
         .withFieldConst(_.createdAt, now)
         .withFieldConst(_.updatedAt, now)
         .transform

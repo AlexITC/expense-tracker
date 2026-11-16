@@ -192,5 +192,19 @@ class SubscriptionScheduleSpec extends AnyWordSpec with Matchers {
         )
       )
     }
+
+    "keep only the latest occurrences of an ancient daily subscription" in {
+      val ancient = term("1000-01-01", None)
+      val result = dueDates(List(ancient), SubscriptionCadence.EveryNDays, today = "2026-06-10", intervalDays = Some(1))
+      val max = SubscriptionSchedule.MaxPastOccurrences
+      dates(result) must be(Right((0 to max).map(i => date("2026-06-10").minusDays(max - 1L - i)).toList))
+    }
+
+    "keep the latest occurrences of a daily run that ended long before today" in {
+      val ended = term("2020-01-01", Some("2023-01-01"))
+      val result = dueDates(List(ended), SubscriptionCadence.EveryNDays, today = "2026-06-10", intervalDays = Some(1))
+      val max = SubscriptionSchedule.MaxPastOccurrences
+      dates(result) must be(Right((1 to max).map(i => date("2023-01-01").minusDays(max + 1L - i)).toList))
+    }
   }
 }

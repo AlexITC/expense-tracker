@@ -10,7 +10,7 @@ import java.time.LocalDate
 import java.util.UUID
 
 object AddSubscriptionManualPayment {
-  // note is a validated primitive enforced at decode, amount follows SubscriptionValidator.validateManualPaymentAmount.
+  // amount is validated by the action rather than at decode.
   case class Request(
       paidDate: LocalDate,
       amount: BigDecimal,

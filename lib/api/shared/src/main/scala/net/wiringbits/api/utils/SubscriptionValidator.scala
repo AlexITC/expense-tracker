@@ -48,8 +48,9 @@ object SubscriptionValidator {
 
   private def validateIntervalDays(cadence: SubscriptionCadence, intervalDays: Option[Int]): Either[String, Unit] =
     (cadence, intervalDays) match {
-      case (SubscriptionCadence.EveryNDays, None) => Left("Interval days is required for an every-N-days cadence")
-      case (SubscriptionCadence.EveryNDays, Some(d)) if d <= 0 => Left("Interval days must be greater than zero")
+      case (SubscriptionCadence.EveryNDays, None) => Left(SubscriptionScheduleError.MissingInterval.message)
+      case (SubscriptionCadence.EveryNDays, Some(d)) if d <= 0 =>
+        Left(SubscriptionScheduleError.NonPositiveInterval.message)
       case (SubscriptionCadence.EveryNDays, Some(_)) => Right(())
       case (_, Some(_)) => Left("Interval days is only allowed for an every-N-days cadence")
       case (_, None) => Right(())
@@ -57,8 +58,7 @@ object SubscriptionValidator {
 
   private def validateIntervalMonths(cadence: SubscriptionCadence, intervalMonths: Option[Int]): Either[String, Unit] =
     (cadence, intervalMonths) match {
-      case (SubscriptionCadence.EveryNMonths, None) =>
-        Left("Interval months is required for an every-N-months cadence")
+      case (SubscriptionCadence.EveryNMonths, None) => Left(SubscriptionScheduleError.MissingIntervalMonths.message)
       case (SubscriptionCadence.EveryNMonths, Some(m)) if m < MinIntervalMonths || m > MaxIntervalMonths =>
         Left(s"Interval months must be between $MinIntervalMonths and $MaxIntervalMonths")
       case (SubscriptionCadence.EveryNMonths, Some(_)) => Right(())

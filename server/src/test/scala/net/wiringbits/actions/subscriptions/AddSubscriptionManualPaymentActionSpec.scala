@@ -8,6 +8,7 @@ import net.wiringbits.repositories.models.SubscriptionManualPayment
 import org.scalatest.LoneElement.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
+import play.api.libs.json.Json
 import utils.RepositoryUtils
 
 import java.time.{Clock, LocalDate}
@@ -55,6 +56,18 @@ class AddSubscriptionManualPaymentActionSpec extends RepositorySpec with Reposit
       val existing = createSubscription(user.id, name = uniqueName("Gym")).futureValue
 
       newAction().apply(existing.id, user.id, request(note = None)).futureValue
+
+      storedPayments(user.id).loneElement.note must be(None)
+    }
+
+    "store a blank note as no note" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val existing = createSubscription(user.id, name = uniqueName("Gym")).futureValue
+      val blankNote = Json
+        .parse("""{"paidDate": "2025-03-01", "amount": 15.00, "note": "   "}""")
+        .as[AddSubscriptionManualPayment.Request]
+
+      newAction().apply(existing.id, user.id, blankNote).futureValue
 
       storedPayments(user.id).loneElement.note must be(None)
     }
