@@ -16,7 +16,10 @@ import java.util.UUID
 class CreateSubscriptionActionSpec extends RepositorySpec with RepositoryUtils {
 
   private def newAction(maxPerUser: Int = 200)(using repositories: RepositoryComponents): CreateSubscriptionAction =
-    new CreateSubscriptionAction(repositories.subscriptions, SubscriptionsConfig(maxPerUser))(using
+    new CreateSubscriptionAction(
+      repositories.subscriptions,
+      SubscriptionsConfig(maxPerUser = maxPerUser, reconciliationToleranceDays = 5)
+    )(using
       executionContext,
       Clock.systemUTC()
     )

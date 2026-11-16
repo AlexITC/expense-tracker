@@ -438,6 +438,12 @@ package object daos {
       "updated_at"
     )
 
+  val expenseCandidateParser: RowParser[SubscriptionReconciliationData.ExpenseCandidate] =
+    Macro.parser[SubscriptionReconciliationData.ExpenseCandidate]("id", "date", "amount", "merchant_id")
+
+  val bankStatementRowCandidateParser: RowParser[SubscriptionReconciliationData.BankStatementRowCandidate] =
+    Macro.parser[SubscriptionReconciliationData.BankStatementRowCandidate]("id", "date", "amount")
+
   val subscriptionTermParser: RowParser[SubscriptionTerm] =
     Macro.parser[SubscriptionTerm](
       "id",

@@ -9,6 +9,7 @@ import net.wiringbits.api.models.subscriptions.{
 import net.wiringbits.api.utils.SubscriptionTerms
 import net.wiringbits.executors.DatabaseExecutionContext
 import net.wiringbits.repositories.daos.{
+  BankStatementRowDAO,
   CategoryDAO,
   ExpenseDAO,
   MerchantDAO,
@@ -21,6 +22,7 @@ import net.wiringbits.repositories.models.{
   Subscription,
   SubscriptionExtraCharge,
   SubscriptionManualPayment,
+  SubscriptionReconciliationData,
   SubscriptionTerm
 }
 import net.wiringbits.repositories.support.ConstraintViolations
@@ -262,6 +264,30 @@ class SubscriptionsRepository @Inject() (database: Database)(implicit
       SubscriptionManualPaymentDAO.allForUser(userId)
     }
   }
+
+  /** Reads the user's subscriptions with their terms, manual payments and the charges that may pay a cycle. Charges are
+    * read from `lookbackDays` before the earliest term start up to `to` (inclusive). The lower bound depends on the
+    * terms, so it is computed here to keep everything in one transaction.
+    */
+  def reconciliationData(userId: UUID, lookbackDays: Int, to: LocalDate): Future[SubscriptionReconciliationData] =
+    Future {
+      database.withTransaction { implicit conn =>
+        val subscriptions = SubscriptionDAO.all(userId)
+        val terms = SubscriptionTermDAO.allForUser(userId)
+        val termsBySubscription = terms.groupBy(_.subscriptionId)
+        val from = terms.map(_.effectiveFrom).minByOption(_.toEpochDay).map(_.minusDays(lookbackDays.toLong))
+        SubscriptionReconciliationData(
+          subscriptions = subscriptions.map { s =>
+            SubscriptionReconciliationData.SubscriptionWithTerms(s, termsBySubscription.getOrElse(s.id, List.empty))
+          },
+          manualPayments = SubscriptionManualPaymentDAO.allForUser(userId),
+          expenses =
+            from.fold(List.empty)(f => ExpenseDAO.reconciliationCandidates(userId = userId, from = f, to = to)),
+          bankStatementRows =
+            from.fold(List.empty)(f => BankStatementRowDAO.unlinkedDebits(userId = userId, from = f, to = to))
+        )
+      }
+    }
 
   def delete(id: UUID, userId: UUID): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
