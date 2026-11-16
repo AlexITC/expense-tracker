@@ -12,7 +12,7 @@ import net.wiringbits.forms.MerchantFormData
 import net.wiringbits.ui.components.inputs.{
   MerchantNameInput,
   OptionalIdSelectInput,
-  OptionalNotesInput,
+  OptionalMerchantNotesInput,
   OptionalTaxIdInput
 }
 import net.wiringbits.ui.forms.{ExpOptionalId, SubmitHooks}
@@ -105,14 +105,14 @@ object MerchantList {
     val (page, setPage) = Hooks.useState(0)
     val (createForm, setCreateForm) =
       Hooks.useState(
-        MerchantFormData.initial(prefix = "merchant-create", name = None, notes = "", categoryId = "", taxId = "")
+        MerchantFormData.blankCreate
       )
     val createSubmit = SubmitHooks.useSubmit()
     val (error, setError) = Hooks.useState("")
     val (editingId, setEditingId) = Hooks.useState[Option[UUID]](None)
     val (editForm, setEditForm) =
       Hooks.useState(
-        MerchantFormData.initial(prefix = "merchant-edit", name = None, notes = "", categoryId = "", taxId = "")
+        MerchantFormData.blankEdit
       )
     val editSubmit = SubmitHooks.useSubmit()
 
@@ -186,8 +186,7 @@ object MerchantList {
             case Success(resp) =>
               createSubmit.succeed()
               setCreateForm(
-                MerchantFormData
-                  .initial(prefix = "merchant-create", name = None, notes = "", categoryId = "", taxId = "")
+                MerchantFormData.blankCreate
               )
               setCreateRuleEnabled(false); setNewRulePattern(""); setError("")
               if (createRuleEnabled && newRulePattern.trim.nonEmpty)
@@ -268,8 +267,8 @@ object MerchantList {
               onChange = value => setCreateForm(cur => cur.copy(name = cur.name.updated(value)))
             )
           ),
-          OptionalNotesInput.component(
-            OptionalNotesInput.Props(
+          OptionalMerchantNotesInput.component(
+            OptionalMerchantNotesInput.Props(
               field = createForm.notes,
               disabled = createSubmit.isSubmitting,
               onChange = v => setCreateForm(cur => cur.copy(notes = cur.notes.updated(v)))
@@ -366,8 +365,8 @@ object MerchantList {
                   onChange = value => setEditForm(cur => cur.copy(name = cur.name.updated(value)))
                 )
               ),
-              OptionalNotesInput.component(
-                OptionalNotesInput.Props(
+              OptionalMerchantNotesInput.component(
+                OptionalMerchantNotesInput.Props(
                   field = editForm.notes,
                   disabled = editSubmit.isSubmitting,
                   onChange = v => setEditForm(cur => cur.copy(notes = cur.notes.updated(v)))
@@ -479,15 +478,7 @@ object MerchantList {
                 .sx(new CSSPropertiesUtils { color = "var(--lc-text-2)" })
                 .onClick { _ =>
                   setEditingId(Some(m.id))
-                  setEditForm(_ =>
-                    MerchantFormData.initial(
-                      prefix = "merchant-edit",
-                      name = Some(m.name),
-                      notes = m.notes.getOrElse(""),
-                      categoryId = m.categoryId.map(_.toString).getOrElse(""),
-                      taxId = m.taxId.getOrElse("")
-                    )
-                  )
+                  setEditForm(_ => MerchantFormData.fromMerchant(m))
                   editSubmit.reset()
                 },
               mui.Button

@@ -1,6 +1,6 @@
 package net.wiringbits.forms
 
-import net.wiringbits.api.models.merchants.{CreateMerchant, UpdateMerchant}
+import net.wiringbits.api.models.merchants.{CreateMerchant, GetMerchants, UpdateMerchant}
 import net.wiringbits.common.models.MerchantName
 import net.wiringbits.ui.forms.{ExpNotes, ExpOptionalId, ExpTaxId}
 import net.wiringbits.webapp.utils.slinkyUtils.forms.{FormData, FormField}
@@ -43,8 +43,33 @@ object MerchantFormData {
 
   private val NameLabel = "Merchant name"
 
-  // The create and edit forms are on screen together, so `prefix` keeps the new fields' names (and DOM ids) distinct.
-  def initial(
+  // The create and edit forms are on screen together, so distinct prefixes keep the fields' names (and DOM ids) apart.
+  private val CreatePrefix = "merchant-create"
+  private val EditPrefix = "merchant-edit"
+
+  val blankCreate: MerchantFormData =
+    initial(prefix = CreatePrefix, name = None, notes = "", categoryId = "", taxId = "")
+
+  val blankEdit: MerchantFormData = initial(prefix = EditPrefix, name = None, notes = "", categoryId = "", taxId = "")
+
+  def fromMerchant(merchant: GetMerchants.Response.Merchant): MerchantFormData =
+    initial(
+      prefix = EditPrefix,
+      name = Some(merchant.name),
+      notes = merchant.notes.getOrElse(""),
+      categoryId = merchant.categoryId.map(_.toString).getOrElse(""),
+      taxId = merchant.taxId.getOrElse("")
+    )
+
+  private[forms] def initialCreate(
+      name: Option[String],
+      notes: String,
+      categoryId: String,
+      taxId: String
+  ): MerchantFormData =
+    initial(prefix = CreatePrefix, name = name, notes = notes, categoryId = categoryId, taxId = taxId)
+
+  private def initial(
       prefix: String,
       name: Option[String],
       notes: String,
@@ -62,7 +87,7 @@ object MerchantFormData {
         label = "Notes (optional)",
         name = s"$prefix-notes",
         required = false,
-        value = Some(ExpNotes.optionalValidator(notes))
+        value = Some(ExpNotes.merchantOptionalValidator(notes))
       ),
       categoryId = new FormField(
         label = "Default category",

@@ -13,10 +13,15 @@ object ExpNotes extends WrappedString.Companion[ExpNotes] {
 
   val MaxLength: Int = 500
 
-  override def validate(string: String): ValidationResult[ExpNotes] = {
+  /** The server caps merchant notes at 255 characters, tighter than [[MaxLength]]. */
+  val MerchantMaxLength: Int = 255
+
+  override def validate(string: String): ValidationResult[ExpNotes] = validateWithin(string, maxLength = MaxLength)
+
+  private def validateWithin(string: String, maxLength: Int): ValidationResult[ExpNotes] = {
     val trimmed = string.trim
-    if (trimmed.length > MaxLength)
-      ValidationResult.Invalid(input = string, error = s"Notes must be $MaxLength characters or less")
+    if (trimmed.length > maxLength)
+      ValidationResult.Invalid(input = string, error = s"Notes must be $maxLength characters or less")
     else ValidationResult.Valid(string, new ExpNotes(trimmed))
   }
 
@@ -29,4 +34,8 @@ object ExpNotes extends WrappedString.Companion[ExpNotes] {
 
   /** Blank input means "no notes"; over-limit input is an error. */
   given optionalValidator: TextValidator[Option[ExpNotes]] = OptionalValidator.optional(validate)
+
+  /** Optional notes bounded to [[MerchantMaxLength]], for merchant forms. */
+  val merchantOptionalValidator: TextValidator[Option[ExpNotes]] =
+    OptionalValidator.optional(validateWithin(_, maxLength = MerchantMaxLength))
 }

@@ -1,8 +1,10 @@
 package net.wiringbits.forms
 
+import net.wiringbits.api.models.merchants.GetMerchants
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
+import java.time.Instant
 import java.util.UUID
 
 class MerchantFormDataSpec extends AnyWordSpec {
@@ -15,8 +17,7 @@ class MerchantFormDataSpec extends AnyWordSpec {
       categoryId: String = categoryId.toString,
       taxId: String = " ABC123 "
   ): MerchantFormData =
-    MerchantFormData.initial(
-      prefix = "merchant-create",
+    MerchantFormData.initialCreate(
       name = name,
       notes = notes,
       categoryId = categoryId,
@@ -25,20 +26,23 @@ class MerchantFormDataSpec extends AnyWordSpec {
 
   "initial" should {
     "produce an invalid form when blank" in {
-      val blank =
-        MerchantFormData.initial(prefix = "merchant-create", name = None, notes = "", categoryId = "", taxId = "")
+      val blank = MerchantFormData.blankCreate
       blank.isValid must be(false)
       blank.submitRequest must be(None)
     }
 
     "keep an over-limit tax id as raw input and be invalid" in {
       val raw = "T" * 51
-      val edit = MerchantFormData.initial(
-        prefix = "merchant-edit",
-        name = Some("Corner Store"),
-        notes = "",
-        categoryId = "",
-        taxId = raw
+      val edit = MerchantFormData.fromMerchant(
+        GetMerchants.Response.Merchant(
+          id = UUID.randomUUID(),
+          name = "Corner Store",
+          notes = None,
+          categoryId = None,
+          taxId = Some(raw),
+          reviewed = false,
+          createdAt = Instant.EPOCH
+        )
       )
       edit.taxId.inputValue must be(raw)
       edit.isValid must be(false)
@@ -49,6 +53,12 @@ class MerchantFormDataSpec extends AnyWordSpec {
       f.notes.name must be("merchant-create-notes")
       f.categoryId.name must be("merchant-create-categoryId")
       f.taxId.name must be("merchant-create-taxId")
+    }
+
+    "prefix the edit form's field names differently from the create form" in {
+      MerchantFormData.blankEdit.notes.name must be("merchant-edit-notes")
+      MerchantFormData.blankEdit.categoryId.name must be("merchant-edit-categoryId")
+      MerchantFormData.blankEdit.taxId.name must be("merchant-edit-taxId")
     }
   }
 
@@ -73,8 +83,12 @@ class MerchantFormDataSpec extends AnyWordSpec {
       form(name = None).submitRequest must be(None)
     }
 
-    "be None for over-limit notes" in {
-      val f = form(notes = "n" * 501)
+    "accept notes at the 255-char server limit" in {
+      form(notes = "n" * 255).submitRequest.flatMap(_.notes) must be(Some("n" * 255))
+    }
+
+    "be None for notes over the 255-char server limit" in {
+      val f = form(notes = "n" * 256)
       f.isValid must be(false)
       f.submitRequest must be(None)
       f.updateRequest must be(None)

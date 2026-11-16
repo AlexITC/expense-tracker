@@ -43,6 +43,8 @@ object NotesInput extends ValidatedTextInput[ExpNotes]
 
 object OptionalNotesInput extends ValidatedTextInput[Option[ExpNotes]]
 
+object OptionalMerchantNotesInput extends ValidatedTextInput[Option[ExpNotes]](using ExpNotes.merchantOptionalValidator)
+
 object TaxIdInput extends ValidatedTextInput[ExpTaxId]
 
 object OptionalTaxIdInput extends ValidatedTextInput[Option[ExpTaxId]]
