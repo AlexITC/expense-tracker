@@ -1,6 +1,7 @@
 package net.wiringbits.components.pages.bankstatements
 
 import net.wiringbits.api.models.bankstatements.{GetAccountAliases, GetBankStatement, GetBankStatements}
+import net.wiringbits.api.utils.BankStatementDraftLimits
 
 import java.time.LocalDate
 import java.util.UUID
@@ -207,4 +208,24 @@ object BankStatementsLogic {
       "This action cannot be undone."
     )
   }
+
+  /** Which bank-statement draft endpoint a file goes to, chosen by its extension. */
+  enum DraftUploadKind {
+    case Pdf, Csv
+  }
+
+  /** `.pdf` / `.csv` (case-insensitive) map to their upload kind; any other or missing extension is unsupported. */
+  def draftUploadKind(filename: String): Option[DraftUploadKind] = {
+    val lower = filename.toLowerCase
+    if (lower.endsWith(".pdf")) Some(DraftUploadKind.Pdf)
+    else if (lower.endsWith(".csv")) Some(DraftUploadKind.Csv)
+    else None
+  }
+
+  /** Upload hint for the draft import, with the CSV limits taken from the limits the server enforces. */
+  val draftUploadHelpText: String =
+    "Import statements — select one or more PDFs or CSVs; each is queued below for review. PDFs are " +
+      "extracted with AI. CSVs need the header date,description,amount[,txn_type][,running_balance] " +
+      s"with signed amounts (negative = money out), max ${BankStatementDraftLimits.MaxTransactions} rows / " +
+      s"${BankStatementDraftLimits.MaxCsvBytes / (1024 * 1024)} MB."
 }

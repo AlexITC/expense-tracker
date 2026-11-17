@@ -168,17 +168,29 @@ object BankStatementList {
         def loop(remaining: List[dom.File]): Unit = remaining match {
           case Nil => setUploadBusy(false); refreshDrafts()
           case file :: rest =>
-            val reader = new dom.FileReader()
-            reader.readAsArrayBuffer(file)
-            reader.onload = { _ =>
-              val bytes = new js.typedarray.Int8Array(reader.result.asInstanceOf[js.typedarray.ArrayBuffer]).toArray
-              props.ctx.api.client.createBankStatementDraft(bytes, file.name).onComplete {
-                case Success(_) => refreshDrafts(); loop(rest)
-                case Failure(ex) => setError(s"${file.name}: ${ex.getMessage}"); loop(rest)
-              }
-            }
-            reader.onerror = { _ =>
-              setError(s"${file.name}: file read error"); loop(rest)
+            BankStatementsLogic.draftUploadKind(file.name) match {
+              case None =>
+                setError(s"${file.name}: unsupported file type, expected .pdf or .csv"); loop(rest)
+              case Some(kind) =>
+                val reader = new dom.FileReader()
+                reader.readAsArrayBuffer(file)
+                reader.onload = { _ =>
+                  val bytes =
+                    new js.typedarray.Int8Array(reader.result.asInstanceOf[js.typedarray.ArrayBuffer]).toArray
+                  val request = kind match {
+                    case BankStatementsLogic.DraftUploadKind.Pdf =>
+                      props.ctx.api.client.createBankStatementDraft(bytes, file.name)
+                    case BankStatementsLogic.DraftUploadKind.Csv =>
+                      props.ctx.api.client.createBankStatementDraftFromCsv(bytes, file.name)
+                  }
+                  request.onComplete {
+                    case Success(_) => refreshDrafts(); loop(rest)
+                    case Failure(ex) => setError(s"${file.name}: ${ex.getMessage}"); loop(rest)
+                  }
+                }
+                reader.onerror = { _ =>
+                  setError(s"${file.name}: file read error"); loop(rest)
+                }
             }
         }
         loop(files)
@@ -438,7 +450,8 @@ object BankStatementList {
             .onClick(_ => history.push("/bank-statements/bulk-setup"))
         )
       ),
-      // Import (AI): upload one or more PDFs → each is extracted into a draft to review before it becomes a statement.
+      // Import: upload PDFs (extracted with AI) and/or fixed-schema CSVs → each becomes a draft to review before it
+      // becomes a statement.
       mui.Box.sx(new CSSPropertiesUtils {
         border = "1px solid var(--lc-brand)"; borderRadius = "8px"; padding = "16px";
         backgroundColor = "var(--lc-paper)"; marginBottom = "16px"
@@ -453,13 +466,11 @@ object BankStatementList {
             input(
               `type` := "file",
               multiple := true,
-              accept := ".pdf,application/pdf",
+              accept := ".pdf,application/pdf,.csv,text/csv",
               onChange := { e => handleDraftUpload(e.target.asInstanceOf[dom.HTMLInputElement]) }
             ),
             mui
-              .Typography(
-                "Import statements — select one or more PDFs; each is extracted with AI and queued below for review."
-              )
+              .Typography(BankStatementsLogic.draftUploadHelpText)
               .sx(new CSSPropertiesUtils { fontSize = "12px"; color = "var(--lc-text-2)"; marginTop = "8px" })
           )
       ),
