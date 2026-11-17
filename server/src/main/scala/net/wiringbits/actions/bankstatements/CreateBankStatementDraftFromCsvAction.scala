@@ -2,7 +2,6 @@ package net.wiringbits.actions.bankstatements
 
 import com.github.f4b6a3.uuid.UuidCreator
 import net.wiringbits.api.models.bankstatements.BankStatementDraft as ApiDraft
-import net.wiringbits.api.utils.BankStatementDraftLimits
 import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.repositories.BankStatementDraftRepository
 import net.wiringbits.repositories.models.BankStatementDraft as DraftRecord
@@ -32,12 +31,6 @@ class CreateBankStatementDraftFromCsvAction @Inject() (
 
   def apply(userId: UUID, bytes: Array[Byte], filename: String): Future[ApiDraft.Data] =
     for {
-      _ <-
-        if (bytes.length > BankStatementDraftLimits.MaxCsvBytes)
-          Future.failed(
-            new RuntimeException(s"The CSV file is larger than ${BankStatementDraftLimits.MaxCsvBytes} bytes")
-          )
-        else Future.unit
       // Parse before storing anything so an invalid file leaves no blob, document or draft behind.
       transactions <- csvParser.parse(bytes) match {
         case Right(txns) => Future.successful(txns)

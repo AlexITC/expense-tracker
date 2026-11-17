@@ -105,6 +105,86 @@ class UpdateBankStatementDraftActionSpec extends RepositorySpec with RepositoryU
       storedPayload(draftId) must be(initial)
     }
 
+    "reject an edited row whose description is over the limit" in withRepositories() { implicit repositories =>
+      val initial = payload(emptyMetadata, rows(1))
+      val (userId, draftId) = readyDraft(initial)
+      val longRow = txn("-12.34", None).copy(description = "x" * (BankStatementDraftLimits.MaxDescriptionLength + 1))
+      val edited = payload(emptyMetadata, initial.transactions :+ longRow)
+
+      val error = action(draftId, userId, BankStatementDraft.Update.Request(edited)).failed.futureValue
+
+      error.getMessage must be("Row 2: description is longer than 255 characters")
+      storedPayload(draftId) must be(initial)
+    }
+
+    "reject an edited row whose type is over the limit" in withRepositories() { implicit repositories =>
+      val initial = payload(emptyMetadata, rows(1))
+      val (userId, draftId) = readyDraft(initial)
+      val edited =
+        payload(emptyMetadata, List(initial.transactions.head.copy(txnType = Some("x" * 21))))
+
+      val error = action(draftId, userId, BankStatementDraft.Update.Request(edited)).failed.futureValue
+
+      error.getMessage must be("Row 1: type is longer than 20 characters")
+      storedPayload(draftId) must be(initial)
+    }
+
+    "accept an unchanged stored row whose description is already over the limit" in withRepositories() {
+      implicit repositories =>
+        val longRow =
+          txn("-12.34", None).copy(description = "x" * (BankStatementDraftLimits.MaxDescriptionLength + 1))
+        val (userId, draftId) = readyDraft(payload(emptyMetadata, List(longRow)))
+        val edited = payload(emptyMetadata.copy(bankName = Some("Test Bank")), List(longRow, txn("-1.00", None)))
+
+        action(draftId, userId, BankStatementDraft.Update.Request(edited)).futureValue
+
+        storedPayload(draftId).transactions must be(edited.transactions)
+    }
+
+    "reject an edited bank name over the limit" in withRepositories() { implicit repositories =>
+      val initial = payload(emptyMetadata, rows(1))
+      val (userId, draftId) = readyDraft(initial)
+      val metadata = emptyMetadata.copy(bankName = Some("x" * (BankStatementDraftLimits.MaxBankNameLength + 1)))
+      val edited = payload(metadata, initial.transactions)
+
+      val error = action(draftId, userId, BankStatementDraft.Update.Request(edited)).failed.futureValue
+
+      error.getMessage must be("Bank name is longer than 100 characters")
+      storedPayload(draftId) must be(initial)
+    }
+
+    "reject an edited currency over the limit" in withRepositories() { implicit repositories =>
+      val initial = payload(emptyMetadata, rows(1))
+      val (userId, draftId) = readyDraft(initial)
+      val edited = payload(emptyMetadata.copy(currency = Some("ABCD")), initial.transactions)
+
+      val error = action(draftId, userId, BankStatementDraft.Update.Request(edited)).failed.futureValue
+
+      error.getMessage must be("Currency is longer than 3 characters")
+      storedPayload(draftId) must be(initial)
+    }
+
+    "accept an unchanged stored product type already over the limit" in withRepositories() { implicit repositories =>
+      val stored = emptyMetadata.copy(productType = Some("x" * (BankStatementDraftLimits.MaxProductTypeLength + 1)))
+      val initial = payload(stored, rows(1))
+      val (userId, draftId) = readyDraft(initial)
+      val edited = payload(stored.copy(bankName = Some("Test Bank")), initial.transactions)
+
+      action(draftId, userId, BankStatementDraft.Update.Request(edited)).futureValue
+
+      storedPayload(draftId).metadata must be(edited.metadata)
+    }
+
+    "keep the stored model instead of the client's" in withRepositories() { implicit repositories =>
+      val initial = payload(emptyMetadata, rows(1))
+      val (userId, draftId) = readyDraft(initial)
+      val edited = payload(emptyMetadata, initial.transactions).copy(model = "client-supplied")
+
+      action(draftId, userId, BankStatementDraft.Update.Request(edited)).futureValue
+
+      storedPayload(draftId).model must be(initial.model)
+    }
+
     "not mark a payload with no rows as unverifiable" in withRepositories() { implicit repositories =>
       val (userId, draftId) = readyDraft(payload(emptyMetadata, rows(1)))
       val edited = payload(emptyMetadata, Nil).copy(unverifiable = true)

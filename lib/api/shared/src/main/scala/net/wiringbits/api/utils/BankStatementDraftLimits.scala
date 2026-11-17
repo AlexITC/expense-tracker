@@ -5,6 +5,10 @@ object BankStatementDraftLimits {
   val MaxTransactions: Int = 250
   val MaxDescriptionLength: Int = 255
   val MaxTxnTypeLength: Int = 20
+  val MaxBankNameLength: Int = 100
+  val MaxProductTypeLength: Int = 20
+  val MaxCurrencyLength: Int = 3
+  val MaxAccountLast4Length: Int = 4
   val MaxCsvBytes: Int = 2 * 1024 * 1024
   val MaxFilenameLength: Int = 255
 

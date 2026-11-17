@@ -24,9 +24,12 @@ class UploadDocumentAction @Inject() (
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   def apply(userId: UUID, bytes: Array[Byte], kindStr: String, filename: String): Future[UploadDocument.Response] = {
-    val kind = DocumentKind
-      .withNameOption(kindStr)
-      .getOrElse(throw new RuntimeException(s"Unsupported document kind: $kindStr"))
+    // CSV statements enter only through the statement draft flow, which parses and bounds them.
+    val kind = DocumentKind.withNameOption(kindStr) match {
+      case Some(k @ (DocumentKind.Receipt | DocumentKind.Invoice | DocumentKind.BankStatementPdf)) => k
+      case Some(DocumentKind.BankStatementCsv) | None =>
+        throw new RuntimeException(s"Unsupported document kind: $kindStr")
+    }
     val sha256 = computeSha256(bytes)
     for {
       // Advisory fast path to skip the S3 round-trip; not the dedup guarantee
