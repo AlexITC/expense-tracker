@@ -5,6 +5,7 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{
   BankStatementDraft,
+  BankStatementDraftSource,
   GetAccountAliases,
   GetBankStatement,
   GetBankStatements
@@ -485,6 +486,14 @@ object BankStatementList {
                     mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "2px" })(
                       mui.Box.sx(new CSSPropertiesUtils { display = "flex"; alignItems = "center"; gap = "8px" })(
                         mui.Typography(d.filename).sx(new CSSPropertiesUtils { fontSize = "14px"; fontWeight = "600" }),
+                        d.source match {
+                          case BankStatementDraftSource.Csv =>
+                            (mui.Chip
+                              .label("CSV")
+                              .size("small")
+                              .sx(new CSSPropertiesUtils { height = "20px"; fontSize = "11px" }): ReactElement)
+                          case BankStatementDraftSource.Pdf => Fragment()
+                        },
                         if (d.status == "processing") mui.CircularProgress().size(14.0) else Fragment()
                       ),
                       mui.Typography(statusText).sx(new CSSPropertiesUtils { fontSize = "12px"; color = statusColor })

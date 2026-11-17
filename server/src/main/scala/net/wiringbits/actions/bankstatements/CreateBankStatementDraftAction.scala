@@ -6,7 +6,7 @@ import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.{BackgroundJobData, Document, BankStatementDraft as DraftRecord}
 import net.wiringbits.repositories.{BankStatementDraftRepository, BankStatementRepository, DocumentsRepository}
-import net.wiringbits.services.BlobStorage
+import net.wiringbits.services.{BankStatementDraftSources, BlobStorage}
 import org.slf4j.LoggerFactory
 
 import java.security.MessageDigest
@@ -85,7 +85,14 @@ class CreateBankStatementDraftAction @Inject() (
         s"Created statement draft $draftId (processing) for user $userId, document ${documentLink.documentId} " +
           s"($linkLabel); enqueued extraction job"
       )
-      ApiDraft.Data(draftId, filename = filename, status = DraftRecord.Status.Processing, None, None)
+      ApiDraft.Data(
+        draftId,
+        filename = filename,
+        source = BankStatementDraftSources.fromDocumentKind(DocumentKind.BankStatementPdf),
+        status = DraftRecord.Status.Processing,
+        None,
+        None
+      )
     }
   }
 

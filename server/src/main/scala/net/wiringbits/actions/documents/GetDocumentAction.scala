@@ -32,15 +32,17 @@ class GetDocumentAction @Inject() (
       doc: net.wiringbits.repositories.models.Document,
       userId: UUID
   ): Future[Option[List[GetDocument.StatementRowData]]] =
-    if (doc.kind != DocumentKind.BankStatementPdf) Future.successful(None)
-    else
-      bankStatementRepository.findByDocumentId(documentId = doc.id, userId = userId).flatMap {
-        case None => Future.successful(Some(Nil))
-        case Some(stmt) =>
-          bankStatementRepository.findRows(stmt.id).map { rows =>
-            Some(rows.map(rowToData))
-          }
-      }
+    doc.kind match {
+      case DocumentKind.Receipt | DocumentKind.Invoice => Future.successful(None)
+      case DocumentKind.BankStatementPdf | DocumentKind.BankStatementCsv =>
+        bankStatementRepository.findByDocumentId(documentId = doc.id, userId = userId).flatMap {
+          case None => Future.successful(Some(Nil))
+          case Some(stmt) =>
+            bankStatementRepository.findRows(stmt.id).map { rows =>
+              Some(rows.map(rowToData))
+            }
+        }
+    }
 
   private def rowToData(r: BankStatementRow): GetDocument.StatementRowData =
     GetDocument.StatementRowData(r.id, r.index, r.date, r.amount, r.description, r.manuallyEdited, r.confirmedAt)

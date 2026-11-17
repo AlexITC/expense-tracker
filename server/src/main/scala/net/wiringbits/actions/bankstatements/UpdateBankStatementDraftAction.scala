@@ -2,7 +2,7 @@ package net.wiringbits.actions.bankstatements
 
 import net.wiringbits.api.models.bankstatements.BankStatementDraft
 import net.wiringbits.repositories.BankStatementDraftRepository
-import net.wiringbits.services.AiStatementExtractor
+import net.wiringbits.services.{AiStatementExtractor, BankStatementDraftSources}
 import play.api.libs.json.Json
 
 import java.time.Clock
@@ -30,7 +30,14 @@ class UpdateBankStatementDraftAction @Inject() (bankStatementDraftRepository: Ba
         Json.toJson(recomputed).toString,
         clock.instant()
       )
-    } yield BankStatementDraft.Data(draft.id, filename = draft.filename, status = "ready", None, Some(recomputed))
+    } yield BankStatementDraft.Data(
+      draft.id,
+      filename = draft.filename,
+      source = BankStatementDraftSources.fromDocumentKind(draft.documentKind),
+      status = "ready",
+      None,
+      Some(recomputed)
+    )
 
   private def recompute(payload: BankStatementDraft.Payload): BankStatementDraft.Payload = {
     val r = AiStatementExtractor.reconcile(

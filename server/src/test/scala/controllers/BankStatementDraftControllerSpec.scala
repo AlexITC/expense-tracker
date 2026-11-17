@@ -5,6 +5,7 @@ import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.github.f4b6a3.uuid.UuidCreator
 import controllers.common.PlayPostgresSpec
 import net.wiringbits.api.models.bankstatements.{
+  BankStatementDraftSource,
   BankStatementDraft,
   ConfirmWarningKind,
   ExtractionInfo,
@@ -196,6 +197,7 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       val list = client.listBankStatementDrafts.futureValue.drafts
       list must have size 1
       list.head.status must be("ready")
+      list.head.source must be(BankStatementDraftSource.Pdf)
 
       val draft = client.getBankStatementDraft(id).futureValue
       draft.status must be("ready")
@@ -227,6 +229,7 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       createVerifyLoginUser(tokenGenerator).futureValue
       val data = client.createBankStatementDraft(sampleBytes, "stmt.pdf").futureValue
       data.status must be("processing")
+      data.source must be(BankStatementDraftSource.Pdf)
       data.payload must be(None)
     }
 
