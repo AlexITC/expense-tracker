@@ -24,6 +24,18 @@ object SubscriptionsEndpoints {
       .errorOut(oneOf(HttpErrors.badRequest))
       .summary("List all subscriptions")
 
+  // Declared before any `/subscriptions/{subscriptionId}` GET so the literal path segment always wins.
+  def getReconciliation(implicit
+      authHandler: ServerRequest => Future[UUID]
+  ): Endpoint[Unit, (Option[UUID], Future[UUID]), ErrorResponse, GetSubscriptionReconciliation.Response, Any] =
+    baseEndpoint.get
+      .in("reconciliation")
+      .in(query[Option[UUID]]("subscriptionId"))
+      .in(userAuth)
+      .out(jsonBody[GetSubscriptionReconciliation.Response])
+      .errorOut(oneOf(HttpErrors.badRequest))
+      .summary("Reconcile the expected charges of the subscriptions with the recorded payments")
+
   def createSubscription(implicit
       authHandler: ServerRequest => Future[UUID]
   ): Endpoint[Unit, (CreateSubscription.Request, Future[UUID]), ErrorResponse, CreateSubscription.Response, Any] =
@@ -150,9 +162,42 @@ object SubscriptionsEndpoints {
       .errorOut(oneOf(HttpErrors.badRequest))
       .summary("Delete an extra charge of a subscription")
 
+  def addManualPayment(implicit authHandler: ServerRequest => Future[UUID]): Endpoint[
+    Unit,
+    (UUID, AddSubscriptionManualPayment.Request, Future[UUID]),
+    ErrorResponse,
+    AddSubscriptionManualPayment.Response,
+    Any
+  ] =
+    baseEndpoint.post
+      .in(path[UUID]("subscriptionId"))
+      .in("manual-payments")
+      .in(jsonBody[AddSubscriptionManualPayment.Request])
+      .in(userAuth)
+      .out(jsonBody[AddSubscriptionManualPayment.Response])
+      .errorOut(oneOf(HttpErrors.badRequest))
+      .summary("Record a manual payment for a subscription")
+
+  def deleteManualPayment(implicit authHandler: ServerRequest => Future[UUID]): Endpoint[
+    Unit,
+    (UUID, UUID, Future[UUID]),
+    ErrorResponse,
+    DeleteSubscriptionManualPayment.Response,
+    Any
+  ] =
+    baseEndpoint.delete
+      .in(path[UUID]("subscriptionId"))
+      .in("manual-payments")
+      .in(path[UUID]("manualPaymentId"))
+      .in(userAuth)
+      .out(jsonBody[DeleteSubscriptionManualPayment.Response])
+      .errorOut(oneOf(HttpErrors.badRequest))
+      .summary("Delete a manual payment of a subscription")
+
   def routes(implicit authHandler: ServerRequest => Future[UUID]): List[AnyEndpoint] =
     List(
       getSubscriptions,
+      getReconciliation,
       createSubscription,
       updateSubscription,
       deleteSubscription,
@@ -161,6 +206,8 @@ object SubscriptionsEndpoints {
       resumeSubscription,
       getStartDateSuggestion,
       addExtraCharge,
-      deleteExtraCharge
+      deleteExtraCharge,
+      addManualPayment,
+      deleteManualPayment
     )
 }

@@ -20,7 +20,7 @@ import play.api.libs.json.{JsValue, Json}
 import play.api.test.Helpers.*
 import utils.{ExpenseUtils, LoginUtils}
 
-import java.time.{Instant, LocalDate}
+import java.time.{Instant, LocalDate, ZoneOffset}
 import java.util.UUID
 
 class McpControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUtils with MockitoSugar {
@@ -111,7 +111,13 @@ class McpControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUti
       val response = POST("/mcp", rpc("tools/list"), bearer(token))
       status(response) must be(OK)
       val names = (contentAsJson(response) \ "result" \ "tools").as[List[JsValue]].map(t => (t \ "name").as[String])
-      names must contain.allOf("list_expenses", "list_categories", "list_bank_statement_rows", "list_subscriptions")
+      names must contain.allOf(
+        "list_expenses",
+        "list_categories",
+        "list_bank_statement_rows",
+        "list_subscriptions",
+        "subscription_reconciliation"
+      )
     }
 
     "group rows under their statement via list_bank_statement_rows" in withApiClient { implicit client =>
@@ -299,6 +305,53 @@ class McpControllerSpec extends PlayPostgresSpec with LoginUtils with ExpenseUti
           (terms.head \ "amountMin").as[BigDecimal] must be(BigDecimal("9.99"))
           (subscription \ "extraCharges").as[List[JsValue]] must be(List.empty)
         }
+    }
+
+    "return only the authenticated user's cycles via subscription_reconciliation" in withApiClient { implicit clientA =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      // The app runs on the system UTC clock, so seed relative to it: the first cycle is well past its window.
+      val startDate = LocalDate.now(ZoneOffset.UTC).minusDays(40)
+      def monthlyRequest(name: String, amount: BigDecimal) = CreateSubscription.Request(
+        name = SubscriptionName.trusted(s"$name ${UUID.randomUUID()}"),
+        cadence = SubscriptionCadence.Monthly,
+        intervalDays = None,
+        intervalMonths = None,
+        amountMin = Some(amount),
+        amountMax = Some(amount),
+        paymentMethod = SubscriptionPaymentMethod.DirectDebit,
+        categoryId = None,
+        merchantId = None,
+        description = None,
+        startDate = startDate
+      )
+      val subscriptionIdA = clientA.createSubscription(monthlyRequest("Gym", BigDecimal("9.99"))).futureValue.id
+      val expenseIdA = clientA
+        .createExpense(CreateExpense.Request(9.99, startDate, None, None, None, fullSplit(9.99).futureValue))
+        .futureValue
+        .id
+      val tokenA = clientA.createMcpToken.futureValue.token.value
+
+      withApiClient { implicit clientB =>
+        createVerifyLoginUser(tokenGenerator).futureValue
+        clientB.createSubscription(monthlyRequest("Streaming", BigDecimal("15.00"))).futureValue
+        val splitsB = fullSplit(15.0)(using executionContext, clientB).futureValue
+        clientB.createExpense(CreateExpense.Request(15.0, startDate, None, None, None, splitsB)).futureValue
+
+        val params = Json.obj("name" -> "subscription_reconciliation")
+        val response = POST("/mcp", rpc("tools/call", params = params), bearer(tokenA))
+        status(response) must be(OK)
+        (contentAsJson(response) \ "result" \ "isError").as[Boolean] must be(false)
+        val text = ((contentAsJson(response) \ "result" \ "content").as[List[JsValue]].head \ "text").as[String]
+        val subscriptions = (Json.parse(text) \ "data").as[List[JsValue]]
+        subscriptions.map(s => (s \ "subscriptionId").as[UUID]) must be(List(subscriptionIdA))
+        val firstCycle = (subscriptions.head \ "cycles").as[List[JsValue]].head
+        (firstCycle \ "dueDate").as[LocalDate] must be(startDate)
+        (firstCycle \ "status" \ "kind").as[String] must be("matched")
+        (firstCycle \ "status" \ "charge" \ "source").as[String] must be("Expense")
+        (firstCycle \ "status" \ "charge" \ "id").as[UUID] must be(expenseIdA)
+        (firstCycle \ "status" \ "late").as[Boolean] must be(false)
+        (subscriptions.head \ "manualPayments").as[List[JsValue]] must be(List.empty)
+      }
     }
 
     "return a JSON-RPC error for an unknown tool" in withApiClient { implicit client =>

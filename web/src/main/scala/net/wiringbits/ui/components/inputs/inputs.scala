@@ -10,10 +10,12 @@ import net.wiringbits.common.models.{
   SavingsGoalName,
   SubscriptionDescription,
   SubscriptionExtraChargeLabel,
+  SubscriptionManualPaymentNote,
   SubscriptionName
 }
 import net.wiringbits.ui.components.core.widgets.ValidatedTextInput
 import net.wiringbits.ui.forms.SubscriptionDescriptionValidator.optionalValidator
+import net.wiringbits.ui.forms.SubscriptionManualPaymentNoteValidator.optionalValidator as manualPaymentNoteValidator
 
 package object inputs {
   object NameInput extends ValidatedTextInput[Name]
@@ -25,5 +27,6 @@ package object inputs {
   object SubscriptionNameInput extends ValidatedTextInput[SubscriptionName]
   object SubscriptionDescriptionInput extends ValidatedTextInput[Option[SubscriptionDescription]]
   object SubscriptionExtraChargeLabelInput extends ValidatedTextInput[SubscriptionExtraChargeLabel]
+  object SubscriptionManualPaymentNoteInput extends ValidatedTextInput[Option[SubscriptionManualPaymentNote]]
   object MerchantNameInput extends ValidatedTextInput[MerchantName]
 }

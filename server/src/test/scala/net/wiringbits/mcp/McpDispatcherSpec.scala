@@ -3,7 +3,7 @@ package net.wiringbits.mcp
 import net.wiringbits.actions.bankstatements.{GetAllRowsAction, GetBankStatementsAction}
 import net.wiringbits.actions.categories.GetCategoriesAction
 import net.wiringbits.actions.expenses.GetExpensesAction
-import net.wiringbits.actions.subscriptions.GetSubscriptionsAction
+import net.wiringbits.actions.subscriptions.{GetSubscriptionReconciliationAction, GetSubscriptionsAction}
 import org.mockito.ArgumentMatchers.{any, anyBoolean}
 import org.mockito.Mockito.*
 import org.scalatest.concurrent.ScalaFutures
@@ -27,13 +27,16 @@ class McpDispatcherSpec extends AnyWordSpec with Matchers with ScalaFutures with
       getCategoriesAction: GetCategoriesAction = mock[GetCategoriesAction],
       getBankStatementsAction: GetBankStatementsAction = mock[GetBankStatementsAction],
       getAllRowsAction: GetAllRowsAction = mock[GetAllRowsAction],
-      getSubscriptionsAction: GetSubscriptionsAction = mock[GetSubscriptionsAction]
+      getSubscriptionsAction: GetSubscriptionsAction = mock[GetSubscriptionsAction],
+      getSubscriptionReconciliationAction: GetSubscriptionReconciliationAction =
+        mock[GetSubscriptionReconciliationAction]
   ) = new McpDispatcher(
     getExpensesAction,
     getCategoriesAction,
     getBankStatementsAction,
     getAllRowsAction,
-    getSubscriptionsAction
+    getSubscriptionsAction,
+    getSubscriptionReconciliationAction
   )(using global)
 
   "initialize" should {
@@ -103,14 +106,22 @@ class McpDispatcherSpec extends AnyWordSpec with Matchers with ScalaFutures with
   }
 
   "tools/list" should {
-    "return list_expenses, list_categories, list_bank_statement_rows and list_subscriptions" in {
+    "return every tool name in order" in {
       val dispatcher = newDispatcher()
       val (status, body) = dispatcher(userId, McpProtocol.Request(JsNumber(1), "tools/list", Json.obj())).futureValue
 
       status must be(StatusCode.Ok)
       val names =
         (Json.parse(body) \ "result" \ "tools").as[List[play.api.libs.json.JsValue]].map(t => (t \ "name").as[String])
-      names must be(List("list_expenses", "list_categories", "list_bank_statement_rows", "list_subscriptions"))
+      names must be(
+        List(
+          "list_expenses",
+          "list_categories",
+          "list_bank_statement_rows",
+          "list_subscriptions",
+          "subscription_reconciliation"
+        )
+      )
     }
   }
 

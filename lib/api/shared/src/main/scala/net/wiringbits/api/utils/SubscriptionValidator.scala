@@ -15,6 +15,9 @@ object SubscriptionValidator {
   // Caps the extra charges of one subscription so a single row cannot grow unbounded.
   val MaxExtraChargesPerSubscription: Int = 50
 
+  // Caps the manual payments of one subscription so a single row cannot grow unbounded.
+  val MaxManualPaymentsPerSubscription: Int = 500
+
   // Bounds of an every-N-months cadence: from monthly up to every two years.
   val MinIntervalMonths: Int = 1
   val MaxIntervalMonths: Int = 24
@@ -45,8 +48,9 @@ object SubscriptionValidator {
 
   private def validateIntervalDays(cadence: SubscriptionCadence, intervalDays: Option[Int]): Either[String, Unit] =
     (cadence, intervalDays) match {
-      case (SubscriptionCadence.EveryNDays, None) => Left("Interval days is required for an every-N-days cadence")
-      case (SubscriptionCadence.EveryNDays, Some(d)) if d <= 0 => Left("Interval days must be greater than zero")
+      case (SubscriptionCadence.EveryNDays, None) => Left(SubscriptionScheduleError.MissingInterval.message)
+      case (SubscriptionCadence.EveryNDays, Some(d)) if d <= 0 =>
+        Left(SubscriptionScheduleError.NonPositiveInterval.message)
       case (SubscriptionCadence.EveryNDays, Some(_)) => Right(())
       case (_, Some(_)) => Left("Interval days is only allowed for an every-N-days cadence")
       case (_, None) => Right(())
@@ -54,8 +58,7 @@ object SubscriptionValidator {
 
   private def validateIntervalMonths(cadence: SubscriptionCadence, intervalMonths: Option[Int]): Either[String, Unit] =
     (cadence, intervalMonths) match {
-      case (SubscriptionCadence.EveryNMonths, None) =>
-        Left("Interval months is required for an every-N-months cadence")
+      case (SubscriptionCadence.EveryNMonths, None) => Left(SubscriptionScheduleError.MissingIntervalMonths.message)
       case (SubscriptionCadence.EveryNMonths, Some(m)) if m < MinIntervalMonths || m > MaxIntervalMonths =>
         Left(s"Interval months must be between $MinIntervalMonths and $MaxIntervalMonths")
       case (SubscriptionCadence.EveryNMonths, Some(_)) => Right(())
@@ -78,6 +81,10 @@ object SubscriptionValidator {
 
   /** Validates an extra charge amount with the same rules as a term amount. */
   def validateExtraChargeAmount(amount: BigDecimal): Either[String, Unit] =
+    validateAmount("Amount", amount)
+
+  /** Validates a manual payment amount with the same rules as a term amount. */
+  def validateManualPaymentAmount(amount: BigDecimal): Either[String, Unit] =
     validateAmount("Amount", amount)
 
   private def validateAmount(label: String, amount: BigDecimal): Either[String, Unit] =

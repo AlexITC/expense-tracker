@@ -3,7 +3,11 @@ package net.wiringbits.repositories.daos
 import anorm.*
 import anorm.SqlParser.*
 import net.wiringbits.api.utils.ImportRuleMatcher
-import net.wiringbits.repositories.models.{BankStatementRow, BankStatementRowLinkedExpense}
+import net.wiringbits.repositories.models.{
+  BankStatementRow,
+  BankStatementRowLinkedExpense,
+  SubscriptionReconciliationData
+}
 
 import java.sql.Connection
 import java.time.{Instant, LocalDate}
@@ -81,6 +85,24 @@ object BankStatementRowDAO {
       WHERE bs.user_id = ${userId.toString}::UUID
       ORDER BY bsr.date DESC, bsr.id
       """.as(parser.*)
+
+  // Rows linked to an expense or a refund are left out, because that record already represents the charge.
+  def unlinkedDebits(userId: UUID, from: LocalDate, to: LocalDate)(implicit
+      conn: Connection
+  ): List[SubscriptionReconciliationData.BankStatementRowCandidate] =
+    SQL"""
+      SELECT bsr.id, bsr.date, -bsr.amount AS amount
+      FROM bank_statement_row bsr
+      JOIN bank_statement bs ON bsr.bank_statement_id = bs.id
+      WHERE bs.user_id = ${userId.toString}::UUID
+        AND bsr.date >= $from
+        AND bsr.date <= $to
+        AND bsr.amount < 0
+        AND bsr.expense_id IS NULL
+        AND bsr.refund_id IS NULL
+        AND bsr.ignored_at IS NULL
+      ORDER BY bsr.date, bsr.id
+      """.as(bankStatementRowCandidateParser.*)
 
   /** (categoryId, description) pairs from the user's own rows linked to a categorized expense, keeping the
     * `perCategory` most recent rows per category.

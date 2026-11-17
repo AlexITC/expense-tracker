@@ -1,6 +1,6 @@
 package net.wiringbits.repositories.daos
 
-import net.wiringbits.repositories.models.Expense
+import net.wiringbits.repositories.models.{Expense, SubscriptionReconciliationData}
 
 import java.sql.Connection
 import java.time.{Instant, LocalDate, LocalTime}
@@ -48,6 +48,18 @@ object ExpenseDAO {
         ORDER BY date DESC, time DESC NULLS LAST, created_at DESC
         """.as(expenseParser.*)
   }
+
+  def reconciliationCandidates(userId: UUID, from: LocalDate, to: LocalDate)(implicit
+      conn: Connection
+  ): List[SubscriptionReconciliationData.ExpenseCandidate] =
+    SQL"""
+        SELECT id, date, amount, merchant_id
+        FROM expense
+        WHERE user_id = ${userId.toString}::UUID
+          AND date >= $from
+          AND date <= $to
+        ORDER BY date, id
+        """.as(expenseCandidateParser.*)
 
   def find(id: UUID, userId: UUID)(implicit conn: Connection): Option[Expense] = {
     SQL"""

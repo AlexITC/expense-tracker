@@ -439,6 +439,21 @@ class ApiClient(config: ApiClient.Config)(implicit
   ): Future[DeleteSubscriptionExtraCharge.Response] =
     handleRequest(SubscriptionsEndpoints.deleteExtraCharge, (subscriptionId, extraChargeId, dummyUserId))
 
+  def getSubscriptionReconciliation(subscriptionId: Option[UUID]): Future[GetSubscriptionReconciliation.Response] =
+    handleRequest(SubscriptionsEndpoints.getReconciliation, (subscriptionId, dummyUserId))
+
+  def addSubscriptionManualPayment(
+      subscriptionId: UUID,
+      request: AddSubscriptionManualPayment.Request
+  ): Future[AddSubscriptionManualPayment.Response] =
+    handleRequest(SubscriptionsEndpoints.addManualPayment, (subscriptionId, request, dummyUserId))
+
+  def deleteSubscriptionManualPayment(
+      subscriptionId: UUID,
+      manualPaymentId: UUID
+  ): Future[DeleteSubscriptionManualPayment.Response] =
+    handleRequest(SubscriptionsEndpoints.deleteManualPayment, (subscriptionId, manualPaymentId, dummyUserId))
+
   def aiExtractBankStatement(
       request: AiExtractBankStatement.Request
   ): Future[AiExtractBankStatement.Response] =

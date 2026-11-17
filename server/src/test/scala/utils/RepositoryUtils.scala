@@ -392,6 +392,73 @@ trait RepositoryUtils {
     } yield stmt
   }
 
+  /** A bank statement of `userId` with one row per (date, signed amount), negative amounts being debits. */
+  def createBankStatementWithRows(
+      userId: UUID,
+      rows: List[(LocalDate, BigDecimal)]
+  )(using repository: RepositoryComponents)(using
+      ec: ExecutionContext
+  ): Future[(BankStatement.Create, List[BankStatementRow.Create])] = {
+    val now = Instant.now()
+    for {
+      doc <- createDocument(userId, sha256 = UUID.randomUUID().toString, kind = DocumentKind.BankStatementPdf)
+      stmt = BankStatement.Create(
+        id = UUID.randomUUID(),
+        documentId = doc.id,
+        userId = userId,
+        createdAt = now,
+        updatedAt = now,
+        acceptedUnverified = false
+      )
+      rowRequests = rows.zipWithIndex.map { case ((date, amount), index) =>
+        BankStatementRow.Create(
+          id = UUID.randomUUID(),
+          bankStatementId = stmt.id,
+          index = index,
+          date = date,
+          amount = amount,
+          description = "Test row",
+          manuallyEdited = false,
+          createdAt = now,
+          updatedAt = now,
+          txnType = "purchase"
+        )
+      }
+      _ <- createStatement(stmt, sampleStatementMetadata, rowRequests)
+    } yield (stmt, rowRequests)
+  }
+
+  def linkStatementRowToExpense(rowId: UUID, userId: UUID, expenseId: UUID)(using
+      repositories: RepositoryComponents,
+      ec: ExecutionContext
+  ): Future[Unit] =
+    Future {
+      repositories.database.withConnection { implicit conn =>
+        BankStatementRowDAO.setExpenseIdForUser(
+          rowId = rowId,
+          userId = userId,
+          expenseId = expenseId,
+          updatedAt = Instant.now()
+        )
+      }
+    }
+
+  def ignoreStatementRow(rowId: UUID, bankStatementId: UUID)(using
+      repositories: RepositoryComponents,
+      ec: ExecutionContext
+  ): Future[Unit] =
+    Future {
+      repositories.database.withConnection { implicit conn =>
+        val now = Instant.now()
+        BankStatementRowDAO.setIgnoredAt(
+          rowId = rowId,
+          bankStatementId = bankStatementId,
+          ignoredAt = now,
+          updatedAt = now
+        )
+      }
+    }
+
   def createTextractJob(
       userId: UUID,
       documentId: UUID

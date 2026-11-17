@@ -6,7 +6,13 @@ import net.wiringbits.actions.subscriptions.*
 import net.wiringbits.api.models.subscriptions.*
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
-import net.wiringbits.common.models.{Captcha, SubscriptionDescription, SubscriptionExtraChargeLabel, SubscriptionName}
+import net.wiringbits.common.models.{
+  Captcha,
+  SubscriptionDescription,
+  SubscriptionExtraChargeLabel,
+  SubscriptionManualPaymentNote,
+  SubscriptionName
+}
 import net.wiringbits.util.TokenGenerator
 import org.mockito.ArgumentMatchers.{any, eq as eqTo}
 import org.mockito.Mockito.*
@@ -37,6 +43,9 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
   private val startDateSuggestionAction = mock[GetSubscriptionStartDateSuggestionAction]
   private val addExtraChargeAction = mock[AddSubscriptionExtraChargeAction]
   private val deleteExtraChargeAction = mock[DeleteSubscriptionExtraChargeAction]
+  private val reconciliationAction = mock[GetSubscriptionReconciliationAction]
+  private val addManualPaymentAction = mock[AddSubscriptionManualPaymentAction]
+  private val deleteManualPaymentAction = mock[DeleteSubscriptionManualPaymentAction]
 
   override def guiceApplicationBuilder(container: PostgreSQLContainer): GuiceApplicationBuilder =
     super
@@ -54,7 +63,10 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
         inject.bind[ResumeSubscriptionAction].to(resumeAction),
         inject.bind[GetSubscriptionStartDateSuggestionAction].to(startDateSuggestionAction),
         inject.bind[AddSubscriptionExtraChargeAction].to(addExtraChargeAction),
-        inject.bind[DeleteSubscriptionExtraChargeAction].to(deleteExtraChargeAction)
+        inject.bind[DeleteSubscriptionExtraChargeAction].to(deleteExtraChargeAction),
+        inject.bind[GetSubscriptionReconciliationAction].to(reconciliationAction),
+        inject.bind[AddSubscriptionManualPaymentAction].to(addManualPaymentAction),
+        inject.bind[DeleteSubscriptionManualPaymentAction].to(deleteManualPaymentAction)
       )
 
   private val unauthorizedError = "Unauthorized: Invalid or missing authentication"
@@ -70,7 +82,10 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
       resumeAction,
       startDateSuggestionAction,
       addExtraChargeAction,
-      deleteExtraChargeAction
+      deleteExtraChargeAction,
+      reconciliationAction,
+      addManualPaymentAction,
+      deleteManualPaymentAction
     )
 
   private val createRequest = CreateSubscription.Request(
@@ -117,6 +132,12 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
     amount = BigDecimal("12.00"),
     recurrence = SubscriptionExtraChargeRecurrence.Yearly,
     dueDate = LocalDate.of(2025, 3, 1)
+  )
+
+  private val addManualPaymentRequest = AddSubscriptionManualPayment.Request(
+    paidDate = LocalDate.of(2026, 3, 2),
+    amount = BigDecimal("15.00"),
+    note = Some(SubscriptionManualPaymentNote.trusted("Paid at the front desk"))
   )
 
   "GET /subscriptions" should {
@@ -489,6 +510,187 @@ class SubscriptionsControllerSpec extends PlayPostgresSpec with LoginUtils with 
         .thenReturn(Future.failed(new RuntimeException("boom")))
 
       client.deleteSubscriptionExtraCharge(subscriptionId, extraChargeId).expectError must be("boom")
+    }
+  }
+
+  "GET /subscriptions/reconciliation" should {
+    "reject unauthenticated requests without invoking the action" in withApiClient { client =>
+      resetActions()
+
+      client.getSubscriptionReconciliation(None).expectError must be(unauthorizedError)
+      verifyNoInteractions(reconciliationAction)
+    }
+
+    "pass the session user without a subscription filter and encode every cycle status" in withApiClient {
+      implicit client =>
+        resetActions()
+        val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+        val termId = UUID.randomUUID()
+        def cycle(dueDate: LocalDate, status: SubscriptionCycleStatus) = SubscriptionCycle(
+          dueDate = dueDate,
+          termId = termId,
+          amountMin = Some(BigDecimal("9.99")),
+          amountMax = Some(BigDecimal("12.50")),
+          status = status
+        )
+        val manualPayment = SubscriptionManualPayment(
+          id = UUID.randomUUID(),
+          paidDate = LocalDate.of(2026, 3, 2),
+          amount = BigDecimal("15.00"),
+          note = Some(SubscriptionManualPaymentNote.trusted("Paid at the front desk"))
+        )
+        val expected = GetSubscriptionReconciliation.Response(
+          List(
+            GetSubscriptionReconciliation.Response.Subscription(
+              subscriptionId = UUID.randomUUID(),
+              cycles = List(
+                cycle(
+                  LocalDate.of(2026, 1, 1),
+                  SubscriptionCycleStatus.Matched(
+                    charge = SubscriptionCharge(
+                      source = SubscriptionChargeSource.Expense,
+                      id = UUID.randomUUID(),
+                      date = LocalDate.of(2026, 1, 3),
+                      amount = BigDecimal("10.99")
+                    ),
+                    late = true
+                  )
+                ),
+                cycle(
+                  LocalDate.of(2026, 2, 1),
+                  SubscriptionCycleStatus.Retried(
+                    List(
+                      SubscriptionCharge(
+                        source = SubscriptionChargeSource.BankStatementRow,
+                        id = UUID.randomUUID(),
+                        date = LocalDate.of(2026, 2, 1),
+                        amount = BigDecimal("10.99")
+                      ),
+                      SubscriptionCharge(
+                        source = SubscriptionChargeSource.Expense,
+                        id = UUID.randomUUID(),
+                        date = LocalDate.of(2026, 2, 3),
+                        amount = BigDecimal("10.99")
+                      )
+                    )
+                  )
+                ),
+                cycle(
+                  LocalDate.of(2026, 3, 1),
+                  SubscriptionCycleStatus.Matched(
+                    charge = SubscriptionCharge(
+                      source = SubscriptionChargeSource.ManualPayment,
+                      id = manualPayment.id,
+                      date = manualPayment.paidDate,
+                      amount = manualPayment.amount
+                    ),
+                    late = false
+                  )
+                ),
+                cycle(LocalDate.of(2026, 4, 1), SubscriptionCycleStatus.Missing),
+                cycle(LocalDate.of(2026, 5, 1), SubscriptionCycleStatus.Upcoming)
+              ),
+              manualPayments = List(manualPayment)
+            )
+          )
+        )
+        when(reconciliationAction.apply(eqTo(userId), eqTo(None))).thenReturn(Future.successful(expected))
+
+        client.getSubscriptionReconciliation(None).futureValue must be(expected)
+        verify(reconciliationAction).apply(eqTo(userId), eqTo(None))
+    }
+
+    "pass the query subscription id to the action" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      val expected = GetSubscriptionReconciliation.Response(
+        List(GetSubscriptionReconciliation.Response.Subscription(subscriptionId, List.empty, List.empty))
+      )
+      when(reconciliationAction.apply(eqTo(userId), eqTo(Some(subscriptionId))))
+        .thenReturn(Future.successful(expected))
+
+      client.getSubscriptionReconciliation(Some(subscriptionId)).futureValue must be(expected)
+      verify(reconciliationAction).apply(eqTo(userId), eqTo(Some(subscriptionId)))
+    }
+
+    "encode an action failure as the error message" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      when(reconciliationAction.apply(eqTo(userId), eqTo(Some(subscriptionId))))
+        .thenReturn(Future.failed(new RuntimeException("Subscription not found")))
+
+      client.getSubscriptionReconciliation(Some(subscriptionId)).expectError must be("Subscription not found")
+    }
+  }
+
+  "POST /subscriptions/:id/manual-payments" should {
+    "reject unauthenticated requests without invoking the action" in withApiClient { client =>
+      resetActions()
+
+      client.addSubscriptionManualPayment(UUID.randomUUID(), addManualPaymentRequest).expectError must be(
+        unauthorizedError
+      )
+      verifyNoInteractions(addManualPaymentAction)
+    }
+
+    "pass the path id, session user and decoded request to the action" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      val expected = AddSubscriptionManualPayment.Response(UUID.randomUUID())
+      when(addManualPaymentAction.apply(eqTo(subscriptionId), eqTo(userId), eqTo(addManualPaymentRequest)))
+        .thenReturn(Future.successful(expected))
+
+      client.addSubscriptionManualPayment(subscriptionId, addManualPaymentRequest).futureValue must be(expected)
+      verify(addManualPaymentAction).apply(eqTo(subscriptionId), eqTo(userId), eqTo(addManualPaymentRequest))
+    }
+
+    "encode an action failure as the error message" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      when(addManualPaymentAction.apply(eqTo(subscriptionId), eqTo(userId), eqTo(addManualPaymentRequest)))
+        .thenReturn(Future.failed(new RuntimeException("boom")))
+
+      client.addSubscriptionManualPayment(subscriptionId, addManualPaymentRequest).expectError must be("boom")
+    }
+  }
+
+  "DELETE /subscriptions/:id/manual-payments/:manualPaymentId" should {
+    "reject unauthenticated requests without invoking the action" in withApiClient { client =>
+      resetActions()
+
+      client.deleteSubscriptionManualPayment(UUID.randomUUID(), UUID.randomUUID()).expectError must be(
+        unauthorizedError
+      )
+      verifyNoInteractions(deleteManualPaymentAction)
+    }
+
+    "pass both path ids and the session user to the action" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      val manualPaymentId = UUID.randomUUID()
+      when(deleteManualPaymentAction.apply(eqTo(subscriptionId), eqTo(manualPaymentId), eqTo(userId)))
+        .thenReturn(Future.successful(DeleteSubscriptionManualPayment.Response()))
+
+      client.deleteSubscriptionManualPayment(subscriptionId, manualPaymentId).futureValue must be(
+        DeleteSubscriptionManualPayment.Response()
+      )
+      verify(deleteManualPaymentAction).apply(eqTo(subscriptionId), eqTo(manualPaymentId), eqTo(userId))
+    }
+
+    "encode an action failure as the error message" in withApiClient { implicit client =>
+      resetActions()
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+      val subscriptionId = UUID.randomUUID()
+      val manualPaymentId = UUID.randomUUID()
+      when(deleteManualPaymentAction.apply(eqTo(subscriptionId), eqTo(manualPaymentId), eqTo(userId)))
+        .thenReturn(Future.failed(new RuntimeException("boom")))
+
+      client.deleteSubscriptionManualPayment(subscriptionId, manualPaymentId).expectError must be("boom")
     }
   }
 }
