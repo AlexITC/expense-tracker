@@ -218,6 +218,18 @@ class TelegramWebAppControllerSpec extends PlayPostgresSpec with MockitoSugar {
       body must include("2026-03-01")
       body must include("Dinner")
     }
+
+    "render the save error element and the double-submit guard" in {
+      val userId = createUserId()
+      val expenseId = createExpenseId(userId, BigDecimal("15.00"), LocalDate.of(2026, 4, 2), None)
+      val result = GET(s"/telegram/webapp?expense=$expenseId&dev_user_id=$userId")
+      status(result) must be(OK)
+      val body = contentAsString(result)
+      body must include("""id="form-error"""")
+      body must include("""id="save-button"""")
+      body must include("if (saving) return")
+      body must include("Saving...")
+    }
   }
 
   // ── prod mode (auth via signed initData) ─────────────────────────────────────

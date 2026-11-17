@@ -36,6 +36,7 @@
     label { display: block; margin-top: 12px; font-weight: bold; color: var(--tg-theme-text-color, #000); }
     input, textarea { display: block; width: 100%; padding: 8px; box-sizing: border-box; margin-top: 4px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; background: var(--tg-theme-secondary-bg-color, #fff); color: var(--tg-theme-text-color, #000); }
     button[type=submit] { margin-top: 20px; width: 100%; padding: 12px; font-size: 16px; background: var(--tg-theme-button-color, #2481cc); color: var(--tg-theme-button-text-color, white); border: none; border-radius: 6px; cursor: pointer; }
+    #form-error { margin-top: 16px; color: #d32f2f; }
     .ac-wrap { position: relative; }
     .ac-dropdown { position: absolute; z-index: 100; left: 0; right: 0; top: 100%; background: var(--tg-theme-bg-color, #fff); border: 1px solid #ccc; border-top: none; max-height: 140px; overflow-y: auto; display: none; border-radius: 0 0 4px 4px; }
     .ac-dropdown div { padding: 8px 10px; cursor: pointer; color: var(--tg-theme-text-color, #000); }
@@ -83,7 +84,9 @@
     <label for="notes">Notes</label>
     <textarea id="notes" name="notes" rows="2" placeholder="Optional notes">@prefillNotes.getOrElse("")</textarea>
 
-    <button type="submit">Save Expense</button>
+    <p id="form-error" role="alert" hidden></p>
+
+    <button type="submit" id="save-button">Save Expense</button>
   </form>
 
   <script>
@@ -131,32 +134,88 @@
     });
     attachAutocomplete('category', 'category-dd', CATEGORIES);
 
-    document.getElementById('expense-form').addEventListener('submit', function(e) {
+    var GENERIC_ERROR = 'Could not save the expense, please try again.';
+    var saving = false;
+
+    function readForm() {
+      var body = {
+        amount: parseFloat(document.getElementById('amount').value) || null,
+        date: document.getElementById('date').value || null,
+        merchantName: document.getElementById('merchant').value.trim() || null,
+        category: document.getElementById('category').value.trim() || null,
+        notes: document.getElementById('notes').value.trim() || null
+      };
+      if (RECEIPT_ID) {
+        body.receiptId = RECEIPT_ID;
+      }
+      return body;
+    }
+
+    function showError(msg) {
+      var el = document.getElementById('form-error');
+      el.textContent = msg;
+      el.hidden = false;
+    }
+
+    function clearError() {
+      var el = document.getElementById('form-error');
+      el.textContent = '';
+      el.hidden = true;
+    }
+
+    function setBusy(busy) {
+      var button = document.getElementById('save-button');
+      button.disabled = busy;
+      button.textContent = busy ? 'Saving...' : 'Save Expense';
+    }
+
+    function errorMessageFrom(r) {
+      var contentType = r.headers.get('Content-Type') || '';
+      var message = contentType.indexOf('application/json') !== -1
+        ? r.json().then(function(json) { return json && json.error; })
+        : r.text();
+      return message
+        .then(function(msg) { return (typeof msg === 'string' && msg.trim()) ? msg : GENERIC_ERROR; })
+        .catch(function() { return GENERIC_ERROR; });
+    }
+
+    function reenable() {
+      saving = false;
+      setBusy(false);
+    }
+
+    function submitExpense(e) {
       e.preventDefault();
-      var amount = parseFloat(document.getElementById('amount').value) || null;
-      var date = document.getElementById('date').value || null;
-      var merchant = document.getElementById('merchant').value.trim() || null;
-      var category = document.getElementById('category').value.trim() || null;
-      var notes = document.getElementById('notes').value.trim() || null;
+      if (saving) return;
+      saving = true;
+      setBusy(true);
+      clearError();
 
       var headers = { 'Content-Type': 'application/json' };
       if (INIT_DATA) {
         headers['X-Telegram-Init-Data'] = INIT_DATA;
       }
 
-      var body = { amount: amount, date: date, merchantName: merchant, category: category, notes: notes };
-      if (RECEIPT_ID) {
-        body.receiptId = RECEIPT_ID;
-      }
-
       fetch('/api/telegram/webapp/expenses/' + TARGET_EXPENSE_ID, {
         method: 'PUT',
         headers: headers,
-        body: JSON.stringify(body)
+        body: JSON.stringify(readForm())
       }).then(function(r) {
-        if (r.ok) { window.Telegram.WebApp.close(); }
-      }).catch(function() {});
-    });
+        if (r.ok) {
+          window.Telegram.WebApp.close();
+          return;
+        }
+        return errorMessageFrom(r).then(function(msg) {
+          showError(msg);
+          reenable();
+        });
+      }).catch(function() {
+        showError(GENERIC_ERROR);
+        reenable();
+      });
+    }
+
+    document.getElementById('expense-form').addEventListener('submit', submitExpense);
   </script>
   }
 </body>
