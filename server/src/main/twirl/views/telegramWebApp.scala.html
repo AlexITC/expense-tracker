@@ -171,9 +171,17 @@
 
     function errorMessageFrom(r) {
       var contentType = r.headers.get('Content-Type') || '';
-      var message = contentType.indexOf('application/json') !== -1
-        ? r.json().then(function(json) { return json && json.error; })
-        : r.text();
+      var message;
+      // Only our own 4xx JSON/plain-text bodies are user-facing; 5xx and HTML error pages are not.
+      if (r.status >= 500) {
+        message = Promise.resolve(GENERIC_ERROR);
+      } else if (contentType.indexOf('application/json') !== -1) {
+        message = r.json().then(function(json) { return json && json.error; });
+      } else if (contentType.indexOf('text/plain') !== -1) {
+        message = r.text();
+      } else {
+        message = Promise.resolve(GENERIC_ERROR);
+      }
       return message
         .then(function(msg) { return (typeof msg === 'string' && msg.trim()) ? msg : GENERIC_ERROR; })
         .catch(function() { return GENERIC_ERROR; });
