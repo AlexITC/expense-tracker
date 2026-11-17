@@ -8,6 +8,7 @@ import slinky.core.{FunctionalComponent, KeyAddingStage}
 import slinky.core.facade.{Fragment, ReactElement}
 
 import java.util.UUID
+import scala.scalajs.js
 
 /** The reconciled cycles and logged manual payments of one subscription. */
 object SubscriptionReconciliationView {
@@ -62,18 +63,26 @@ object SubscriptionReconciliationView {
     val onTime: ReactElement =
       if (split.onTime.isEmpty) Fragment()
       else
+        // The binding's required `children` slot is a single value, and MUI reads the first child as the summary and the
+        // rest as the details, so both go in as one keyed array.
         mui
           .Accordion(
-            mui.AccordionSummary
-              .normal()
-              .expandIcon(muiIcons.ExpandMore())
-              .sx(new CSSPropertiesUtils { minHeight = "0"; padding = "0" })(
-                mui.Typography(SubscriptionReconciliationLogic.onTimeSummary(split.onTime.size)).sx(lineStyle)
-              ),
-            mui.AccordionDetails
-              .sx(new CSSPropertiesUtils { padding = "0 0 4px 0" })(
-                mui.Box.sx(columnStyle)(split.onTime.map(cycleLine)*)
-              )
+            js.Array[ReactElement](
+              mui.AccordionSummary
+                .normal()
+                .expandIcon(muiIcons.ExpandMore())
+                .sx(new CSSPropertiesUtils { minHeight = "0"; padding = "0" })(
+                  mui.Typography(SubscriptionReconciliationLogic.onTimeSummary(split.onTime.size)).sx(lineStyle)
+                )
+                .withKey("summary")
+                .build,
+              mui.AccordionDetails
+                .sx(new CSSPropertiesUtils { padding = "0 0 4px 0" })(
+                  mui.Box.sx(columnStyle)(split.onTime.map(cycleLine)*)
+                )
+                .withKey("details")
+                .build
+            )
           )
           .disableGutters(true)
           .elevation(0)
