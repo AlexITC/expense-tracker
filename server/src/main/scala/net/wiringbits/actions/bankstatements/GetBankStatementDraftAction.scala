@@ -2,6 +2,7 @@ package net.wiringbits.actions.bankstatements
 
 import net.wiringbits.api.models.bankstatements.BankStatementDraft
 import net.wiringbits.repositories.BankStatementDraftRepository
+import net.wiringbits.services.BankStatementDraftSources
 import play.api.libs.json.Json
 
 import java.util.UUID
@@ -16,7 +17,14 @@ class GetBankStatementDraftAction @Inject() (bankStatementDraftRepository: BankS
     bankStatementDraftRepository.findByIdForUser(id = draftId, userId = userId).map {
       case Some(draft) =>
         val payload = draft.payload.map(Json.parse(_).as[BankStatementDraft.Payload])
-        BankStatementDraft.Data(draft.id, filename = draft.filename, status = draft.status, draft.error, payload)
+        BankStatementDraft.Data(
+          draft.id,
+          filename = draft.filename,
+          source = BankStatementDraftSources.fromDocumentKind(draft.documentKind),
+          status = draft.status,
+          draft.error,
+          payload
+        )
       case None =>
         throw new RuntimeException("Draft not found")
     }

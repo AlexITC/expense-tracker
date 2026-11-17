@@ -1,6 +1,9 @@
 package net.wiringbits.components.pages.bankstatements
 
 import net.wiringbits.api.models.bankstatements.BankStatementDraft
+import net.wiringbits.api.utils.BankStatementDraftLimits
+import net.wiringbits.forms.DraftTransactionRow
+import net.wiringbits.ui.forms.ExpSignedAmount
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -113,6 +116,106 @@ class BankStatementTemplatePageSpec extends AnyWordSpec {
       BankStatementTemplatePage.acceptUnverifiedFlag(unverifiablePayload, acked = false) mustBe false
       BankStatementTemplatePage.acceptUnverifiedFlag(discrepancyPayload, acked = true) mustBe false
       BankStatementTemplatePage.acceptUnverifiedFlag(reconciledPayload, acked = true) mustBe false
+    }
+  }
+
+  "txnTypeOptions" should {
+    "list the known types for a blank value" in {
+      BankStatementTemplatePage.txnTypeOptions("") mustBe BankStatementTemplatePage.txnTypes
+    }
+    "list the known types for a known value" in {
+      BankStatementTemplatePage.txnTypeOptions("fee") mustBe BankStatementTemplatePage.txnTypes
+    }
+    "append an unknown value so it stays selectable" in {
+      BankStatementTemplatePage.txnTypeOptions("transfer") mustBe BankStatementTemplatePage.txnTypes :+ "transfer"
+    }
+  }
+
+  private def seededRows: List[DraftTransactionRow] = DraftTransactionRow.fromTransactions(List(syntheticRow))
+
+  private def withBadAmount(rows: List[DraftTransactionRow]): List[DraftTransactionRow] =
+    DraftTransactionRow.update(
+      rows,
+      rows.head.key,
+      r => r.copy(amount = r.amount.updated(ExpSignedAmount.validate("x")))
+    )
+
+  "editedPayload" should {
+    "replace the transactions with the resolved rows" in {
+      val edited = syntheticRow.copy(amount = BigDecimal("-12.34"))
+      val rows = DraftTransactionRow.fromTransactions(List(edited))
+      BankStatementTemplatePage.editedPayload(reconciledPayload, rows) mustBe
+        Some(reconciledPayload.copy(transactions = List(edited)))
+    }
+    "be None while a row is invalid" in {
+      BankStatementTemplatePage.editedPayload(reconciledPayload, withBadAmount(seededRows)) mustBe None
+    }
+    "be None while a new row is blank" in {
+      BankStatementTemplatePage.editedPayload(
+        reconciledPayload,
+        DraftTransactionRow.insertAtTop(seededRows)
+      ) mustBe None
+    }
+  }
+
+  "canSave" should {
+    "allow valid rows" in {
+      BankStatementTemplatePage.canSave(seededRows, busy = false) mustBe true
+    }
+    "allow an empty row list" in {
+      BankStatementTemplatePage.canSave(Nil, busy = false) mustBe true
+    }
+    "block invalid rows" in {
+      BankStatementTemplatePage.canSave(withBadAmount(seededRows), busy = false) mustBe false
+    }
+    "block while busy" in {
+      BankStatementTemplatePage.canSave(seededRows, busy = true) mustBe false
+    }
+  }
+
+  "canConfirmEdited" should {
+    "allow valid rows on a confirmable payload" in {
+      BankStatementTemplatePage.canConfirmEdited(reconciledPayload, seededRows, acked = false, busy = false) mustBe true
+    }
+    "block invalid rows" in {
+      BankStatementTemplatePage.canConfirmEdited(
+        reconciledPayload,
+        withBadAmount(seededRows),
+        acked = false,
+        busy = false
+      ) mustBe false
+    }
+    "block the ack when the edited rows are empty, even if the saved payload has rows" in {
+      val emptyEditedRows = List.empty[DraftTransactionRow]
+      BankStatementTemplatePage.canConfirmEdited(
+        unverifiablePayload,
+        emptyEditedRows,
+        acked = true,
+        busy = false
+      ) mustBe false
+    }
+    "accept the ack when the edited rows are non-empty, even if the saved payload has none" in {
+      val savedWithoutRows = unverifiablePayload.copy(transactions = Nil)
+      val nonEmptyEditedRows = seededRows
+      BankStatementTemplatePage.canConfirmEdited(
+        savedWithoutRows,
+        nonEmptyEditedRows,
+        acked = true,
+        busy = false
+      ) mustBe true
+    }
+  }
+
+  "canInsertRow" should {
+    "allow inserting into an empty list" in {
+      BankStatementTemplatePage.canInsertRow(Nil, busy = false) mustBe true
+    }
+    "block while busy" in {
+      BankStatementTemplatePage.canInsertRow(Nil, busy = true) mustBe false
+    }
+    "block at the row cap" in {
+      val full = (0 until BankStatementDraftLimits.MaxTransactions).toList.map(DraftTransactionRow.blank)
+      BankStatementTemplatePage.canInsertRow(full, busy = false) mustBe false
     }
   }
 }

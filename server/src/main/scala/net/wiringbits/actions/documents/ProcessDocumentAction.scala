@@ -39,10 +39,10 @@ class ProcessDocumentAction @Inject() (
       docOpt <- documentsRepository.findById(documentId)
       doc = docOpt.getOrElse(throw new RuntimeException(s"Document not found: $documentId"))
       _ <- doc.kind match {
-        // Bank statements are imported via the AI draft flow and have no receipt row, so there is nothing to process.
-        case DocumentKind.BankStatementPdf =>
+        // Bank statements are imported via the draft flow and have no receipt row, so there is nothing to process.
+        case DocumentKind.BankStatementPdf | DocumentKind.BankStatementCsv =>
           logger.info(
-            s"Skipping Textract for bank statement ${doc.id} (userId=${doc.userId}); statements are imported via the AI draft flow"
+            s"Skipping Textract for bank statement ${doc.id} (userId=${doc.userId}); statements are imported via the draft flow"
           )
           Future.unit
         case _ => processReceiptOrInvoice(doc)

@@ -10,6 +10,8 @@ import net.wiringbits.ui.components.core.widgets.{
 }
 import net.wiringbits.ui.forms.{
   ExistingOrNewValue,
+  ExpDraftDescription,
+  ExpDraftTxnType,
   ExpLocalDate,
   ExpLocalTime,
   ExpNotes,
@@ -17,6 +19,7 @@ import net.wiringbits.ui.forms.{
   ExpRuleAmount,
   ExpRuleDescription,
   ExpRulePattern,
+  ExpSignedAmount,
   ExpTaxId,
   PositiveBigDecimal,
   SubscriptionAmount,
@@ -66,6 +69,16 @@ object SubscriptionAmountInput extends ValidatedTextInput[Option[SubscriptionAmo
 object RequiredSubscriptionAmountInput extends ValidatedTextInput[SubscriptionAmount]
 
 object RuleDescriptionInput extends ValidatedTextInput[Option[ExpRuleDescription]]
+
+object SignedAmountInput extends ValidatedTextInput[ExpSignedAmount]
+
+object OptionalSignedAmountInput extends ValidatedTextInput[Option[ExpSignedAmount]]
+
+object DraftDescriptionInput extends ValidatedTextInput[ExpDraftDescription]
+
+object OptionalDraftTxnTypeInput extends ValidatedTextInput[Option[ExpDraftTxnType]]
+
+object OptionalDraftTxnTypeSelectInput extends ValidatedSelectInput[Option[ExpDraftTxnType]]
 
 object MerchantAutocompleteInput
     extends ExpValidatedAutocompleteInput[

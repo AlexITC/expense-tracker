@@ -5,10 +5,12 @@ import net.wiringbits.api.endpoints.BankStatementsEndpoints
 import net.wiringbits.api.models.ErrorResponse
 import net.wiringbits.api.models.bankstatements.*
 import net.wiringbits.api.models.bankstatements.GetAllRows
+import net.wiringbits.api.utils.BankStatementDraftLimits
 import org.slf4j.LoggerFactory
 import sttp.capabilities.WebSockets
 import sttp.capabilities.pekko.PekkoStreams
 import sttp.tapir.server.ServerEndpoint
+import sttp.tapir.server.model.EndpointExtensions.*
 
 import java.util.UUID
 import javax.inject.Inject
@@ -16,6 +18,7 @@ import scala.concurrent.{ExecutionContext, Future}
 
 class BankStatementsController @Inject() (
     createBankStatementDraftAction: CreateBankStatementDraftAction,
+    createBankStatementDraftFromCsvAction: CreateBankStatementDraftFromCsvAction,
     listBankStatementDraftsAction: ListBankStatementDraftsAction,
     getBankStatementDraftAction: GetBankStatementDraftAction,
     updateBankStatementDraftAction: UpdateBankStatementDraftAction,
@@ -48,6 +51,18 @@ class BankStatementsController @Inject() (
     for {
       userId <- userIdF
       response <- createBankStatementDraftAction(userId, bytes, filename)
+    } yield Right(response)
+  }
+
+  private def createDraftFromCsv(
+      bytes: Array[Byte],
+      filename: String,
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, BankStatementDraft.Data]] = handleRequest {
+    for {
+      userId <- userIdF
+      _ = logger.info(s"Create statement draft from CSV: filename=$filename, size=${bytes.length}, userId=$userId")
+      response <- createBankStatementDraftFromCsvAction(userId, bytes, filename)
     } yield Right(response)
   }
 
@@ -281,6 +296,10 @@ class BankStatementsController @Inject() (
   def routes: List[ServerEndpoint[PekkoStreams & WebSockets, Future]] =
     List(
       BankStatementsEndpoints.createDraft.serverLogic(createDraft),
+      // Rejects oversized bodies before buffering them; the action's size check still applies.
+      BankStatementsEndpoints.createDraftFromCsv
+        .maxRequestBodyLength(BankStatementDraftLimits.MaxCsvBytes.toLong)
+        .serverLogic(createDraftFromCsv),
       BankStatementsEndpoints.listDrafts.serverLogic(listDrafts),
       BankStatementsEndpoints.getDraft.serverLogic(getDraft),
       BankStatementsEndpoints.updateDraft.serverLogic(updateDraft),

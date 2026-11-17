@@ -70,12 +70,14 @@ class ProcessDocumentActionSpec extends RepositorySpec with RepositoryUtils {
   "apply" should {
     "skip a bank statement without starting a Textract job" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
-      val doc = createDocument(user.id, kind = DocumentKind.BankStatementPdf).futureValue
+      List(DocumentKind.BankStatementPdf, DocumentKind.BankStatementCsv).foreach { kind =>
+        val doc = createDocument(user.id, sha256 = UUID.randomUUID().toString, kind = kind).futureValue
 
-      newAction()(doc.id).futureValue
+        newAction()(doc.id).futureValue
 
-      repositories.textractJobs.findByDocumentId(doc.id).futureValue mustBe empty
-      repositories.receipts.findByDocumentId(doc.id).futureValue mustBe empty
+        repositories.textractJobs.findByDocumentId(doc.id).futureValue mustBe empty
+        repositories.receipts.findByDocumentId(doc.id).futureValue mustBe empty
+      }
     }
 
     "fail when a receipt document has no receipt" in withRepositories() { implicit repositories =>

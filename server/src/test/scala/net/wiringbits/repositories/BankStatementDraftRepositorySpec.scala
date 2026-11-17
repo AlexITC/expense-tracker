@@ -77,6 +77,33 @@ class BankStatementDraftRepositorySpec extends RepositorySpec with RepositoryUti
     }
   }
 
+  "findByIdForUser" should {
+    "read back the linked document's kind" in withRepositories() { implicit repositories =>
+      val user = createUser().futureValue
+      val csvDoc =
+        createDocument(user.id, sha256 = UUID.randomUUID().toString, kind = DocumentKind.BankStatementCsv).futureValue
+      val pdfDoc =
+        createDocument(user.id, sha256 = UUID.randomUUID().toString, kind = DocumentKind.BankStatementPdf).futureValue
+      val csvDraft = buildDraft(user.id, csvDoc.id, csvDoc.sha256)
+      val pdfDraft = buildDraft(user.id, pdfDoc.id, pdfDoc.sha256)
+      List(csvDoc.id -> csvDraft, pdfDoc.id -> pdfDraft).foreach { case (docId, draft) =>
+        repositories.bankStatementDrafts
+          .create(BankStatementDraft.DocumentLink.Existing(docId), draft, buildJob(draft.id))
+          .futureValue
+      }
+
+      repositories.bankStatementDrafts.findByIdForUser(csvDraft.id, user.id).futureValue.value.documentKind must be(
+        DocumentKind.BankStatementCsv
+      )
+      repositories.bankStatementDrafts.findById(pdfDraft.id).futureValue.value.documentKind must be(
+        DocumentKind.BankStatementPdf
+      )
+      repositories.bankStatementDrafts.listByUser(user.id).futureValue.map(d => d.id -> d.documentKind).toMap must be(
+        Map(csvDraft.id -> DocumentKind.BankStatementCsv, pdfDraft.id -> DocumentKind.BankStatementPdf)
+      )
+    }
+  }
+
   "delete" should {
     "keep the linked document" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue

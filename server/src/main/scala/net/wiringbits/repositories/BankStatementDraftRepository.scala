@@ -3,8 +3,10 @@ package net.wiringbits.repositories
 import net.wiringbits.executors.DatabaseExecutionContext
 import net.wiringbits.repositories.daos.{BackgroundJobDAO, BankStatementDraftDAO, DocumentDAO}
 import net.wiringbits.repositories.models.{BackgroundJobData, BankStatementDraft}
+import net.wiringbits.repositories.support.ConstraintViolations
 import play.api.db.Database
 
+import java.sql.Connection
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
@@ -38,14 +40,44 @@ class BankStatementDraftRepository @Inject() (database: Database)(implicit ec: D
       draft: BankStatementDraft.Create,
       job: BackgroundJobData.Create
   ): Future[Unit] = Future {
-    database.withTransaction { implicit conn =>
-      documentLink match {
-        case BankStatementDraft.DocumentLink.New(document) => DocumentDAO.create(document)
-        case BankStatementDraft.DocumentLink.Existing(_) => ()
+    ConstraintViolations.translating(DocumentSha256Unique) {
+      database.withTransaction { implicit conn =>
+        linkDocument(documentLink, draft.userId)
+        BankStatementDraftDAO.create(draft)
+        BackgroundJobDAO.create(job)
       }
-      BankStatementDraftDAO.create(draft)
-      BackgroundJobDAO.create(job)
     }
+  }
+
+  /** Create an already-ready draft with its payload (no extraction job), inserting its document first when the link is
+    * a new one.
+    */
+  def createReady(
+      documentLink: BankStatementDraft.DocumentLink,
+      draft: BankStatementDraft.Create,
+      payload: String
+  ): Future[Unit] = Future {
+    ConstraintViolations.translating(DocumentSha256Unique) {
+      database.withTransaction { implicit conn =>
+        linkDocument(documentLink, draft.userId)
+        BankStatementDraftDAO.insert(draft, BankStatementDraft.Status.Ready, payload = Some(payload))
+      }
+    }
+  }
+
+  // A concurrent upload of the same file can insert the document first; the loser surfaces as a queue duplicate.
+  private val DocumentSha256Unique: (String, String) =
+    "document_user_sha256_unique" -> "This file is already in your import queue"
+
+  /** Insert a new document, or verify an existing one belongs to the draft's user, so a draft never links another
+    * user's document.
+    */
+  private def linkDocument(documentLink: BankStatementDraft.DocumentLink, userId: UUID)(implicit
+      conn: Connection
+  ): Unit = documentLink match {
+    case BankStatementDraft.DocumentLink.New(document) => DocumentDAO.create(document)
+    case BankStatementDraft.DocumentLink.Existing(id) =>
+      if (DocumentDAO.find(id = id, userId = userId).isEmpty) throw new RuntimeException("Document not found")
   }
 
   def markReady(id: UUID, payload: String, updatedAt: Instant): Future[Unit] = Future {

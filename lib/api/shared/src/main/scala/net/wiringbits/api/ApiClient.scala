@@ -234,6 +234,9 @@ class ApiClient(config: ApiClient.Config)(implicit
   def createBankStatementDraft(bytes: Array[Byte], filename: String): Future[BankStatementDraft.Data] =
     handleRequest(BankStatementsEndpoints.createDraft, (bytes, filename, dummyUserId))
 
+  def createBankStatementDraftFromCsv(bytes: Array[Byte], filename: String): Future[BankStatementDraft.Data] =
+    handleRequest(BankStatementsEndpoints.createDraftFromCsv, (bytes, filename, dummyUserId))
+
   def listBankStatementDrafts: Future[BankStatementDraft.Listing.Response] =
     handleRequest(BankStatementsEndpoints.listDrafts, dummyUserId)
 

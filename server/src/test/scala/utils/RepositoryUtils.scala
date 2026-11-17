@@ -395,13 +395,14 @@ trait RepositoryUtils {
   /** A bank statement of `userId` with one row per (date, signed amount), negative amounts being debits. */
   def createBankStatementWithRows(
       userId: UUID,
-      rows: List[(LocalDate, BigDecimal)]
+      rows: List[(LocalDate, BigDecimal)],
+      kind: DocumentKind = DocumentKind.BankStatementPdf
   )(using repository: RepositoryComponents)(using
       ec: ExecutionContext
   ): Future[(BankStatement.Create, List[BankStatementRow.Create])] = {
     val now = Instant.now()
     for {
-      doc <- createDocument(userId, sha256 = UUID.randomUUID().toString, kind = DocumentKind.BankStatementPdf)
+      doc <- createDocument(userId, sha256 = UUID.randomUUID().toString, kind = kind)
       stmt = BankStatement.Create(
         id = UUID.randomUUID(),
         documentId = doc.id,
@@ -553,7 +554,8 @@ trait RepositoryUtils {
       userId: UUID,
       sha256: String = "draft-sha",
       filename: String = "statement.pdf",
-      storageKey: String = "key"
+      storageKey: String = "key",
+      kind: DocumentKind = DocumentKind.BankStatementPdf
   )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[BankStatementDraft.Create] = {
     val now = Instant.now()
     val document = Document.Create(
@@ -561,7 +563,7 @@ trait RepositoryUtils {
       userId = userId,
       sha256 = sha256,
       storageKey = storageKey,
-      kind = DocumentKind.BankStatementPdf,
+      kind = kind,
       filename = filename,
       createdAt = now,
       updatedAt = now

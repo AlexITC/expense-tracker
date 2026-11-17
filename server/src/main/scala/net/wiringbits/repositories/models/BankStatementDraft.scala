@@ -1,5 +1,7 @@
 package net.wiringbits.repositories.models
 
+import net.wiringbits.models.documents.DocumentKind
+
 import java.time.Instant
 import java.util.UUID
 
@@ -14,6 +16,8 @@ case class BankStatementDraft(
     sha256: String,
     filename: String,
     storageKey: String,
+    // kind of the linked document (read via join), which tells a PDF draft from a CSV one
+    documentKind: DocumentKind,
     status: String,
     error: Option[String],
     payload: Option[String],

@@ -145,6 +145,18 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
       new String(retrieved.get, "UTF-8") must be("receipt-bytes")
     }
 
+    "reject the BankStatementCsv kind without storing anything" in {
+      cleanBucket()
+      val userId = makeUser()
+      val bytes = s"date,description,amount\n2026-01-05,TEST MERCHANT ${UUID.randomUUID()},-12.34\n".getBytes("UTF-8")
+      val action = new UploadDocumentAction(documentsRepo, storage)(using ec, Clock.systemUTC())
+
+      val error = intercept[RuntimeException](action(userId, bytes, DocumentKind.BankStatementCsv.entryName, "s.csv"))
+
+      error.getMessage must be(s"Unsupported document kind: ${DocumentKind.BankStatementCsv.entryName}")
+      countS3Objects() must be(0)
+    }
+
     "reject duplicate upload (same user, same bytes) without issuing a second S3 put" in {
       cleanBucket()
       val userId = makeUser()

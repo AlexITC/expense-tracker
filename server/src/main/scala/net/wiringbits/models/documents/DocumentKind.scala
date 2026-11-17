@@ -7,6 +7,7 @@ enum DocumentKind extends DbEnum {
   case Receipt
   case Invoice
   case BankStatementPdf
+  case BankStatementCsv
 }
 
 object DocumentKind extends DbEnum.Companion[DocumentKind]

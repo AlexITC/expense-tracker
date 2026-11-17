@@ -14,7 +14,7 @@ import net.wiringbits.apis.{
   TextractClient
 }
 import net.wiringbits.config.{AWSConfig, BdaConfig, BedrockConfig, JevConfig, TextractConfig}
-import net.wiringbits.services.{BlobStorage, DbRateLimiter, S3BlobStorage}
+import net.wiringbits.services.{BlobStorage, DbRateLimiter, S3BlobStorage, StatementCsvParser}
 import net.wiringbits.util.{BcryptPasswordHasher, PasswordHasher, RateLimiter}
 import org.apache.pekko.actor.ActorSystem
 import play.api.libs.ws.WSClient
@@ -26,6 +26,7 @@ class ServicesModule extends AbstractModule {
   override def configure(): Unit = {
     bind(classOf[BlobStorage]).to(classOf[S3BlobStorage]).asEagerSingleton()
     bind(classOf[RateLimiter]).to(classOf[DbRateLimiter])
+    bind(classOf[StatementCsvParser]).to(classOf[StatementCsvParser.FixedSchema])
     // Default bcrypt cost. Tests override this binding with a lower cost to keep real hashing cheap.
     bind(classOf[PasswordHasher]).toInstance(new BcryptPasswordHasher(logRounds = 10))
   }

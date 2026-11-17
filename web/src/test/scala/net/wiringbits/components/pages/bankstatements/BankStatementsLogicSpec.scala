@@ -2,6 +2,7 @@ package net.wiringbits.components.pages.bankstatements
 
 import net.wiringbits.api.models.bankstatements.{GetAccountAliases, GetBankStatement, GetBankStatements}
 import net.wiringbits.api.models.documents.DocumentStatus
+import net.wiringbits.api.utils.BankStatementDraftLimits
 import org.scalatest.matchers.must.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -428,6 +429,36 @@ class BankStatementsLogicSpec extends AnyWordSpec {
         "Example Bank~credit~1111~EUR" -> "Travel card",
         "Example Bank~credit~1111~USD" -> "US card"
       )
+    }
+  }
+
+  "draftUploadKind" should {
+    "pick Pdf for a .pdf extension in any case" in {
+      BankStatementsLogic.draftUploadKind("statement.pdf") mustBe Some(BankStatementsLogic.DraftUploadKind.Pdf)
+      BankStatementsLogic.draftUploadKind("STATEMENT.PDF") mustBe Some(BankStatementsLogic.DraftUploadKind.Pdf)
+    }
+
+    "pick Csv for a .csv extension in any case" in {
+      BankStatementsLogic.draftUploadKind("statement.csv") mustBe Some(BankStatementsLogic.DraftUploadKind.Csv)
+      BankStatementsLogic.draftUploadKind("Statement.CsV") mustBe Some(BankStatementsLogic.DraftUploadKind.Csv)
+    }
+
+    "reject an unknown extension" in {
+      BankStatementsLogic.draftUploadKind("statement.xlsx") mustBe None
+      BankStatementsLogic.draftUploadKind("statement.pdf.txt") mustBe None
+    }
+
+    "reject a filename without an extension" in {
+      BankStatementsLogic.draftUploadKind("statement") mustBe None
+      BankStatementsLogic.draftUploadKind("csv") mustBe None
+    }
+  }
+
+  "draftUploadHelpText" should {
+    "state the CSV limits from BankStatementDraftLimits" in {
+      val text = BankStatementsLogic.draftUploadHelpText
+      text must include(s"max ${BankStatementDraftLimits.MaxTransactions} rows")
+      text must include(s"${BankStatementDraftLimits.MaxCsvBytes / (1024 * 1024)} MB")
     }
   }
 }

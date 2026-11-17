@@ -59,14 +59,27 @@ object BankStatementDraft {
   }
 
   // status: "processing" (extraction running) | "ready" (payload present) | "failed" (error present)
-  case class Data(id: UUID, filename: String, status: String, error: Option[String], payload: Option[Payload])
+  case class Data(
+      id: UUID,
+      filename: String,
+      source: BankStatementDraftSource,
+      status: String,
+      error: Option[String],
+      payload: Option[Payload]
+  )
   object Data {
     implicit val format: Format[Data] = Json.format[Data]
     implicit val schema: Schema[Data] = Schema.derived[Data].name(Schema.SName("BankStatementDraftData"))
   }
 
   // Lightweight row for the drafts queue (no payload).
-  case class Summary(id: UUID, filename: String, status: String, error: Option[String])
+  case class Summary(
+      id: UUID,
+      filename: String,
+      source: BankStatementDraftSource,
+      status: String,
+      error: Option[String]
+  )
   object Summary {
     implicit val format: Format[Summary] = Json.format[Summary]
     implicit val schema: Schema[Summary] = Schema.derived[Summary].name(Schema.SName("BankStatementDraftSummary"))

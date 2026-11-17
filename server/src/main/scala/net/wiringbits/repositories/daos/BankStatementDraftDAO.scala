@@ -2,6 +2,7 @@ package net.wiringbits.repositories.daos
 
 import anorm.*
 import anorm.SqlParser.*
+import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.repositories.models.BankStatementDraft
 
 import java.sql.Connection
@@ -17,12 +18,13 @@ object BankStatementDraftDAO {
       str("sha256") ~
       str("filename") ~
       str("storage_key") ~
+      get[DocumentKind]("document_kind") ~
       str("status") ~
       get[Option[String]]("error") ~
       get[Option[String]]("payload") ~
       get[Instant]("created_at") ~
       get[Instant]("updated_at")).map {
-      case id ~ userId ~ documentId ~ sha256 ~ filename ~ storageKey ~ status ~ error ~ payload ~ createdAt ~ updatedAt =>
+      case id ~ userId ~ documentId ~ sha256 ~ filename ~ storageKey ~ documentKind ~ status ~ error ~ payload ~ createdAt ~ updatedAt =>
         BankStatementDraft(
           id = id,
           userId = userId,
@@ -30,6 +32,7 @@ object BankStatementDraftDAO {
           sha256 = sha256,
           filename = filename,
           storageKey = storageKey,
+          documentKind = documentKind,
           status = status,
           error = error,
           payload = payload,
@@ -38,29 +41,38 @@ object BankStatementDraftDAO {
         )
     }
 
-  private val selectColumns =
-    "id, user_id, document_id, sha256, filename, storage_key, status, error, payload::TEXT AS payload, created_at, updated_at"
+  private val selectFrom =
+    """SELECT draft.id, draft.user_id, draft.document_id, draft.sha256, draft.filename, draft.storage_key,
+      |  d.kind AS document_kind, draft.status, draft.error, draft.payload::TEXT AS payload,
+      |  draft.created_at, draft.updated_at
+      |FROM bank_statement_draft draft
+      |  JOIN document d ON d.id = draft.document_id AND d.user_id = draft.user_id""".stripMargin
 
   def listByUser(userId: UUID)(implicit conn: Connection): List[BankStatementDraft] =
-    SQL(s"SELECT $selectColumns FROM bank_statement_draft WHERE user_id = {userId}::UUID ORDER BY created_at, id")
+    SQL(s"$selectFrom WHERE draft.user_id = {userId}::UUID ORDER BY draft.created_at, draft.id")
       .on("userId" -> userId.toString)
       .as(parser.*)
 
   def findByIdForUser(id: UUID, userId: UUID)(implicit conn: Connection): Option[BankStatementDraft] =
-    SQL(s"SELECT $selectColumns FROM bank_statement_draft WHERE id = {id}::UUID AND user_id = {userId}::UUID")
+    SQL(s"$selectFrom WHERE draft.id = {id}::UUID AND draft.user_id = {userId}::UUID")
       .on("id" -> id.toString, "userId" -> userId.toString)
       .as(parser.singleOpt)
 
   // Internal (no user scope): used by the extraction background job.
   def findById(id: UUID)(implicit conn: Connection): Option[BankStatementDraft] =
-    SQL(s"SELECT $selectColumns FROM bank_statement_draft WHERE id = {id}::UUID")
+    SQL(s"$selectFrom WHERE draft.id = {id}::UUID")
       .on("id" -> id.toString)
       .as(parser.singleOpt)
 
-  def create(draft: BankStatementDraft.Create)(implicit conn: Connection): Unit = {
+  def create(draft: BankStatementDraft.Create)(implicit conn: Connection): Unit =
+    insert(draft, BankStatementDraft.Status.Processing, payload = None)
+
+  def insert(draft: BankStatementDraft.Create, status: String, payload: Option[String])(implicit
+      conn: Connection
+  ): Unit = {
     val _ = SQL"""
       INSERT INTO bank_statement_draft (
-        id, user_id, document_id, sha256, filename, storage_key, status, created_at, updated_at
+        id, user_id, document_id, sha256, filename, storage_key, status, payload, created_at, updated_at
       )
       VALUES (
         ${draft.id.toString}::UUID,
@@ -69,7 +81,8 @@ object BankStatementDraftDAO {
         ${draft.sha256},
         ${draft.filename},
         ${draft.storageKey},
-        ${BankStatementDraft.Status.Processing},
+        $status,
+        $payload::JSONB,
         ${draft.createdAt},
         ${draft.updatedAt}
       )
