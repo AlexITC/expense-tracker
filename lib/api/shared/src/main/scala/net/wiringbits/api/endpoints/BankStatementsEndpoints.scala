@@ -3,6 +3,7 @@ package net.wiringbits.api.endpoints
 import net.wiringbits.api.models.ErrorResponse
 import net.wiringbits.api.models.bankstatements.*
 import net.wiringbits.api.models.bankstatements.GetAllRows
+import net.wiringbits.api.utils.BankStatementDraftLimits
 import sttp.tapir.*
 import sttp.tapir.json.play.*
 import sttp.tapir.model.ServerRequest
@@ -28,6 +29,25 @@ object BankStatementsEndpoints {
       .errorOut(oneOf(HttpErrors.badRequest))
       .summary(
         "Create a draft import from a bank statement PDF (AI extraction), for the user to review before confirming"
+      )
+
+  // A sibling of createDraft so the client chooses the import path; the server never dispatches on file type.
+  def createDraftFromCsv(implicit
+      authHandler: ServerRequest => Future[UUID]
+  ): Endpoint[Unit, (Array[Byte], String, Future[UUID]), ErrorResponse, BankStatementDraft.Data, Any] =
+    baseEndpoint.post
+      .in("drafts" / "csv")
+      // The server enforces this cap (maxRequestBodyLength in BankStatementsController, and again in the action);
+      // that setting lives in tapir-server, which this shared module can't depend on.
+      .in(
+        byteArrayBody.description(s"UTF-8 CSV file, at most ${BankStatementDraftLimits.MaxCsvBytes} bytes")
+      )
+      .in(query[String]("filename").validate(Validator.maxLength(BankStatementDraftLimits.MaxFilenameLength)))
+      .in(userAuth)
+      .out(jsonBody[BankStatementDraft.Data])
+      .errorOut(oneOf(HttpErrors.badRequest))
+      .summary(
+        "Create a ready draft import from a bank statement CSV (date,description,amount[,txn_type][,running_balance]), for the user to review before confirming"
       )
 
   def listDrafts(implicit
@@ -277,6 +297,7 @@ object BankStatementsEndpoints {
   def routes(implicit authHandler: ServerRequest => Future[UUID]): List[AnyEndpoint] =
     List(
       createDraft,
+      createDraftFromCsv,
       listDrafts,
       getDraft,
       updateDraft,

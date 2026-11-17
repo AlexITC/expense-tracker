@@ -15,7 +15,8 @@ import net.wiringbits.api.models.bankstatementtemplates.ExtractionSource
 import net.wiringbits.api.models.documents.DocumentStatus
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
-import net.wiringbits.common.models.Captcha
+import net.wiringbits.api.models.auth.Login
+import net.wiringbits.common.models.{Captcha, Password}
 import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.BackgroundJobType
 import net.wiringbits.repositories.BankStatementRepository
@@ -31,7 +32,9 @@ import play.api.db.Database
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
 import play.api.libs.json.{JsObject, Json}
-import utils.LoginUtils
+import sttp.client3.{basicRequest, HttpClientFutureBackend, UriContext}
+import sttp.model.StatusCode
+import utils.{LoginUtils, RandomData}
 
 import java.security.MessageDigest
 import java.time.{Instant, LocalDate}
@@ -300,6 +303,57 @@ class BankStatementDraftControllerSpec extends PlayPostgresSpec with LoginUtils 
       val documents = storedDocuments(userId)
       documents.map(_.id) must be(List(receipt.id))
       documents.head.kind must be(DocumentKind.Receipt)
+    }
+  }
+
+  // A valid CSV unique to each call, so parallel tests never collide on the file hash.
+  private def validCsvBytes: Array[Byte] =
+    s"date,description,amount\n2026-01-15,TEST MERCHANT ${UUID.randomUUID()},-12.34\n".getBytes("UTF-8")
+
+  private def invalidCsvBytes: Array[Byte] =
+    s"date,description,amount\n2026-01-15,TEST MERCHANT ${UUID.randomUUID()},abc\n".getBytes("UTF-8")
+
+  private val rawBackend = HttpClientFutureBackend()
+
+  private def postCsvRaw(bytes: Array[Byte], cookies: Seq[sttp.model.headers.CookieWithMeta]) =
+    basicRequest
+      .post(uri"http://localhost:$port/bank-statements/drafts/csv?filename=stmt.csv")
+      .body(bytes)
+      .cookies(cookies)
+      .send(rawBackend)
+      .futureValue
+
+  "POST /bank-statements/drafts/csv" should {
+    "reject a request without a session" in {
+      val response = postCsvRaw(validCsvBytes, Nil)
+      // Auth failures surface through handleRequest as a 400 ErrorResponse, like every other endpoint.
+      response.code must be(StatusCode.BadRequest)
+      (Json.parse(response.body.merge) \ "error").as[String] must be("Unauthorized: Invalid or missing authentication")
+    }
+
+    "create a ready CSV draft with the parsed payload" in withApiClient { implicit client =>
+      createVerifyLoginUser(tokenGenerator).futureValue
+      val data = client.createBankStatementDraftFromCsv(validCsvBytes, "stmt.csv").futureValue
+      data.status must be("ready")
+      data.source must be(BankStatementDraftSource.Csv)
+      data.payload.value.transactions.map(_.amount) must be(List(BigDecimal("-12.34")))
+    }
+
+    "return the parser's row/column message as a 400 ErrorResponse" in withApiClient { implicit client =>
+      val email = RandomData.randomEmail()
+      createVerifyLoginUser(tokenGenerator, emailMaybe = Some(email)).futureValue
+      val login = basicRequest
+        .post(uri"http://localhost:$port/auth/login")
+        .contentType("application/json")
+        .body(Json.toJson(Login.Request(email, Password.trusted("test123..."), Captcha.trusted("test"))).toString)
+        .send(rawBackend)
+        .futureValue
+
+      val response = postCsvRaw(invalidCsvBytes, login.unsafeCookies)
+      response.code must be(StatusCode.BadRequest)
+      (Json.parse(response.body.merge) \ "error").as[String] must be(
+        "Row 2, column amount: \"abc\" is not a decimal number"
+      )
     }
   }
 
