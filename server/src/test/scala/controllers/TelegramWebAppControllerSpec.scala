@@ -2,6 +2,8 @@ package controllers
 
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
+import net.wiringbits.actions.telegram.UpsertTelegramWebAppExpenseAction
+import net.wiringbits.actions.telegram.UpsertTelegramWebAppExpenseAction.Error
 import net.wiringbits.apis.TelegramApi
 import net.wiringbits.common.models.Name
 import net.wiringbits.core.SharedPostgres
@@ -9,9 +11,13 @@ import net.wiringbits.models.documents.{DocumentKind, DocumentStatus}
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.{BackgroundJobData, Document, Expense, Receipt, User}
 import net.wiringbits.repositories.{ExpensesRepository, ReceiptRepository, TelegramRepository, UsersRepository}
+import org.mockito.ArgumentMatchers.{any, eq as eqTo}
+import org.mockito.Mockito.*
+import org.scalatestplus.mockito.MockitoSugar
 import play.api.Application
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
+import play.api.libs.json.Json
 import play.api.test.FakeRequest
 import play.api.test.Helpers.*
 import utils.{FakeTelegramApi, RandomData}
@@ -21,12 +27,14 @@ import java.time.{Instant, LocalDate}
 import java.util.UUID
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
+import scala.concurrent.Future
 
 /** Exercises the real controller wired by Guice against the real database. The only fake is TelegramApi (an external
   * service). The suite app runs in web-app dev mode (auth via `dev_user_id`); `prodApp` is a second app in prod mode,
-  * for the signed-initData paths.
+  * for the signed-initData paths. `mockedActionApp` replaces the upsert action with a mock, for checking how the
+  * controller decodes the request body and encodes the action's result.
   */
-class TelegramWebAppControllerSpec extends PlayPostgresSpec {
+class TelegramWebAppControllerSpec extends PlayPostgresSpec with MockitoSugar {
 
   override def guiceApplicationBuilder(container: PostgreSQLContainer): GuiceApplicationBuilder =
     super
@@ -36,6 +44,25 @@ class TelegramWebAppControllerSpec extends PlayPostgresSpec {
 
   private lazy val prodApp: Application =
     guiceApplicationBuilder(SharedPostgres.container).configure("telegram.webAppDevMode" -> false).build()
+
+  private val upsertActionMock = mock[UpsertTelegramWebAppExpenseAction]
+  when(
+    upsertActionMock.apply(
+      userId = any[UUID](),
+      expenseId = any[UUID](),
+      receiptId = any[Option[UUID]](),
+      amount = any[BigDecimal](),
+      date = any[LocalDate](),
+      merchantName = any[Option[String]](),
+      category = any[Option[String]](),
+      notes = any[Option[String]]()
+    )
+  ).thenReturn(Future.successful(Right(())))
+
+  private lazy val mockedActionApp: Application =
+    guiceApplicationBuilder(SharedPostgres.container)
+      .overrides(inject.bind[UpsertTelegramWebAppExpenseAction].to(upsertActionMock))
+      .build()
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -286,6 +313,137 @@ class TelegramWebAppControllerSpec extends PlayPostgresSpec {
       val result = PUT(s"/telegram/webapp/expenses/${UUID.randomUUID()}?dev_user_id=$userId", body)
       status(result) must be(BAD_REQUEST)
       contentAsString(result) must include("Invalid date format")
+    }
+  }
+
+  "PUT /telegram/webapp/expenses/:id (mocked action)" should {
+    "pass merchantName as None when the field is missing" in {
+      implicit val a: Application = mockedActionApp
+      val userId = createUserId()
+      val expenseId = UUID.randomUUID()
+      val body =
+        """
+          |{
+          |  "amount": 10.00,
+          |  "date": "2026-05-10"
+          |}
+          |""".stripMargin
+      status(PUT(s"/telegram/webapp/expenses/$expenseId?dev_user_id=$userId", body)) must be(OK)
+      verify(upsertActionMock).apply(
+        userId = eqTo(userId),
+        expenseId = eqTo(expenseId),
+        receiptId = any[Option[UUID]](),
+        amount = any[BigDecimal](),
+        date = any[LocalDate](),
+        merchantName = eqTo(None),
+        category = any[Option[String]](),
+        notes = any[Option[String]]()
+      )
+    }
+
+    "pass merchantName as None when the field is null" in {
+      implicit val a: Application = mockedActionApp
+      val userId = createUserId()
+      val expenseId = UUID.randomUUID()
+      val body =
+        """
+          |{
+          |  "amount": 10.00,
+          |  "date": "2026-05-10",
+          |  "merchantName": null
+          |}
+          |""".stripMargin
+      status(PUT(s"/telegram/webapp/expenses/$expenseId?dev_user_id=$userId", body)) must be(OK)
+      verify(upsertActionMock).apply(
+        userId = eqTo(userId),
+        expenseId = eqTo(expenseId),
+        receiptId = any[Option[UUID]](),
+        amount = any[BigDecimal](),
+        date = any[LocalDate](),
+        merchantName = eqTo(None),
+        category = any[Option[String]](),
+        notes = any[Option[String]]()
+      )
+    }
+
+    "pass a provided merchantName through untrimmed" in {
+      implicit val a: Application = mockedActionApp
+      val userId = createUserId()
+      val expenseId = UUID.randomUUID()
+      val body =
+        """
+          |{
+          |  "amount": 10.00,
+          |  "date": "2026-05-10",
+          |  "merchantName": "  Sample Merchant  "
+          |}
+          |""".stripMargin
+      status(PUT(s"/telegram/webapp/expenses/$expenseId?dev_user_id=$userId", body)) must be(OK)
+      verify(upsertActionMock).apply(
+        userId = eqTo(userId),
+        expenseId = eqTo(expenseId),
+        receiptId = any[Option[UUID]](),
+        amount = any[BigDecimal](),
+        date = any[LocalDate](),
+        merchantName = eqTo(Some("  Sample Merchant  ")),
+        category = any[Option[String]](),
+        notes = any[Option[String]]()
+      )
+    }
+
+    "return BadRequest when merchantName is not a string" in {
+      implicit val a: Application = mockedActionApp
+      val userId = createUserId()
+      val expenseId = UUID.randomUUID()
+      val body =
+        """
+          |{
+          |  "amount": 10.00,
+          |  "date": "2026-05-10",
+          |  "merchantName": 5
+          |}
+          |""".stripMargin
+      val result = PUT(s"/telegram/webapp/expenses/$expenseId?dev_user_id=$userId", body)
+      status(result) must be(BAD_REQUEST)
+      contentAsString(result) must include("Invalid merchantName")
+      verify(upsertActionMock, never()).apply(
+        userId = any[UUID](),
+        expenseId = eqTo(expenseId),
+        receiptId = any[Option[UUID]](),
+        amount = any[BigDecimal](),
+        date = any[LocalDate](),
+        merchantName = any[Option[String]](),
+        category = any[Option[String]](),
+        notes = any[Option[String]]()
+      )
+    }
+
+    "return UnprocessableEntity with the error message when the action rejects the input" in {
+      implicit val a: Application = mockedActionApp
+      val userId = createUserId()
+      val expenseId = UUID.randomUUID()
+      when(
+        upsertActionMock.apply(
+          userId = any[UUID](),
+          expenseId = eqTo(expenseId),
+          receiptId = any[Option[UUID]](),
+          amount = any[BigDecimal](),
+          date = any[LocalDate](),
+          merchantName = any[Option[String]](),
+          category = any[Option[String]](),
+          notes = any[Option[String]]()
+        )
+      ).thenReturn(Future.successful(Left(Error.Invalid("Amount must be positive"))))
+      val body =
+        """
+          |{
+          |  "amount": 10.00,
+          |  "date": "2026-05-10"
+          |}
+          |""".stripMargin
+      val result = PUT(s"/telegram/webapp/expenses/$expenseId?dev_user_id=$userId", body)
+      status(result) must be(UNPROCESSABLE_ENTITY)
+      contentAsJson(result) must be(Json.obj("error" -> "Amount must be positive"))
     }
   }
 }
