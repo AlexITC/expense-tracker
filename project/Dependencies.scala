@@ -161,6 +161,7 @@ object Dependencies {
     "software.amazon.awssdk" % "bedrockdataautomationruntime" % "2.44.9",
     "jakarta.xml.bind" % "jakarta.xml.bind-api" % "4.0.5",
     "org.apache.commons" % "commons-text" % "1.15.0",
+    "org.apache.commons" % "commons-csv" % "1.14.1",
     "org.apache.pdfbox" % "pdfbox" % "3.0.3",
     // JAX-B dependencies for JDK 9+, required to use play sessions
     "javax.xml.bind" % "jaxb-api" % "2.3.1",
