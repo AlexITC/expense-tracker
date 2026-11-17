@@ -78,6 +78,8 @@ object DraftDescriptionInput extends ValidatedTextInput[ExpDraftDescription]
 
 object OptionalDraftTxnTypeInput extends ValidatedTextInput[Option[ExpDraftTxnType]]
 
+object OptionalDraftTxnTypeSelectInput extends ValidatedSelectInput[Option[ExpDraftTxnType]]
+
 object MerchantAutocompleteInput
     extends ExpValidatedAutocompleteInput[
       GetMerchants.Response.Merchant,

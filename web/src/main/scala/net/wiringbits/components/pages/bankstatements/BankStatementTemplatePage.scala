@@ -4,7 +4,15 @@ import com.olvind.mui.muiMaterial.components as mui
 import net.wiringbits.AppContext
 import net.wiringbits.api.models.bankstatements.{BankStatementDraft, ConfirmWarning}
 import net.wiringbits.components.widgets.Loader
+import net.wiringbits.forms.DraftTransactionRow
 import net.wiringbits.models.User
+import net.wiringbits.ui.components.inputs.{
+  DateInput,
+  DraftDescriptionInput,
+  OptionalDraftTxnTypeSelectInput,
+  OptionalSignedAmountInput,
+  SignedAmountInput
+}
 import net.wiringbits.ui.forms.SubmitHooks
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
@@ -45,6 +53,33 @@ object BankStatementTemplatePage {
 
   def acceptUnverifiedFlag(p: BankStatementDraft.Payload, acked: Boolean): Boolean =
     unverifiedAckAvailable(p) && acked
+
+  val txnTypes: List[String] = List("purchase", "payment", "fee", "interest", "refund")
+
+  /** The known types plus the row's current one when it isn't among them, so imported values stay selectable. */
+  def txnTypeOptions(current: String): List[String] =
+    if (current.isEmpty || txnTypes.contains(current)) txnTypes else txnTypes :+ current
+
+  /** The payload with the edited rows, or None while any row is invalid or incomplete. */
+  def editedPayload(
+      p: BankStatementDraft.Payload,
+      rows: List[DraftTransactionRow]
+  ): Option[BankStatementDraft.Payload] =
+    DraftTransactionRow.resolve(rows).map(txns => p.copy(transactions = txns))
+
+  def canSave(rows: List[DraftTransactionRow], busy: Boolean): Boolean =
+    !busy && DraftTransactionRow.resolve(rows).isDefined
+
+  def canConfirmEdited(
+      p: BankStatementDraft.Payload,
+      rows: List[DraftTransactionRow],
+      acked: Boolean,
+      busy: Boolean
+  ): Boolean =
+    editedPayload(p, rows).exists(edited => canConfirm(edited, acked = acked, busy = busy))
+
+  def canInsertRow(rows: List[DraftTransactionRow], busy: Boolean): Boolean =
+    !busy && DraftTransactionRow.canInsert(rows)
 
   private[pages] def notReadyText: ReactElement =
     mui
@@ -94,14 +129,16 @@ object BankStatementTemplateEditor {
   import BankStatementTemplatePage.{
     acceptUnverifiedFlag,
     amountColor,
-    canConfirm,
+    canConfirmEdited,
+    canInsertRow,
+    canSave,
+    editedPayload,
     errorText,
     metaComplete,
     notReadyText,
+    txnTypeOptions,
     unverifiedAckAvailable
   }
-
-  private val txnTypes = List("purchase", "payment", "fee", "interest", "refund")
 
   def apply(ctx: AppContext, draftId: UUID, draft: BankStatementDraft.Data, bankNames: List[String]): KeyAddingStage =
     component(Props(ctx, draftId, draft, bankNames))
@@ -121,6 +158,9 @@ object BankStatementTemplateEditor {
     val bankNames = props.bankNames
 
     val (payloadOpt, setPayloadOpt) = Hooks.useState[Option[BankStatementDraft.Payload]](props.draft.payload)
+    val (rows, setRows) = Hooks.useState[List[DraftTransactionRow]](
+      DraftTransactionRow.fromTransactions(props.draft.payload.map(_.transactions).getOrElse(Nil))
+    )
     val submit = SubmitHooks.useSubmit()
     val (pendingWarnings, setPendingWarnings) = Hooks.useState[List[ConfirmWarning]](Nil)
     val (unverifiedAcked, setUnverifiedAcked) = Hooks.useState(false)
@@ -129,33 +169,23 @@ object BankStatementTemplateEditor {
     def setMeta(f: BankStatementDraft.Metadata => BankStatementDraft.Metadata): Unit =
       setPayloadOpt(_.map(p => p.copy(metadata = f(p.metadata))))
 
-    def setTxn(idx: Int)(f: BankStatementDraft.Transaction => BankStatementDraft.Transaction): Unit =
-      setPayloadOpt(
-        _.map(p =>
-          p.copy(transactions = p.transactions.zipWithIndex.map { case (t, i) =>
-            if (i == idx) f(t) else t
-          })
-        )
-      )
+    def updateRow(key: Int)(f: DraftTransactionRow => DraftTransactionRow): Unit =
+      setRows(r => DraftTransactionRow.update(r, key, f))
 
-    def removeTxn(idx: Int): Unit =
-      setPayloadOpt(
-        _.map(p =>
-          p.copy(transactions = p.transactions.zipWithIndex.collect {
-            case (t, i) if i != idx => t
-          })
-        )
-      )
-
-    def doSave(): Unit = payloadOpt.foreach { p =>
+    def doSave(): Unit = payloadOpt.flatMap(editedPayload(_, rows)).foreach { p =>
       submit.begin()
       client.updateBankStatementDraft(id, BankStatementDraft.Update.Request(p)).onComplete {
-        case Success(data) => data.payload.foreach(pl => setPayloadOpt(Some(pl))); submit.reset()
+        case Success(data) =>
+          data.payload.foreach { pl =>
+            setPayloadOpt(Some(pl))
+            setRows(_ => DraftTransactionRow.fromTransactions(pl.transactions))
+          }
+          submit.reset()
         case Failure(ex) => submit.fail(ex.getMessage)
       }
     }
 
-    def doConfirm(): Unit = payloadOpt.foreach { p =>
+    def doConfirm(): Unit = payloadOpt.flatMap(editedPayload(_, rows)).foreach { p =>
       submit.begin()
       val run = for {
         _ <- client.updateBankStatementDraft(id, BankStatementDraft.Update.Request(p))
@@ -177,7 +207,7 @@ object BankStatementTemplateEditor {
       }
     }
 
-    def doConfirmAnyway(): Unit = payloadOpt.foreach { p =>
+    def doConfirmAnyway(): Unit = payloadOpt.flatMap(editedPayload(_, rows)).foreach { p =>
       submit.begin()
       client
         .confirmBankStatementDraft(
@@ -263,7 +293,6 @@ object BankStatementTemplateEditor {
 
     def optStr(s: String): Option[String] = Option(s).map(_.trim).filter(_.nonEmpty)
     def optDate(s: String): Option[LocalDate] = optStr(s).flatMap(v => Try(LocalDate.parse(v)).toOption)
-    def optAmount(s: String): Option[BigDecimal] = optStr(s).flatMap(v => Try(BigDecimal(v)).toOption)
 
     def metadataForm(m: BankStatementDraft.Metadata): ReactElement =
       Fragment(
@@ -311,69 +340,104 @@ object BankStatementTemplateEditor {
         else Fragment()
       )
 
-    def transactionsTable(transactions: List[BankStatementDraft.Transaction]): ReactElement =
-      mui.Box.sx(new CSSPropertiesUtils {
-        border = "1px solid var(--lc-border)"; borderRadius = "8px"; overflow = "hidden"; marginBottom = "16px";
-        overflowX = "auto"
-      })(
-        mui.Table.size("small")(
-          mui.TableHead(
-            mui.TableRow(
-              mui.TableCell.sx(hcellSx)("Date"),
-              mui.TableCell.align("right").sx(hcellSx)("Amount"),
-              mui.TableCell.sx(hcellSx)("Type"),
-              mui.TableCell.sx(hcellSx)("Description"),
-              mui.TableCell.sx(hcellSx)("")
+    def insertButton(label: String, onInsert: () => Unit): ReactElement =
+      mui.Button
+        .normal()(label)
+        .size("small")
+        .variant("outlined")
+        .disabled(!canInsertRow(rows, busy))
+        .onClick(_ => onInsert())
+
+    def rowView(row: DraftTransactionRow): ReactElement = {
+      val txnTypeInput = row.txnType.value.map(_.input).getOrElse("")
+      mui
+        .TableRow(
+          mui.TableCell.sx(new CSSPropertiesUtils { minWidth = "150px" })(
+            DateInput.component(
+              DateInput.Props(
+                field = row.date,
+                disabled = busy,
+                onChange = v => updateRow(row.key)(r => r.copy(date = r.date.updated(v)))
+              )
             )
           ),
-          mui.TableBody(
-            Fragment(
-              transactions.zipWithIndex.map { case (t, idx) =>
-                (mui
-                  .TableRow(
-                    mui.TableCell
-                      .sx(new CSSPropertiesUtils { fontSize = "12px"; whiteSpace = "nowrap"; minWidth = "120px" })(
-                        textField("", t.date.toString, v => optDate(v).foreach(d => setTxn(idx)(_.copy(date = d))))
-                      ),
-                    mui.TableCell
-                      .align("right")
-                      .sx(new CSSPropertiesUtils {
-                        fontSize = "12px"; color = amountColor(t.amount); minWidth = "110px"
-                      })(
-                        textField(
-                          "",
-                          t.amount.toString,
-                          v => optAmount(v).foreach(a => setTxn(idx)(_.copy(amount = a)))
-                        )
-                      ),
-                    mui.TableCell(
-                      selectField(
-                        label = "",
-                        value = t.txnType.getOrElse(""),
-                        txnTypes,
-                        v => setTxn(idx)(_.copy(txnType = optStr(v)))
-                      )
-                    ),
-                    mui.TableCell(
-                      textField(
-                        label = "",
-                        value = t.description,
-                        v => setTxn(idx)(_.copy(description = v)),
-                        multilineField = true
-                      )
-                    ),
-                    mui.TableCell(
-                      mui.Button
-                        .normal()("Remove")
-                        .size("small")
-                        .variant("outlined")
-                        .disabled(busy)
-                        .onClick(_ => removeTxn(idx))
-                    )
-                  )
-                  .withKey(idx.toString): ReactElement)
-              }*
+          mui.TableCell
+            .sx(new CSSPropertiesUtils {
+              minWidth = "130px"
+              color = row.amount.valueOpt.fold("var(--lc-text)")(a => amountColor(a.value))
+            })(
+              SignedAmountInput.component(
+                SignedAmountInput.Props(
+                  field = row.amount,
+                  disabled = busy,
+                  onChange = v => updateRow(row.key)(r => r.copy(amount = r.amount.updated(v)))
+                )
+              )
+            ),
+          mui.TableCell.sx(new CSSPropertiesUtils { minWidth = "150px" })(
+            OptionalDraftTxnTypeSelectInput.component(
+              OptionalDraftTxnTypeSelectInput.Props(
+                field = row.txnType,
+                options = txnTypeOptions(txnTypeInput).map(t => t -> t),
+                onChange = v => updateRow(row.key)(r => r.copy(txnType = r.txnType.updated(v))),
+                disabled = busy
+              )
             )
+          ),
+          mui.TableCell.sx(new CSSPropertiesUtils { minWidth = "220px" })(
+            DraftDescriptionInput.component(
+              DraftDescriptionInput.Props(
+                field = row.description,
+                disabled = busy,
+                onChange = v => updateRow(row.key)(r => r.copy(description = r.description.updated(v)))
+              )
+            )
+          ),
+          mui.TableCell.sx(new CSSPropertiesUtils { minWidth = "130px" })(
+            OptionalSignedAmountInput.component(
+              OptionalSignedAmountInput.Props(
+                field = row.runningBalance,
+                disabled = busy,
+                onChange = v => updateRow(row.key)(r => r.copy(runningBalance = r.runningBalance.updated(v)))
+              )
+            )
+          ),
+          mui.TableCell(
+            mui.Box.sx(new CSSPropertiesUtils { display = "flex"; gap = "6px" })(
+              insertButton("Insert below", () => setRows(r => DraftTransactionRow.insertAfter(r, row.key))),
+              mui.Button
+                .normal()("Remove")
+                .size("small")
+                .variant("outlined")
+                .disabled(busy)
+                .onClick(_ => setRows(r => DraftTransactionRow.remove(r, row.key)))
+            )
+          )
+        )
+        .withKey(row.key.toString)
+    }
+
+    def transactionsTable: ReactElement =
+      Fragment(
+        mui.Box.sx(new CSSPropertiesUtils { marginBottom = "8px" })(
+          insertButton("Add row", () => setRows(r => DraftTransactionRow.insertAtTop(r)))
+        ),
+        mui.Box.sx(new CSSPropertiesUtils {
+          border = "1px solid var(--lc-border)"; borderRadius = "8px"; overflow = "hidden"; marginBottom = "16px";
+          overflowX = "auto"
+        })(
+          mui.Table.size("small")(
+            mui.TableHead(
+              mui.TableRow(
+                mui.TableCell.sx(hcellSx)("Date"),
+                mui.TableCell.sx(hcellSx)("Amount"),
+                mui.TableCell.sx(hcellSx)("Type"),
+                mui.TableCell.sx(hcellSx)("Description"),
+                mui.TableCell.sx(hcellSx)("Running balance"),
+                mui.TableCell.sx(hcellSx)("")
+              )
+            ),
+            mui.TableBody(Fragment(rows.map(rowView)*))
           )
         )
       )
@@ -401,7 +465,7 @@ object BankStatementTemplateEditor {
             })
         ),
         metadataForm(payload.metadata),
-        transactionsTable(payload.transactions),
+        transactionsTable,
         if (unverifiedAckAvailable(payload))
           mui.FormControlLabel(
             control = mui.Checkbox
@@ -422,13 +486,13 @@ object BankStatementTemplateEditor {
             .normal()(if (busy) "Saving…" else "Save changes")
             .size("small")
             .variant("outlined")
-            .disabled(busy)
+            .disabled(!canSave(rows, busy))
             .onClick(_ => doSave()),
           mui.Button
             .normal()("Confirm import")
             .size("small")
             .variant("contained")
-            .disabled(!canConfirm(payload, acked = unverifiedAcked, busy = busy))
+            .disabled(!canConfirmEdited(payload, rows, acked = unverifiedAcked, busy = busy))
             .sx(new CSSPropertiesUtils { backgroundColor = "var(--lc-brand)" })
             .onClick(_ => doConfirm()),
           mui.Button
