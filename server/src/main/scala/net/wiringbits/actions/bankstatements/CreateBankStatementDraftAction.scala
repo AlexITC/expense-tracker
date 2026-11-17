@@ -4,14 +4,11 @@ import com.github.f4b6a3.uuid.UuidCreator
 import net.wiringbits.api.models.bankstatements.BankStatementDraft as ApiDraft
 import net.wiringbits.models.documents.DocumentKind
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
-import net.wiringbits.repositories.models.{BackgroundJobData, Document, BankStatementDraft as DraftRecord}
-import net.wiringbits.repositories.{BankStatementDraftRepository, BankStatementRepository, DocumentsRepository}
-import net.wiringbits.services.{BankStatementDraftSources, BlobStorage}
+import net.wiringbits.repositories.BankStatementDraftRepository
+import net.wiringbits.repositories.models.{BackgroundJobData, BankStatementDraft as DraftRecord}
+import net.wiringbits.services.{BankStatementDraftSources, BankStatementDraftUploads}
 import org.slf4j.LoggerFactory
 
-import java.security.MessageDigest
-import java.time.{Clock, Instant, LocalDate}
-import java.util.HexFormat
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
@@ -21,69 +18,39 @@ import scala.concurrent.{ExecutionContext, Future}
   */
 class CreateBankStatementDraftAction @Inject() (
     bankStatementDraftRepository: BankStatementDraftRepository,
-    documentsRepository: DocumentsRepository,
-    bankStatementRepository: BankStatementRepository,
-    blobStorage: BlobStorage
-)(implicit ec: ExecutionContext, clock: Clock) {
+    uploads: BankStatementDraftUploads
+)(implicit ec: ExecutionContext) {
 
   private val logger = LoggerFactory.getLogger(this.getClass)
 
-  def apply(userId: UUID, bytes: Array[Byte], filename: String): Future[ApiDraft.Data] = {
-    val sha256 = computeSha256(bytes)
+  def apply(userId: UUID, bytes: Array[Byte], filename: String): Future[ApiDraft.Data] =
     for {
-      existingDrafts <- bankStatementDraftRepository.listByUser(userId)
-      _ = if (existingDrafts.exists(_.sha256 == sha256))
-        throw new RuntimeException("This file is already in your import queue")
-      existingDoc <- documentsRepository.findBySha256(userId, sha256)
-      _ <- existingDoc match {
-        case Some(doc) =>
-          bankStatementRepository.findByDocumentIdInternal(doc.id).map {
-            case Some(_) => throw new RuntimeException("This statement was already imported")
-            case None => ()
-          }
-        case None => Future.unit
-      }
-      storageKey = s"data/$userId/${LocalDate.now(clock)}/$sha256"
-      alreadyUploaded <- blobStorage.exists(storageKey)
-      _ <- if (alreadyUploaded) Future.unit else blobStorage.put(storageKey, bytes)
-      now = clock.instant()
-      documentLink = resolveDocument(
-        existingDoc,
-        userId,
-        sha256 = sha256,
-        storageKey = storageKey,
-        filename = filename,
-        now
-      )
+      staged <- uploads.stage(userId, bytes, filename, DocumentKind.BankStatementPdf)
       draftId = UuidCreator.getTimeOrderedEpoch()
       draft = DraftRecord.Create(
         id = draftId,
         userId = userId,
-        documentId = documentLink.documentId,
-        sha256 = sha256,
+        documentId = staged.documentLink.documentId,
+        sha256 = staged.sha256,
         filename = filename,
-        storageKey = storageKey,
-        createdAt = now,
-        updatedAt = now
+        storageKey = staged.storageKey,
+        createdAt = staged.now,
+        updatedAt = staged.now
       )
       job = BackgroundJobData.Create(
         id = UUID.randomUUID(),
         `type` = BackgroundJobType.ExtractBankStatementDraft,
         payload = BackgroundJobPayload.ExtractBankStatementDraft(draftId),
         status = BackgroundJobStatus.Pending,
-        executeAt = now,
-        createdAt = now,
-        updatedAt = now
+        executeAt = staged.now,
+        createdAt = staged.now,
+        updatedAt = staged.now
       )
-      _ <- bankStatementDraftRepository.create(documentLink, draft, job)
+      _ <- bankStatementDraftRepository.create(staged.documentLink, draft, job)
     } yield {
-      val linkLabel = documentLink match {
-        case DraftRecord.DocumentLink.New(_) => "new"
-        case DraftRecord.DocumentLink.Existing(_) => "reused"
-      }
       logger.info(
-        s"Created statement draft $draftId (processing) for user $userId, document ${documentLink.documentId} " +
-          s"($linkLabel); enqueued extraction job"
+        s"Created statement draft $draftId (processing) for user $userId, document ${staged.documentLink.documentId} " +
+          s"(${staged.linkLabel}); enqueued extraction job"
       )
       ApiDraft.Data(
         draftId,
@@ -94,39 +61,4 @@ class CreateBankStatementDraftAction @Inject() (
         None
       )
     }
-  }
-
-  /** The document outlives a discarded draft, so a re-upload links to it instead of inserting a duplicate (the (user,
-    * sha256) pair is unique). A file already uploaded as another kind of document can't become a statement.
-    */
-  private def resolveDocument(
-      existing: Option[Document],
-      userId: UUID,
-      sha256: String,
-      storageKey: String,
-      filename: String,
-      now: Instant
-  ): DraftRecord.DocumentLink = existing match {
-    case Some(doc) if doc.kind == DocumentKind.BankStatementPdf => DraftRecord.DocumentLink.Existing(doc.id)
-    case Some(doc) => throw AlreadyUploadedAsOtherKind(doc.kind)
-    case None =>
-      DraftRecord.DocumentLink.New(
-        Document.Create(
-          id = UuidCreator.getTimeOrderedEpoch(),
-          userId = userId,
-          sha256 = sha256,
-          storageKey = storageKey,
-          kind = DocumentKind.BankStatementPdf,
-          filename = filename,
-          createdAt = now,
-          updatedAt = now
-        )
-      )
-  }
-
-  private def computeSha256(bytes: Array[Byte]): String =
-    HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
 }
-
-private final case class AlreadyUploadedAsOtherKind(kind: DocumentKind)
-    extends RuntimeException(s"This file was already uploaded as a ${kind.entryName} document")

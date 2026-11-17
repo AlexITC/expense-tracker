@@ -64,10 +64,15 @@ object BankStatementDraftDAO {
       .on("id" -> id.toString)
       .as(parser.singleOpt)
 
-  def create(draft: BankStatementDraft.Create)(implicit conn: Connection): Unit = {
+  def create(draft: BankStatementDraft.Create)(implicit conn: Connection): Unit =
+    insert(draft, BankStatementDraft.Status.Processing, payload = None)
+
+  def insert(draft: BankStatementDraft.Create, status: String, payload: Option[String])(implicit
+      conn: Connection
+  ): Unit = {
     val _ = SQL"""
       INSERT INTO bank_statement_draft (
-        id, user_id, document_id, sha256, filename, storage_key, status, created_at, updated_at
+        id, user_id, document_id, sha256, filename, storage_key, status, payload, created_at, updated_at
       )
       VALUES (
         ${draft.id.toString}::UUID,
@@ -76,7 +81,8 @@ object BankStatementDraftDAO {
         ${draft.sha256},
         ${draft.filename},
         ${draft.storageKey},
-        ${BankStatementDraft.Status.Processing},
+        $status,
+        $payload::JSONB,
         ${draft.createdAt},
         ${draft.updatedAt}
       )
