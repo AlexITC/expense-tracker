@@ -25,7 +25,6 @@ import net.wiringbits.utils.ExpenseDuplicateDetector.{Candidate, Shape}
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.AsyncComponent
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.Container
-import net.wiringbits.webapp.utils.slinkyUtils.core.GenericHooks
 import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.useHistory
 import net.wiringbits.webapp.common.validators.ValidationResult
 import org.scalajs.dom
@@ -46,8 +45,6 @@ object ExpensesPage {
 
   val component: FunctionalComponent[Props] = FunctionalComponent[Props] { props =>
     implicit val ec: ExecutionContext = props.ctx.executionContext
-    val (timesRefreshing, forceRefresh) = GenericHooks.useForceRefresh
-
     AsyncComponent[(GetExpenses.Response, GetMerchants.Response, GetCategories.Response, GetReceipts.Response)](
       fetch = () => {
         val expensesF = props.ctx.api.client.getExpenses
@@ -63,10 +60,9 @@ object ExpensesPage {
       },
       render = { case (expenses, merchants, categories, receipts) =>
         val receiptFilenames = receipts.data.map(r => r.id -> r.documentFilename).toMap
-        ExpenseList(props.ctx, expenses, merchants, categories, receiptFilenames, () => forceRefresh())
+        ExpenseList(props.ctx, expenses, merchants, categories, receiptFilenames)
       },
-      progressIndicator = () => Loader(props.ctx),
-      watchedObjects = List(timesRefreshing)
+      progressIndicator = () => Loader(props.ctx)
     )
   }
 }
@@ -77,18 +73,16 @@ object ExpenseList {
       expenses: GetExpenses.Response,
       merchants: GetMerchants.Response,
       categories: GetCategories.Response,
-      receiptFilenames: Map[UUID, String],
-      onRefresh: () => Unit
+      receiptFilenames: Map[UUID, String]
   ): KeyAddingStage =
-    component(Props(ctx, expenses, merchants, categories, receiptFilenames, onRefresh))
+    component(Props(ctx, expenses, merchants, categories, receiptFilenames))
 
   case class Props(
       ctx: AppContext,
       expenses: GetExpenses.Response,
       merchants: GetMerchants.Response,
       categories: GetCategories.Response,
-      receiptFilenames: Map[UUID, String],
-      onRefresh: () => Unit
+      receiptFilenames: Map[UUID, String]
   )
 
   private val monthNames =
@@ -325,6 +319,18 @@ object ExpenseList {
     val (selectedDuplicates, setSelectedDuplicates) = Hooks.useState[Set[String]](Set.empty)
     val (showBulkMergeDialog, setShowBulkMergeDialog) = Hooks.useState(false)
     val (bulkMerging, setBulkMerging) = Hooks.useState(false)
+    // After a save the list is refetched in place: the page keeps showing the current rows instead of the loader.
+    val (refetched, setRefetched) = Hooks.useState[Option[GetExpenses.Response]](None)
+    val (refetchCount, setRefetchCount) = Hooks.useState(0)
+    val currentExpenses: GetExpenses.Response = refetched.getOrElse(props.expenses)
+
+    def refetchExpenses(): Unit =
+      props.ctx.api.client.getExpenses.onComplete {
+        case Success(response) =>
+          setRefetched(Some(response))
+          setRefetchCount(_ + 1)
+        case Failure(ex) => setError(ex.getMessage)
+      }
 
     def save[S](
         formData: ExpenseFormData,
@@ -341,7 +347,7 @@ object ExpenseList {
             case Right(validSplits) =>
               submit.begin()
               send(resolved, validSplits).onComplete {
-                case Success(_) => onSaved(); props.onRefresh()
+                case Success(_) => onSaved(); refetchExpenses()
                 case Failure(ex) => submit.fail(ex.getMessage)
               }
           }
@@ -449,57 +455,68 @@ object ExpenseList {
         formData: ExpenseFormData,
         disabled: Boolean,
         update: Update,
-        autoFocusAmount: Boolean = false
-    ): Seq[ReactElement] = Seq(
-      mui.Box.sx(new CSSPropertiesUtils { width = "140px" })(
-        AmountInput.component(
-          AmountInput.Props(
-            field = formData.amount,
-            disabled = disabled,
-            autoFocus = autoFocusAmount,
-            onChange = (value: ValidationResult[PositiveBigDecimal]) =>
-              update(cur => cur.copy(amount = cur.amount.updated(value)))
+        autoFocusAmount: Boolean = false,
+        stacked: Boolean = false
+    ): Seq[ReactElement] = {
+      // Stacked: one full-width input per line. Inline: compact fixed widths so the fields share a row.
+      def boxWidth(inline: String): String = if (stacked) "100%" else inline
+      def fill(input: ReactElement): ReactElement =
+        if (stacked) mui.Box.sx(new CSSPropertiesUtils { this.width = "100%" })(input) else input
+      Seq(
+        mui.Box.sx(new CSSPropertiesUtils { this.width = boxWidth("140px") })(
+          AmountInput.component(
+            AmountInput.Props(
+              field = formData.amount,
+              disabled = disabled,
+              autoFocus = autoFocusAmount,
+              onChange = (value: ValidationResult[PositiveBigDecimal]) =>
+                update(cur => cur.copy(amount = cur.amount.updated(value)))
+            )
           )
-        )
-      ),
-      mui.Box.sx(new CSSPropertiesUtils { width = "170px" })(
-        DateInput.component(
-          DateInput.Props(
-            field = formData.date,
-            disabled = disabled,
-            onChange =
-              (value: ValidationResult[ExpLocalDate]) => update(cur => cur.copy(date = cur.date.updated(value)))
+        ),
+        mui.Box.sx(new CSSPropertiesUtils { this.width = boxWidth("170px") })(
+          DateInput.component(
+            DateInput.Props(
+              field = formData.date,
+              disabled = disabled,
+              onChange =
+                (value: ValidationResult[ExpLocalDate]) => update(cur => cur.copy(date = cur.date.updated(value)))
+            )
           )
-        )
-      ),
-      OptionalTimeInput.component(
-        OptionalTimeInput.Props(
-          field = formData.time,
-          disabled = disabled,
-          onChange =
-            (value: ValidationResult[Option[ExpLocalTime]]) => update(cur => cur.copy(time = cur.time.updated(value)))
-        )
-      ),
-      mui.Box.sx(new CSSPropertiesUtils { minWidth = "160px" })(
-        OptionalIdSelectInput.component(
-          OptionalIdSelectInput.Props(
-            field = formData.merchantId,
-            options = props.merchants.data.map(m => m.id.toString -> m.name),
-            onChange = (value: ValidationResult[Option[UUID]]) =>
-              update(cur => cur.copy(merchantId = cur.merchantId.updated(value))),
-            disabled = disabled
+        ),
+        fill(
+          OptionalTimeInput.component(
+            OptionalTimeInput.Props(
+              field = formData.time,
+              disabled = disabled,
+              onChange = (value: ValidationResult[Option[ExpLocalTime]]) =>
+                update(cur => cur.copy(time = cur.time.updated(value)))
+            )
           )
-        )
-      ),
-      OptionalNotesInput.component(
-        OptionalNotesInput.Props(
-          field = formData.notes,
-          disabled = disabled,
-          onChange =
-            (value: ValidationResult[Option[ExpNotes]]) => update(cur => cur.copy(notes = cur.notes.updated(value)))
+        ),
+        mui.Box.sx(new CSSPropertiesUtils { if (stacked) this.width = "100%" else minWidth = "160px" })(
+          OptionalIdSelectInput.component(
+            OptionalIdSelectInput.Props(
+              field = formData.merchantId,
+              options = props.merchants.data.map(m => m.id.toString -> m.name),
+              onChange = (value: ValidationResult[Option[UUID]]) =>
+                update(cur => cur.copy(merchantId = cur.merchantId.updated(value))),
+              disabled = disabled
+            )
+          )
+        ),
+        fill(
+          OptionalNotesInput.component(
+            OptionalNotesInput.Props(
+              field = formData.notes,
+              disabled = disabled,
+              onChange =
+                (value: ValidationResult[Option[ExpNotes]]) => update(cur => cur.copy(notes = cur.notes.updated(value)))
+            )
+          )
         )
       )
-    )
+    }
 
     def splitRow(row: ExpenseSplitRow, disabled: Boolean, update: Update): ReactElement =
       mui.ListItem
@@ -558,9 +575,9 @@ object ExpenseList {
 
     // ── computed data ──────────────────────────────────────────────────────────
 
-    val sortedExpenses: List[GetExpenses.Response.Expense] = sortExpenses(props.expenses.data)
+    val sortedExpenses: List[GetExpenses.Response.Expense] = sortExpenses(currentExpenses.data)
     val mergeStateKey: String =
-      s"${props.expenses.data.size}|${deletedIds.map(_.toString).toList.sorted.mkString(",")}|" +
+      s"$refetchCount|${currentExpenses.data.size}|${deletedIds.map(_.toString).toList.sorted.mkString(",")}|" +
         mergedReceipts.map { case (s, r) => s"$s:$r" }.toList.sorted.mkString(",") + "|" +
         adoptedDetails.map { case (s, l) => s"$s:${l.id}" }.toList.sorted.mkString(",")
     val (visibleExpenses, allCandidates) = SafeHooks.useMemo(mergeStateKey) { () =>
@@ -744,11 +761,16 @@ object ExpenseList {
             Container(
               flexDirection = FlexDirection.column,
               child = Fragment(
+                mui.Box.sx(new CSSPropertiesUtils {
+                  display = "flex"; flexDirection = "column"; gap = "12px"; maxWidth = "480px"
+                })(
+                  formFields(createFormData, createSubmit.isSubmitting, updateCreate, stacked = true)*
+                ),
+                splitsSection(createFormData, createSubmit.isSubmitting, updateCreate),
                 Container(
                   flexDirection = FlexDirection.row,
                   alignItems = Container.Alignment.center,
                   child = Fragment(
-                    Fragment(formFields(createFormData, createSubmit.isSubmitting, updateCreate)*),
                     mui.Button
                       .normal()("Add")
                       .variant("contained")
@@ -762,7 +784,6 @@ object ExpenseList {
                       }
                   )
                 ),
-                splitsSection(createFormData, createSubmit.isSubmitting, updateCreate),
                 submitError(createSubmit)
               )
             )
