@@ -1,8 +1,9 @@
 package net.wiringbits.actions.bankstatements
 
 import net.wiringbits.api.models.bankstatements.BankStatementDraft
+import net.wiringbits.api.utils.BankStatementDraftLimits
 import net.wiringbits.repositories.BankStatementDraftRepository
-import net.wiringbits.services.{AiStatementExtractor, BankStatementDraftSources}
+import net.wiringbits.services.{BankStatementDraftReconciliation, BankStatementDraftSources}
 import play.api.libs.json.Json
 
 import java.time.Clock
@@ -23,7 +24,12 @@ class UpdateBankStatementDraftAction @Inject() (bankStatementDraftRepository: Ba
       existing <- bankStatementDraftRepository.findByIdForUser(id = draftId, userId = userId)
       draft = existing.getOrElse(throw new RuntimeException("Draft not found"))
       _ = if (draft.status != "ready") throw new RuntimeException("The draft is still being extracted")
-      recomputed = recompute(request.payload)
+      // Only growth past the cap is rejected, so an extracted draft already over it can still be edited and trimmed.
+      existingRows = draft.payload.map(Json.parse(_).as[BankStatementDraft.Payload].transactions.size).getOrElse(0)
+      newRows = request.payload.transactions.size
+      _ = if (newRows > BankStatementDraftLimits.MaxTransactions && newRows > existingRows)
+        throw new RuntimeException(s"A draft can have at most ${BankStatementDraftLimits.MaxTransactions} rows")
+      recomputed = BankStatementDraftReconciliation.recompute(request.payload)
       _ <- bankStatementDraftRepository.updatePayload(
         id = draftId,
         userId = userId,
@@ -38,18 +44,4 @@ class UpdateBankStatementDraftAction @Inject() (bankStatementDraftRepository: Ba
       None,
       Some(recomputed)
     )
-
-  private def recompute(payload: BankStatementDraft.Payload): BankStatementDraft.Payload = {
-    val r = AiStatementExtractor.reconcile(
-      openingBalance = payload.metadata.openingBalance,
-      closingBalance = payload.metadata.closingBalance,
-      payload.transactions.map(t => (t.amount, t.runningBalance))
-    )
-    // With no rows there is nothing to accept unverified.
-    payload.copy(
-      reconciled = r.reconciled,
-      discrepancy = r.discrepancy,
-      unverifiable = AiStatementExtractor.isTerminalUnverifiable(r.unverifiable, payload.transactions.size)
-    )
-  }
 }
