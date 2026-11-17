@@ -46,26 +46,27 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
       receiptId: Option[UUID],
       amount: BigDecimal,
       date: LocalDate,
-      merchantName: String,
+      merchantName: Option[String],
       category: Option[String],
       notes: Option[String]
-  ): Future[Either[Error, Unit]] =
-    validate(merchantName, amount, category = category, notes = notes) match {
+  ): Future[Either[Error, Unit]] = {
+    val normalizedMerchantName = merchantName.map(_.trim).filter(_.nonEmpty)
+    validate(merchantName = normalizedMerchantName, amount = amount, category = category, notes = notes) match {
       case Left(msg) => Future.successful(Left(Error.Invalid(msg)))
       case Right(()) =>
         expensesRepository.find(id = expenseId, userId = userId).flatMap {
           case None =>
             for {
-              merchantId <- merchantsRepository.createPendingIfAbsent(userId, merchantName)
+              merchantId <- resolveMerchant(userId, normalizedMerchantName)
               catIdOpt <- resolveCategory(userId, category)
               _ <- createExpense(
                 userId = userId,
                 expenseId = expenseId,
-                amount,
-                date,
+                amount = amount,
+                date = date,
                 merchantId = merchantId,
-                catIdOpt,
-                notes
+                catIdOpt = catIdOpt,
+                notes = notes
               )
               _ <- receiptId.fold(Future.unit)(rid =>
                 receiptRepository.linkToExpense(id = rid, userId = userId, expenseId = expenseId)
@@ -73,7 +74,7 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
               _ <- notifyTelegram(
                 userId = userId,
                 expenseId = expenseId,
-                merchantName = merchantName,
+                merchantName = normalizedMerchantName,
                 amount = amount,
                 date = date,
                 category = category
@@ -81,15 +82,15 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
             } yield Right(())
           case Some(existing) =>
             for {
-              merchantId <- merchantsRepository.createPendingIfAbsent(userId, merchantName)
+              merchantId <- resolveMerchant(userId, normalizedMerchantName)
               catIdOpt <- resolveCategory(userId, category)
               splits <- buildUpdateSplits(userId = userId, expenseId = expenseId, catIdOpt, amount)
               _ <- expensesRepository
-                .update(id = expenseId, userId = userId, amount, date, existing.time, Some(merchantId), notes, splits)
+                .update(id = expenseId, userId = userId, amount, date, existing.time, merchantId, notes, splits)
               _ <- notifyTelegram(
                 userId = userId,
                 expenseId = expenseId,
-                merchantName = merchantName,
+                merchantName = normalizedMerchantName,
                 amount = amount,
                 date = date,
                 category = category
@@ -97,20 +98,26 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
             } yield Right(())
         }
     }
+  }
 
   private def validate(
-      merchantName: String,
+      merchantName: Option[String],
       amount: BigDecimal,
       category: Option[String],
       notes: Option[String]
   ): Either[String, Unit] =
-    if (merchantName.isEmpty) Left("Merchant name must not be empty")
-    else if (merchantName.length > 100) Left("Merchant name must be 100 characters or less")
+    if (merchantName.exists(_.length > 100)) Left("Merchant name must be 100 characters or less")
     else if (category.exists(_.length > CategoryName.MaxLength))
       Left(s"Category name must be ${CategoryName.MaxLength} characters or less")
     else if (notes.exists(_.length > 500)) Left("Note must be 500 characters or less")
     else if (amount <= 0) Left("Amount must be positive")
     else Right(())
+
+  private def resolveMerchant(userId: UUID, merchantName: Option[String]): Future[Option[UUID]] =
+    merchantName match {
+      case None => Future.successful(None)
+      case Some(name) => merchantsRepository.createPendingIfAbsent(userId, name).map(Some(_))
+    }
 
   private def resolveCategory(userId: UUID, category: Option[String]): Future[Option[UUID]] =
     category match {
@@ -123,7 +130,7 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
       expenseId: UUID,
       amount: BigDecimal,
       date: LocalDate,
-      merchantId: UUID,
+      merchantId: Option[UUID],
       catIdOpt: Option[UUID],
       notes: Option[String]
   ): Future[Unit] = {
@@ -134,7 +141,7 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
       amount = amount,
       date = date,
       time = Some(LocalTime.now(clock)),
-      merchantId = Some(merchantId),
+      merchantId = merchantId,
       notes = notes,
       createdAt = now,
       updatedAt = now
@@ -191,7 +198,7 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
   private def notifyTelegram(
       userId: UUID,
       expenseId: UUID,
-      merchantName: String,
+      merchantName: Option[String],
       amount: BigDecimal,
       date: LocalDate,
       category: Option[String]
@@ -201,7 +208,9 @@ class UpsertTelegramWebAppExpenseAction @Inject() (
       .flatMap {
         case None => Future.unit
         case Some(tr) =>
-          val text = s"Expense saved: $merchantName · $amount · $date" + category.fold("")(c => s" · $c")
+          val text =
+            "Expense saved: " + (merchantName.toList ++ List(amount.toString, date.toString) ++ category)
+              .mkString(" · ")
           val editButton =
             TelegramApi.WebAppButton(
               label = "Edit",
