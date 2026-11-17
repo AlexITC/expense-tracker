@@ -30,12 +30,10 @@ object StatementCsvParser {
   private val RequiredColumns: List[String] = List(DateColumn, DescriptionColumn, AmountColumn)
   private val KnownColumns: List[String] = RequiredColumns ++ List(TxnTypeColumn, RunningBalanceColumn)
 
-  private val DecimalPattern: Regex = "[+-]?\\d+(\\.\\d+)?".r
-  // Statement amounts are stored as NUMERIC(12,2); anything wider would overflow or be rounded on confirm.
-  private val MaxIntegerDigits: Int = 10
-  private val MaxFractionDigits: Int = 2
-  private val BoundedDecimalPattern: Regex =
-    s"[+-]?\\d{1,$MaxIntegerDigits}(\\.\\d{1,$MaxFractionDigits})?".r
+  private val DecimalPattern: Regex = BankStatementDraftLimits.DecimalPattern
+  private val MaxIntegerDigits: Int = BankStatementDraftLimits.MaxAmountIntegerDigits
+  private val MaxFractionDigits: Int = BankStatementDraftLimits.MaxAmountFractionDigits
+  private val BoundedDecimalPattern: Regex = BankStatementDraftLimits.BoundedDecimalPattern
 
   private val Bom: String = "﻿"
 
