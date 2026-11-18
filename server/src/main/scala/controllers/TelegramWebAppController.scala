@@ -21,7 +21,7 @@ private case class UpsertExpenseRequest(
     receiptId: Option[UUID],
     amount: BigDecimal,
     date: LocalDate,
-    merchantName: String,
+    merchantName: Option[String],
     category: Option[String],
     notes: Option[String]
 )
@@ -151,9 +151,16 @@ class TelegramWebAppController @Inject() (
       amount <- Try((json \ "amount").as[BigDecimal]).toEither.left.map(_ => "Invalid or missing amount")
       dateStr <- Try((json \ "date").as[String]).toEither.left.map(_ => "Invalid or missing date")
       date <- Try(LocalDate.parse(dateStr)).toEither.left.map(_ => "Invalid date format, expected YYYY-MM-DD")
-      merchantName <- Try((json \ "merchantName").as[String]).toEither.left.map(_ => "Invalid or missing merchantName")
+      merchantName <- (json \ "merchantName").validateOpt[String].asEither.left.map(_ => "Invalid merchantName")
       receiptId = (json \ "receiptId").asOpt[String].flatMap(s => Try(UUID.fromString(s)).toOption)
       category = (json \ "category").asOpt[String]
       notes = (json \ "notes").asOpt[String]
-    } yield UpsertExpenseRequest(receiptId, amount, date, merchantName, category = category, notes = notes)
+    } yield UpsertExpenseRequest(
+      receiptId = receiptId,
+      amount = amount,
+      date = date,
+      merchantName = merchantName,
+      category = category,
+      notes = notes
+    )
 }

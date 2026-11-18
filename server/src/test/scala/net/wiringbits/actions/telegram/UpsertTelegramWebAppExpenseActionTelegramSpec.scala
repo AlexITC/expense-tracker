@@ -64,7 +64,7 @@ class UpsertTelegramWebAppExpenseActionTelegramSpec extends RepositorySpec with 
       receiptId: Option[UUID],
       amount: BigDecimal,
       date: LocalDate,
-      merchantName: String,
+      merchantName: Option[String],
       category: Option[String] = None
   ) =
     action(
@@ -93,7 +93,7 @@ class UpsertTelegramWebAppExpenseActionTelegramSpec extends RepositorySpec with 
           receiptId = Some(doc.receiptId),
           amount = BigDecimal("12.50"),
           date = LocalDate.of(2026, 1, 15),
-          merchantName = "Coffee Shop",
+          merchantName = Some("Coffee Shop"),
           category = Some("Food")
         )
 
@@ -113,6 +113,33 @@ class UpsertTelegramWebAppExpenseActionTelegramSpec extends RepositorySpec with 
         storedMessageId(doc) must be(Some(messageId))
     }
 
+    "leave the merchant out of the message when no merchant is given" in withRepositories() { implicit repositories =>
+      val doc = createTelegramReceipt(None)
+      val expenseId = UUID.randomUUID()
+      val telegramApi = new FakeTelegramApi()(using executionContext)
+
+      val result = upsert(
+        newAction(telegramApi),
+        userId = doc.userId,
+        expenseId = expenseId,
+        receiptId = Some(doc.receiptId),
+        amount = BigDecimal("8"),
+        date = LocalDate.of(2026, 2, 1),
+        merchantName = None
+      )
+
+      result must be(Right(()))
+      telegramApi.sent must be(
+        List(
+          FakeTelegramApi.Sent(
+            chatId = doc.chatId,
+            text = "Expense saved: 8 · 2026-02-01",
+            button = editButton(expenseId)
+          )
+        )
+      )
+    }
+
     "edit the same stored message again when the expense is updated" in withRepositories() { implicit repositories =>
       val messageId = RandomData.randomTelegramUserId()
       val doc = createTelegramReceipt(Some(messageId))
@@ -124,7 +151,7 @@ class UpsertTelegramWebAppExpenseActionTelegramSpec extends RepositorySpec with 
         receiptId = Some(doc.receiptId),
         amount = BigDecimal("10"),
         date = LocalDate.of(2026, 3, 1),
-        merchantName = "Restaurant"
+        merchantName = Some("Restaurant")
       )
       val telegramApi = new FakeTelegramApi()(using executionContext)
 
@@ -135,7 +162,7 @@ class UpsertTelegramWebAppExpenseActionTelegramSpec extends RepositorySpec with 
         receiptId = None,
         amount = BigDecimal("20"),
         date = LocalDate.of(2026, 3, 5),
-        merchantName = "Restaurant"
+        merchantName = Some("Restaurant")
       )
 
       result must be(Right(()))
@@ -167,7 +194,7 @@ class UpsertTelegramWebAppExpenseActionTelegramSpec extends RepositorySpec with 
           receiptId = Some(doc.receiptId),
           amount = BigDecimal("20"),
           date = LocalDate.of(2026, 3, 5),
-          merchantName = "Restaurant"
+          merchantName = Some("Restaurant")
         )
 
         result must be(Right(()))
@@ -197,7 +224,7 @@ class UpsertTelegramWebAppExpenseActionTelegramSpec extends RepositorySpec with 
           receiptId = Some(doc.receiptId),
           amount = BigDecimal("8"),
           date = LocalDate.of(2026, 2, 1),
-          merchantName = "Bakery"
+          merchantName = Some("Bakery")
         )
 
         result must be(Right(()))
@@ -226,7 +253,7 @@ class UpsertTelegramWebAppExpenseActionTelegramSpec extends RepositorySpec with 
         receiptId = Some(doc.receiptId),
         amount = BigDecimal("8"),
         date = LocalDate.of(2026, 2, 1),
-        merchantName = "Bakery"
+        merchantName = Some("Bakery")
       )
 
       result must be(Right(()))
@@ -251,7 +278,7 @@ class UpsertTelegramWebAppExpenseActionTelegramSpec extends RepositorySpec with 
         receiptId = Some(doc.receiptId),
         amount = BigDecimal("20"),
         date = LocalDate.of(2026, 3, 5),
-        merchantName = "Restaurant"
+        merchantName = Some("Restaurant")
       )
 
       result must be(Right(()))
