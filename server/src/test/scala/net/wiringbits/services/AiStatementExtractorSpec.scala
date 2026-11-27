@@ -99,6 +99,85 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
     }
   }
 
+  "parseAndVerify sign convention" should {
+    "reconcile a correctly-signed debit statement with a running-balance chain" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":-40.00,"description":"A","runningBalance":60.00}
+          | ]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(true)
+      r.discrepancy must be(None)
+    }
+
+    "reconcile a correctly-signed debit statement without running balances" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[{"date":"2026-01-01","amount":-40.00,"description":"A"}]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(true)
+      r.discrepancy must be(None)
+    }
+
+    "keep the broken-chain message for a debit chain that fails in both conventions" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":50.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":-40.00,"description":"A","runningBalance":50.00}
+          | ]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
+      r.discrepancy.getOrElse("") must include("does not add up")
+      r.discrepancy.getOrElse("") must not include "opposite sign"
+    }
+
+    "not reconcile a sign-inverted debit statement with a running-balance chain" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":40.00,"description":"A","runningBalance":60.00}
+          | ]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
+      r.discrepancy.getOrElse("") must include("opposite sign")
+    }
+
+    "not reconcile a sign-inverted debit statement without running balances" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[{"date":"2026-01-01","amount":40.00,"description":"A"}]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
+      r.discrepancy.getOrElse("") must include("opposite sign")
+    }
+
+    "reconcile the same inverted data for a credit statement" in {
+      val chained =
+        """{"metadata":{"productType":"credit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":40.00,"description":"A","runningBalance":60.00}
+          | ]}""".stripMargin
+      val net =
+        """{"metadata":{"productType":"credit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[{"date":"2026-01-01","amount":40.00,"description":"A"}]}""".stripMargin
+      ok(chained).reconciled must be(true)
+      ok(net).reconciled must be(true)
+    }
+
+    "keep the existing message for a debit statement that is off in both conventions" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[{"date":"2026-01-01","amount":30.00,"description":"A"}]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(false)
+      r.discrepancy.getOrElse("") must include("off by")
+    }
+  }
+
   "parseAndVerify unverifiable flag" should {
     "carry the unverifiable outcome into the result" in {
       val json =
@@ -112,7 +191,7 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
 
   "reconcile" should {
     "report no balances and no running-balance chain as unverifiable" in {
-      val r = AiStatementExtractor.reconcile(None, None, List((BigDecimal("-10.00"), None)))
+      val r = AiStatementExtractor.reconcile(None, None, None, List((BigDecimal("-10.00"), None)))
       r.reconciled must be(false)
       r.unverifiable must be(true)
       r.discrepancy must be(
@@ -122,6 +201,7 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
 
     "report a partial running-balance chain without both balances as unverifiable" in {
       val r = AiStatementExtractor.reconcile(
+        None,
         Some(BigDecimal("100.00")),
         None,
         List((BigDecimal("-10.00"), Some(BigDecimal("90.00"))), (BigDecimal("-10.00"), None))
@@ -132,6 +212,7 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
 
     "not report a broken running-balance chain as unverifiable" in {
       val r = AiStatementExtractor.reconcile(
+        None,
         Some(BigDecimal("100.00")),
         Some(BigDecimal("30.00")),
         List((BigDecimal("-40.00"), Some(BigDecimal("60.00"))), (BigDecimal("-20.00"), Some(BigDecimal("30.00"))))
@@ -145,6 +226,7 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
 
     "not report an opening/closing mismatch as unverifiable" in {
       val r = AiStatementExtractor.reconcile(
+        None,
         Some(BigDecimal("100.00")),
         Some(BigDecimal("60.00")),
         List((BigDecimal("-30.00"), None))
@@ -156,6 +238,7 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
 
     "reconcile a chain whose last running balance equals the closing balance" in {
       val r = AiStatementExtractor.reconcile(
+        None,
         Some(BigDecimal("100.00")),
         Some(BigDecimal("60.00")),
         List((BigDecimal("-40.00"), Some(BigDecimal("60.00"))))
@@ -166,6 +249,7 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
 
     "reconcile a chain whose last running balance is the negated closing balance" in {
       val r = AiStatementExtractor.reconcile(
+        None,
         Some(BigDecimal("-100.00")),
         Some(BigDecimal("60.00")),
         List((BigDecimal("40.00"), Some(BigDecimal("-60.00"))))
@@ -175,13 +259,36 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
     }
 
     "not reconcile an empty draft, even when opening and closing balances match" in {
-      val r = AiStatementExtractor.reconcile(Some(BigDecimal("100.00")), Some(BigDecimal("100.00")), Nil)
+      val r = AiStatementExtractor.reconcile(None, Some(BigDecimal("100.00")), Some(BigDecimal("100.00")), Nil)
       r.reconciled must be(false)
       r.unverifiable must be(false)
     }
 
+    "not reconcile sign-inverted rows for a debit account" in {
+      val r = AiStatementExtractor.reconcile(
+        Some(ProductType.Debit),
+        Some(BigDecimal("100.00")),
+        Some(BigDecimal("60.00")),
+        List((BigDecimal("40.00"), Some(BigDecimal("60.00"))))
+      )
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
+      r.discrepancy.getOrElse("") must include("opposite sign")
+    }
+
+    "reconcile sign-inverted rows when the product type is unknown" in {
+      val r = AiStatementExtractor.reconcile(
+        None,
+        Some(BigDecimal("100.00")),
+        Some(BigDecimal("60.00")),
+        List((BigDecimal("40.00"), None))
+      )
+      r.reconciled must be(true)
+    }
+
     "not report a reconciled draft as unverifiable" in {
       val r = AiStatementExtractor.reconcile(
+        None,
         Some(BigDecimal("100.00")),
         Some(BigDecimal("60.00")),
         List((BigDecimal("-40.00"), None))

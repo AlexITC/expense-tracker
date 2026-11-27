@@ -140,6 +140,7 @@ class ConfirmBankStatementDraftAction @Inject() (
     */
   private def requireReconciled(payload: BankStatementDraft.Payload, acceptUnverified: Boolean): Boolean = {
     val r = AiStatementExtractor.reconcile(
+      productType = payload.metadata.productType.flatMap(AiStatementExtractor.parseProductType),
       openingBalance = payload.metadata.openingBalance,
       closingBalance = payload.metadata.closingBalance,
       payload.transactions.map(t => (t.amount, t.runningBalance))

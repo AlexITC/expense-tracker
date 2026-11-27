@@ -52,5 +52,34 @@ class ConfirmBankStatementDraftActionSpec extends RepositorySpec with Repository
 
       repositories.bankStatementDrafts.findByIdForUser(draft.id, user.id).futureValue.isDefined must be(true)
     }
+
+    "reject a debit draft whose rows have the opposite sign and keep the draft" in withRepositories() {
+      implicit repositories =>
+        val user = createUser().futureValue
+        val draft = createBankStatementDraft(user.id, sha256 = UUID.randomUUID().toString).futureValue
+        val payload = BankStatementDraft.Payload(
+          metadata = metadata.copy(productType = Some(" debit "), closingBalance = Some(BigDecimal("60.00"))),
+          transactions = List(
+            BankStatementDraft.Transaction(
+              LocalDate.of(2026, 1, 5),
+              BigDecimal("40.00"),
+              "TEST MERCHANT",
+              Some("purchase"),
+              Some(BigDecimal("60.00"))
+            )
+          ),
+          reconciled = true,
+          discrepancy = None,
+          model = "test-model",
+          stage = None,
+          unverifiable = false
+        )
+        repositories.bankStatementDrafts.markReady(draft.id, Json.toJson(payload).toString, Instant.now()).futureValue
+
+        val error = action(draft.id, user.id, acceptWarnings = true, acceptUnverified = true).failed.futureValue
+        error.getMessage must include("opposite sign")
+
+        repositories.bankStatementDrafts.findByIdForUser(draft.id, user.id).futureValue.isDefined must be(true)
+    }
   }
 }

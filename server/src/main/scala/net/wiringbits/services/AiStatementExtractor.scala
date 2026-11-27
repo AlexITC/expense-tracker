@@ -131,10 +131,14 @@ object AiStatementExtractor {
         }
       }
 
+  /** Map a draft's stored product type to the enum; an unknown value maps to None. */
+  def parseProductType(s: String): Option[ProductType] = ProductType.values.find(_.entryName == s.trim)
+
   /** Re-check reconciliation for an (edited) draft, from the balances and each row's amount + optional running balance.
     * Reuses the same rule as extraction so a user's edits are held to the same arithmetic gate.
     */
   def reconcile(
+      productType: Option[ProductType],
       openingBalance: Option[BigDecimal],
       closingBalance: Option[BigDecimal],
       rows: List[(BigDecimal, Option[BigDecimal])]
@@ -144,7 +148,7 @@ object AiStatementExtractor {
       verify(
         Meta(
           bankName = None,
-          productType = None,
+          productType = productType,
           currency = None,
           accountLast4 = None,
           periodStart = None,
@@ -157,12 +161,20 @@ object AiStatementExtractor {
     Reconciliation(reconciled = v.reconciled, unverifiable = v.unverifiable, discrepancy = v.discrepancy)
   }
 
+  private val OppositeSignForDebit =
+    "The amounts have the opposite sign for a debit account: charges must be negative and deposits positive."
+
   private def verify(meta: Meta, txns: List[Txn]): Verification = {
     val sumAll = txns.map(_.amount).foldLeft(BigDecimal(0))(_ + _)
+    // A debit account has a known convention (charges negative, balance = opening + sum); credit or unknown accepts
+    // either sign.
+    val isDebit = meta.productType.contains(ProductType.Debit)
 
     val chain: Option[Boolean] = meta.openingBalance
       .filter(_ => txns.forall(_.runningBalance.isDefined))
-      .map(o => chainHolds(o, txns, sign = 1) || chainHolds(o, txns, sign = -1))
+      .map(o => chainHolds(o, txns, sign = 1) || (!isDebit && chainHolds(o, txns, sign = -1)))
+    lazy val chainInverted: Boolean =
+      isDebit && meta.openingBalance.exists(o => chainHolds(o, txns, sign = -1))
 
     if (txns.isEmpty)
       Verification(
@@ -188,6 +200,8 @@ object AiStatementExtractor {
                 )
             case _ => Verification(reconciled = true, unverifiable = false, None, Some(BigDecimal(0)))
           }
+        case Some(false) if chainInverted =>
+          Verification(reconciled = false, unverifiable = false, Some(OppositeSignForDebit), None)
         case Some(false) =>
           Verification(
             reconciled = false,
@@ -200,10 +214,14 @@ object AiStatementExtractor {
         case None =>
           (meta.openingBalance, meta.closingBalance) match {
             case (Some(o), Some(c)) =>
-              // Accept either balance-sign convention (debit: c-o; credit/owed: o-c).
-              val missing = List(sumAll - (c - o), sumAll - (o - c)).minBy(_.abs)
+              // Debit: c-o only. Credit/unknown: either balance-sign convention (c-o or o-c).
+              val debitGap = sumAll - (c - o)
+              val oppositeGap = sumAll - (o - c)
+              val missing = if (isDebit) debitGap else List(debitGap, oppositeGap).minBy(_.abs)
               if (missing.abs < Tolerance)
                 Verification(reconciled = true, unverifiable = false, None, Some(missing.abs))
+              else if (isDebit && oppositeGap.abs < Tolerance)
+                Verification(reconciled = false, unverifiable = false, Some(OppositeSignForDebit), Some(missing.abs))
               else
                 Verification(
                   reconciled = false,

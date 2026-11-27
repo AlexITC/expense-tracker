@@ -222,5 +222,22 @@ class UpdateBankStatementDraftActionSpec extends RepositorySpec with RepositoryU
         result.discrepancy must be(None)
         storedPayload(draftId) must be(result)
     }
+
+    "not reconcile a debit payload whose rows have the opposite sign" in withRepositories() { implicit repositories =>
+      val (userId, draftId) = readyDraft(payload(emptyMetadata, rows(1)))
+      val metadata = emptyMetadata.copy(
+        productType = Some("debit"),
+        openingBalance = Some(BigDecimal("100.00")),
+        closingBalance = Some(BigDecimal("60.00"))
+      )
+      val edited = payload(metadata, List(txn("40.00", Some("60.00")))).copy(reconciled = true)
+
+      val result = action(draftId, userId, BankStatementDraft.Update.Request(edited)).futureValue.payload.value
+
+      result.reconciled must be(false)
+      result.unverifiable must be(false)
+      result.discrepancy.value must include("opposite sign")
+      storedPayload(draftId) must be(result)
+    }
   }
 }
