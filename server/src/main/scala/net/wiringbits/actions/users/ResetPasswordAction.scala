@@ -4,6 +4,7 @@ import net.wiringbits.api.models.users.ResetPassword
 import net.wiringbits.common.models.Password
 import net.wiringbits.config.UserTokensConfig
 import net.wiringbits.repositories.{UserTokensRepository, UsersRepository}
+import net.wiringbits.repositories.models.UserTokenType
 import net.wiringbits.util.PasswordHasher
 import net.wiringbits.util.{EmailMessage, TokensHelper}
 import net.wiringbits.validations.ValidateUserToken
@@ -28,7 +29,7 @@ class ResetPasswordAction @Inject() (
     val hmacToken = TokensHelper.doHMACSHA1(token.toString.getBytes, userTokensConfig.hmacSecret)
     for {
       // When the token valid
-      tokenMaybe <- userTokensRepository.find(userId, hmacToken)
+      tokenMaybe <- userTokensRepository.find(userId, hmacToken, UserTokenType.ResetPassword)
       token = tokenMaybe.getOrElse(throw new RuntimeException(s"Token for user $userId wasn't found"))
       _ = ValidateUserToken(token)
 

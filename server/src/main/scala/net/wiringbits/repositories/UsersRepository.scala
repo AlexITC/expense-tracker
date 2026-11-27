@@ -86,6 +86,7 @@ class UsersRepository @Inject() (
       UsersDAO.resetPassword(userId, password)
       val request = UserLog.CreateUserLog(userLogId = UUID.randomUUID(), userId = userId, "Password was updated")
       UserLogsDAO.create(request)
+      UserTokensDAO.deleteAll(userId)
       sendEmailLater(userId, emailMessage)
     }
   }
@@ -110,6 +111,7 @@ class UsersRepository @Inject() (
       UsersDAO.resetPassword(userId, password)
       val request = UserLog.CreateUserLog(userLogId = UUID.randomUUID(), userId = userId, "Password was reset")
       UserLogsDAO.create(request)
+      UserTokensDAO.deleteAll(userId)
       sendEmailLater(userId, emailMessage)
     }
   }

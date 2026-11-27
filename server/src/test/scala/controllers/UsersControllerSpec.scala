@@ -9,7 +9,7 @@ import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
 import net.wiringbits.common.models.*
 import net.wiringbits.config.UserTokensConfig
 import net.wiringbits.repositories.UserTokensRepository
-import net.wiringbits.repositories.models.UserTokenType
+import net.wiringbits.repositories.models.{UserTokenType, UserToken as DbUserToken}
 import net.wiringbits.util.{TokenGenerator, TokensHelper}
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.*
@@ -119,6 +119,30 @@ class UsersControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoS
         .expectError
 
       error must be(s"User email is already verified")
+    }
+
+    "fail when the token is a reset password token" in withApiClient { implicit client =>
+      val user = createUser().futureValue
+
+      val resetToken = UUID.randomUUID()
+      userTokensRepository
+        .create(
+          DbUserToken.Create(
+            id = UUID.randomUUID(),
+            token = createHMACToken(resetToken),
+            tokenType = UserTokenType.ResetPassword,
+            createdAt = Instant.now(),
+            expiresAt = Instant.now().plus(1, ChronoUnit.DAYS),
+            userId = user.id
+          )
+        )
+        .futureValue
+
+      val error = client
+        .verifyEmail(VerifyEmail.Request(UserToken(user.id, resetToken)))
+        .expectError
+
+      error must be(s"Token for user ${user.id} wasn't found")
     }
   }
 
@@ -250,6 +274,52 @@ class UsersControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoS
           .expectError
 
         error must be("The given email/password doesn't match")
+    }
+
+    "fail when the same reset token is used twice" in withApiClient { implicit client =>
+      val email = randomEmail()
+      val user = createVerifyLoginUser(tokenGenerator, emailMaybe = Some(email)).futureValue
+
+      val resetToken = UUID.randomUUID()
+      when(tokenGenerator.next()).thenReturn(resetToken)
+      client.forgotPassword(ForgotPassword.Request(email, Captcha.trusted("test"))).futureValue
+
+      val resetPasswordRequest = ResetPassword.Request(UserToken(user.id, resetToken), Password.trusted("test456..."))
+      client.resetPassword(resetPasswordRequest).futureValue
+
+      val error = client.resetPassword(resetPasswordRequest).expectError
+      error must be(s"Token for user ${user.id} wasn't found")
+    }
+
+    "fail when the token is an email verification token" in withApiClient { implicit client =>
+      val verificationToken = UUID.randomUUID()
+      when(tokenGenerator.next()).thenReturn(verificationToken)
+      val user = createUser().futureValue
+
+      val error = client
+        .resetPassword(ResetPassword.Request(UserToken(user.id, verificationToken), Password.trusted("test456...")))
+        .expectError
+
+      error must be(s"Token for user ${user.id} wasn't found")
+    }
+
+    "delete every outstanding token of the user" in withApiClient { implicit client =>
+      val email = randomEmail()
+      val user = createVerifyLoginUser(tokenGenerator, emailMaybe = Some(email)).futureValue
+
+      val resetToken = UUID.randomUUID()
+      when(tokenGenerator.next()).thenReturn(resetToken)
+      client.forgotPassword(ForgotPassword.Request(email, Captcha.trusted("test"))).futureValue
+
+      when(tokenGenerator.next()).thenReturn(UUID.randomUUID())
+      client.forgotPassword(ForgotPassword.Request(email, Captcha.trusted("test"))).futureValue
+      userTokensRepository.find(user.id).futureValue.size must be(2)
+
+      client
+        .resetPassword(ResetPassword.Request(UserToken(user.id, resetToken), Password.trusted("test456...")))
+        .futureValue
+
+      userTokensRepository.find(user.id).futureValue must be(empty)
     }
   }
 

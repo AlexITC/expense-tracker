@@ -141,6 +141,18 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       sendEmailJobsOf(request.email).map(_.`type`) must be(List(BackgroundJobType.SendEmail))
     }
 
+    "remove every token of the user, keeping other users' tokens" in withRepositories() { implicit repositories =>
+      val request = createUser().futureValue
+      createToken(request.id).futureValue
+      val other = createUser().futureValue
+      createToken(other.id).futureValue
+
+      repositories.users.updatePassword(request.id, "test", EmailMessage.updatePassword(request.name)).futureValue
+
+      repositories.userTokens.find(request.id).futureValue must be(empty)
+      repositories.userTokens.find(other.id).futureValue.size must be(2)
+    }
+
     "fail when the user doesn't exist" in withRepositories() { repositories =>
       val name = Name.trusted("test")
       val ex = intercept[RuntimeException] {
@@ -197,6 +209,18 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       repositories.users.resetPassword(request.id, newPassword, EmailMessage.resetPassword(request.name)).futureValue
 
       sendEmailJobsOf(request.email).map(_.`type`) must be(List(BackgroundJobType.SendEmail))
+    }
+
+    "remove every token of the user, keeping other users' tokens" in withRepositories() { implicit repositories =>
+      val request = createUser().futureValue
+      createToken(request.id).futureValue
+      val other = createUser().futureValue
+      createToken(other.id).futureValue
+
+      repositories.users.resetPassword(request.id, "test", EmailMessage.resetPassword(request.name)).futureValue
+
+      repositories.userTokens.find(request.id).futureValue must be(empty)
+      repositories.userTokens.find(other.id).futureValue.size must be(2)
     }
 
     "fail when the user doesn't exist" in withRepositories() { repositories =>
