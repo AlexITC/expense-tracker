@@ -85,6 +85,44 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
       AiStatementExtractor.parseAndVerify("""{"metadata":{},"transactions":[]}""", model).isLeft must be(true)
     }
 
+    "return Left naming the row when one transaction is malformed" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":40.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":-30.00,"description":"A"},
+          |   {"date":"2026-01-02","description":"B"},
+          |   {"date":"2026-01-03","amount":-30.00,"description":"C"}
+          | ]}""".stripMargin
+      AiStatementExtractor.parseAndVerify(json, model) must be(
+        Left("Transaction 2 is malformed: missing or invalid amount")
+      )
+    }
+
+    "return Left when a running balance is not numeric" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":-40.00,"description":"A","runningBalance":"sixty"}
+          | ]}""".stripMargin
+      AiStatementExtractor.parseAndVerify(json, model) must be(
+        Left("Transaction 1 is malformed: missing or invalid runningBalance")
+      )
+    }
+
+    "parse every row of a valid statement, with null optional fields" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":40.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":-30.00,"description":"A","runningBalance":70.00,"type":"purchase"},
+          |   {"date":"2026-01-02","amount":-20.00,"description":"B","runningBalance":null,"type":null},
+          |   {"date":"2026-01-03","amount":-10.00,"description":"C"}
+          | ]}""".stripMargin
+      val r = ok(json)
+      r.transactions.map(_.description) must be(List("A", "B", "C"))
+      r.transactions.map(_.txnType) must be(List(Some("purchase"), None, None))
+      r.reconciled must be(true)
+    }
+
     "return Left on invalid JSON" in {
       AiStatementExtractor.parseAndVerify("not json at all", model).isLeft must be(true)
     }

@@ -85,51 +85,61 @@ object AiStatementExtractor {
     Try(Json.parse(extractJsonObject(rawJson))).toEither.left
       .map(e => s"Model did not return valid JSON: ${e.getMessage}")
       .flatMap { json =>
-        val txns = (json \ "transactions").asOpt[List[JsValue]].getOrElse(Nil).flatMap { t =>
-          for {
-            date <- (t \ "date").asOpt[LocalDate]
-            amount <- (t \ "amount").asOpt[BigDecimal]
-            description <- (t \ "description").asOpt[String]
-          } yield Txn(
-            date,
-            amount,
-            cleanDescription(description),
-            (t \ "runningBalance").asOpt[BigDecimal],
-            (t \ "type").asOpt[String]
-          )
-        }
-        if (txns.isEmpty) Left("The model extracted no transactions")
-        else {
-          val m = json \ "metadata"
-          val (periodStart, periodEnd) = resolvePeriod(
-            start = (m \ "periodStart").asOpt[LocalDate],
-            end = (m \ "periodEnd").asOpt[LocalDate],
-            (m \ "periodMonth").asOpt[String]
-          )
-          val meta = Meta(
-            bankName = (m \ "bankName").asOpt[String],
-            productType = (m \ "productType").asOpt[ProductType],
-            currency = (m \ "currency").asOpt[String],
-            accountLast4 = (m \ "accountLast4").asOpt[String],
-            periodStart = periodStart,
-            periodEnd = periodEnd,
-            openingBalance = (m \ "openingBalance").asOpt[BigDecimal],
-            closingBalance = (m \ "closingBalance").asOpt[BigDecimal]
-          )
-          val v = verify(meta, txns)
-          Right(
-            ExtractionResult(
-              v.reconciled,
-              v.discrepancy,
-              model,
-              txns,
-              meta,
-              v.residual,
-              unverifiable = v.unverifiable
-            )
-          )
-        }
+        val rows = (json \ "transactions").asOpt[List[JsValue]].getOrElse(Nil)
+        rows.zipWithIndex
+          .foldRight[Either[String, List[Txn]]](Right(Nil)) { case ((t, i), acc) =>
+            parseTxn(t, i + 1).flatMap(txn => acc.map(txn :: _))
+          }
+          .flatMap(txns => buildResult(json, txns, model))
       }
+
+  private def parseTxn(t: JsValue, n: Int): Either[String, Txn] = {
+    def malformed(field: String) = s"Transaction $n is malformed: missing or invalid $field"
+    def required[A: Reads](field: String): Either[String, A] =
+      (t \ field).asOpt[A].toRight(malformed(field))
+    def optional[A: Reads](field: String): Either[String, Option[A]] =
+      (t \ field).validateOpt[A].asOpt.toRight(malformed(field))
+    for {
+      date <- required[LocalDate]("date")
+      amount <- required[BigDecimal]("amount")
+      description <- required[String]("description")
+      runningBalance <- optional[BigDecimal]("runningBalance")
+      txnType <- optional[String]("type")
+    } yield Txn(date, amount, cleanDescription(description), runningBalance, txnType)
+  }
+
+  private def buildResult(json: JsValue, txns: List[Txn], model: String): Either[String, ExtractionResult] =
+    if (txns.isEmpty) Left("The model extracted no transactions")
+    else {
+      val m = json \ "metadata"
+      val (periodStart, periodEnd) = resolvePeriod(
+        start = (m \ "periodStart").asOpt[LocalDate],
+        end = (m \ "periodEnd").asOpt[LocalDate],
+        (m \ "periodMonth").asOpt[String]
+      )
+      val meta = Meta(
+        bankName = (m \ "bankName").asOpt[String],
+        productType = (m \ "productType").asOpt[ProductType],
+        currency = (m \ "currency").asOpt[String],
+        accountLast4 = (m \ "accountLast4").asOpt[String],
+        periodStart = periodStart,
+        periodEnd = periodEnd,
+        openingBalance = (m \ "openingBalance").asOpt[BigDecimal],
+        closingBalance = (m \ "closingBalance").asOpt[BigDecimal]
+      )
+      val v = verify(meta, txns)
+      Right(
+        ExtractionResult(
+          v.reconciled,
+          v.discrepancy,
+          model,
+          txns,
+          meta,
+          v.residual,
+          unverifiable = v.unverifiable
+        )
+      )
+    }
 
   /** Map a draft's stored product type to the enum; an unknown value maps to None. */
   def parseProductType(s: String): Option[ProductType] = ProductType.values.find(_.entryName == s.trim)
