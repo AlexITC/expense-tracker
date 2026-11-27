@@ -9,6 +9,9 @@ object BankStatementDraftLimits {
   val MaxProductTypeLength: Int = 20
   val MaxCurrencyLength: Int = 3
   val MaxAccountLast4Length: Int = 4
+
+  /** The transaction types the extraction prompt and the review UI use. */
+  val TxnTypes: List[String] = List("purchase", "payment", "fee", "interest", "refund")
   val MaxCsvBytes: Int = 2 * 1024 * 1024
   val MaxFilenameLength: Int = 255
 

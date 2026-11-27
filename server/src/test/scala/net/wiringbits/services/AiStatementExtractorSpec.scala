@@ -28,6 +28,24 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
       r.metadata.productType must be(Some(ProductType.Debit))
     }
 
+    "reject an amount with more than 2 decimal places" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":87.66},
+          | "transactions":[{"date":"2026-01-01","amount":-12.345,"description":"A"}]}""".stripMargin
+      AiStatementExtractor.parseAndVerify(json, model) must be(
+        Left("Row 1: amount -12.345 has more than 2 decimal places")
+      )
+    }
+
+    "reject an unknown product type instead of dropping it" in {
+      val json =
+        """{"metadata":{"productType":"savings","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[{"date":"2026-01-01","amount":-40.00,"description":"A"}]}""".stripMargin
+      AiStatementExtractor.parseAndVerify(json, model) must be(
+        Left("Product type savings is not one of credit, debit")
+      )
+    }
+
     "reconcile a credit statement by opening/closing, sign-agnostic (no per-row balance)" in {
       val json =
         """{"metadata":{"productType":"credit","openingBalance":1484.73,"closingBalance":1689.69},
@@ -55,6 +73,18 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
       ok(json).reconciled must be(false)
     }
 
+    "not reconcile a valid chain whose last running balance misses the closing balance" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":10.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":-40.00,"description":"A","runningBalance":60.00}
+          | ]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
+      r.discrepancy.isDefined must be(true)
+    }
+
     "strip markdown fences around the JSON" in {
       val json =
         "```json\n{\"metadata\":{},\"transactions\":[{\"date\":\"2026-01-01\",\"amount\":-5.00,\"description\":\"x\"}]}\n```"
@@ -73,6 +103,44 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
       AiStatementExtractor.parseAndVerify("""{"metadata":{},"transactions":[]}""", model).isLeft must be(true)
     }
 
+    "return Left naming the row when one transaction is malformed" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":40.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":-30.00,"description":"A"},
+          |   {"date":"2026-01-02","description":"B"},
+          |   {"date":"2026-01-03","amount":-30.00,"description":"C"}
+          | ]}""".stripMargin
+      AiStatementExtractor.parseAndVerify(json, model) must be(
+        Left("Transaction 2 is malformed: missing or invalid amount")
+      )
+    }
+
+    "return Left when a running balance is not numeric" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":-40.00,"description":"A","runningBalance":"sixty"}
+          | ]}""".stripMargin
+      AiStatementExtractor.parseAndVerify(json, model) must be(
+        Left("Transaction 1 is malformed: missing or invalid runningBalance")
+      )
+    }
+
+    "parse every row of a valid statement, with null optional fields" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":40.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":-30.00,"description":"A","runningBalance":70.00,"type":"purchase"},
+          |   {"date":"2026-01-02","amount":-20.00,"description":"B","runningBalance":null,"type":null},
+          |   {"date":"2026-01-03","amount":-10.00,"description":"C"}
+          | ]}""".stripMargin
+      val r = ok(json)
+      r.transactions.map(_.description) must be(List("A", "B", "C"))
+      r.transactions.map(_.txnType) must be(List(Some("purchase"), None, None))
+      r.reconciled must be(true)
+    }
+
     "return Left on invalid JSON" in {
       AiStatementExtractor.parseAndVerify("not json at all", model).isLeft must be(true)
     }
@@ -84,6 +152,85 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
       val r = ok(json)
       r.reconciled must be(false)
       r.residual must be(Some(BigDecimal("10.00")))
+    }
+  }
+
+  "parseAndVerify sign convention" should {
+    "reconcile a correctly-signed debit statement with a running-balance chain" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":-40.00,"description":"A","runningBalance":60.00}
+          | ]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(true)
+      r.discrepancy must be(None)
+    }
+
+    "reconcile a correctly-signed debit statement without running balances" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[{"date":"2026-01-01","amount":-40.00,"description":"A"}]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(true)
+      r.discrepancy must be(None)
+    }
+
+    "keep the broken-chain message for a debit chain that fails in both conventions" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":50.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":-40.00,"description":"A","runningBalance":50.00}
+          | ]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
+      r.discrepancy.getOrElse("") must include("does not add up")
+      r.discrepancy.getOrElse("") must not include "opposite sign"
+    }
+
+    "not reconcile a sign-inverted debit statement with a running-balance chain" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":40.00,"description":"A","runningBalance":60.00}
+          | ]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
+      r.discrepancy.getOrElse("") must include("opposite sign")
+    }
+
+    "not reconcile a sign-inverted debit statement without running balances" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[{"date":"2026-01-01","amount":40.00,"description":"A"}]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
+      r.discrepancy.getOrElse("") must include("opposite sign")
+    }
+
+    "reconcile the same inverted data for a credit statement" in {
+      val chained =
+        """{"metadata":{"productType":"credit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":40.00,"description":"A","runningBalance":60.00}
+          | ]}""".stripMargin
+      val net =
+        """{"metadata":{"productType":"credit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[{"date":"2026-01-01","amount":40.00,"description":"A"}]}""".stripMargin
+      ok(chained).reconciled must be(true)
+      ok(net).reconciled must be(true)
+    }
+
+    "keep the existing message for a debit statement that is off in both conventions" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[{"date":"2026-01-01","amount":30.00,"description":"A"}]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(false)
+      r.discrepancy.getOrElse("") must include("off by")
     }
   }
 
@@ -100,7 +247,7 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
 
   "reconcile" should {
     "report no balances and no running-balance chain as unverifiable" in {
-      val r = AiStatementExtractor.reconcile(None, None, List((BigDecimal("-10.00"), None)))
+      val r = AiStatementExtractor.reconcile(None, None, None, List((BigDecimal("-10.00"), None)))
       r.reconciled must be(false)
       r.unverifiable must be(true)
       r.discrepancy must be(
@@ -110,6 +257,7 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
 
     "report a partial running-balance chain without both balances as unverifiable" in {
       val r = AiStatementExtractor.reconcile(
+        None,
         Some(BigDecimal("100.00")),
         None,
         List((BigDecimal("-10.00"), Some(BigDecimal("90.00"))), (BigDecimal("-10.00"), None))
@@ -120,6 +268,7 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
 
     "not report a broken running-balance chain as unverifiable" in {
       val r = AiStatementExtractor.reconcile(
+        None,
         Some(BigDecimal("100.00")),
         Some(BigDecimal("30.00")),
         List((BigDecimal("-40.00"), Some(BigDecimal("60.00"))), (BigDecimal("-20.00"), Some(BigDecimal("30.00"))))
@@ -133,6 +282,7 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
 
     "not report an opening/closing mismatch as unverifiable" in {
       val r = AiStatementExtractor.reconcile(
+        None,
         Some(BigDecimal("100.00")),
         Some(BigDecimal("60.00")),
         List((BigDecimal("-30.00"), None))
@@ -142,8 +292,59 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
       r.discrepancy must be(Some("Transactions sum to -30.00 but the balance changes by ±40.00 — off by 10.00."))
     }
 
+    "reconcile a chain whose last running balance equals the closing balance" in {
+      val r = AiStatementExtractor.reconcile(
+        None,
+        Some(BigDecimal("100.00")),
+        Some(BigDecimal("60.00")),
+        List((BigDecimal("-40.00"), Some(BigDecimal("60.00"))))
+      )
+      r.reconciled must be(true)
+      r.discrepancy must be(None)
+    }
+
+    "reconcile a chain whose last running balance is the negated closing balance" in {
+      val r = AiStatementExtractor.reconcile(
+        None,
+        Some(BigDecimal("-100.00")),
+        Some(BigDecimal("60.00")),
+        List((BigDecimal("40.00"), Some(BigDecimal("-60.00"))))
+      )
+      r.reconciled must be(true)
+      r.discrepancy must be(None)
+    }
+
+    "not reconcile an empty draft, even when opening and closing balances match" in {
+      val r = AiStatementExtractor.reconcile(None, Some(BigDecimal("100.00")), Some(BigDecimal("100.00")), Nil)
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
+    }
+
+    "not reconcile sign-inverted rows for a debit account" in {
+      val r = AiStatementExtractor.reconcile(
+        Some(ProductType.Debit),
+        Some(BigDecimal("100.00")),
+        Some(BigDecimal("60.00")),
+        List((BigDecimal("40.00"), Some(BigDecimal("60.00"))))
+      )
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
+      r.discrepancy.getOrElse("") must include("opposite sign")
+    }
+
+    "reconcile sign-inverted rows when the product type is unknown" in {
+      val r = AiStatementExtractor.reconcile(
+        None,
+        Some(BigDecimal("100.00")),
+        Some(BigDecimal("60.00")),
+        List((BigDecimal("40.00"), None))
+      )
+      r.reconciled must be(true)
+    }
+
     "not report a reconciled draft as unverifiable" in {
       val r = AiStatementExtractor.reconcile(
+        None,
         Some(BigDecimal("100.00")),
         Some(BigDecimal("60.00")),
         List((BigDecimal("-40.00"), None))

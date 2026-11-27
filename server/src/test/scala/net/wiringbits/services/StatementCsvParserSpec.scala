@@ -292,10 +292,10 @@ class StatementCsvParserSpec extends AnyWordSpec {
       )
     }
 
-    "accept a txn_type at the length limit" in {
-      val txnType = "t" * BankStatementDraftLimits.MaxTxnTypeLength
-      parseText(s"date,description,amount,txn_type\n2026-01-02,TEST MERCHANT,-12.34,$txnType") mustBe Right(
-        List(txn("2026-01-02", "-12.34", "TEST MERCHANT").copy(txnType = Some(txnType)))
+    "reject an unknown txn_type" in {
+      mustFailWith(
+        parseText("date,description,amount,txn_type\n2026-01-02,TEST MERCHANT,-12.34,Purchase"),
+        s"Row 2, column txn_type: \"Purchase\" is not one of ${BankStatementDraftLimits.TxnTypes.mkString(", ")}"
       )
     }
 

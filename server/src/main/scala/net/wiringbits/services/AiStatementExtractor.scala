@@ -85,56 +85,80 @@ object AiStatementExtractor {
     Try(Json.parse(extractJsonObject(rawJson))).toEither.left
       .map(e => s"Model did not return valid JSON: ${e.getMessage}")
       .flatMap { json =>
-        val txns = (json \ "transactions").asOpt[List[JsValue]].getOrElse(Nil).flatMap { t =>
-          for {
-            date <- (t \ "date").asOpt[LocalDate]
-            amount <- (t \ "amount").asOpt[BigDecimal]
-            description <- (t \ "description").asOpt[String]
-          } yield Txn(
-            date,
-            amount,
-            cleanDescription(description),
-            (t \ "runningBalance").asOpt[BigDecimal],
-            (t \ "type").asOpt[String]
-          )
-        }
-        if (txns.isEmpty) Left("The model extracted no transactions")
-        else {
-          val m = json \ "metadata"
-          val (periodStart, periodEnd) = resolvePeriod(
-            start = (m \ "periodStart").asOpt[LocalDate],
-            end = (m \ "periodEnd").asOpt[LocalDate],
-            (m \ "periodMonth").asOpt[String]
-          )
-          val meta = Meta(
-            bankName = (m \ "bankName").asOpt[String],
-            productType = (m \ "productType").asOpt[ProductType],
-            currency = (m \ "currency").asOpt[String],
-            accountLast4 = (m \ "accountLast4").asOpt[String],
-            periodStart = periodStart,
-            periodEnd = periodEnd,
-            openingBalance = (m \ "openingBalance").asOpt[BigDecimal],
-            closingBalance = (m \ "closingBalance").asOpt[BigDecimal]
-          )
-          val v = verify(meta, txns)
-          Right(
-            ExtractionResult(
-              v.reconciled,
-              v.discrepancy,
-              model,
-              txns,
-              meta,
-              v.residual,
-              unverifiable = v.unverifiable
-            )
-          )
-        }
+        val rows = (json \ "transactions").asOpt[List[JsValue]].getOrElse(Nil)
+        rows.zipWithIndex
+          .foldRight[Either[String, List[Txn]]](Right(Nil)) { case ((t, i), acc) =>
+            parseTxn(t, i + 1).flatMap(txn => acc.map(txn :: _))
+          }
+          .flatMap(txns => buildResult(json, txns, model))
       }
+
+  private def parseTxn(t: JsValue, n: Int): Either[String, Txn] = {
+    def malformed(field: String) = s"Transaction $n is malformed: missing or invalid $field"
+    def required[A: Reads](field: String): Either[String, A] =
+      (t \ field).asOpt[A].toRight(malformed(field))
+    def optional[A: Reads](field: String): Either[String, Option[A]] =
+      (t \ field).validateOpt[A].asOpt.toRight(malformed(field))
+    for {
+      date <- required[LocalDate]("date")
+      amount <- required[BigDecimal]("amount")
+      description <- required[String]("description")
+      runningBalance <- optional[BigDecimal]("runningBalance")
+      txnType <- optional[String]("type")
+    } yield Txn(date, amount, cleanDescription(description), runningBalance, txnType)
+  }
+
+  private def buildResult(json: JsValue, txns: List[Txn], model: String): Either[String, ExtractionResult] =
+    if (txns.isEmpty) Left("The model extracted no transactions")
+    else {
+      val m = json \ "metadata"
+      val (periodStart, periodEnd) = resolvePeriod(
+        start = (m \ "periodStart").asOpt[LocalDate],
+        end = (m \ "periodEnd").asOpt[LocalDate],
+        (m \ "periodMonth").asOpt[String]
+      )
+      // productType is read raw so the validator rejects an unknown value.
+      val header = BankStatementPayloadValidator.Header(
+        bankName = (m \ "bankName").asOpt[String],
+        productType = (m \ "productType").asOpt[String],
+        currency = (m \ "currency").asOpt[String],
+        accountLast4 = (m \ "accountLast4").asOpt[String],
+        openingBalance = (m \ "openingBalance").asOpt[BigDecimal],
+        closingBalance = (m \ "closingBalance").asOpt[BigDecimal]
+      )
+      val rows = txns.map(t => BankStatementPayloadValidator.Row(t.description, t.amount, t.txnType, t.runningBalance))
+      BankStatementPayloadValidator.validate(header, rows).map { _ =>
+        val meta = Meta(
+          bankName = header.bankName,
+          productType = header.productType.map(ProductType.fromEntryName),
+          currency = header.currency,
+          accountLast4 = header.accountLast4,
+          periodStart = periodStart,
+          periodEnd = periodEnd,
+          openingBalance = header.openingBalance,
+          closingBalance = header.closingBalance
+        )
+        val v = verify(meta, txns)
+        ExtractionResult(
+          v.reconciled,
+          v.discrepancy,
+          model,
+          txns,
+          meta,
+          v.residual,
+          unverifiable = v.unverifiable
+        )
+      }
+    }
+
+  /** Map a draft's stored product type to the enum; an unknown value maps to None. */
+  def parseProductType(s: String): Option[ProductType] = ProductType.values.find(_.entryName == s.trim)
 
   /** Re-check reconciliation for an (edited) draft, from the balances and each row's amount + optional running balance.
     * Reuses the same rule as extraction so a user's edits are held to the same arithmetic gate.
     */
   def reconcile(
+      productType: Option[ProductType],
       openingBalance: Option[BigDecimal],
       closingBalance: Option[BigDecimal],
       rows: List[(BigDecimal, Option[BigDecimal])]
@@ -144,7 +168,7 @@ object AiStatementExtractor {
       verify(
         Meta(
           bankName = None,
-          productType = None,
+          productType = productType,
           currency = None,
           accountLast4 = None,
           periodStart = None,
@@ -157,48 +181,88 @@ object AiStatementExtractor {
     Reconciliation(reconciled = v.reconciled, unverifiable = v.unverifiable, discrepancy = v.discrepancy)
   }
 
+  private val OppositeSignForDebit =
+    "The amounts have the opposite sign for a debit account: charges must be negative and deposits positive."
+
   private def verify(meta: Meta, txns: List[Txn]): Verification = {
     val sumAll = txns.map(_.amount).foldLeft(BigDecimal(0))(_ + _)
+    // A debit account has a known convention (charges negative, balance = opening + sum); credit or unknown accepts
+    // either sign.
+    val isDebit = meta.productType match {
+      case Some(ProductType.Debit) => true
+      case Some(ProductType.Credit) | None => false
+    }
 
     val chain: Option[Boolean] = meta.openingBalance
       .filter(_ => txns.forall(_.runningBalance.isDefined))
-      .map(o => chainHolds(o, txns, sign = 1) || chainHolds(o, txns, sign = -1))
+      .map(o => chainHolds(o, txns, sign = 1) || (!isDebit && chainHolds(o, txns, sign = -1)))
+    lazy val chainInverted: Boolean =
+      isDebit && meta.openingBalance.exists(o => chainHolds(o, txns, sign = -1))
 
-    chain match {
-      case Some(true) => Verification(reconciled = true, unverifiable = false, None, Some(BigDecimal(0)))
-      case Some(false) =>
-        Verification(
-          reconciled = false,
-          unverifiable = false,
-          Some(
-            s"The running balance does not add up across the ${txns.size} rows; a row is likely missing or misread."
-          ),
-          None
-        )
-      case None =>
-        (meta.openingBalance, meta.closingBalance) match {
-          case (Some(o), Some(c)) =>
-            // Accept either balance-sign convention (debit: c-o; credit/owed: o-c).
-            val missing = List(sumAll - (c - o), sumAll - (o - c)).minBy(_.abs)
-            if (missing.abs < Tolerance) Verification(reconciled = true, unverifiable = false, None, Some(missing.abs))
-            else
+    if (txns.isEmpty)
+      Verification(
+        reconciled = false,
+        unverifiable = false,
+        Some("There are no transactions, so the statement can't be reconciled."),
+        None
+      )
+    else
+      chain match {
+        case Some(true) =>
+          (meta.closingBalance, txns.last.runningBalance) match {
+            case (Some(c), Some(last)) =>
+              // Either balance-sign convention, as in the chain itself.
+              val gap = ((last - c).abs).min((last + c).abs)
+              if (gap < Tolerance) Verification(reconciled = true, unverifiable = false, None, Some(BigDecimal(0)))
+              else
+                Verification(
+                  reconciled = false,
+                  unverifiable = false,
+                  Some(s"The running balance ends at $last but the closing balance is $c; rows are likely missing."),
+                  Some(gap)
+                )
+            case _ => Verification(reconciled = true, unverifiable = false, None, Some(BigDecimal(0)))
+          }
+        case Some(false) if chainInverted =>
+          Verification(reconciled = false, unverifiable = false, Some(OppositeSignForDebit), None)
+        case Some(false) =>
+          Verification(
+            reconciled = false,
+            unverifiable = false,
+            Some(
+              s"The running balance does not add up across the ${txns.size} rows; a row is likely missing or misread."
+            ),
+            None
+          )
+        case None =>
+          (meta.openingBalance, meta.closingBalance) match {
+            case (Some(o), Some(c)) =>
+              // Debit: c-o only. Credit/unknown: either balance-sign convention (c-o or o-c).
+              val debitGap = sumAll - (c - o)
+              val oppositeGap = sumAll - (o - c)
+              val missing = if (isDebit) debitGap else List(debitGap, oppositeGap).minBy(_.abs)
+              if (missing.abs < Tolerance)
+                Verification(reconciled = true, unverifiable = false, None, Some(missing.abs))
+              else if (isDebit && oppositeGap.abs < Tolerance)
+                Verification(reconciled = false, unverifiable = false, Some(OppositeSignForDebit), Some(missing.abs))
+              else
+                Verification(
+                  reconciled = false,
+                  unverifiable = false,
+                  Some(
+                    s"Transactions sum to $sumAll but the balance changes by ±${(c - o).abs} — off by ${missing.abs}."
+                  ),
+                  Some(missing.abs)
+                )
+            case _ =>
               Verification(
                 reconciled = false,
-                unverifiable = false,
-                Some(
-                  s"Transactions sum to $sumAll but the balance changes by ±${(c - o).abs} — off by ${missing.abs}."
-                ),
-                Some(missing.abs)
+                unverifiable = true,
+                Some("No running balance or opening/closing balance was found, so completeness can't be verified."),
+                None
               )
-          case _ =>
-            Verification(
-              reconciled = false,
-              unverifiable = true,
-              Some("No running balance or opening/closing balance was found, so completeness can't be verified."),
-              None
-            )
-        }
-    }
+          }
+      }
   }
 
   private def chainHolds(opening: BigDecimal, txns: List[Txn], sign: Int): Boolean =

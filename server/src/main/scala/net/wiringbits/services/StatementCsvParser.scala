@@ -170,6 +170,11 @@ object StatementCsvParser {
               column = TxnTypeColumn,
               problem = s"is longer than ${BankStatementDraftLimits.MaxTxnTypeLength} characters"
             )
+          case Some(raw) if !BankStatementDraftLimits.TxnTypes.contains(raw) =>
+            fail(
+              column = TxnTypeColumn,
+              problem = s"\"$raw\" is not one of ${BankStatementDraftLimits.TxnTypes.mkString(", ")}"
+            )
           case other => Right(other)
         }
         runningBalance <- cell(RunningBalanceColumn).filterNot(_.isBlank) match {

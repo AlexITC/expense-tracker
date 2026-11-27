@@ -151,6 +151,25 @@ class StatementExtractionServiceSpec extends RepositorySpec with BeforeAndAfterA
       run.bdaCalls mustBe empty
     }
 
+    "retry with the malformed-row error as feedback and keep the reconciling retry" in {
+      val malformedRow = reconciling.replace("\"amount\":-40.00,", "")
+      val run = runLadder(
+        {
+          case None => malformedRow
+          case Some(_) => reconciling
+        },
+        markdownResponse = netMismatch
+      )
+
+      run.bedrockCalls.filter(_._1.startsWith("PDF")).map(_._2) mustBe List(
+        None,
+        Some("Transaction 1 is malformed: missing or invalid amount")
+      )
+      run.bdaCalls mustBe empty
+      run.result.reconciled mustBe true
+      run.result.source mustBe Some(ExtractionSource.PdfText)
+    }
+
     "escalate to BDA markdown when a retry after zero transactions still doesn't reconcile" in {
       val run = runLadder(
         {

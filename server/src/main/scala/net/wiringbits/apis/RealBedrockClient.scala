@@ -1,5 +1,6 @@
 package net.wiringbits.apis
 
+import net.wiringbits.api.utils.BankStatementDraftLimits
 import net.wiringbits.config.BedrockConfig
 import net.wiringbits.models.RateLimitKey
 import net.wiringbits.util.RateLimiter
@@ -119,7 +120,7 @@ class RealBedrockClient(config: BedrockConfig, rateLimiter: RateLimiter, client:
        |  },
        |  "transactions": [
        |    { "date":"YYYY-MM-DD", "amount": number, "description": string, "runningBalance": number|null,
-       |      "type": "purchase"|"payment"|"fee"|"interest"|"refund" }
+       |      "type": ${BankStatementDraftLimits.TxnTypes.map(t => s"\"$t\"").mkString("|")} }
        |  ]
        |}
        |
