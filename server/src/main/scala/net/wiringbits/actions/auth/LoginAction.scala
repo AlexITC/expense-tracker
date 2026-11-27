@@ -3,6 +3,7 @@ package net.wiringbits.actions.auth
 import io.scalaland.chimney.dsl.transformInto
 import net.wiringbits.api.models.auth.Login
 import net.wiringbits.apis.ReCaptchaApi
+import net.wiringbits.models.UserSession
 import net.wiringbits.repositories.{UserLogsRepository, UsersRepository}
 import net.wiringbits.util.PasswordHasher
 import net.wiringbits.validations.{ValidateCaptcha, ValidatePasswordMatches, ValidateVerifiedUser}
@@ -18,8 +19,8 @@ class LoginAction @Inject() (
 )(implicit
     ec: ExecutionContext
 ) {
-  // returns the token to use for authenticating requests
-  def apply(request: Login.Request): Future[Login.Response] = {
+  // returns the user details plus the session to store in the cookie
+  def apply(request: Login.Request): Future[(Login.Response, UserSession)] = {
     for {
       _ <- ValidateCaptcha(captchaApi, request.captcha)
       // the user is verified
@@ -31,6 +32,6 @@ class LoginAction @Inject() (
 
       // A login token is created
       _ <- userLogsRepository.create(user.id, "Logged in successfully")
-    } yield user.transformInto[Login.Response]
+    } yield (user.transformInto[Login.Response], UserSession(user.id, user.sessionVersion))
   }
 }

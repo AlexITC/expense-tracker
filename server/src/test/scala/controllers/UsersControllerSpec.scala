@@ -3,7 +3,13 @@ package controllers
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import controllers.common.PlayPostgresSpec
 import net.wiringbits.api.models.auth.Login
-import net.wiringbits.api.models.users.{ForgotPassword, ResetPassword, SendEmailVerificationToken, VerifyEmail}
+import net.wiringbits.api.models.users.{
+  ForgotPassword,
+  ResetPassword,
+  SendEmailVerificationToken,
+  UpdatePassword,
+  VerifyEmail
+}
 import net.wiringbits.apis.models.EmailRequest
 import net.wiringbits.apis.{EmailApi, ReCaptchaApi}
 import net.wiringbits.common.models.*
@@ -320,6 +326,53 @@ class UsersControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoS
         .futureValue
 
       userTokensRepository.find(user.id).futureValue must be(empty)
+    }
+  }
+
+  "POST /reset-password sessions" should {
+    "sign out an existing session" in withApiClient { implicit client =>
+      val email = randomEmail()
+      val user = createVerifyLoginUser(tokenGenerator, emailMaybe = Some(email)).futureValue
+      client.currentUser.futureValue.id must be(user.id)
+
+      val resetToken = UUID.randomUUID()
+      when(tokenGenerator.next()).thenReturn(resetToken)
+      client.forgotPassword(ForgotPassword.Request(email, Captcha.trusted("test"))).futureValue
+      client
+        .resetPassword(ResetPassword.Request(UserToken(user.id, resetToken), Password.trusted("test456...")))
+        .futureValue
+
+      client.currentUser.expectError must be("Unauthorized: Invalid or missing authentication")
+    }
+  }
+
+  "PUT /users/me/password" should {
+    "sign out other sessions while keeping the current one" in withApiClient { implicit clientA =>
+      val email = randomEmail()
+      val user = createVerifyLoginUser(tokenGenerator, emailMaybe = Some(email)).futureValue
+
+      withApiClient { clientB =>
+        clientB.login(Login.Request(email, Password.trusted("test123..."), Captcha.trusted("test"))).futureValue
+        clientB.currentUser.futureValue.id must be(user.id)
+
+        clientA
+          .updatePassword(UpdatePassword.Request(Password.trusted("test123..."), Password.trusted("test456...")))
+          .futureValue
+
+        clientB.currentUser.expectError must be("Unauthorized: Invalid or missing authentication")
+        clientA.currentUser.futureValue.id must be(user.id)
+      }
+    }
+
+    "keep the session when the old password is wrong" in withApiClient { implicit client =>
+      val user = createVerifyLoginUser(tokenGenerator).futureValue
+
+      val error = client
+        .updatePassword(UpdatePassword.Request(Password.trusted("wrong123..."), Password.trusted("test456...")))
+        .expectError
+
+      error must be("The given email/password doesn't match")
+      client.currentUser.futureValue.id must be(user.id)
     }
   }
 

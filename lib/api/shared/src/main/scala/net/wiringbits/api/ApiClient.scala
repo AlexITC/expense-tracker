@@ -102,8 +102,22 @@ class ApiClient(config: ApiClient.Config)(implicit
   def updateUser(request: UpdateUser.Request): Future[UpdateUser.Response] =
     handleRequest(UsersEndpoints.update, (request, dummyUserId))
 
-  def updatePassword(request: UpdatePassword.Request): Future[UpdatePassword.Response] =
-    handleRequest(UsersEndpoints.updatePassword, (request, dummyUserId))
+  // the server re-issues the session cookie, keep it only when the change succeeded
+  def updatePassword(request: UpdatePassword.Request): Future[UpdatePassword.Response] = {
+    val savedCookies = lastAuthResponse.map(_.unsafeCookies).getOrElse(Seq.empty)
+
+    client
+      .toRequestThrowDecodeFailures(UsersEndpoints.updatePassword, Some(ServerAPI))
+      .apply((request, dummyUserId))
+      .cookies(savedCookies)
+      .response(asStringAlways)
+      .send(sttpBackend)
+      .map { response =>
+        val result = asJson[UpdatePassword.Response](response.body)
+        unsafeSetLoginResponse(response)
+        result
+      }
+  }
 
   def getUserLogs: Future[GetUserLogs.Response] =
     handleRequest(UsersEndpoints.getLogs, dummyUserId)
@@ -474,10 +488,13 @@ class ApiClient(config: ApiClient.Config)(implicit
       }
       .map(asJson[Login.Response])
 
-  def logout: Future[Logout.Response] =
+  def logout: Future[Logout.Response] = {
+    val savedCookies = lastAuthResponse.map(_.unsafeCookies).getOrElse(Seq.empty)
+
     client
       .toRequestThrowDecodeFailures(AuthEndpoints.logout, Some(ServerAPI))
       .apply(dummyUserId)
+      .cookies(savedCookies)
       .response(asStringAlways)
       .send(sttpBackend)
       .map { response =>
@@ -485,4 +502,5 @@ class ApiClient(config: ApiClient.Config)(implicit
         response.body
       }
       .map(asJson[Logout.Response])
+  }
 }

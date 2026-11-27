@@ -155,7 +155,7 @@ object UsersEndpoints {
 
   def updatePassword(implicit
       authHandler: ServerRequest => Future[UUID]
-  ): Endpoint[Unit, (UpdatePassword.Request, Future[UUID]), ErrorResponse, UpdatePassword.Response, Any] =
+  ): Endpoint[Unit, (UpdatePassword.Request, Future[UUID]), ErrorResponse, (UpdatePassword.Response, String), Any] =
     baseEndpoint.put
       .in("me" / "password")
       .in(
@@ -170,8 +170,10 @@ object UsersEndpoints {
       )
       .in(userAuth)
       .out(jsonBody[UpdatePassword.Response])
+      .out(setSessionHeader)
       .errorOut(oneOf(HttpErrors.badRequest))
       .summary("Updates the authenticated user password")
+      .description("Signs out every other session and re-issues this session's cookie")
 
   def getLogs(implicit
       authHandler: ServerRequest => Future[UUID]

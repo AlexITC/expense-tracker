@@ -1,4 +1,6 @@
+import net.wiringbits.actions.auth.ValidateSessionAction
 import net.wiringbits.api.models.{ErrorResponse, errorResponseFormat}
+import net.wiringbits.models.UserSession
 import org.slf4j.LoggerFactory
 import play.api.mvc.request.DefaultRequestFactory
 import play.api.mvc.{CookieHeaderEncoding, RequestHeader, Session}
@@ -17,8 +19,10 @@ package object controllers {
       requestFactory: DefaultRequestFactory,
       cookieHeaderEncoding: CookieHeaderEncoding
   )(implicit ec: ExecutionContext) {
-    def setSession(userId: UUID): Future[String] = Future {
-      val session = Session(Map("id" -> userId.toString))
+    def setSession(userSession: UserSession): Future[String] = Future {
+      val session = Session(
+        Map("id" -> userSession.userId.toString, "sessionVersion" -> userSession.version.toString)
+      )
       val playCookie = requestFactory.sessionBaker.encodeAsCookie(session)
       cookieHeaderEncoding.encodeSetCookieHeader(List(playCookie))
     }
@@ -29,7 +33,7 @@ package object controllers {
     }
   }
 
-  class SessionAuthenticator @Inject() ()(implicit ec: ExecutionContext) {
+  class SessionAuthenticator @Inject() (validateSessionAction: ValidateSessionAction)(implicit ec: ExecutionContext) {
 
     // This is the way to access the play request from tapir, we need it to extract the play session
     // UUID has to be future, because we want to handle the exception in the controllers
@@ -40,14 +44,17 @@ package object controllers {
         .asInstanceOf[RequestHeader]
         .session
 
-      def userIdFromSession = Future {
-        session
-          .get("id")
-          .flatMap(str => Try(UUID.fromString(str)).toOption)
-          .getOrElse(throw new RuntimeException("Invalid or missing authentication"))
+      // cookies without a sessionVersion (e.g. issued before session versioning existed) are rejected
+      def userSessionFromCookie = Future {
+        val maybe = for {
+          userId <- session.get("id").flatMap(str => Try(UUID.fromString(str)).toOption)
+          version <- session.get("sessionVersion").flatMap(_.toIntOption)
+        } yield UserSession(userId, version)
+        maybe.getOrElse(throw new RuntimeException("Invalid or missing authentication"))
       }
 
-      userIdFromSession
+      userSessionFromCookie
+        .flatMap(validateSessionAction.apply)
         .recover { case NonFatal(_) =>
           throw new RuntimeException("Unauthorized: Invalid or missing authentication")
         }

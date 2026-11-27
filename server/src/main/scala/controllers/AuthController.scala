@@ -26,8 +26,8 @@ class AuthController @Inject() (
     handleRequest {
       logger.info(s"Login API: ${body.email}")
       for {
-        response <- loginAction(body)
-        cookieEncoded <- playTapirBridge.setSession(response.id)
+        (response, userSession) <- loginAction(body)
+        cookieEncoded <- playTapirBridge.setSession(userSession)
       } yield Right(response, cookieEncoded)
     }
 
@@ -45,6 +45,7 @@ class AuthController @Inject() (
       for {
         _ <- userIdF
         _ = logger.info("Logout")
+        // intentionally only clears this device's cookie, other sessions stay valid (no session version bump)
         header <- playTapirBridge.clearSession()
       } yield Right(Logout.Response(), header)
     }
