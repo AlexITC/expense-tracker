@@ -229,6 +229,26 @@ class AuthControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoSu
     }
   }
 
+  "POST /auth/logout-everywhere" should {
+    "sign out every session of the user, including the current one" in withApiClient { implicit clientA =>
+      val email = randomEmail()
+      createVerifyLoginUser(tokenGenerator, emailMaybe = Some(email)).futureValue
+
+      withApiClient { clientB =>
+        clientB.login(Login.Request(email, Password.trusted("test123..."), Captcha.trusted("test"))).futureValue
+
+        clientA.logoutEverywhere.futureValue
+
+        clientA.currentUser.expectError must be("Unauthorized: Invalid or missing authentication")
+        clientB.currentUser.expectError must be("Unauthorized: Invalid or missing authentication")
+      }
+    }
+
+    "fail if user isn't logged in" in withApiClient { client =>
+      client.logoutEverywhere.expectError must be("Unauthorized: Invalid or missing authentication")
+    }
+  }
+
   "play.http.session.maxAge" should {
     "be 30 days" in {
       app.configuration.get[scala.concurrent.duration.FiniteDuration]("play.http.session.maxAge") must be(

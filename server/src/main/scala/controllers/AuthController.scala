@@ -1,9 +1,9 @@
 package controllers
 
-import net.wiringbits.actions.auth.{GetUserAction, LoginAction}
+import net.wiringbits.actions.auth.{GetUserAction, LoginAction, LogoutEverywhereAction}
 import net.wiringbits.api.endpoints.AuthEndpoints
 import net.wiringbits.api.models.*
-import net.wiringbits.api.models.auth.{GetCurrentUser, Login, Logout}
+import net.wiringbits.api.models.auth.{GetCurrentUser, Login, Logout, LogoutEverywhere}
 import org.slf4j.LoggerFactory
 import sttp.capabilities.WebSockets
 import sttp.capabilities.pekko.PekkoStreams
@@ -16,6 +16,7 @@ import scala.concurrent.{ExecutionContext, Future}
 class AuthController @Inject() (
     loginAction: LoginAction,
     getUserAction: GetUserAction,
+    logoutEverywhereAction: LogoutEverywhereAction,
     playTapirBridge: PlayTapirBridge,
     sessionAuthenticator: SessionAuthenticator
 )(implicit ec: ExecutionContext) {
@@ -50,11 +51,24 @@ class AuthController @Inject() (
       } yield Right(Logout.Response(), header)
     }
 
+  private def logoutEverywhere(
+      userIdF: Future[UUID]
+  ): Future[Either[ErrorResponse, (LogoutEverywhere.Response, String)]] =
+    handleRequest {
+      for {
+        userId <- userIdF
+        _ = logger.info(s"Logout everywhere: $userId")
+        _ <- logoutEverywhereAction(userId)
+        header <- playTapirBridge.clearSession()
+      } yield Right(LogoutEverywhere.Response(), header)
+    }
+
   def routes: List[ServerEndpoint[PekkoStreams & WebSockets, Future]] = {
     List(
       AuthEndpoints.login.serverLogic(login),
       AuthEndpoints.getCurrentUser.serverLogic(me),
-      AuthEndpoints.logout.serverLogic(logout)
+      AuthEndpoints.logout.serverLogic(logout),
+      AuthEndpoints.logoutEverywhere.serverLogic(logoutEverywhere)
     )
   }
 }

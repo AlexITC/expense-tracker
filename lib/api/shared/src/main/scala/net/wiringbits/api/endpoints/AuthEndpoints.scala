@@ -1,7 +1,7 @@
 package net.wiringbits.api.endpoints
 
 import net.wiringbits.api.models
-import net.wiringbits.api.models.auth.{GetCurrentUser, Login, Logout}
+import net.wiringbits.api.models.auth.{GetCurrentUser, Login, Logout, LogoutEverywhere}
 import net.wiringbits.api.models.ErrorResponse
 import net.wiringbits.common.models.{Captcha, Email, Name, Password}
 import sttp.tapir.*
@@ -58,6 +58,24 @@ object AuthEndpoints {
       .summary("Logout from the app")
       .description("Clears the session cookie that's stored securely")
 
+  def logoutEverywhere(implicit
+      authHandler: ServerRequest => Future[UUID]
+  ): Endpoint[Unit, Future[UUID], ErrorResponse, (LogoutEverywhere.Response, String), Any] =
+    baseEndpoint.post
+      .in("logout-everywhere")
+      .in(userAuth)
+      .out(
+        jsonBody[LogoutEverywhere.Response]
+          .description("Successfully signed out of every session")
+          .example(LogoutEverywhere.Response())
+      )
+      .out(setSessionHeader)
+      .errorOut(oneOf(HttpErrors.badRequest))
+      .summary("Logout from every session")
+      .description(
+        "Revokes every session of the authenticated user, including this one, and clears this device's session cookie"
+      )
+
   def getCurrentUser(implicit
       authHandler: ServerRequest => Future[UUID]
   ): Endpoint[Unit, Future[UUID], ErrorResponse, GetCurrentUser.Response, Any] =
@@ -81,6 +99,7 @@ object AuthEndpoints {
   def routes(implicit authHandler: ServerRequest => Future[UUID]): List[AnyEndpoint] = List(
     login,
     logout,
+    logoutEverywhere,
     getCurrentUser
   )
 }

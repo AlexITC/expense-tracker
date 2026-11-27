@@ -3,7 +3,7 @@ package net.wiringbits.api
 import net.wiringbits.api.endpoints.*
 import net.wiringbits.api.models.*
 import net.wiringbits.api.models.admin.{AdminGetUserLogs, AdminGetUsers}
-import net.wiringbits.api.models.auth.{GetCurrentUser, Login, Logout}
+import net.wiringbits.api.models.auth.{GetCurrentUser, Login, Logout, LogoutEverywhere}
 import net.wiringbits.api.models.environmentconfig.GetEnvironmentConfig
 import net.wiringbits.api.models.categories.*
 import net.wiringbits.api.models.bankstatements.*
@@ -502,5 +502,22 @@ class ApiClient(config: ApiClient.Config)(implicit
         response.body
       }
       .map(asJson[Logout.Response])
+  }
+
+  // every session is revoked server side, forget the saved cookie only when that succeeded
+  def logoutEverywhere: Future[LogoutEverywhere.Response] = {
+    val savedCookies = lastAuthResponse.map(_.unsafeCookies).getOrElse(Seq.empty)
+
+    client
+      .toRequestThrowDecodeFailures(AuthEndpoints.logoutEverywhere, Some(ServerAPI))
+      .apply(dummyUserId)
+      .cookies(savedCookies)
+      .response(asStringAlways)
+      .send(sttpBackend)
+      .map { response =>
+        val result = asJson[LogoutEverywhere.Response](response.body)
+        unsafeRemoveLoginResponse()
+        result
+      }
   }
 }
