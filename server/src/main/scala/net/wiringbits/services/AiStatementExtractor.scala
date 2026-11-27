@@ -117,7 +117,7 @@ object AiStatementExtractor {
         end = (m \ "periodEnd").asOpt[LocalDate],
         (m \ "periodMonth").asOpt[String]
       )
-      // Read productType raw so an unknown value is rejected by the validator instead of silently becoming None.
+      // productType is read raw so the validator rejects an unknown value.
       val header = BankStatementPayloadValidator.Header(
         bankName = (m \ "bankName").asOpt[String],
         productType = (m \ "productType").asOpt[String],
@@ -188,7 +188,10 @@ object AiStatementExtractor {
     val sumAll = txns.map(_.amount).foldLeft(BigDecimal(0))(_ + _)
     // A debit account has a known convention (charges negative, balance = opening + sum); credit or unknown accepts
     // either sign.
-    val isDebit = meta.productType.contains(ProductType.Debit)
+    val isDebit = meta.productType match {
+      case Some(ProductType.Debit) => true
+      case Some(ProductType.Credit) | None => false
+    }
 
     val chain: Option[Boolean] = meta.openingBalance
       .filter(_ => txns.forall(_.runningBalance.isDefined))

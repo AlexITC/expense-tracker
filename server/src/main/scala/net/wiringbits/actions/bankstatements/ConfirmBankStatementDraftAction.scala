@@ -140,7 +140,7 @@ class ConfirmBankStatementDraftAction @Inject() (
   /** Validate every payload value (no exemptions) and require a type on every row. Returns the row types in order. */
   private def requireValid(payload: BankStatementDraft.Payload): List[String] = {
     val m = payload.metadata
-    // Trimmed like requireMetadata, which stores the trimmed values and reports blank ones as missing.
+    // Blank values count as missing, so they are trimmed and dropped before validation.
     def text(v: Option[String]): Option[String] = v.map(_.trim).filter(_.nonEmpty)
     val header = BankStatementPayloadValidator.Header(
       bankName = text(m.bankName),

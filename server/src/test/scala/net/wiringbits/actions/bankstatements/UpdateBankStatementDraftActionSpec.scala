@@ -141,6 +141,33 @@ class UpdateBankStatementDraftActionSpec extends RepositorySpec with RepositoryU
         storedPayload(draftId).transactions must be(edited.transactions)
     }
 
+    "accept unchanged stored values that fail the enum, ISO and precision checks" in withRepositories() {
+      implicit repositories =>
+        val storedRow = txn("-10.005", None).copy(txnType = Some("bogus"))
+        val stored = emptyMetadata.copy(currency = Some("ZZZ"), closingBalance = Some(BigDecimal("50.005")))
+        val (userId, draftId) = readyDraft(payload(stored, List(storedRow)))
+        val edited = payload(stored.copy(bankName = Some("Test Bank")), List(storedRow, txn("-1.00", None)))
+
+        action(draftId, userId, BankStatementDraft.Update.Request(edited)).futureValue
+
+        val result = storedPayload(draftId)
+        result.metadata must be(edited.metadata)
+        result.transactions must be(edited.transactions)
+    }
+
+    "reject changing a stored invalid value to another invalid value" in withRepositories() { implicit repositories =>
+      val stored = emptyMetadata.copy(currency = Some("ZZZ"), closingBalance = Some(BigDecimal("50.005")))
+      val initial = payload(stored, rows(1))
+      val (userId, draftId) = readyDraft(initial)
+      val edited = payload(stored.copy(closingBalance = Some(BigDecimal("50.006"))), initial.transactions)
+
+      val error = action(draftId, userId, BankStatementDraft.Update.Request(edited)).failed.futureValue
+
+      error.getMessage must include("Closing balance")
+      error.getMessage must include("decimal places")
+      storedPayload(draftId) must be(initial)
+    }
+
     "reject an edited bank name over the limit" in withRepositories() { implicit repositories =>
       val initial = payload(emptyMetadata, rows(1))
       val (userId, draftId) = readyDraft(initial)
