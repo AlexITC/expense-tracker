@@ -89,7 +89,13 @@ class CreateBankStatementDraftFromCsvActionSpec extends RepositorySpec with Repo
     new UpdateBankStatementDraftAction(repositories.bankStatementDrafts)(using executionContext, summon[Clock])(
       draftId,
       userId,
-      BankStatementDraft.Update.Request(payload.copy(metadata = metadata))
+      // Confirm requires a type on every row; the user sets it in review when the CSV has none.
+      BankStatementDraft.Update.Request(
+        payload.copy(
+          metadata = metadata,
+          transactions = payload.transactions.map(t => t.copy(txnType = t.txnType.orElse(Some("purchase"))))
+        )
+      )
     ).futureValue
     new ConfirmBankStatementDraftAction(
       repositories.bankStatementDrafts,

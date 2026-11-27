@@ -3,7 +3,11 @@ package net.wiringbits.actions.bankstatements
 import net.wiringbits.api.models.bankstatements.BankStatementDraft
 import net.wiringbits.api.utils.BankStatementDraftLimits
 import net.wiringbits.repositories.BankStatementDraftRepository
-import net.wiringbits.services.{BankStatementDraftReconciliation, BankStatementDraftSources}
+import net.wiringbits.services.{
+  BankStatementDraftReconciliation,
+  BankStatementDraftSources,
+  BankStatementPayloadValidator
+}
 import play.api.libs.json.Json
 
 import java.time.Clock
@@ -33,8 +37,7 @@ class UpdateBankStatementDraftAction @Inject() (bankStatementDraftRepository: Ba
       _ = if (newRows > BankStatementDraftLimits.MaxTransactions && newRows > existingTxns.size)
         throw new RuntimeException(s"A draft can have at most ${BankStatementDraftLimits.MaxTransactions} rows")
       // Rows kept exactly as stored are exempt, so extracted text already over the limits doesn't block other edits.
-      _ = validateEditedRows(request.payload.transactions, existingTxns.toSet)
-      _ = validateEditedMetadata(metadata = request.payload.metadata, stored = stored.metadata)
+      _ = validateEdits(payload = request.payload, stored = stored)
       // The model is set by whoever produced the draft, never by the client; discrepancy is re-derived by recompute.
       recomputed = BankStatementDraftReconciliation.recompute(request.payload.copy(model = stored.model))
       _ <- bankStatementDraftRepository.updatePayload(
@@ -53,52 +56,39 @@ class UpdateBankStatementDraftAction @Inject() (bankStatementDraftRepository: Ba
     )
 
   // Values kept exactly as stored are exempt, like rows, so extracted text already over a limit doesn't block edits.
-  private def validateEditedMetadata(
-      metadata: BankStatementDraft.Metadata,
-      stored: BankStatementDraft.Metadata
+  private def validateEdits(
+      payload: BankStatementDraft.Payload,
+      stored: BankStatementDraft.Payload
   ): Unit = {
-    def check(label: String, value: Option[String], storedValue: Option[String], max: Int): Unit =
-      if (value != storedValue && value.exists(_.length > max))
-        throw new RuntimeException(s"$label is longer than $max characters")
-    check(
-      label = "Bank name",
-      value = metadata.bankName,
-      storedValue = stored.bankName,
-      max = BankStatementDraftLimits.MaxBankNameLength
+    val m = payload.metadata
+    val s = stored.metadata
+    val header = BankStatementPayloadValidator.Header(
+      bankName = m.bankName.filter(_ => m.bankName != s.bankName),
+      productType = m.productType.filter(_ => m.productType != s.productType),
+      currency = m.currency.filter(_ => m.currency != s.currency),
+      accountLast4 = m.accountLast4.filter(_ => m.accountLast4 != s.accountLast4),
+      openingBalance = m.openingBalance.filter(_ => m.openingBalance != s.openingBalance),
+      closingBalance = m.closingBalance.filter(_ => m.closingBalance != s.closingBalance)
     )
-    check(
-      label = "Product type",
-      value = metadata.productType,
-      storedValue = stored.productType,
-      max = BankStatementDraftLimits.MaxProductTypeLength
-    )
-    check(
-      label = "Currency",
-      value = metadata.currency,
-      storedValue = stored.currency,
-      max = BankStatementDraftLimits.MaxCurrencyLength
-    )
-    check(
-      label = "Account last 4",
-      value = metadata.accountLast4,
-      storedValue = stored.accountLast4,
-      max = BankStatementDraftLimits.MaxAccountLast4Length
-    )
-  }
-
-  private def validateEditedRows(
-      transactions: List[BankStatementDraft.Transaction],
-      unchanged: Set[BankStatementDraft.Transaction]
-  ): Unit =
-    transactions.zipWithIndex.filterNot { case (t, _) => unchanged.contains(t) }.foreach { case (t, index) =>
-      val row = index + 1
-      if (t.description.length > BankStatementDraftLimits.MaxDescriptionLength)
-        throw new RuntimeException(
-          s"Row $row: description is longer than ${BankStatementDraftLimits.MaxDescriptionLength} characters"
+    val unchanged = stored.transactions.toSet
+    val result = payload.transactions.zipWithIndex
+      .filterNot { case (t, _) => unchanged.contains(t) }
+      .foldLeft(BankStatementPayloadValidator.validateHeader(header)) { case (acc, (t, index)) =>
+        acc.flatMap(_ =>
+          BankStatementPayloadValidator.validateRow(
+            index + 1,
+            BankStatementPayloadValidator.Row(
+              description = t.description,
+              amount = t.amount,
+              txnType = t.txnType,
+              runningBalance = t.runningBalance
+            )
+          )
         )
-      if (t.txnType.exists(_.length > BankStatementDraftLimits.MaxTxnTypeLength))
-        throw new RuntimeException(
-          s"Row $row: type is longer than ${BankStatementDraftLimits.MaxTxnTypeLength} characters"
-        )
+      }
+    result match {
+      case Left(msg) => throw new RuntimeException(msg)
+      case Right(()) => ()
     }
+  }
 }

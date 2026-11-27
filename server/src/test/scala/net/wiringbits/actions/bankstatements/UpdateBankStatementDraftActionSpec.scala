@@ -175,6 +175,63 @@ class UpdateBankStatementDraftActionSpec extends RepositorySpec with RepositoryU
       storedPayload(draftId).metadata must be(edited.metadata)
     }
 
+    "reject an edited row whose amount has more than 2 decimal places" in withRepositories() { implicit repositories =>
+      val initial = payload(emptyMetadata, rows(1))
+      val (userId, draftId) = readyDraft(initial)
+      val edited = payload(emptyMetadata, initial.transactions :+ txn("-10.005", None))
+
+      val error = action(draftId, userId, BankStatementDraft.Update.Request(edited)).failed.futureValue
+
+      error.getMessage must include("Row 2: amount")
+      error.getMessage must include("decimal places")
+      storedPayload(draftId) must be(initial)
+    }
+
+    "reject an edited row whose amount has more than 10 integer digits" in withRepositories() { implicit repositories =>
+      val initial = payload(emptyMetadata, rows(1))
+      val (userId, draftId) = readyDraft(initial)
+      val edited = payload(emptyMetadata, List(txn("-10000000000.00", None)))
+
+      val error = action(draftId, userId, BankStatementDraft.Update.Request(edited)).failed.futureValue
+
+      error.getMessage must include("Row 1: amount")
+      error.getMessage must include("integer digits")
+      storedPayload(draftId) must be(initial)
+    }
+
+    "reject an edited row with an unknown type" in withRepositories() { implicit repositories =>
+      val initial = payload(emptyMetadata, rows(1))
+      val (userId, draftId) = readyDraft(initial)
+      val edited = payload(emptyMetadata, List(initial.transactions.head.copy(txnType = Some("bogus"))))
+
+      val error = action(draftId, userId, BankStatementDraft.Update.Request(edited)).failed.futureValue
+
+      error.getMessage must startWith("Row 1: type bogus is not one of")
+      storedPayload(draftId) must be(initial)
+    }
+
+    "reject an edited currency that is not an ISO 4217 code" in withRepositories() { implicit repositories =>
+      val initial = payload(emptyMetadata, rows(1))
+      val (userId, draftId) = readyDraft(initial)
+      val edited = payload(emptyMetadata.copy(currency = Some("ZZZ")), initial.transactions)
+
+      val error = action(draftId, userId, BankStatementDraft.Update.Request(edited)).failed.futureValue
+
+      error.getMessage must be("Currency ZZZ is not an ISO 4217 code")
+      storedPayload(draftId) must be(initial)
+    }
+
+    "reject an edited unknown product type" in withRepositories() { implicit repositories =>
+      val initial = payload(emptyMetadata, rows(1))
+      val (userId, draftId) = readyDraft(initial)
+      val edited = payload(emptyMetadata.copy(productType = Some("savings")), initial.transactions)
+
+      val error = action(draftId, userId, BankStatementDraft.Update.Request(edited)).failed.futureValue
+
+      error.getMessage must startWith("Product type savings is not one of")
+      storedPayload(draftId) must be(initial)
+    }
+
     "keep the stored model instead of the client's" in withRepositories() { implicit repositories =>
       val initial = payload(emptyMetadata, rows(1))
       val (userId, draftId) = readyDraft(initial)

@@ -7,7 +7,7 @@ import net.wiringbits.api.models.bankstatements.{BankStatementDraft, ConfirmWarn
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
 import net.wiringbits.repositories.models.{BackgroundJobData, BankStatement, BankStatementRow}
 import net.wiringbits.repositories.{BankStatementDraftRepository, BankStatementRepository, DocumentsRepository}
-import net.wiringbits.services.AiStatementExtractor
+import net.wiringbits.services.{AiStatementExtractor, BankStatementPayloadValidator}
 import org.slf4j.LoggerFactory
 import play.api.libs.json.Json
 
@@ -49,6 +49,7 @@ class ConfirmBankStatementDraftAction @Inject() (
       payload = Json.parse(payloadStr).as[BankStatementDraft.Payload]
       _ = if (payload.transactions.isEmpty)
         throw new RuntimeException("The draft has no transactions, so it can't be reconciled or imported")
+      txnTypes = requireValid(payload)
       acceptedUnverified = requireReconciled(payload, acceptUnverified)
       metadata = requireMetadata(payload.metadata)
       overlapping <- bankStatementRepository.findOverlapping(userId, metadata)
@@ -73,12 +74,13 @@ class ConfirmBankStatementDraftAction @Inject() (
       response <-
         if (warnings.nonEmpty && !acceptWarnings)
           Future.successful(BankStatementDraft.Confirm.Response(None, warnings))
-        else create(draft, payload, metadata, userId, warnings, acceptedUnverified)
+        else create(draft, payload, txnTypes, metadata, userId, warnings, acceptedUnverified)
     } yield response
 
   private def create(
       draft: net.wiringbits.repositories.models.BankStatementDraft,
       payload: BankStatementDraft.Payload,
+      txnTypes: List[String],
       metadata: BankStatement.Metadata,
       userId: UUID,
       warnings: List[ConfirmWarning],
@@ -94,7 +96,7 @@ class ConfirmBankStatementDraftAction @Inject() (
       updatedAt = now,
       acceptedUnverified = acceptedUnverified
     )
-    val rows = payload.transactions.zipWithIndex.map { case (t, i) =>
+    val rows = payload.transactions.zip(txnTypes).zipWithIndex.map { case ((t, txnType), i) =>
       BankStatementRow.Create(
         id = UuidCreator.getTimeOrderedEpoch(),
         bankStatementId = stmtId,
@@ -105,7 +107,7 @@ class ConfirmBankStatementDraftAction @Inject() (
         manuallyEdited = false,
         createdAt = now,
         updatedAt = now,
-        txnType = t.txnType.getOrElse("purchase")
+        txnType = txnType
       )
     }
     val extractionInfo = payload.stage.map(s => payload.into[ExtractionInfo].withFieldConst(_.stage, s).transform)
@@ -132,6 +134,36 @@ class ConfirmBankStatementDraftAction @Inject() (
           s"Statement $stmtId for user $userId was confirmed with accepted warnings: ${warnings.map(_.message).mkString("; ")}"
         )
       BankStatementDraft.Confirm.Response(Some(stmtId), warnings)
+    }
+  }
+
+  /** Validate every payload value (no exemptions) and require a type on every row. Returns the row types in order. */
+  private def requireValid(payload: BankStatementDraft.Payload): List[String] = {
+    val m = payload.metadata
+    // Trimmed like requireMetadata, which stores the trimmed values and reports blank ones as missing.
+    def text(v: Option[String]): Option[String] = v.map(_.trim).filter(_.nonEmpty)
+    val header = BankStatementPayloadValidator.Header(
+      bankName = text(m.bankName),
+      productType = text(m.productType),
+      currency = text(m.currency),
+      accountLast4 = text(m.accountLast4),
+      openingBalance = m.openingBalance,
+      closingBalance = m.closingBalance
+    )
+    val rows = payload.transactions.map(t =>
+      BankStatementPayloadValidator.Row(
+        description = t.description,
+        amount = t.amount,
+        txnType = t.txnType,
+        runningBalance = t.runningBalance
+      )
+    )
+    BankStatementPayloadValidator.validate(header, rows) match {
+      case Left(msg) => throw new RuntimeException(msg)
+      case Right(()) => ()
+    }
+    payload.transactions.zipWithIndex.map { case (t, i) =>
+      t.txnType.getOrElse(throw new RuntimeException(s"Row ${i + 1}: type is missing"))
     }
   }
 
