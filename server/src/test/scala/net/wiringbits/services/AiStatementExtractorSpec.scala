@@ -55,6 +55,18 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
       ok(json).reconciled must be(false)
     }
 
+    "not reconcile a valid chain whose last running balance misses the closing balance" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":10.00},
+          | "transactions":[
+          |   {"date":"2026-01-01","amount":-40.00,"description":"A","runningBalance":60.00}
+          | ]}""".stripMargin
+      val r = ok(json)
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
+      r.discrepancy.isDefined must be(true)
+    }
+
     "strip markdown fences around the JSON" in {
       val json =
         "```json\n{\"metadata\":{},\"transactions\":[{\"date\":\"2026-01-01\",\"amount\":-5.00,\"description\":\"x\"}]}\n```"
@@ -140,6 +152,32 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
       r.reconciled must be(false)
       r.unverifiable must be(false)
       r.discrepancy must be(Some("Transactions sum to -30.00 but the balance changes by ±40.00 — off by 10.00."))
+    }
+
+    "reconcile a chain whose last running balance equals the closing balance" in {
+      val r = AiStatementExtractor.reconcile(
+        Some(BigDecimal("100.00")),
+        Some(BigDecimal("60.00")),
+        List((BigDecimal("-40.00"), Some(BigDecimal("60.00"))))
+      )
+      r.reconciled must be(true)
+      r.discrepancy must be(None)
+    }
+
+    "reconcile a chain whose last running balance is the negated closing balance" in {
+      val r = AiStatementExtractor.reconcile(
+        Some(BigDecimal("-100.00")),
+        Some(BigDecimal("60.00")),
+        List((BigDecimal("40.00"), Some(BigDecimal("-60.00"))))
+      )
+      r.reconciled must be(true)
+      r.discrepancy must be(None)
+    }
+
+    "not reconcile an empty draft, even when opening and closing balances match" in {
+      val r = AiStatementExtractor.reconcile(Some(BigDecimal("100.00")), Some(BigDecimal("100.00")), Nil)
+      r.reconciled must be(false)
+      r.unverifiable must be(false)
     }
 
     "not report a reconciled draft as unverifiable" in {

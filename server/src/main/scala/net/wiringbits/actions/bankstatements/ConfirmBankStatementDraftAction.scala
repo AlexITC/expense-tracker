@@ -47,6 +47,8 @@ class ConfirmBankStatementDraftAction @Inject() (
       _ = if (document.isEmpty) throw new RuntimeException("The draft's document was not found")
       payloadStr = draft.payload.getOrElse(throw new RuntimeException("The draft is not ready to confirm yet"))
       payload = Json.parse(payloadStr).as[BankStatementDraft.Payload]
+      _ = if (payload.transactions.isEmpty)
+        throw new RuntimeException("The draft has no transactions, so it can't be reconciled or imported")
       acceptedUnverified = requireReconciled(payload, acceptUnverified)
       metadata = requireMetadata(payload.metadata)
       overlapping <- bankStatementRepository.findOverlapping(userId, metadata)

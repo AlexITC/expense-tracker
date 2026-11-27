@@ -164,41 +164,64 @@ object AiStatementExtractor {
       .filter(_ => txns.forall(_.runningBalance.isDefined))
       .map(o => chainHolds(o, txns, sign = 1) || chainHolds(o, txns, sign = -1))
 
-    chain match {
-      case Some(true) => Verification(reconciled = true, unverifiable = false, None, Some(BigDecimal(0)))
-      case Some(false) =>
-        Verification(
-          reconciled = false,
-          unverifiable = false,
-          Some(
-            s"The running balance does not add up across the ${txns.size} rows; a row is likely missing or misread."
-          ),
-          None
-        )
-      case None =>
-        (meta.openingBalance, meta.closingBalance) match {
-          case (Some(o), Some(c)) =>
-            // Accept either balance-sign convention (debit: c-o; credit/owed: o-c).
-            val missing = List(sumAll - (c - o), sumAll - (o - c)).minBy(_.abs)
-            if (missing.abs < Tolerance) Verification(reconciled = true, unverifiable = false, None, Some(missing.abs))
-            else
+    if (txns.isEmpty)
+      Verification(
+        reconciled = false,
+        unverifiable = false,
+        Some("There are no transactions, so the statement can't be reconciled."),
+        None
+      )
+    else
+      chain match {
+        case Some(true) =>
+          (meta.closingBalance, txns.last.runningBalance) match {
+            case (Some(c), Some(last)) =>
+              // Either balance-sign convention, as in the chain itself.
+              val gap = ((last - c).abs).min((last + c).abs)
+              if (gap < Tolerance) Verification(reconciled = true, unverifiable = false, None, Some(BigDecimal(0)))
+              else
+                Verification(
+                  reconciled = false,
+                  unverifiable = false,
+                  Some(s"The running balance ends at $last but the closing balance is $c; rows are likely missing."),
+                  Some(gap)
+                )
+            case _ => Verification(reconciled = true, unverifiable = false, None, Some(BigDecimal(0)))
+          }
+        case Some(false) =>
+          Verification(
+            reconciled = false,
+            unverifiable = false,
+            Some(
+              s"The running balance does not add up across the ${txns.size} rows; a row is likely missing or misread."
+            ),
+            None
+          )
+        case None =>
+          (meta.openingBalance, meta.closingBalance) match {
+            case (Some(o), Some(c)) =>
+              // Accept either balance-sign convention (debit: c-o; credit/owed: o-c).
+              val missing = List(sumAll - (c - o), sumAll - (o - c)).minBy(_.abs)
+              if (missing.abs < Tolerance)
+                Verification(reconciled = true, unverifiable = false, None, Some(missing.abs))
+              else
+                Verification(
+                  reconciled = false,
+                  unverifiable = false,
+                  Some(
+                    s"Transactions sum to $sumAll but the balance changes by ±${(c - o).abs} — off by ${missing.abs}."
+                  ),
+                  Some(missing.abs)
+                )
+            case _ =>
               Verification(
                 reconciled = false,
-                unverifiable = false,
-                Some(
-                  s"Transactions sum to $sumAll but the balance changes by ±${(c - o).abs} — off by ${missing.abs}."
-                ),
-                Some(missing.abs)
+                unverifiable = true,
+                Some("No running balance or opening/closing balance was found, so completeness can't be verified."),
+                None
               )
-          case _ =>
-            Verification(
-              reconciled = false,
-              unverifiable = true,
-              Some("No running balance or opening/closing balance was found, so completeness can't be verified."),
-              None
-            )
-        }
-    }
+          }
+      }
   }
 
   private def chainHolds(opening: BigDecimal, txns: List[Txn], sign: Int): Boolean =
