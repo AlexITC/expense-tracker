@@ -96,7 +96,8 @@ package object daos {
       "email",
       "password",
       "created_at",
-      "verified_on"
+      "verified_on",
+      "session_version"
     )
   }
 

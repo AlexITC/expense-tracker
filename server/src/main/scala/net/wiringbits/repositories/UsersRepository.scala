@@ -81,13 +81,29 @@ class UsersRepository @Inject() (
     }
   }
 
-  def updatePassword(userId: UUID, password: String, emailMessage: EmailMessage): Future[Unit] = Future {
+  def findSessionVersion(userId: UUID): Future[Option[Int]] = Future {
+    database.withConnection { implicit conn =>
+      UsersDAO.findSessionVersion(userId)
+    }
+  }
+
+  def updatePassword(userId: UUID, password: String, emailMessage: EmailMessage): Future[Int] = Future {
     database.withTransaction { implicit conn =>
       UsersDAO.resetPassword(userId, password)
       val request = UserLog.CreateUserLog(userLogId = UUID.randomUUID(), userId = userId, "Password was updated")
       UserLogsDAO.create(request)
       UserTokensDAO.deleteAll(userId)
       sendEmailLater(userId, emailMessage)
+      UsersDAO.bumpSessionVersion(userId)
+    }
+  }
+
+  def logoutEverywhere(userId: UUID): Future[Int] = Future {
+    database.withTransaction { implicit conn =>
+      UserLogsDAO.create(
+        UserLog.CreateUserLog(userLogId = UUID.randomUUID(), userId = userId, "Logged out of all sessions")
+      )
+      UsersDAO.bumpSessionVersion(userId)
     }
   }
 
@@ -112,6 +128,7 @@ class UsersRepository @Inject() (
       val request = UserLog.CreateUserLog(userLogId = UUID.randomUUID(), userId = userId, "Password was reset")
       UserLogsDAO.create(request)
       UserTokensDAO.deleteAll(userId)
+      val _ = UsersDAO.bumpSessionVersion(userId)
       sendEmailLater(userId, emailMessage)
     }
   }

@@ -234,6 +234,73 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
   }
 
+  "findSessionVersion" should {
+    "return 0 for a new user" in withRepositories() { implicit repositories =>
+      val request = createUser().futureValue
+
+      repositories.users.findSessionVersion(request.id).futureValue must be(Some(0))
+    }
+
+    "return no result when the user doesn't exist" in withRepositories() { repositories =>
+      repositories.users.findSessionVersion(UUID.randomUUID()).futureValue must be(None)
+    }
+  }
+
+  "session version" should {
+    "be incremented by resetPassword, keeping other users' versions" in withRepositories() { implicit repositories =>
+      val request = createUser().futureValue
+      val other = createUser().futureValue
+
+      repositories.users.resetPassword(request.id, "test", EmailMessage.resetPassword(request.name)).futureValue
+
+      repositories.users.findSessionVersion(request.id).futureValue must be(Some(1))
+      repositories.users.findSessionVersion(other.id).futureValue must be(Some(0))
+    }
+
+    "be incremented by updatePassword, which returns the new version" in withRepositories() { implicit repositories =>
+      val request = createUser().futureValue
+      val other = createUser().futureValue
+
+      val response =
+        repositories.users.updatePassword(request.id, "test", EmailMessage.updatePassword(request.name)).futureValue
+
+      response must be(1)
+      repositories.users.findSessionVersion(request.id).futureValue must be(Some(1))
+      repositories.users.findSessionVersion(other.id).futureValue must be(Some(0))
+    }
+
+    "be incremented by logoutEverywhere, which returns the new version" in withRepositories() { implicit repositories =>
+      val request = createUser().futureValue
+      val other = createUser().futureValue
+
+      repositories.users.logoutEverywhere(request.id).futureValue must be(1)
+      repositories.users.logoutEverywhere(request.id).futureValue must be(2)
+
+      repositories.users.findSessionVersion(request.id).futureValue must be(Some(2))
+      repositories.users.findSessionVersion(other.id).futureValue must be(Some(0))
+    }
+  }
+
+  "logoutEverywhere" should {
+    "record the action in the user logs" in withRepositories() { implicit repositories =>
+      val request = createUser().futureValue
+
+      repositories.users.logoutEverywhere(request.id).futureValue
+
+      val logs = repositories.userLogs.logs(request.id).futureValue
+      logs.count(_.message == "Logged out of all sessions") must be(1)
+    }
+
+    "fail when the user doesn't exist" in withRepositories() { repositories =>
+      val ex = intercept[RuntimeException] {
+        repositories.users.logoutEverywhere(UUID.randomUUID()).futureValue
+      }
+      ex.getCause.getMessage must startWith(
+        """ERROR: insert or update on table "user_logs" violates foreign key constraint "user_logs_users_fk""""
+      )
+    }
+  }
+
   // No repository API reads background jobs back, so inspect the stored rows for the given recipient directly.
   private def sendEmailJobsOf(email: Email)(using repositories: RepositoryComponents): List[BackgroundJobData] =
     repositories.database.withConnection { implicit conn =>
