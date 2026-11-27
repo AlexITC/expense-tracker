@@ -117,18 +117,28 @@ object AiStatementExtractor {
         end = (m \ "periodEnd").asOpt[LocalDate],
         (m \ "periodMonth").asOpt[String]
       )
-      val meta = Meta(
+      // Read productType raw so an unknown value is rejected by the validator instead of silently becoming None.
+      val header = BankStatementPayloadValidator.Header(
         bankName = (m \ "bankName").asOpt[String],
-        productType = (m \ "productType").asOpt[ProductType],
+        productType = (m \ "productType").asOpt[String],
         currency = (m \ "currency").asOpt[String],
         accountLast4 = (m \ "accountLast4").asOpt[String],
-        periodStart = periodStart,
-        periodEnd = periodEnd,
         openingBalance = (m \ "openingBalance").asOpt[BigDecimal],
         closingBalance = (m \ "closingBalance").asOpt[BigDecimal]
       )
-      val v = verify(meta, txns)
-      Right(
+      val rows = txns.map(t => BankStatementPayloadValidator.Row(t.description, t.amount, t.txnType, t.runningBalance))
+      BankStatementPayloadValidator.validate(header, rows).map { _ =>
+        val meta = Meta(
+          bankName = header.bankName,
+          productType = header.productType.map(ProductType.fromEntryName),
+          currency = header.currency,
+          accountLast4 = header.accountLast4,
+          periodStart = periodStart,
+          periodEnd = periodEnd,
+          openingBalance = header.openingBalance,
+          closingBalance = header.closingBalance
+        )
+        val v = verify(meta, txns)
         ExtractionResult(
           v.reconciled,
           v.discrepancy,
@@ -138,7 +148,7 @@ object AiStatementExtractor {
           v.residual,
           unverifiable = v.unverifiable
         )
-      )
+      }
     }
 
   /** Map a draft's stored product type to the enum; an unknown value maps to None. */

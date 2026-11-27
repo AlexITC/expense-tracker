@@ -28,6 +28,24 @@ class AiStatementExtractorSpec extends AnyWordSpec with Matchers {
       r.metadata.productType must be(Some(ProductType.Debit))
     }
 
+    "reject an amount with more than 2 decimal places" in {
+      val json =
+        """{"metadata":{"productType":"debit","openingBalance":100.00,"closingBalance":87.66},
+          | "transactions":[{"date":"2026-01-01","amount":-12.345,"description":"A"}]}""".stripMargin
+      AiStatementExtractor.parseAndVerify(json, model) must be(
+        Left("Row 1: amount -12.345 has more than 2 decimal places")
+      )
+    }
+
+    "reject an unknown product type instead of dropping it" in {
+      val json =
+        """{"metadata":{"productType":"savings","openingBalance":100.00,"closingBalance":60.00},
+          | "transactions":[{"date":"2026-01-01","amount":-40.00,"description":"A"}]}""".stripMargin
+      AiStatementExtractor.parseAndVerify(json, model) must be(
+        Left("Product type savings is not one of credit, debit")
+      )
+    }
+
     "reconcile a credit statement by opening/closing, sign-agnostic (no per-row balance)" in {
       val json =
         """{"metadata":{"productType":"credit","openingBalance":1484.73,"closingBalance":1689.69},
