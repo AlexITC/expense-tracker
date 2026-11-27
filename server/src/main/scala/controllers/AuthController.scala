@@ -16,8 +16,10 @@ import scala.concurrent.{ExecutionContext, Future}
 class AuthController @Inject() (
     loginAction: LoginAction,
     getUserAction: GetUserAction,
-    playTapirBridge: PlayTapirBridge
+    playTapirBridge: PlayTapirBridge,
+    sessionAuthenticator: SessionAuthenticator
 )(implicit ec: ExecutionContext) {
+  import sessionAuthenticator.authHandler
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private def login(body: Login.Request): Future[Either[ErrorResponse, (Login.Response, String)]] =

@@ -20,8 +20,10 @@ class MerchantsController @Inject() (
     deleteMerchantAction: DeleteMerchantAction,
     getPendingMerchantsAction: GetPendingMerchantsAction,
     reviewMerchantAction: ReviewMerchantAction,
-    markMerchantAsDuplicateAction: MarkMerchantAsDuplicateAction
+    markMerchantAsDuplicateAction: MarkMerchantAsDuplicateAction,
+    sessionAuthenticator: SessionAuthenticator
 )(implicit ec: ExecutionContext) {
+  import sessionAuthenticator.authHandler
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private def getAll(userIdF: Future[UUID]): Future[Either[ErrorResponse, GetMerchants.Response]] = handleRequest {

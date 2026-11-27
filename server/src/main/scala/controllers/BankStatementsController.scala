@@ -38,8 +38,10 @@ class BankStatementsController @Inject() (
     createRefundFromRowAction: CreateRefundFromRowAction,
     unlinkRowRefundAction: UnlinkRowRefundAction,
     setAccountAliasAction: SetAccountAliasAction,
-    getAccountAliasesAction: GetAccountAliasesAction
+    getAccountAliasesAction: GetAccountAliasesAction,
+    sessionAuthenticator: SessionAuthenticator
 )(implicit ec: ExecutionContext) {
+  import sessionAuthenticator.authHandler
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private def createDraft(

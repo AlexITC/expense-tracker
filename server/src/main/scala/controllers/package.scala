@@ -7,7 +7,6 @@ import sttp.tapir.model.ServerRequest
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
-import scala.language.implicitConversions
 import scala.util.Try
 import scala.util.control.NonFatal
 
@@ -30,6 +29,30 @@ package object controllers {
     }
   }
 
+  class SessionAuthenticator @Inject() ()(implicit ec: ExecutionContext) {
+
+    // This is the way to access the play request from tapir, we need it to extract the play session
+    // UUID has to be future, because we want to handle the exception in the controllers
+    // tapir exposes the underlying request as Any, so reaching the Play RequestHeader needs a cast.
+    @SuppressWarnings(Array("org.wartremover.warts.AsInstanceOf"))
+    implicit val authHandler: ServerRequest => Future[UUID] = serverRequest =>
+      val session = serverRequest.underlying
+        .asInstanceOf[RequestHeader]
+        .session
+
+      def userIdFromSession = Future {
+        session
+          .get("id")
+          .flatMap(str => Try(UUID.fromString(str)).toOption)
+          .getOrElse(throw new RuntimeException("Invalid or missing authentication"))
+      }
+
+      userIdFromSession
+        .recover { case NonFatal(_) =>
+          throw new RuntimeException("Unauthorized: Invalid or missing authentication")
+        }
+  }
+
   def handleRequest[R](
       block: Future[Right[ErrorResponse, R]]
   )(implicit ec: ExecutionContext): Future[Either[ErrorResponse, R]] = {
@@ -43,25 +66,4 @@ package object controllers {
       logger.debug(s"Error response while handling a request: ${ex.getMessage}", ex)
       Left(ErrorResponse(ex.getMessage))
   }
-
-  // This is the way to access the play request from tapir, we need it to extract the play session
-  // UUID has to be future, because we want to handle the exception in the controllers
-  // tapir exposes the underlying request as Any, so reaching the Play RequestHeader needs a cast.
-  @SuppressWarnings(Array("org.wartremover.warts.AsInstanceOf"))
-  implicit def authHandler(serverRequest: ServerRequest)(implicit ec: ExecutionContext): Future[UUID] =
-    val session = serverRequest.underlying
-      .asInstanceOf[RequestHeader]
-      .session
-
-    def userIdFromSession = Future {
-      session
-        .get("id")
-        .flatMap(str => Try(UUID.fromString(str)).toOption)
-        .getOrElse(throw new RuntimeException("Invalid or missing authentication"))
-    }
-
-    userIdFromSession
-      .recover { case NonFatal(_) =>
-        throw new RuntimeException("Unauthorized: Invalid or missing authentication")
-      }
 }

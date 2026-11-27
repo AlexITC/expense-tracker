@@ -24,8 +24,10 @@ class UsersController @Inject() (
     getUserLogsAction: GetUserLogsAction,
     sendEmailVerificationTokenAction: SendEmailVerificationTokenAction,
     createTelegramLinkTokenAction: CreateTelegramLinkTokenAction,
-    createMcpTokenAction: CreateMcpTokenAction
+    createMcpTokenAction: CreateMcpTokenAction,
+    sessionAuthenticator: SessionAuthenticator
 )(implicit ec: ExecutionContext) {
+  import sessionAuthenticator.authHandler
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private def create(request: CreateUser.Request): Future[Either[ErrorResponse, CreateUser.Response]] = handleRequest {

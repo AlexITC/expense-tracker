@@ -17,8 +17,10 @@ class CategoriesController @Inject() (
     getCategoriesAction: GetCategoriesAction,
     createCategoryAction: CreateCategoryAction,
     updateCategoryAction: UpdateCategoryAction,
-    deleteCategoryAction: DeleteCategoryAction
+    deleteCategoryAction: DeleteCategoryAction,
+    sessionAuthenticator: SessionAuthenticator
 )(implicit ec: ExecutionContext) {
+  import sessionAuthenticator.authHandler
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private def getAll(userIdF: Future[UUID]): Future[Either[ErrorResponse, GetCategories.Response]] = handleRequest {
