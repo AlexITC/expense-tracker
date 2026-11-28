@@ -12,14 +12,12 @@ class LogoutEverywhereActionSpec extends RepositorySpec with RepositoryUtils {
     new LogoutEverywhereAction(repositories.users)(using executionContext)
 
   "apply" should {
-    "increment the session version and record it in the user logs" in withRepositories() { implicit repositories =>
+    "increment the session version" in withRepositories() { implicit repositories =>
       val user = createUser().futureValue
 
       newAction().apply(user.id).futureValue
 
       repositories.users.find(user.id).futureValue.value.sessionVersion must be(1)
-      val logs = repositories.userLogs.logs(user.id).futureValue
-      logs.count(_.message == "Logged out of all sessions") must be(1)
     }
 
     "not affect other users" in withRepositories() { implicit repositories =>
@@ -29,7 +27,6 @@ class LogoutEverywhereActionSpec extends RepositorySpec with RepositoryUtils {
       newAction().apply(user.id).futureValue
 
       repositories.users.find(other.id).futureValue.value.sessionVersion must be(0)
-      repositories.userLogs.logs(other.id).futureValue.count(_.message == "Logged out of all sessions") must be(0)
     }
   }
 }

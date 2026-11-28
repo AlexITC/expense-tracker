@@ -7,7 +7,6 @@ case class RepositoryComponents(
     database: Database,
     users: UsersRepository,
     userTokens: UserTokensRepository,
-    userLogs: UserLogsRepository,
     backgroundJobs: BackgroundJobsRepository,
     categories: CategoriesRepository,
     merchants: MerchantsRepository,

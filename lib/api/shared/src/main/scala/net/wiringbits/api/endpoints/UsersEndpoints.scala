@@ -175,29 +175,6 @@ object UsersEndpoints {
       .summary("Updates the authenticated user password")
       .description("Signs out every other session and re-issues this session's cookie")
 
-  def getLogs(implicit
-      authHandler: ServerRequest => Future[UUID]
-  ): Endpoint[Unit, Future[UUID], ErrorResponse, GetUserLogs.Response, Any] = baseEndpoint.get
-    .in("me" / "logs")
-    .in(userAuth)
-    .out(
-      jsonBody[GetUserLogs.Response]
-        .description("Got user logs")
-        .example(
-          GetUserLogs.Response(
-            List(
-              GetUserLogs.Response.UserLog(
-                userLogId = UUID.fromString("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
-                message = "Message",
-                createdAt = Instant.parse("2021-01-01T00:00:00Z")
-              )
-            )
-          )
-        )
-    )
-    .errorOut(oneOf(HttpErrors.badRequest))
-    .summary("Get the logs for the authenticated user")
-
   def createTelegramLinkToken(implicit
       authHandler: ServerRequest => Future[UUID]
   ): Endpoint[Unit, Future[UUID], ErrorResponse, CreateTelegramLinkToken.Response, Any] =
@@ -238,7 +215,6 @@ object UsersEndpoints {
     sendEmailVerificationToken,
     update,
     updatePassword,
-    getLogs,
     createTelegramLinkToken,
     createMcpToken
   )

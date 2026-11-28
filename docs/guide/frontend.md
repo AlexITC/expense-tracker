@@ -123,9 +123,9 @@ so it uses `Hooks` directly.
 Use `AsyncComponent` whenever a component needs to fetch data before rendering. It handles loading and error states automatically — you only write the render path.
 
 ```scala
-AsyncComponent[GetUserLogs.Response](
-  fetch = () => props.ctx.api.client.getUserLogs,
-  render = response => LogList(props.ctx, response),
+AsyncComponent[GetExpenses.Response](
+  fetch = () => props.ctx.api.client.getExpenses,
+  render = response => ExpenseList(props.ctx, response),
   progressIndicator = () => Loader(props.ctx),
   watchedObjects = List(timesRefreshingData)   // re-fetches when this changes
 )
@@ -137,7 +137,7 @@ AsyncComponent[GetUserLogs.Response](
 - `watchedObjects`: pass a counter from `GenericHooks.useForceRefresh` to trigger manual refresh; omit if data never needs refreshing
 - Error state: rendered automatically by the library; do not re-implement error rendering
 
-@file: web/src/main/scala/net/wiringbits/components/widgets/Logs.scala  
+@file: web/src/main/scala/net/wiringbits/components/pages/ChartsPage.scala  
 @file: web/src/main/scala/net/wiringbits/components/widgets/UserInfo.scala
 
 **RULE-FE-008 — `onComplete` for form submission**

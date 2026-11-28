@@ -23,15 +23,6 @@ package object endpoints {
     )
   }
 
-  val adminHeader: EndpointIO.Header[String] = header[String]("X-Forwarded-User")
-    .default("Unknown")
-    .schema(_.hidden(true))
-
-  val adminAuth: EndpointInput.Auth[String, AuthType.Http] = auth
-    .basic[String]()
-    .securitySchemeName("Basic authorization")
-    .description("Admin credentials")
-
   val setSessionHeader: EndpointIO.Header[String] = header[String]("Set-Cookie")
     .description("Set user session")
     .schema(_.hidden(true))

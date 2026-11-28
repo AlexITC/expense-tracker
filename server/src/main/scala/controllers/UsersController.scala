@@ -21,7 +21,6 @@ class UsersController @Inject() (
     resetPasswordAction: ResetPasswordAction,
     updateUserAction: UpdateUserAction,
     updatePasswordAction: UpdatePasswordAction,
-    getUserLogsAction: GetUserLogsAction,
     sendEmailVerificationTokenAction: SendEmailVerificationTokenAction,
     createTelegramLinkTokenAction: CreateTelegramLinkTokenAction,
     createMcpTokenAction: CreateMcpTokenAction,
@@ -97,15 +96,6 @@ class UsersController @Inject() (
     } yield Right(response, cookieEncoded)
   }
 
-  private def getLogs(userIdF: Future[UUID]): Future[Either[ErrorResponse, GetUserLogs.Response]] =
-    handleRequest {
-      for {
-        userId <- userIdF
-        _ = logger.info(s"Get user logs: $userId")
-        response <- getUserLogsAction(userId)
-      } yield Right(response)
-    }
-
   private def createTelegramLinkToken(
       userIdF: Future[UUID]
   ): Future[Either[ErrorResponse, CreateTelegramLinkToken.Response]] =
@@ -137,7 +127,6 @@ class UsersController @Inject() (
       UsersEndpoints.sendEmailVerificationToken.serverLogic(sendEmailVerificationToken),
       UsersEndpoints.update.serverLogic(update),
       UsersEndpoints.updatePassword.serverLogic(updatePassword),
-      UsersEndpoints.getLogs.serverLogic(getLogs),
       UsersEndpoints.createTelegramLinkToken.serverLogic(createTelegramLinkToken),
       UsersEndpoints.createMcpToken.serverLogic(createMcpToken)
     )

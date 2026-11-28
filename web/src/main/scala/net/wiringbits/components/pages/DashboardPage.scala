@@ -1,7 +1,6 @@
 package net.wiringbits.components.pages
 
 import net.wiringbits.AppContext
-import net.wiringbits.components.widgets.Logs
 import net.wiringbits.core.I18nHooks
 import net.wiringbits.models.User
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.{Container, Subtitle, Title}
@@ -24,8 +23,7 @@ object DashboardPage {
           Title(texts.dashboardPage),
           Subtitle(texts.welcome(props.user.name))
         )
-      ),
-      Logs(props.ctx, props.user)
+      )
     )
   }
 }

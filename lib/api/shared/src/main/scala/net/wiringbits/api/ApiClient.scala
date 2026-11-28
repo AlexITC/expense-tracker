@@ -2,7 +2,6 @@ package net.wiringbits.api
 
 import net.wiringbits.api.endpoints.*
 import net.wiringbits.api.models.*
-import net.wiringbits.api.models.admin.{AdminGetUserLogs, AdminGetUsers}
 import net.wiringbits.api.models.auth.{GetCurrentUser, Login, Logout, LogoutEverywhere}
 import net.wiringbits.api.models.environmentconfig.GetEnvironmentConfig
 import net.wiringbits.api.models.categories.*
@@ -119,20 +118,11 @@ class ApiClient(config: ApiClient.Config)(implicit
       }
   }
 
-  def getUserLogs: Future[GetUserLogs.Response] =
-    handleRequest(UsersEndpoints.getLogs, dummyUserId)
-
   def createTelegramLinkToken: Future[CreateTelegramLinkToken.Response] =
     handleRequest(UsersEndpoints.createTelegramLinkToken, dummyUserId)
 
   def createMcpToken: Future[CreateMcpToken.Response] =
     handleRequest(UsersEndpoints.createMcpToken, dummyUserId)
-
-  def adminGetUserLogs(userId: UUID): Future[AdminGetUserLogs.Response] =
-    handleRequest(AdminEndpoints.getUserLogsEndpoint, ("_", userId, ""))
-
-  def adminGetUsers: Future[AdminGetUsers.Response] =
-    handleRequest(AdminEndpoints.getUsersEndpoint, ("_", ""))
 
   def getEnvironmentConfig: Future[GetEnvironmentConfig.Response] =
     handleRequest(EnvironmentConfigEndpoints.getEnvironmentConfig, ())

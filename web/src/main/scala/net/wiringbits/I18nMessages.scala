@@ -57,7 +57,6 @@ class I18nMessages(_lang: I18nLang) {
   def recover = "Recover"
   def recoverIt = "Recover it"
   def reload = "Reload"
-  def logs = "Logs"
   def resendEmail = "Re-send email"
 
   def aboutPage = "About page"

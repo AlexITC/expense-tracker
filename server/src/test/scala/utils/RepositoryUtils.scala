@@ -31,7 +31,6 @@ import net.wiringbits.repositories.models.{
   TextractCache,
   TextractJob,
   User,
-  UserLog,
   UserToken,
   UserTokenType
 }
@@ -95,24 +94,6 @@ trait RepositoryUtils {
     for {
       _ <- repository.users.create(createRequest)
     } yield createRequest
-  }
-
-  def createUserLog(
-      userId: UUID
-  )(using repository: RepositoryComponents)(using @unused ec: ExecutionContext): Future[UserLog.CreateUserLog] = {
-    val createRequest =
-      UserLog.CreateUserLog(userLogId = UUID.randomUUID(), userId = userId, message = "test")
-
-    for {
-      _ <- repository.userLogs.create(createRequest)
-    } yield createRequest
-  }
-
-  def createUserLog(
-      userId: UUID,
-      message: String
-  )(using repository: RepositoryComponents): Future[Unit] = {
-    repository.userLogs.create(userId, message)
   }
 
   def createToken(

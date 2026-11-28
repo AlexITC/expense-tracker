@@ -10,7 +10,7 @@ package LibCommon {
 }
 
 package LibUI {
-    [Code shared on UI apps (web/admin)\n* Scala.js]
+    [Code shared on UI apps (web)\n* Scala.js]
 }
 
 package LibAPI {
@@ -20,18 +20,12 @@ package LibAPI {
 package WebApp {
     [The main web app\n* Scala.js]
 }
-package AdminApp {
-    [The admin web app\n* Scala.js]
-}
 package ServerApp {
     [The server side app\n* Scala]
 }
 
 WebApp .left....> LibUI : uses
 WebApp .left....> LibAPI : uses
-
-AdminApp .right.> LibUI : uses
-AdminApp .right.> LibAPI : uses
 
 ServerApp .> LibAPI : uses
 

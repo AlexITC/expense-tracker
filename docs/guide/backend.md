@@ -154,14 +154,13 @@ def create(request: User.CreateUser): Future[Unit] = Future {
   database.withTransaction { implicit conn =>
     UsersDAO.create(request)
     UserTokensDAO.create(tokenRequest)
-    UserLogsDAO.create(logRequest)
   }
 }
 
 // WRONG — composing futures inside a repository
 def create(request: User.CreateUser): Future[Unit] = {
   usersDAO.insert(request).flatMap { _ =>       // DON'T do this
-    userLogsDAO.insert(logRequest)
+    userTokensDAO.insert(tokenRequest)
   }
 }
 ```
@@ -172,15 +171,14 @@ Use `withTransaction` when multiple writes must be atomic. Use `withConnection` 
 
 **RULE-BE-006 — Repositories own atomicity decisions**
 
-If several writes must succeed or fail together, the repository is the right place to put them inside a single `withTransaction`. Even when there is business logic involved (e.g. "create user + create token + log event"), prioritize atomicity by keeping all three writes in one transaction rather than splitting them across separate repository calls in the action.
+If several writes must succeed or fail together, the repository is the right place to put them inside a single `withTransaction`. Even when there is business logic involved (e.g. "create user + create verification token"), prioritize atomicity by keeping both writes in one transaction rather than splitting them across separate repository calls in the action.
 
 ```scala
-// All three writes are in one transaction — atomic
+// Both writes are in one transaction — atomic
 def create(request: User.CreateUser): Future[Unit] = Future {
   database.withTransaction { implicit conn =>
     UsersDAO.create(request)
     UserTokensDAO.create(tokenRequest)
-    UserLogsDAO.create(logRequest)
   }
 }
 ```

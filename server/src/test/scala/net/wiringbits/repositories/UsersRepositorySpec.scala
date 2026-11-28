@@ -106,17 +106,6 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       response.value.name must be(newName)
       response.value.email must be(request.email)
     }
-
-    "fail when the user doesn't exist" in withRepositories() { repositories =>
-      val id = UUID.randomUUID()
-      val newName = Name.trusted("Test")
-      val ex = intercept[RuntimeException] {
-        repositories.users.update(id, newName).futureValue
-      }
-      ex.getCause.getMessage must startWith(
-        """ERROR: insert or update on table "user_logs" violates foreign key constraint "user_logs_users_fk""""
-      )
-    }
   }
 
   "updatePassword" should {
@@ -155,9 +144,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val ex = intercept[RuntimeException] {
         repositories.users.updatePassword(UUID.randomUUID(), "test", EmailMessage.updatePassword(name)).futureValue
       }
-      ex.getCause.getMessage must startWith(
-        """ERROR: insert or update on table "user_logs" violates foreign key constraint "user_logs_users_fk""""
-      )
+      ex.getCause.getMessage must be("SqlMappingError(No rows when expecting a single one)")
     }
   }
 
@@ -175,16 +162,6 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       repositories.users.verify(request.id, UUID.randomUUID(), EmailMessage.confirm(request.name)).futureValue
 
       sendEmailJobsOf(request.email).map(_.`type`) must be(List(BackgroundJobType.SendEmail))
-    }
-
-    "fail when the user doesn't exist" in withRepositories() { repositories =>
-      val name = Name.trusted("test")
-      val ex = intercept[RuntimeException] {
-        repositories.users.verify(UUID.randomUUID(), UUID.randomUUID(), EmailMessage.confirm(name)).futureValue
-      }
-      ex.getCause.getMessage must startWith(
-        """ERROR: insert or update on table "user_logs" violates foreign key constraint "user_logs_users_fk""""
-      )
     }
   }
 
@@ -224,9 +201,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val ex = intercept[RuntimeException] {
         repositories.users.resetPassword(UUID.randomUUID(), "test", EmailMessage.resetPassword(name)).futureValue
       }
-      ex.getCause.getMessage must startWith(
-        """ERROR: insert or update on table "user_logs" violates foreign key constraint "user_logs_users_fk""""
-      )
+      ex.getCause.getMessage must be("SqlMappingError(No rows when expecting a single one)")
     }
   }
 
@@ -278,22 +253,11 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
   }
 
   "logoutEverywhere" should {
-    "record the action in the user logs" in withRepositories() { implicit repositories =>
-      val request = createUser().futureValue
-
-      repositories.users.logoutEverywhere(request.id).futureValue
-
-      val logs = repositories.userLogs.logs(request.id).futureValue
-      logs.count(_.message == "Logged out of all sessions") must be(1)
-    }
-
     "fail when the user doesn't exist" in withRepositories() { repositories =>
       val ex = intercept[RuntimeException] {
         repositories.users.logoutEverywhere(UUID.randomUUID()).futureValue
       }
-      ex.getCause.getMessage must startWith(
-        """ERROR: insert or update on table "user_logs" violates foreign key constraint "user_logs_users_fk""""
-      )
+      ex.getCause.getMessage must be("SqlMappingError(No rows when expecting a single one)")
     }
   }
 

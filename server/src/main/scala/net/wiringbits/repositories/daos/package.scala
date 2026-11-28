@@ -100,10 +100,6 @@ package object daos {
     )
   }
 
-  val userLogParser: RowParser[UserLog] = {
-    Macro.parser[UserLog]("user_log_id", "user_id", "message", "created_at")
-  }
-
   def enumColumn[A](f: String => Option[A]): Column[A] = Column.columnToString.mapResult { string =>
     f(string)
       .toRight(SqlRequestError(new RuntimeException(s"The value $string doesn't exists")))

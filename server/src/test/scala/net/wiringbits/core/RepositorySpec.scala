@@ -17,7 +17,6 @@ trait RepositorySpec extends AnyWordSpec with PostgresSpec {
   def withRepositories[T](clock: Clock = Clock.systemUTC)(runTest: RepositoryComponents => T): T = withDatabase { db =>
     val users = new UsersRepository(db, UserTokensConfig(1.hour, 1.hour, "secret"))(using Executors.databaseEC, clock)
     val userTokens = new UserTokensRepository(db)(using Executors.databaseEC)
-    val userLogs = new UserLogsRepository(db)(using Executors.databaseEC)
     val backgroundJobs = new BackgroundJobsRepository(db)(using Executors.databaseEC, clock)
     val categories = new CategoriesRepository(db)(using Executors.databaseEC, clock)
     val merchants = new MerchantsRepository(db)(using Executors.databaseEC, clock)
@@ -41,7 +40,6 @@ trait RepositorySpec extends AnyWordSpec with PostgresSpec {
         db,
         users,
         userTokens,
-        userLogs,
         backgroundJobs,
         categories,
         merchants,
