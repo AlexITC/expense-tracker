@@ -106,6 +106,13 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       response.value.name must be(newName)
       response.value.email must be(request.email)
     }
+
+    "fail when the user doesn't exist" in withRepositories() { repositories =>
+      val ex = intercept[RuntimeException] {
+        repositories.users.update(UUID.randomUUID(), Name.trusted("Test")).futureValue
+      }
+      ex.getCause.getMessage must be("User not found")
+    }
   }
 
   "updatePassword" should {
@@ -144,7 +151,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val ex = intercept[RuntimeException] {
         repositories.users.updatePassword(UUID.randomUUID(), "test", EmailMessage.updatePassword(name)).futureValue
       }
-      ex.getCause.getMessage must be("SqlMappingError(No rows when expecting a single one)")
+      ex.getCause.getMessage must be("User not found")
     }
   }
 
@@ -162,6 +169,14 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       repositories.users.verify(request.id, UUID.randomUUID(), EmailMessage.confirm(request.name)).futureValue
 
       sendEmailJobsOf(request.email).map(_.`type`) must be(List(BackgroundJobType.SendEmail))
+    }
+
+    "fail when the user doesn't exist" in withRepositories() { repositories =>
+      val name = Name.trusted("test")
+      val ex = intercept[RuntimeException] {
+        repositories.users.verify(UUID.randomUUID(), UUID.randomUUID(), EmailMessage.confirm(name)).futureValue
+      }
+      ex.getCause.getMessage must be("User not found")
     }
   }
 
@@ -201,7 +216,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val ex = intercept[RuntimeException] {
         repositories.users.resetPassword(UUID.randomUUID(), "test", EmailMessage.resetPassword(name)).futureValue
       }
-      ex.getCause.getMessage must be("SqlMappingError(No rows when expecting a single one)")
+      ex.getCause.getMessage must be("User not found")
     }
   }
 
@@ -257,7 +272,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val ex = intercept[RuntimeException] {
         repositories.users.logoutEverywhere(UUID.randomUUID()).futureValue
       }
-      ex.getCause.getMessage must be("SqlMappingError(No rows when expecting a single one)")
+      ex.getCause.getMessage must be("User not found")
     }
   }
 
