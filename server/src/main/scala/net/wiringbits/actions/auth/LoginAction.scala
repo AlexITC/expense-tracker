@@ -28,7 +28,10 @@ class LoginAction @Inject() (
       _ = maybe.foreach(ValidateVerifiedUser.apply)
 
       // The password matches
-      user = ValidatePasswordMatches(maybe, request.password, passwordHasher)
+      hashedPassword <- maybe.fold(Future.successful(Option.empty[String]))(user =>
+        usersRepository.findHashedPassword(user.id)
+      )
+      user = ValidatePasswordMatches(maybe, hashedPassword, request.password, passwordHasher)
 
       // A login token is created
       _ <- userLogsRepository.create(user.id, "Logged in successfully")

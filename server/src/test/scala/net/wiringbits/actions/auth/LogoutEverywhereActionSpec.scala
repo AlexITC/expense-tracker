@@ -1,6 +1,7 @@
 package net.wiringbits.actions.auth
 
 import net.wiringbits.core.{RepositoryComponents, RepositorySpec}
+import org.scalatest.OptionValues.*
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
 import utils.RepositoryUtils
@@ -16,7 +17,7 @@ class LogoutEverywhereActionSpec extends RepositorySpec with RepositoryUtils {
 
       newAction().apply(user.id).futureValue
 
-      repositories.users.findSessionVersion(user.id).futureValue must be(Some(1))
+      repositories.users.find(user.id).futureValue.value.sessionVersion must be(1)
       val logs = repositories.userLogs.logs(user.id).futureValue
       logs.count(_.message == "Logged out of all sessions") must be(1)
     }
@@ -27,7 +28,7 @@ class LogoutEverywhereActionSpec extends RepositorySpec with RepositoryUtils {
 
       newAction().apply(user.id).futureValue
 
-      repositories.users.findSessionVersion(other.id).futureValue must be(Some(0))
+      repositories.users.find(other.id).futureValue.value.sessionVersion must be(0)
       repositories.userLogs.logs(other.id).futureValue.count(_.message == "Logged out of all sessions") must be(0)
     }
   }

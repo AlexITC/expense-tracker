@@ -62,7 +62,6 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val response = repositories.users.find(request.email).futureValue
       response.value.email must be(request.email)
       response.value.id must be(request.id)
-      response.value.hashedPassword must be(request.hashedPassword)
     }
 
     "return a user when the email exists (case insensitive match)" in withRepositories() { implicit repositories =>
@@ -87,7 +86,6 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val response = repositories.users.find(request.id).futureValue
       response.value.email must be(request.email)
       response.value.id must be(request.id)
-      response.value.hashedPassword must be(request.hashedPassword)
     }
 
     "return no result when the id doesn't exists" in withRepositories() { repositories =>
@@ -128,8 +126,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val newPassword = "test"
       repositories.users.updatePassword(request.id, newPassword, EmailMessage.updatePassword(request.name)).futureValue
 
-      val response = repositories.users.find(request.id).futureValue
-      response.value.hashedPassword must be(newPassword)
+      repositories.users.findHashedPassword(request.id).futureValue must be(Some(newPassword))
     }
 
     "produce a notification for the user" in withRepositories() { implicit repositories =>
@@ -198,8 +195,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val newPassword = "test"
       repositories.users.resetPassword(request.id, newPassword, EmailMessage.resetPassword(request.name)).futureValue
 
-      val response = repositories.users.find(request.id).futureValue
-      response.value.hashedPassword must be(newPassword)
+      repositories.users.findHashedPassword(request.id).futureValue must be(Some(newPassword))
     }
 
     "produce a notification for the user" in withRepositories() { implicit repositories =>
@@ -234,15 +230,15 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
   }
 
-  "findSessionVersion" should {
-    "return 0 for a new user" in withRepositories() { implicit repositories =>
+  "findHashedPassword" should {
+    "return the stored hash for an existing user" in withRepositories() { implicit repositories =>
       val request = createUser().futureValue
 
-      repositories.users.findSessionVersion(request.id).futureValue must be(Some(0))
+      repositories.users.findHashedPassword(request.id).futureValue must be(Some(request.hashedPassword))
     }
 
     "return no result when the user doesn't exist" in withRepositories() { repositories =>
-      repositories.users.findSessionVersion(UUID.randomUUID()).futureValue must be(None)
+      repositories.users.findHashedPassword(UUID.randomUUID()).futureValue must be(None)
     }
   }
 
@@ -253,8 +249,8 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
 
       repositories.users.resetPassword(request.id, "test", EmailMessage.resetPassword(request.name)).futureValue
 
-      repositories.users.findSessionVersion(request.id).futureValue must be(Some(1))
-      repositories.users.findSessionVersion(other.id).futureValue must be(Some(0))
+      repositories.users.find(request.id).futureValue.value.sessionVersion must be(1)
+      repositories.users.find(other.id).futureValue.value.sessionVersion must be(0)
     }
 
     "be incremented by updatePassword, which returns the new version" in withRepositories() { implicit repositories =>
@@ -265,8 +261,8 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
         repositories.users.updatePassword(request.id, "test", EmailMessage.updatePassword(request.name)).futureValue
 
       response must be(1)
-      repositories.users.findSessionVersion(request.id).futureValue must be(Some(1))
-      repositories.users.findSessionVersion(other.id).futureValue must be(Some(0))
+      repositories.users.find(request.id).futureValue.value.sessionVersion must be(1)
+      repositories.users.find(other.id).futureValue.value.sessionVersion must be(0)
     }
 
     "be incremented by logoutEverywhere, which returns the new version" in withRepositories() { implicit repositories =>
@@ -276,8 +272,8 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       repositories.users.logoutEverywhere(request.id).futureValue must be(1)
       repositories.users.logoutEverywhere(request.id).futureValue must be(2)
 
-      repositories.users.findSessionVersion(request.id).futureValue must be(Some(2))
-      repositories.users.findSessionVersion(other.id).futureValue must be(Some(0))
+      repositories.users.find(request.id).futureValue.value.sessionVersion must be(2)
+      repositories.users.find(other.id).futureValue.value.sessionVersion must be(0)
     }
   }
 

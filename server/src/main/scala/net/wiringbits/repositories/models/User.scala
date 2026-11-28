@@ -9,7 +9,6 @@ case class User(
     id: UUID,
     name: Name,
     email: Email,
-    hashedPassword: String,
     createdAt: Instant,
     verifiedOn: Option[Instant],
     sessionVersion: Int

@@ -20,10 +20,11 @@ class UpdatePasswordAction @Inject() (
   def apply(userId: UUID, request: UpdatePassword.Request): Future[UserSession] = {
     for {
       maybe <- usersRepository.find(userId)
-      user = ValidatePasswordMatches(maybe, request.oldPassword, passwordHasher)
-      hashedPassword = passwordHasher.hash(request.newPassword.string)
+      hashedPassword <- usersRepository.findHashedPassword(userId)
+      user = ValidatePasswordMatches(maybe, hashedPassword, request.oldPassword, passwordHasher)
+      newHashedPassword = passwordHasher.hash(request.newPassword.string)
       emailMessage = EmailMessage.updatePassword(user.name)
-      newVersion <- usersRepository.updatePassword(userId, hashedPassword, emailMessage)
+      newVersion <- usersRepository.updatePassword(userId, newHashedPassword, emailMessage)
     } yield UserSession(userId, newVersion)
   }
 }

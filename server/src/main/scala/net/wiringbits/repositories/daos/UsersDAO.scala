@@ -28,14 +28,14 @@ object UsersDAO {
 
   def all()(implicit conn: Connection): List[User] = {
     SQL"""
-        SELECT user_id, name, email, password, created_at, verified_on, session_version
+        SELECT user_id, name, email, created_at, verified_on, session_version
         FROM users
         """.as(userParser.*)
   }
 
   def find(email: Email)(implicit conn: Connection): Option[User] = {
     SQL"""
-        SELECT user_id, name, email, password, created_at, verified_on, session_version
+        SELECT user_id, name, email, created_at, verified_on, session_version
         FROM users
         WHERE email = ${email.string}::CITEXT
         """.as(userParser.singleOpt)
@@ -43,7 +43,7 @@ object UsersDAO {
 
   def find(userId: UUID)(implicit conn: Connection): Option[User] = {
     SQL"""
-        SELECT user_id, name, email, password, created_at, verified_on, session_version
+        SELECT user_id, name, email, created_at, verified_on, session_version
         FROM users
         WHERE user_id = ${userId.toString}::UUID
         """.as(userParser.singleOpt)
@@ -75,19 +75,20 @@ object UsersDAO {
 
   def findUserForUpdate(userId: UUID)(implicit conn: Connection): Option[User] = {
     SQL"""
-        SELECT user_id, name, email, password, created_at, verified_on, session_version
+        SELECT user_id, name, email, created_at, verified_on, session_version
         FROM users
         WHERE user_id = ${userId.toString}::UUID
         FOR UPDATE NOWAIT
         """.as(userParser.singleOpt)
   }
 
-  def findSessionVersion(userId: UUID)(implicit conn: Connection): Option[Int] = {
+  // The hash is not part of the User read, only the code verifying a password asks for it.
+  def findHashedPassword(userId: UUID)(implicit conn: Connection): Option[String] = {
     SQL"""
-        SELECT session_version
+        SELECT password
         FROM users
         WHERE user_id = ${userId.toString}::UUID
-        """.as(SqlParser.int("session_version").singleOpt)
+        """.as(SqlParser.str("password").singleOpt)
   }
 
   def bumpSessionVersion(userId: UUID)(implicit conn: Connection): Int = {
