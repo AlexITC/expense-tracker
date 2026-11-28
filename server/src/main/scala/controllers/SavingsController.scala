@@ -22,10 +22,8 @@ class SavingsController @Inject() (
     createSavingsAllocationAction: CreateSavingsAllocationAction,
     updateSavingsAllocationAction: UpdateSavingsAllocationAction,
     deleteSavingsAllocationAction: DeleteSavingsAllocationAction,
-    getSavingsEstimateAction: GetSavingsEstimateAction,
-    sessionAuthenticator: SessionAuthenticator
-)(implicit ec: ExecutionContext) {
-  import sessionAuthenticator.authHandler
+    getSavingsEstimateAction: GetSavingsEstimateAction
+)(implicit ec: ExecutionContext, sessionAuthenticator: SessionAuthenticator) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private def getGoals(userIdF: Future[UUID]): Future[Either[ErrorResponse, GetSavingsGoals.Response]] = handleRequest {

@@ -60,6 +60,10 @@ package object controllers {
         }
   }
 
+  // Tapir endpoints take the authentication handler implicitly, controllers only declare the authenticator.
+  implicit def authHandler(implicit authenticator: SessionAuthenticator): ServerRequest => Future[UUID] =
+    authenticator.authHandler
+
   def handleRequest[R](
       block: Future[Right[ErrorResponse, R]]
   )(implicit ec: ExecutionContext): Future[Either[ErrorResponse, R]] = {
