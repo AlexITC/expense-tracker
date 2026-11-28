@@ -17,10 +17,8 @@ class ImportRulesController @Inject() (
     getImportRulesAction: GetImportRulesAction,
     createImportRuleAction: CreateImportRuleAction,
     updateImportRuleAction: UpdateImportRuleAction,
-    deleteImportRuleAction: DeleteImportRuleAction,
-    sessionAuthenticator: SessionAuthenticator
-)(implicit ec: ExecutionContext) {
-  import sessionAuthenticator.authHandler
+    deleteImportRuleAction: DeleteImportRuleAction
+)(implicit ec: ExecutionContext, sessionAuthenticator: SessionAuthenticator) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private def getAll(userIdF: Future[UUID]): Future[Either[ErrorResponse, GetImportRules.Response]] = handleRequest {

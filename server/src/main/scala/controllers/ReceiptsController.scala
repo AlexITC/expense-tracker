@@ -37,10 +37,8 @@ class ReceiptsController @Inject() (
     linkReceiptToRefundAction: LinkReceiptToRefundAction,
     unlinkReceiptFromRefundAction: UnlinkReceiptFromRefundAction,
     ignoreReceiptAction: IgnoreReceiptAction,
-    unignoreReceiptAction: UnignoreReceiptAction,
-    sessionAuthenticator: SessionAuthenticator
-)(implicit ec: ExecutionContext) {
-  import sessionAuthenticator.authHandler
+    unignoreReceiptAction: UnignoreReceiptAction
+)(implicit ec: ExecutionContext, sessionAuthenticator: SessionAuthenticator) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private def upload(

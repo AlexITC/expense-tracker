@@ -17,10 +17,8 @@ class AuthController @Inject() (
     loginAction: LoginAction,
     getUserAction: GetUserAction,
     logoutEverywhereAction: LogoutEverywhereAction,
-    playTapirBridge: PlayTapirBridge,
-    sessionAuthenticator: SessionAuthenticator
-)(implicit ec: ExecutionContext) {
-  import sessionAuthenticator.authHandler
+    playTapirBridge: PlayTapirBridge
+)(implicit ec: ExecutionContext, sessionAuthenticator: SessionAuthenticator) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private def login(body: Login.Request): Future[Either[ErrorResponse, (Login.Response, String)]] =

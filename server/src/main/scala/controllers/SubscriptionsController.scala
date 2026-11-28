@@ -26,10 +26,8 @@ class SubscriptionsController @Inject() (
     deleteSubscriptionExtraChargeAction: DeleteSubscriptionExtraChargeAction,
     getSubscriptionReconciliationAction: GetSubscriptionReconciliationAction,
     addSubscriptionManualPaymentAction: AddSubscriptionManualPaymentAction,
-    deleteSubscriptionManualPaymentAction: DeleteSubscriptionManualPaymentAction,
-    sessionAuthenticator: SessionAuthenticator
-)(implicit ec: ExecutionContext) {
-  import sessionAuthenticator.authHandler
+    deleteSubscriptionManualPaymentAction: DeleteSubscriptionManualPaymentAction
+)(implicit ec: ExecutionContext, sessionAuthenticator: SessionAuthenticator) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private def getSubscriptions(userIdF: Future[UUID]): Future[Either[ErrorResponse, GetSubscriptions.Response]] =

@@ -14,10 +14,8 @@ import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 
 class BankStatementTemplatesController @Inject() (
-    aiExtractBankStatementAction: AiExtractBankStatementAction,
-    sessionAuthenticator: SessionAuthenticator
-)(implicit ec: ExecutionContext) {
-  import sessionAuthenticator.authHandler
+    aiExtractBankStatementAction: AiExtractBankStatementAction
+)(implicit ec: ExecutionContext, sessionAuthenticator: SessionAuthenticator) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private def aiExtract(

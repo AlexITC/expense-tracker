@@ -16,10 +16,8 @@ import scala.concurrent.{ExecutionContext, Future}
 class DocumentsController @Inject() (
     getDocumentsAction: GetDocumentsAction,
     getDocumentAction: GetDocumentAction,
-    deleteDocumentAction: DeleteDocumentAction,
-    sessionAuthenticator: SessionAuthenticator
-)(implicit ec: ExecutionContext) {
-  import sessionAuthenticator.authHandler
+    deleteDocumentAction: DeleteDocumentAction
+)(implicit ec: ExecutionContext, sessionAuthenticator: SessionAuthenticator) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private def getAll(userIdF: Future[UUID]): Future[Either[ErrorResponse, GetDocuments.Response]] = handleRequest {
