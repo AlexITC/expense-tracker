@@ -19,8 +19,10 @@ class ExpensesController @Inject() (
     createExpenseAction: CreateExpenseAction,
     updateExpenseAction: UpdateExpenseAction,
     deleteExpenseAction: DeleteExpenseAction,
-    mergeExpensesAction: MergeExpensesAction
+    mergeExpensesAction: MergeExpensesAction,
+    sessionAuthenticator: SessionAuthenticator
 )(implicit ec: ExecutionContext) {
+  import sessionAuthenticator.authHandler
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private def getAll(

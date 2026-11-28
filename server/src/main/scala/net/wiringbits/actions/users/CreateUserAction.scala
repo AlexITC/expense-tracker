@@ -54,7 +54,8 @@ class CreateUserAction @Inject() (
           email = request.email,
           hashedPassword = hashedPassword,
           createdAt = Instant.now,
-          verifiedOn = None
+          verifiedOn = None,
+          sessionVersion = 0
         ),
         token
       )

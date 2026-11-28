@@ -24,8 +24,11 @@ class UsersController @Inject() (
     getUserLogsAction: GetUserLogsAction,
     sendEmailVerificationTokenAction: SendEmailVerificationTokenAction,
     createTelegramLinkTokenAction: CreateTelegramLinkTokenAction,
-    createMcpTokenAction: CreateMcpTokenAction
+    createMcpTokenAction: CreateMcpTokenAction,
+    sessionAuthenticator: SessionAuthenticator,
+    playTapirBridge: PlayTapirBridge
 )(implicit ec: ExecutionContext) {
+  import sessionAuthenticator.authHandler
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private def create(request: CreateUser.Request): Future[Either[ErrorResponse, CreateUser.Response]] = handleRequest {
@@ -84,13 +87,16 @@ class UsersController @Inject() (
   private def updatePassword(
       request: UpdatePassword.Request,
       userIdF: Future[UUID]
-  ): Future[Either[ErrorResponse, UpdatePassword.Response]] = handleRequest {
+  ): Future[Either[ErrorResponse, (UpdatePassword.Response, String)]] = handleRequest {
     for {
       userId <- userIdF
       _ = logger.info(s"Update password for: $userId")
-      _ <- updatePasswordAction(userId, request)
+      // the action bumps the session version, which revokes every other device, re-issuing the cookie
+      // with the new version keeps the device that changed the password signed in
+      userSession <- updatePasswordAction(userId, request)
+      cookieEncoded <- playTapirBridge.setSession(userSession)
       response = UpdatePassword.Response()
-    } yield Right(response)
+    } yield Right(response, cookieEncoded)
   }
 
   private def getLogs(userIdF: Future[UUID]): Future[Either[ErrorResponse, GetUserLogs.Response]] =

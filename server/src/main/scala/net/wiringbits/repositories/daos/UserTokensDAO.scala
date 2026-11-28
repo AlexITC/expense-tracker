@@ -1,7 +1,7 @@
 package net.wiringbits.repositories.daos
 
 import anorm.SqlStringInterpolation
-import net.wiringbits.repositories.models.UserToken
+import net.wiringbits.repositories.models.{UserToken, UserTokenType}
 
 import java.sql.Connection
 import java.util.UUID
@@ -26,12 +26,13 @@ object UserTokensDAO {
       .execute()
   }
 
-  def find(userId: UUID, token: String)(implicit conn: Connection): Option[UserToken] = {
+  def find(userId: UUID, token: String, tokenType: UserTokenType)(implicit conn: Connection): Option[UserToken] = {
     SQL"""
         SELECT user_token_id, token, token_type, created_at, expires_at, user_id
         FROM user_tokens
         WHERE user_id = ${userId.toString}::UUID
           AND token = $token::TEXT
+          AND token_type = ${tokenType.entryName}::TEXT
         """.as(tokenParser.singleOpt)
   }
 
@@ -49,6 +50,14 @@ object UserTokensDAO {
         DELETE FROM user_tokens
         WHERE user_id = ${userId.toString}::UUID
          AND user_token_id = ${tokenId.toString}::UUID
+       """
+      .executeUpdate()
+  }
+
+  def deleteAll(userId: UUID)(implicit conn: Connection): Unit = {
+    val _ = SQL"""
+        DELETE FROM user_tokens
+        WHERE user_id = ${userId.toString}::UUID
        """
       .executeUpdate()
   }

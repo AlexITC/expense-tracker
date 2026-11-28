@@ -63,7 +63,7 @@ createUser.serverLogic { request => handleRequest { ... } }
 
 **RULE-BE-002 — Auth via `.in(userAuth)`**
 
-Protect endpoints by adding `.in(userAuth)` in the endpoint definition, not by checking the session manually in controller logic. The `authHandler` in `controllers/package.scala` extracts the session UUID and passes it as a `Future[UUID]` to `serverLogic`.
+Protect endpoints by adding `.in(userAuth)` in the endpoint definition, not by checking the session manually in controller logic. The injected `SessionAuthenticator.authHandler` (each controller injects `SessionAuthenticator` and does `import sessionAuthenticator.authHandler`) reads the cookie's `id` and `sessionVersion`, validates them against `users.session_version` via `ValidateSessionAction`, and passes the user id as a `Future[UUID]` to `serverLogic`. Cookies without a `sessionVersion`, or with a stale one, are rejected. Password change, password reset and `UsersRepository.logoutEverywhere` bump the version, which revokes existing sessions (password change re-issues the current device's cookie).
 
 ```scala
 // lib/api/shared — mark as protected
@@ -75,7 +75,7 @@ getMe.serverLogic { userId => handleRequest { actions.getUser(userId) } }
 ```
 
 @file: lib/api/shared/src/main/scala/net/wiringbits/api/endpoints/AuthEndpoints.scala  
-@file: server/src/main/scala/controllers/package.scala (authHandler)
+@file: server/src/main/scala/controllers/package.scala (SessionAuthenticator.authHandler)
 
 **RULE-BE-003 — All handlers wrapped in `handleRequest`**
 

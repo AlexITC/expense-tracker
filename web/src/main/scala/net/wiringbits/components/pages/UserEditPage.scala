@@ -8,13 +8,16 @@ import net.wiringbits.components.widgets.{EditPasswordForm, UserInfo}
 import net.wiringbits.core.{I18nHooks, SafeHooks}
 import net.wiringbits.models.UserMenuOption.{EditPassword, EditSummary}
 import net.wiringbits.models.{User, UserMenuOption}
+import net.wiringbits.ui.forms.SubmitHooks
 import net.wiringbits.webapp.utils.slinkyUtils.Utils.CSSPropertiesUtils
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.ErrorLabel
 import net.wiringbits.webapp.utils.slinkyUtils.components.core.widgets.{CircularLoader, Container, Title}
+import net.wiringbits.webapp.utils.slinkyUtils.facades.reactrouterdom.useHistory
+import org.scalajs.dom
 import org.scalajs.macrotaskexecutor.MacrotaskExecutor.Implicits.global
 import slinky.core.facade.{Fragment, Hooks}
-import slinky.core.{FunctionalComponent, KeyAddingStage}
-import slinky.web.html.{a, href, target}
+import slinky.core.{FunctionalComponent, KeyAddingStage, SyntheticEvent}
+import slinky.web.html.{a, form, href, onSubmit, target}
 
 import scala.util.{Failure, Success}
 
@@ -49,6 +52,9 @@ object UserEditPage {
     val (telegramAction, setTelegramAction) = Hooks.useState[TokenAction[TelegramLinkToken]](TokenAction.Idle)
     val (mcpAction, setMcpAction) = Hooks.useState[TokenAction[McpApiToken]](TokenAction.Idle)
     val (envConfig, setEnvConfig) = Hooks.useState[Option[GetEnvironmentConfig.Response]](None)
+    val (logoutDialogOpen, setLogoutDialogOpen) = Hooks.useState(false)
+    val logoutSubmit = SubmitHooks.useSubmit()
+    val history = useHistory()
 
     val mounted = Hooks.useRef(true)
     SafeHooks.useEffect()(() => () => { mounted.current = false })
@@ -80,6 +86,24 @@ object UserEditPage {
           case Failure(ex) =>
             if (mounted.current) setMcpAction(TokenAction.Failed(ex.getMessage))
         }
+    }
+
+    def handleLogoutEverywhere(e: SyntheticEvent[?, dom.Event]): Unit = {
+      e.preventDefault()
+      if (!logoutSubmit.isSubmitting) {
+        logoutSubmit.begin()
+        props.ctx.api.client.logoutEverywhere
+          .onComplete {
+            case Success(_) =>
+              props.ctx.loggedOut()
+              history.push("/")
+            case Failure(ex) =>
+              if (mounted.current) {
+                logoutSubmit.fail(ex.getMessage)
+                setLogoutDialogOpen(false)
+              }
+          }
+      }
     }
 
     val header = Container(
@@ -218,6 +242,53 @@ object UserEditPage {
       )
     )
 
+    val sessionsSection = Container(
+      margin = Container.EdgeInsets.top(24),
+      child = mui.Card()(
+        mui.CardContent()(
+          mui.Box.sx(new CSSPropertiesUtils { display = "flex"; flexDirection = "column"; gap = "12px" })(
+            mui.Typography("Sessions").variant("h6"),
+            mui
+              .Typography("Sign out of every device and browser where you are logged in, including this one.")
+              .variant("body2"),
+            mui.Button
+              .normal()("Log out of all devices")
+              .variant("outlined")
+              .color("error")
+              .disabled(logoutSubmit.isSubmitting)
+              .onClick(_ => setLogoutDialogOpen(true)),
+            logoutSubmit.error match {
+              case Some(error) => ErrorLabel(error)
+              case None => Fragment()
+            }
+          )
+        )
+      )
+    )
+
+    val logoutEverywhereDialog =
+      mui
+        .Dialog(logoutDialogOpen)(
+          form(onSubmit := (handleLogoutEverywhere(_)))(
+            mui.DialogTitle("Log out of all devices?"),
+            mui.DialogContent(
+              mui.DialogContentText("All your sessions will end, including this one. You will need to sign in again.")
+            ),
+            mui.DialogActions(
+              mui.Button
+                .normal()("Cancel")
+                .disabled(logoutSubmit.isSubmitting)
+                .onClick(_ => setLogoutDialogOpen(false)),
+              mui.Button
+                .normal()("Log out everywhere")
+                .color("error")
+                .`type`("submit")
+                .disabled(logoutSubmit.isSubmitting)
+            )
+          )
+        )
+        .onClose((_, _) => if (!logoutSubmit.isSubmitting) setLogoutDialogOpen(false))
+
     Fragment(
       header,
       mui.Paper()(
@@ -227,7 +298,9 @@ object UserEditPage {
         )
       ),
       telegramSection,
-      mcpSection
+      mcpSection,
+      sessionsSection,
+      logoutEverywhereDialog
     )
   }
 

@@ -11,7 +11,8 @@ case class User(
     email: Email,
     hashedPassword: String,
     createdAt: Instant,
-    verifiedOn: Option[Instant]
+    verifiedOn: Option[Instant],
+    sessionVersion: Int
 )
 
 object User {

@@ -1,4 +1,6 @@
+import net.wiringbits.actions.auth.ValidateSessionAction
 import net.wiringbits.api.models.{ErrorResponse, errorResponseFormat}
+import net.wiringbits.models.UserSession
 import org.slf4j.LoggerFactory
 import play.api.mvc.request.DefaultRequestFactory
 import play.api.mvc.{CookieHeaderEncoding, RequestHeader, Session}
@@ -7,7 +9,6 @@ import sttp.tapir.model.ServerRequest
 import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
-import scala.language.implicitConversions
 import scala.util.Try
 import scala.util.control.NonFatal
 
@@ -18,8 +19,10 @@ package object controllers {
       requestFactory: DefaultRequestFactory,
       cookieHeaderEncoding: CookieHeaderEncoding
   )(implicit ec: ExecutionContext) {
-    def setSession(userId: UUID): Future[String] = Future {
-      val session = Session(Map("id" -> userId.toString))
+    def setSession(userSession: UserSession): Future[String] = Future {
+      val session = Session(
+        Map("id" -> userSession.userId.toString, "sessionVersion" -> userSession.version.toString)
+      )
       val playCookie = requestFactory.sessionBaker.encodeAsCookie(session)
       cookieHeaderEncoding.encodeSetCookieHeader(List(playCookie))
     }
@@ -28,6 +31,33 @@ package object controllers {
       val encoded = requestFactory.sessionBaker.discard.toCookie
       cookieHeaderEncoding.encodeSetCookieHeader(List(encoded))
     }
+  }
+
+  class SessionAuthenticator @Inject() (validateSessionAction: ValidateSessionAction)(implicit ec: ExecutionContext) {
+
+    // This is the way to access the play request from tapir, we need it to extract the play session
+    // UUID has to be future, because we want to handle the exception in the controllers
+    // tapir exposes the underlying request as Any, so reaching the Play RequestHeader needs a cast.
+    @SuppressWarnings(Array("org.wartremover.warts.AsInstanceOf"))
+    implicit val authHandler: ServerRequest => Future[UUID] = serverRequest =>
+      val session = serverRequest.underlying
+        .asInstanceOf[RequestHeader]
+        .session
+
+      // cookies without a sessionVersion (e.g. issued before session versioning existed) are rejected
+      def userSessionFromCookie = Future {
+        val maybe = for {
+          userId <- session.get("id").flatMap(str => Try(UUID.fromString(str)).toOption)
+          version <- session.get("sessionVersion").flatMap(_.toIntOption)
+        } yield UserSession(userId, version)
+        maybe.getOrElse(throw new RuntimeException("Invalid or missing authentication"))
+      }
+
+      userSessionFromCookie
+        .flatMap(validateSessionAction.apply)
+        .recover { case NonFatal(_) =>
+          throw new RuntimeException("Unauthorized: Invalid or missing authentication")
+        }
   }
 
   def handleRequest[R](
@@ -43,25 +73,4 @@ package object controllers {
       logger.debug(s"Error response while handling a request: ${ex.getMessage}", ex)
       Left(ErrorResponse(ex.getMessage))
   }
-
-  // This is the way to access the play request from tapir, we need it to extract the play session
-  // UUID has to be future, because we want to handle the exception in the controllers
-  // tapir exposes the underlying request as Any, so reaching the Play RequestHeader needs a cast.
-  @SuppressWarnings(Array("org.wartremover.warts.AsInstanceOf"))
-  implicit def authHandler(serverRequest: ServerRequest)(implicit ec: ExecutionContext): Future[UUID] =
-    val session = serverRequest.underlying
-      .asInstanceOf[RequestHeader]
-      .session
-
-    def userIdFromSession = Future {
-      session
-        .get("id")
-        .flatMap(str => Try(UUID.fromString(str)).toOption)
-        .getOrElse(throw new RuntimeException("Invalid or missing authentication"))
-    }
-
-    userIdFromSession
-      .recover { case NonFatal(_) =>
-        throw new RuntimeException("Unauthorized: Invalid or missing authentication")
-      }
 }

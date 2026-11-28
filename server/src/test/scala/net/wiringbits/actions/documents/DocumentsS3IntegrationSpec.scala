@@ -84,8 +84,8 @@ class DocumentsS3IntegrationSpec extends AnyWordSpec with ForAllTestContainer {
       conn
         .createStatement()
         .execute(
-          s"INSERT INTO users (user_id, name, email, password, created_at, verified_on) " +
-            s"VALUES ('$id', 'Test', 'test_${id}@example.com', 'hash', now(), now())"
+          s"INSERT INTO users (user_id, name, email, password, created_at, verified_on, session_version) " +
+            s"VALUES ('$id', 'Test', 'test_${id}@example.com', 'hash', now(), now(), 0)"
         )
     }
     id

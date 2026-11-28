@@ -34,6 +34,7 @@ class ApiRouter @Inject() (
     environmentConfigController: EnvironmentConfigController,
     telegramBotController: TelegramBotController,
     mcpController: McpController,
+    sessionAuthenticator: SessionAuthenticator,
     swaggerConfig: SwaggerConfig,
     actorSystem: ActorSystem
 )(using ExecutionContext)
@@ -42,12 +43,33 @@ class ApiRouter @Inject() (
   // unmanaged ActorSystem per router that was never shut down, which could stall app/actor-system
   // termination (the Coordinated Shutdown hang seen under parallel tests).
   given ActorSystem = actorSystem
+  import sessionAuthenticator.authHandler
+
+  private def swaggerEndpoints: List[AnyEndpoint] = List(
+    HealthEndpoints.routes,
+    AuthEndpoints.routes,
+    CategoriesEndpoints.routes,
+    MerchantsEndpoints.routes,
+    ImportRulesEndpoints.routes,
+    ExpensesEndpoints.routes,
+    ReceiptsEndpoints.routes,
+    BankStatementsEndpoints.routes,
+    BankStatementTemplatesEndpoints.routes,
+    RefundsEndpoints.routes,
+    SavingsEndpoints.routes,
+    SubscriptionsEndpoints.routes,
+    DocumentsEndpoints.routes,
+    UsersEndpoints.routes,
+    EnvironmentConfigEndpoints.routes,
+    TelegramEndpoints.routes,
+    McpEndpoints.routes
+  ).flatten
 
   private val swagger = SwaggerInterpreter(
     swaggerUIOptions = SwaggerUIOptions.default.copy(contextPath = List(swaggerConfig.basePath))
   )
     .fromEndpoints[Future](
-      ApiRouter.routes,
+      swaggerEndpoints,
       Info(
         title = swaggerConfig.info.title,
         version = swaggerConfig.info.version,
@@ -78,26 +100,4 @@ class ApiRouter @Inject() (
         mcpController.routes
       ).flatten
     )
-}
-
-object ApiRouter {
-  private def routes(implicit ec: ExecutionContext): List[AnyEndpoint] = List(
-    HealthEndpoints.routes,
-    AuthEndpoints.routes,
-    CategoriesEndpoints.routes,
-    MerchantsEndpoints.routes,
-    ImportRulesEndpoints.routes,
-    ExpensesEndpoints.routes,
-    ReceiptsEndpoints.routes,
-    BankStatementsEndpoints.routes,
-    BankStatementTemplatesEndpoints.routes,
-    RefundsEndpoints.routes,
-    SavingsEndpoints.routes,
-    SubscriptionsEndpoints.routes,
-    DocumentsEndpoints.routes,
-    UsersEndpoints.routes,
-    EnvironmentConfigEndpoints.routes,
-    TelegramEndpoints.routes,
-    McpEndpoints.routes
-  ).flatten
 }

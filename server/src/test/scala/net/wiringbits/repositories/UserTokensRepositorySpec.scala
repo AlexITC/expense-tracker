@@ -4,6 +4,7 @@ import net.wiringbits.core.RepositorySpec
 import org.scalatest.OptionValues.convertOptionToValuable
 import org.scalatest.concurrent.ScalaFutures.*
 import org.scalatest.matchers.must.Matchers.*
+import net.wiringbits.repositories.models.UserTokenType
 import utils.RepositoryUtils
 
 import java.util.UUID
@@ -45,18 +46,29 @@ class UserTokensRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
   }
 
-  "find(userId, token)" should {
+  "find(userId, token, tokenType)" should {
     "return the user token" in withRepositories() { implicit repositories =>
       val request = createUser().futureValue
 
       val tokenRequest = createToken(request.id).futureValue
 
-      val response = repositories.userTokens.find(request.id, tokenRequest.token).futureValue
+      val response = repositories.userTokens.find(request.id, tokenRequest.token, tokenRequest.tokenType).futureValue
       response.isDefined must be(true)
     }
 
+    "return no results when the token type doesn't match" in withRepositories() { implicit repositories =>
+      val request = createUser().futureValue
+
+      val tokenRequest = createToken(request.id).futureValue
+      tokenRequest.tokenType must be(UserTokenType.ResetPassword)
+
+      val response =
+        repositories.userTokens.find(request.id, tokenRequest.token, UserTokenType.EmailVerification).futureValue
+      response.isEmpty must be(true)
+    }
+
     "return no results when the user doesn't exists" in withRepositories() { repositories =>
-      val response = repositories.userTokens.find(UUID.randomUUID(), "test").futureValue
+      val response = repositories.userTokens.find(UUID.randomUUID(), "test", UserTokenType.ResetPassword).futureValue
       response.isEmpty must be(true)
     }
   }

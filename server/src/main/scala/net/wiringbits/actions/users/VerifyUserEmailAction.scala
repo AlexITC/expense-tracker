@@ -3,6 +3,7 @@ package net.wiringbits.actions.users
 import net.wiringbits.api.models.users.VerifyEmail
 import net.wiringbits.config.UserTokensConfig
 import net.wiringbits.repositories.{UserTokensRepository, UsersRepository}
+import net.wiringbits.repositories.models.UserTokenType
 import net.wiringbits.util.{EmailMessage, TokensHelper}
 import net.wiringbits.validations.{ValidateUserIsNotVerified, ValidateUserToken}
 
@@ -27,7 +28,7 @@ class VerifyUserEmailAction @Inject() (
 
     // the token is validated
     hmacToken = TokensHelper.doHMACSHA1(token.toString.getBytes, userTokensConfig.hmacSecret)
-    tokenMaybe <- userTokensRepository.find(userId, hmacToken)
+    tokenMaybe <- userTokensRepository.find(userId, hmacToken, UserTokenType.EmailVerification)
     userToken = tokenMaybe.getOrElse(throw new RuntimeException(s"Token for user $userId wasn't found"))
     _ = ValidateUserToken(userToken)
 

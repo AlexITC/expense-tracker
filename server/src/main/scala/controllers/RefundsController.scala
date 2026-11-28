@@ -19,8 +19,10 @@ class RefundsController @Inject() (
     updateRefundAction: UpdateRefundAction,
     deleteRefundAction: DeleteRefundAction,
     linkRefundToExpenseAction: LinkRefundToExpenseAction,
-    unlinkRefundFromExpenseAction: UnlinkRefundFromExpenseAction
+    unlinkRefundFromExpenseAction: UnlinkRefundFromExpenseAction,
+    sessionAuthenticator: SessionAuthenticator
 )(implicit ec: ExecutionContext) {
+  import sessionAuthenticator.authHandler
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   private def getAll(userIdF: Future[UUID]): Future[Either[ErrorResponse, GetRefunds.Response]] = handleRequest {

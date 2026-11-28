@@ -2,7 +2,7 @@ package net.wiringbits.repositories
 
 import net.wiringbits.executors.DatabaseExecutionContext
 import net.wiringbits.repositories.daos.UserTokensDAO
-import net.wiringbits.repositories.models.UserToken
+import net.wiringbits.repositories.models.{UserToken, UserTokenType}
 import play.api.db.Database
 
 import java.util.UUID
@@ -21,9 +21,9 @@ class UserTokensRepository @Inject() (
     }
   }
 
-  def find(userId: UUID, token: String): Future[Option[UserToken]] = Future {
+  def find(userId: UUID, token: String, tokenType: UserTokenType): Future[Option[UserToken]] = Future {
     database.withConnection { implicit conn =>
-      UserTokensDAO.find(userId, token)
+      UserTokensDAO.find(userId, token, tokenType)
     }
   }
 

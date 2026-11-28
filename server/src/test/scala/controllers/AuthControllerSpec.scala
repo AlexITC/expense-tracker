@@ -15,6 +15,8 @@ import org.mockito.Mockito.*
 import org.scalatestplus.mockito.MockitoSugar
 import play.api.inject
 import play.api.inject.guice.GuiceApplicationBuilder
+import play.api.mvc.{CookieHeaderEncoding, Session, SessionCookieBaker}
+import sttp.client3.{HttpClientFutureBackend, UriContext, basicRequest}
 import utils.LoginUtils
 import utils.RandomData.randomEmail
 
@@ -185,5 +187,86 @@ class AuthControllerSpec extends PlayPostgresSpec with LoginUtils with MockitoSu
       val error = client.currentUser.expectError
       error must be("Unauthorized: Invalid or missing authentication")
     }
+
+    "reject a session cookie without a session version" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+
+      val body = getMeWithSession(Map("id" -> userId.toString))
+
+      body must include("Unauthorized: Invalid or missing authentication")
+    }
+
+    "accept a session cookie with the current session version" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+
+      val body = getMeWithSession(Map("id" -> userId.toString, "sessionVersion" -> "0"))
+
+      body must include(userId.toString)
+    }
+
+    "reject a session cookie with a stale session version" in withApiClient { implicit client =>
+      val userId = createVerifyLoginUser(tokenGenerator).futureValue.id
+
+      val body = getMeWithSession(Map("id" -> userId.toString, "sessionVersion" -> "1"))
+
+      body must include("Unauthorized: Invalid or missing authentication")
+    }
+  }
+
+  "POST /auth/logout" should {
+    "keep other sessions of the same user signed in" in withApiClient { implicit clientA =>
+      val email = randomEmail()
+      val user = createVerifyLoginUser(tokenGenerator, emailMaybe = Some(email)).futureValue
+
+      withApiClient { clientB =>
+        clientB.login(Login.Request(email, Password.trusted("test123..."), Captcha.trusted("test"))).futureValue
+
+        clientA.logout.futureValue
+
+        clientA.currentUser.expectError must be("Unauthorized: Invalid or missing authentication")
+        clientB.currentUser.futureValue.id must be(user.id)
+      }
+    }
+  }
+
+  "POST /auth/logout-everywhere" should {
+    "sign out every session of the user, including the current one" in withApiClient { implicit clientA =>
+      val email = randomEmail()
+      createVerifyLoginUser(tokenGenerator, emailMaybe = Some(email)).futureValue
+
+      withApiClient { clientB =>
+        clientB.login(Login.Request(email, Password.trusted("test123..."), Captcha.trusted("test"))).futureValue
+
+        clientA.logoutEverywhere.futureValue
+
+        clientA.currentUser.expectError must be("Unauthorized: Invalid or missing authentication")
+        clientB.currentUser.expectError must be("Unauthorized: Invalid or missing authentication")
+      }
+    }
+
+    "fail if user isn't logged in" in withApiClient { client =>
+      client.logoutEverywhere.expectError must be("Unauthorized: Invalid or missing authentication")
+    }
+  }
+
+  "play.http.session.maxAge" should {
+    "be 30 days" in {
+      app.configuration.get[scala.concurrent.duration.FiniteDuration]("play.http.session.maxAge") must be(
+        scala.concurrent.duration.Duration(30, "days")
+      )
+    }
+  }
+
+  private def getMeWithSession(data: Map[String, String]): String = {
+    val cookie = app.injector.instanceOf[SessionCookieBaker].encodeAsCookie(Session(data))
+    val cookieHeader = app.injector.instanceOf[CookieHeaderEncoding].encodeCookieHeader(Seq(cookie))
+    val backend = HttpClientFutureBackend()
+    basicRequest
+      .get(uri"http://localhost:$port/auth/me")
+      .header("Cookie", cookieHeader)
+      .send(backend)
+      .futureValue
+      .body
+      .merge
   }
 }
