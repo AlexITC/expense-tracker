@@ -30,6 +30,13 @@ Review changes in the repositories/DAO package. Flag:
   reference can't be persisted by any path, not in the action. The target row's
   own existence/ownership comes from the write's `WHERE id = ? AND user_id = ?`
   (0 rows → "… not found"), so it needs no pre-`find`.
+- A new single-purpose finder that returns one or two columns of an entity
+  (`findSessionVersion`, `findEmail`) when an existing finder already returns the
+  entity with those fields. Reuse the existing finder instead of adding a
+  projection per use case. A sensitive column (password hash, secrets) is the one
+  exception to reading the full row: it stays out of the default entity read and
+  is fetched through its own dedicated method, called only by the code that needs
+  it.
 
 Not: single-call reads/writes under `withConnection`; queries over global /
 non-user-owned tables; matching a violation by bare SQLState (e.g. `23505`)

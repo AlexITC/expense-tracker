@@ -13,8 +13,8 @@ class ValidateSessionAction @Inject() (usersRepository: UsersRepository)(implici
   // resolves to the session's user id only when the cookie's version matches the user's current one
   def apply(session: UserSession): Future[UUID] = {
     for {
-      current <- usersRepository.findSessionVersion(session.userId)
-      _ = ValidateSessionVersion(current, session.version)
+      user <- usersRepository.find(session.userId)
+      _ = ValidateSessionVersion(user.map(_.sessionVersion), session.version)
     } yield session.userId
   }
 }

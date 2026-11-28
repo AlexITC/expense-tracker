@@ -81,9 +81,9 @@ class UsersRepository @Inject() (
     }
   }
 
-  def findSessionVersion(userId: UUID): Future[Option[Int]] = Future {
+  def findHashedPassword(userId: UUID): Future[Option[String]] = Future {
     database.withConnection { implicit conn =>
-      UsersDAO.findSessionVersion(userId)
+      UsersDAO.findHashedPassword(userId)
     }
   }
 
