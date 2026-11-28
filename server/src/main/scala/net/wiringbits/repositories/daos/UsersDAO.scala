@@ -50,27 +50,30 @@ object UsersDAO {
   }
 
   def updateName(userId: UUID, name: Name)(implicit conn: Connection): Unit = {
-    val _ = SQL"""
+    val updated = SQL"""
       UPDATE users
       SET name = ${name.string}
       WHERE user_id = ${userId.toString}::UUID
-    """.execute()
+    """.executeUpdate()
+    if (updated == 0) throw new RuntimeException("User not found")
   }
 
   def verify(userId: UUID)(implicit conn: Connection): Unit = {
-    val _ = SQL"""
+    val updated = SQL"""
       UPDATE users
       SET verified_on = NOW()
       WHERE user_id = ${userId.toString}::UUID
-    """.execute()
+    """.executeUpdate()
+    if (updated == 0) throw new RuntimeException("User not found")
   }
 
   def resetPassword(userId: UUID, password: String)(implicit conn: Connection): Unit = {
-    val _ = SQL"""
+    val updated = SQL"""
       UPDATE users
       SET password = $password
       WHERE user_id = ${userId.toString}::UUID
-    """.execute()
+    """.executeUpdate()
+    if (updated == 0) throw new RuntimeException("User not found")
   }
 
   def findUserForUpdate(userId: UUID)(implicit conn: Connection): Option[User] = {
@@ -97,6 +100,6 @@ object UsersDAO {
       SET session_version = session_version + 1
       WHERE user_id = ${userId.toString}::UUID
       RETURNING session_version
-    """.as(SqlParser.int("session_version").single)
+    """.as(SqlParser.int("session_version").singleOpt).getOrElse(throw new RuntimeException("User not found"))
   }
 }

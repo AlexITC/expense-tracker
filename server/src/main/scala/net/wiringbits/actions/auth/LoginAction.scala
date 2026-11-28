@@ -4,7 +4,7 @@ import io.scalaland.chimney.dsl.transformInto
 import net.wiringbits.api.models.auth.Login
 import net.wiringbits.apis.ReCaptchaApi
 import net.wiringbits.models.UserSession
-import net.wiringbits.repositories.{UserLogsRepository, UsersRepository}
+import net.wiringbits.repositories.UsersRepository
 import net.wiringbits.util.PasswordHasher
 import net.wiringbits.validations.{ValidateCaptcha, ValidatePasswordMatches, ValidateVerifiedUser}
 
@@ -14,7 +14,6 @@ import scala.concurrent.{ExecutionContext, Future}
 class LoginAction @Inject() (
     captchaApi: ReCaptchaApi,
     usersRepository: UsersRepository,
-    userLogsRepository: UserLogsRepository,
     passwordHasher: PasswordHasher
 )(implicit
     ec: ExecutionContext
@@ -32,9 +31,6 @@ class LoginAction @Inject() (
         usersRepository.findHashedPassword(user.id)
       )
       user = ValidatePasswordMatches(maybe, hashedPassword, request.password, passwordHasher)
-
-      // A login token is created
-      _ <- userLogsRepository.create(user.id, "Logged in successfully")
     } yield (user.transformInto[Login.Response], UserSession(user.id, user.sessionVersion))
   }
 }

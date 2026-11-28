@@ -108,14 +108,10 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
     }
 
     "fail when the user doesn't exist" in withRepositories() { repositories =>
-      val id = UUID.randomUUID()
-      val newName = Name.trusted("Test")
       val ex = intercept[RuntimeException] {
-        repositories.users.update(id, newName).futureValue
+        repositories.users.update(UUID.randomUUID(), Name.trusted("Test")).futureValue
       }
-      ex.getCause.getMessage must startWith(
-        """ERROR: insert or update on table "user_logs" violates foreign key constraint "user_logs_users_fk""""
-      )
+      ex.getCause.getMessage must be("User not found")
     }
   }
 
@@ -155,9 +151,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val ex = intercept[RuntimeException] {
         repositories.users.updatePassword(UUID.randomUUID(), "test", EmailMessage.updatePassword(name)).futureValue
       }
-      ex.getCause.getMessage must startWith(
-        """ERROR: insert or update on table "user_logs" violates foreign key constraint "user_logs_users_fk""""
-      )
+      ex.getCause.getMessage must be("User not found")
     }
   }
 
@@ -182,9 +176,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val ex = intercept[RuntimeException] {
         repositories.users.verify(UUID.randomUUID(), UUID.randomUUID(), EmailMessage.confirm(name)).futureValue
       }
-      ex.getCause.getMessage must startWith(
-        """ERROR: insert or update on table "user_logs" violates foreign key constraint "user_logs_users_fk""""
-      )
+      ex.getCause.getMessage must be("User not found")
     }
   }
 
@@ -224,9 +216,7 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
       val ex = intercept[RuntimeException] {
         repositories.users.resetPassword(UUID.randomUUID(), "test", EmailMessage.resetPassword(name)).futureValue
       }
-      ex.getCause.getMessage must startWith(
-        """ERROR: insert or update on table "user_logs" violates foreign key constraint "user_logs_users_fk""""
-      )
+      ex.getCause.getMessage must be("User not found")
     }
   }
 
@@ -278,22 +268,11 @@ class UsersRepositorySpec extends RepositorySpec with RepositoryUtils {
   }
 
   "logoutEverywhere" should {
-    "record the action in the user logs" in withRepositories() { implicit repositories =>
-      val request = createUser().futureValue
-
-      repositories.users.logoutEverywhere(request.id).futureValue
-
-      val logs = repositories.userLogs.logs(request.id).futureValue
-      logs.count(_.message == "Logged out of all sessions") must be(1)
-    }
-
     "fail when the user doesn't exist" in withRepositories() { repositories =>
       val ex = intercept[RuntimeException] {
         repositories.users.logoutEverywhere(UUID.randomUUID()).futureValue
       }
-      ex.getCause.getMessage must startWith(
-        """ERROR: insert or update on table "user_logs" violates foreign key constraint "user_logs_users_fk""""
-      )
+      ex.getCause.getMessage must be("User not found")
     }
   }
 

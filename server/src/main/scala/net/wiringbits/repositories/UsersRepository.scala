@@ -5,7 +5,7 @@ import net.wiringbits.common.models.{Email, Name}
 import net.wiringbits.config.UserTokensConfig
 import net.wiringbits.executors.DatabaseExecutionContext
 import net.wiringbits.models.jobs.{BackgroundJobPayload, BackgroundJobStatus, BackgroundJobType}
-import net.wiringbits.repositories.daos.{BackgroundJobDAO, UserLogsDAO, UserTokensDAO, UsersDAO}
+import net.wiringbits.repositories.daos.{BackgroundJobDAO, UserTokensDAO, UsersDAO}
 import net.wiringbits.repositories.models.*
 import net.wiringbits.util.EmailMessage
 import play.api.db.Database
@@ -39,13 +39,6 @@ class UsersRepository @Inject() (
       database.withTransaction { implicit conn =>
         UsersDAO.create(request)
         UserTokensDAO.create(createToken)
-        UserLogsDAO.create(
-          UserLog.CreateUserLog(
-            userLogId = UUID.randomUUID(),
-            userId = request.id,
-            s"Account created, name = ${request.name}, email = ${request.email}"
-          )
-        )
       }
     }
   }
@@ -71,13 +64,6 @@ class UsersRepository @Inject() (
   def update(userId: UUID, name: Name): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
       UsersDAO.updateName(userId, name)
-      UserLogsDAO.create(
-        UserLog.CreateUserLog(
-          userLogId = UUID.randomUUID(),
-          userId = userId,
-          "Profile updated"
-        )
-      )
     }
   }
 
@@ -90,8 +76,6 @@ class UsersRepository @Inject() (
   def updatePassword(userId: UUID, password: String, emailMessage: EmailMessage): Future[Int] = Future {
     database.withTransaction { implicit conn =>
       UsersDAO.resetPassword(userId, password)
-      val request = UserLog.CreateUserLog(userLogId = UUID.randomUUID(), userId = userId, "Password was updated")
-      UserLogsDAO.create(request)
       UserTokensDAO.deleteAll(userId)
       sendEmailLater(userId, emailMessage)
       UsersDAO.bumpSessionVersion(userId)
@@ -100,9 +84,6 @@ class UsersRepository @Inject() (
 
   def logoutEverywhere(userId: UUID): Future[Int] = Future {
     database.withTransaction { implicit conn =>
-      UserLogsDAO.create(
-        UserLog.CreateUserLog(userLogId = UUID.randomUUID(), userId = userId, "Logged out of all sessions")
-      )
       UsersDAO.bumpSessionVersion(userId)
     }
   }
@@ -110,13 +91,6 @@ class UsersRepository @Inject() (
   def verify(userId: UUID, tokenId: UUID, emailMessage: EmailMessage): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
       UsersDAO.verify(userId)
-      UserLogsDAO.create(
-        UserLog.CreateUserLog(
-          userLogId = UUID.randomUUID(),
-          userId = userId,
-          "Email verified"
-        )
-      )
       UserTokensDAO.delete(tokenId = tokenId, userId = userId)
       sendEmailLater(userId, emailMessage)
     }
@@ -125,8 +99,6 @@ class UsersRepository @Inject() (
   def resetPassword(userId: UUID, password: String, emailMessage: EmailMessage): Future[Unit] = Future {
     database.withTransaction { implicit conn =>
       UsersDAO.resetPassword(userId, password)
-      val request = UserLog.CreateUserLog(userLogId = UUID.randomUUID(), userId = userId, "Password was reset")
-      UserLogsDAO.create(request)
       UserTokensDAO.deleteAll(userId)
       val _ = UsersDAO.bumpSessionVersion(userId)
       sendEmailLater(userId, emailMessage)

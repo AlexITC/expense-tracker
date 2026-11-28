@@ -126,8 +126,7 @@ the backend container:
 
 ## Deployment
 
-Ansible playbooks under `infra/` deploy to a managed server behind nginx. Admin API routes are intended
-to sit behind the reverse proxy's HTTP basic auth — keep that in place.
+Ansible playbooks under `infra/` deploy to a managed server behind nginx.
 
 ## Credits
 

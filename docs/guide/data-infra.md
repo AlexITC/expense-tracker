@@ -53,8 +53,8 @@ Migrations live in `server/src/main/resources/evolutions/default/` numbered sequ
 |---|---|---|
 | Primary key | `{table}_{col}_pk` | `CONSTRAINT users_user_id_pk PRIMARY KEY (user_id)` |
 | Unique | `{table}_{col}_unique` | `CONSTRAINT users_email_unique UNIQUE (email)` |
-| Foreign key | `{table}_{reftable}_fk` | `CONSTRAINT user_logs_users_fk FOREIGN KEY (user_id) REFERENCES users(user_id)` |
-| Index | `{table}_{col}_index` | `CREATE INDEX user_logs_user_id_index ON user_logs USING BTREE (user_id)` |
+| Foreign key | `{table}_{reftable}_fk` | `CONSTRAINT user_tokens_users_fk FOREIGN KEY (user_id) REFERENCES users(user_id)` |
+| Index | `{table}_{col}_index` | `CREATE INDEX user_tokens_user_id_index ON user_tokens USING BTREE (user_id)` |
 | Unique index (FK column that must also be unique) | `{table}_{col}_unique` | `CREATE UNIQUE INDEX mcp_api_token_user_id_unique ON mcp_api_token USING BTREE (user_id)` |
 
 Always name constraints explicitly. Anonymous constraints cannot be referenced in error messages or future migrations.
@@ -66,13 +66,13 @@ Always name constraints explicitly. Anonymous constraints cannot be referenced i
 Every foreign key column must have a corresponding `CREATE INDEX … USING BTREE` statement immediately after the `CREATE TABLE` block. This prevents full table scans when the referenced row is deleted.
 
 ```sql
-CREATE TABLE user_logs (
-    user_log_id UUID NOT NULL,
-    user_id     UUID NOT NULL,
-    CONSTRAINT user_logs_pk        PRIMARY KEY (user_log_id),
-    CONSTRAINT user_logs_users_fk  FOREIGN KEY (user_id) REFERENCES users(user_id)
+CREATE TABLE user_tokens (
+    user_token_id UUID NOT NULL,
+    user_id       UUID NOT NULL,
+    CONSTRAINT user_tokens_pk        PRIMARY KEY (user_token_id),
+    CONSTRAINT user_tokens_users_fk  FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
-CREATE INDEX user_logs_user_id_index ON user_logs USING BTREE (user_id);
+CREATE INDEX user_tokens_user_id_index ON user_tokens USING BTREE (user_id);
 ```
 
 If the FK column must also be unique, do not add both a `UNIQUE` table constraint and a separate `CREATE INDEX` — a `UNIQUE` constraint already creates its own supporting index, so the two together are a redundant second index on the same column (wasted write overhead, no read benefit). Instead, define a single `CREATE UNIQUE INDEX {table}_{col}_unique … USING BTREE (col)` in place of both: it enforces uniqueness and satisfies this rule's index requirement in one index.
